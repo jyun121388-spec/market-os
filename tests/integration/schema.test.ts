@@ -8,17 +8,25 @@ import type { prisma as PrismaClientInstance } from "@/server/db/client";
 const hasDb = Boolean(process.env.DATABASE_URL);
 const describeIfDb = hasDb ? describe : describe.skip;
 
+// A dedicated source code for this suite — other integration test files (fred-ingest,
+// ecos-ingest, dart-ingest, edgar-ingest) own the real source codes (FRED, ECOS, DART,
+// SEC_EDGAR) and run against the same live database, so this suite must never touch rows it
+// doesn't own (no global deleteMany on shared tables).
+const TEST_SOURCE_CODE = "TEST_SCHEMA_SOURCE";
+
 describeIfDb("prisma schema (integration)", () => {
   let prisma: typeof PrismaClientInstance;
 
   beforeAll(async () => {
     ({ prisma } = await import("@/server/db/client"));
-    // Clean slate for the tables this test touches.
-    await prisma.claim.deleteMany();
-    await prisma.dataConflict.deleteMany();
-    await prisma.observation.deleteMany();
-    await prisma.series.deleteMany();
-    await prisma.source.deleteMany();
+    const existing = await prisma.source.findUnique({ where: { code: TEST_SOURCE_CODE } });
+    if (existing) {
+      await prisma.claim.deleteMany({ where: { sourceId: existing.id } });
+      await prisma.dataConflict.deleteMany({ where: { observation: { sourceId: existing.id } } });
+      await prisma.observation.deleteMany({ where: { sourceId: existing.id } });
+      await prisma.series.deleteMany({ where: { sourceId: existing.id } });
+      await prisma.source.delete({ where: { id: existing.id } });
+    }
   });
 
   afterAll(async () => {
@@ -27,7 +35,7 @@ describeIfDb("prisma schema (integration)", () => {
 
   it("stores a source, series, observation, and a sourced FACT claim", async () => {
     const source = await prisma.source.create({
-      data: { code: "FRED", name: "Federal Reserve Economic Data", tier: "TIER_S" },
+      data: { code: TEST_SOURCE_CODE, name: "Test Schema Source", tier: "TIER_S" },
     });
 
     const series = await prisma.series.create({
@@ -63,7 +71,7 @@ describeIfDb("prisma schema (integration)", () => {
   });
 
   it("rejects an observation referencing a nonexistent series (FK integrity)", async () => {
-    const source = await prisma.source.findFirstOrThrow({ where: { code: "FRED" } });
+    const source = await prisma.source.findFirstOrThrow({ where: { code: TEST_SOURCE_CODE } });
     await expect(
       prisma.observation.create({
         data: {
@@ -78,7 +86,7 @@ describeIfDb("prisma schema (integration)", () => {
   });
 
   it("enforces uniqueness on (source, external series id)", async () => {
-    const source = await prisma.source.findFirstOrThrow({ where: { code: "FRED" } });
+    const source = await prisma.source.findFirstOrThrow({ where: { code: TEST_SOURCE_CODE } });
     await expect(
       prisma.series.create({
         data: {
@@ -93,7 +101,10 @@ describeIfDb("prisma schema (integration)", () => {
   });
 
   it("records a DataConflict instead of silently picking a value when sources disagree", async () => {
-    const series = await prisma.series.findFirstOrThrow({ where: { externalId: "DGS10" } });
+    const source = await prisma.source.findFirstOrThrow({ where: { code: TEST_SOURCE_CODE } });
+    const series = await prisma.series.findFirstOrThrow({
+      where: { sourceId: source.id, externalId: "DGS10" },
+    });
     const observation = await prisma.observation.findFirstOrThrow({
       where: { seriesId: series.id },
     });

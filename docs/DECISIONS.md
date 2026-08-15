@@ -95,3 +95,17 @@ pipeline are validated end-to-end, but be explicit that field-level correctness 
 rather than silently presenting it as confirmed.
 **Follow-up**: Revisit once a real `DART_API_KEY` and a live response are available (Human
 Gate); logged in `docs/REVIEW_DEBT.md`.
+
+## 2026-08-15 — Integration tests must never `deleteMany()` on a shared table without a scope
+
+**Decision**: Every integration test file operates only on rows it owns (its own `Source.code`,
+or a `where` scoped to that source's id) — never a bare `deleteMany()` across an entire table.
+**Reason**: `tests/integration/schema.test.ts` originally wiped all `Source` rows in its
+`beforeAll`, which worked while it was the only integration suite but broke once
+fred-ingest/ecos-ingest/dart-ingest/edgar-ingest tests started persisting their own Source rows
+in the same live database (FK violation from `filings` once M05 added that table). Fixed by
+giving schema.test.ts its own dedicated source code (`TEST_SCHEMA_SOURCE`) and scoping all its
+cleanup queries to that source's id.
+**Follow-up**: Apply this rule to every new integration test file going forward — it's a
+correctness requirement, not a style preference, given `fileParallelism: false` means all
+suites share one live database sequentially.

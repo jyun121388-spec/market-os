@@ -1,47 +1,57 @@
 LAST COMPLETED
-M05: OpenDART adapter (src/server/adapters/dart/: client.ts, types.ts, normalize.ts, ingest.ts,
-__fixtures__/samsung-list.json). Added a new `Filing` Prisma model (migration
-20260815161529_filings) since filings are discrete documents, not time-series observations —
-see docs/DECISIONS.md for why this wasn't forced into Series/Observation. Handles DART's
-status "013" (no matching data) as an empty result vs. other non-"000" statuses as real errors.
-OpenDART's exact field/status shape is unverified against a live API (opendart.fss.or.kr is
-egress-blocked in this dev environment, confirmed via WebFetch, same as ecos.bok.or.kr) —
-logged in REVIEW_DEBT, not silently presumed correct. Real invocation path
-`npm run ingest:dart`, verified to fail safely without DART_API_KEY. 41/41 tests pass (20 unit +
-21 integration against a real local Postgres). Full verify chain green.
+M06: SEC EDGAR adapter (src/server/adapters/edgar/: client.ts, types.ts, normalize.ts,
+ingest.ts, __fixtures__/apple-submissions.json), reusing the M05 Filing model. EDGAR needs no
+API key — only a descriptive `EDGAR_USER_AGENT` header (SEC fair-access policy) — a different
+auth pattern from FRED/ECOS/DART, handled with its own EdgarUserAgentMissingError. Normalizes
+`filings.recent`'s parallel-array structure into per-filing rows, with an explicit
+length-mismatch guard (assertParallelArraysAligned) that throws rather than risking
+misattributed data. EDGAR's field shape is unverified against a live response (data.sec.gov is
+egress-blocked in this dev environment too) — logged in REVIEW_DEBT, built from SEC's own
+published docs via web search.
+
+Also fixed a real bug found while adding EDGAR: tests/integration/schema.test.ts was doing a
+global `prisma.source.deleteMany()` in its beforeAll, which broke once multiple adapter test
+suites started persisting their own Source rows in the same live database (FK violation once
+Filing/M05 existed). Fixed by giving that suite its own dedicated source code
+(TEST_SCHEMA_SOURCE) and scoping all cleanup to it — see docs/DECISIONS.md. Verified stable
+across 3 repeated `npm test` runs after the fix.
+
+Real invocation path `npm run ingest:edgar`, verified to fail safely without EDGAR_USER_AGENT.
+49/49 tests pass (24 unit + 25 integration against a real local Postgres). Full verify chain
+green.
 
 CURRENT TASK
-M06: SEC EDGAR adapter — see docs/CURRENT_TASK.md. Reuses the Filing model from M05. EDGAR uses
-CIK + accession numbers and a User-Agent header instead of an API key — different auth pattern
-from FRED/ECOS/DART, don't assume it carries over uncritically.
+M07: Event model + news-intelligence foundation — see docs/CURRENT_TASK.md. First milestone
+past the adapter pattern (FRED/ECOS/DART/EDGAR — M03-M06 — are all done now).
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M04 commit)
-prisma/schema.prisma (+Filing model), prisma/migrations/20260815161529_filings/,
-src/server/adapters/dart/* (new), scripts/ingest-dart.ts (new), package.json (ingest:dart
-script), tests/adapters/dart-normalize.test.ts (new), tests/integration/dart-ingest.test.ts
-(new).
+CHANGED FILES (since M05 commit)
+src/server/adapters/edgar/* (new), scripts/ingest-edgar.ts (new), package.json (ingest:edgar
+script), .env.example (+EDGAR_USER_AGENT), tests/adapters/edgar-normalize.test.ts (new),
+tests/integration/edgar-ingest.test.ts (new), tests/integration/schema.test.ts (scoped cleanup
+fix — was a latent bug, not EDGAR-specific).
 
 TEST STATUS
-41/41 pass with DATABASE_URL set. Integration suite skips gracefully without a DB.
+49/49 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite skips
+gracefully without a DB.
 
 NEXT EXACT ACTION
-Start M06: check whether data.sec.gov is reachable (test with WebFetch first — ecos.bok.or.kr
-and opendart.fss.or.kr were both blocked, data.sec.gov may or may not be), research the real
-submissions API shape, then build src/server/adapters/edgar/ following the DART adapter's
-pattern (Filing model, fixture-based tests, real invocation script) adapted for EDGAR's
-CIK/accession-number/User-Agent conventions.
+Start M07: design an Event/EventMention Prisma schema addition (see docs/CURRENT_TASK.md for
+the shape), add a migration, then build clustering logic + tests using fixture data. No live
+news source is wired in this environment yet — that's a separate follow-on adapter once a
+suitable free source is identified, analogous to M03-M06.
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
-role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember to run
-`npx prisma generate` after any schema.prisma change — forgetting this caused a typecheck
-failure this session (Property 'filing' does not exist on type 'PrismaClient') until it was
-regenerated. vitest.config.mts has fileParallelism: false (required). Five commits pushed so
-far (M00-M04) to origin/claude/market-os-development-7vnicg; M05 is about to be committed and
-pushed. No PR opened yet (none requested). Both ECOS and DART adapters were built from
-documentation/general knowledge rather than a verified live API response, since egress to both
-domains is blocked in this container — this is a real, tracked limitation (REVIEW_DEBT.md), not
-an oversight; the same check-first approach should apply to EDGAR in M06.
+role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember `npx prisma
+generate` after every schema.prisma change (caused a typecheck failure once already this
+project — see M05 handoff history). vitest.config.mts has fileParallelism: false — required,
+AND every integration test file must scope its cleanup queries to rows it owns, never a bare
+deleteMany() on a shared table (see docs/DECISIONS.md "Integration tests must never
+deleteMany()..." — this bit us once already). Six commits pushed so far (M00-M05) to
+origin/claude/market-os-development-7vnicg; M06 is about to be committed and pushed. No PR
+opened yet (none requested). Egress is blocked to ecos.bok.or.kr, opendart.fss.or.kr, and
+data.sec.gov in this container — check reachability before assuming any new external domain
+(e.g. a news API for M07) is usable.

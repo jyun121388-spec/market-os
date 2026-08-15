@@ -385,3 +385,51 @@ sessions, security review) is much larger than what M19 needs, and blocking Watc
 that would be a bigger reordering than the roadmap's stated dependency reasoning justifies.
 **Follow-up**: When M22 is built, add auth fields to this same `User` model rather than creating
 a second one; record any schema changes there in a new DECISIONS.md entry at that time.
+
+## 2026-08-15 — M20 ships a real page, and buildMorningBrief() is read-only (no Claim writes)
+
+**Decision**: M20 builds an actual Next.js page (`src/app/today/page.tsx`) rendering a server-
+side `buildMorningBrief()` composition function — not just another untested data module. Also:
+`buildMorningBrief()` never calls `computeSeriesChange()` (which persists a new CALCULATION
+claim on every call); instead it reads the same underlying data
+(`getRecentObservationPair`/`computeChange` from `seriesReadings.ts`) purely for display,
+writing nothing.
+**Reason (real UI)**: Every milestone through M19 was data/domain-logic only, with zero real UI
+beyond the M01 scaffold page. CLAUDE.md's completion standard ("verify the actual user path,
+not just code existing") applies here directly — a Morning Brief that only exists as an
+untested function nobody renders isn't actually the "Today / Morning Intelligence" feature.
+**Reason (read-only)**: A page can be loaded arbitrarily many times (by one user refreshing, by
+crawlers, eventually by many users). If it persisted a new Claim row on every render, the Claim
+Ledger would fill with duplicate, redundant CALCULATION claims for the same underlying data —
+semantically wrong (a claim should represent a computed fact worth recording, not a page-view
+side effect) and a real scaling problem. `computeSeriesChange()` remains the right function for
+an actual ingestion/scheduled-job context (M25 background jobs); the brief reuses its
+lower-level building blocks instead.
+**Alternatives**: Cache/memoize computeSeriesChange results — deferred; no caching layer exists
+yet (that's also M25), and read-only computation is fast enough at current data volumes not to
+need it yet.
+
+## 2026-08-15 — M21 Ask Market is BLOCKED_HUMAN_GATE: product-runtime LLM calls are a different cost category than development
+
+**Decision**: M21 (Ask Market's INFERENCE layer) is not started. Flagged as
+`BLOCKED_HUMAN_GATE` rather than built against any LLM API.
+**Reason**: Every milestone through M20 needed no runtime LLM call — FACT/CALCULATION claims
+are entirely deterministic (adapters + arithmetic). INFERENCE claims (Ask Market's actual
+purpose) require calling an LLM live, for every real user question, at product runtime. That is
+categorically different from this development session's own LLM usage (Claude Code driven by
+the user's Max 20x subscription): a deployed backend answering end-user questions needs its
+own API credentials and incurs its own per-token cost against whatever provider serves it — the
+Max subscription authenticates *this coding session*, not a running production service. CLAUDE.md
+is explicit that any paid API/service activation is a Human Gate, and that "if a task is
+blocked on a Human Gate, switch to the next independent task instead of stopping all work" —
+this is exactly that situation, not a judgment call to route around unilaterally (e.g. by
+quietly wiring in a free-tier key, or by faking INFERENCE claims with template text pretending
+to be model output).
+**What's actually needed to unblock**: A human decision on (a) which LLM provider/plan to use
+for product-runtime inference, (b) how its cost is funded (a separate paid plan, a free tier
+with real rate limits, etc.), and (c) the credential itself (a real secret — also independently
+a Human Gate per CLAUDE.md's "never commit secrets" / "real credentials are a HUMAN GATE" rules).
+**Follow-up**: Once unblocked, verifyClaim (M09) should be extended to support INFERENCE claims
+in the same milestone, and dedicated legal-guardrail tests (the "삼성전자 지금 살까?" redirect
+requirement) must ship with the first real Ask Market implementation, not after it.
+**Meanwhile**: Continuing to M22 (Auth / User System), which has no LLM dependency.

@@ -1,20 +1,25 @@
 # Current Task
 
-MILESTONE: M20 — Today / Morning Intelligence
+MILESTONE: M22 — Auth / User System (M21 skipped: BLOCKED_HUMAN_GATE, see PROJECT_STATE.md /
+DECISIONS.md — Ask Market needs a live product-runtime LLM call, a cost decision for the human
+to make, not this session to decide unilaterally)
 
-TASK: Per docs/PRODUCT_SPEC.md "Today / Morning Intelligence": a 5-minute daily brief covering
-overnight events, KR-relevant variables, data to watch, filings, calendar, "what changed",
-sources, confidence. This composes existing domain modules (eventClustering/M07,
-whatChanged/M10, macroRegime/M11, economicCalendar/M12, Company X-Ray/M15, filingDiff/M16) into
-one view — it does not ingest new data itself.
+TASK: Real authentication on top of the minimal `User` model already added in M19 (id +
+createdAt only). Per docs/ROADMAP.md this is scoped as "Auth / User System" — needs at minimum:
+credential storage (password hashing — never plaintext, never a weak/custom hash), session
+handling, and the actual login/signup flow wired to real pages (continuing M20's precedent of
+shipping real UI, not just backend logic). Real secrets (session signing key, etc.) are a Human
+Gate per CLAUDE.md — use `.env.example` placeholders and generate a random dev-only value
+locally, never hardcode or commit a real production secret.
 
-STATUS: Not started — M19 (Watchlist) complete and verified.
+STATUS: Not started — M20 (Today / Morning Intelligence) complete and verified with a real
+rendered page.
 
-NEXT EXACT ACTION: Decide UI scope first (record in DECISIONS.md): the Next.js app currently
-has only the M01 scaffold page, no real UI. Given the project's completion standard ("verify
-the actual user path, not just code existing"), M20 should ship a real minimal page
-(src/app/today/page.tsx or similar) that calls a server-side buildMorningBrief() composition
-function and renders it — not just another untested data module. Keep the UI simple (per
-docs/PRODUCT_SPEC.md's UX principle: show what changed and why, not everything) — a plain
-server-rendered list is sufficient for V1, no client-side framework additions needed. Verify by
-actually starting the dev server and loading the page, not just unit-testing the data function.
+NEXT EXACT ACTION: Decide the auth approach before coding: a from-scratch email+password flow
+(bcrypt/argon2 hashing, a Session model, httpOnly cookies) is the most control-preserving and
+dependency-light option consistent with this project's "prefer deterministic, self-owned code"
+pattern so far, versus pulling in a library like next-auth/Auth.js (more features, more
+dependency surface, some auth providers involve external services that could themselves be
+Human Gates — e.g. OAuth with a third party). Recommend: from-scratch email+password for V1
+(smallest surface, no external dependency, easiest to reason about for a security review later
+in M26) — record this choice and reasoning in DECISIONS.md before implementing.

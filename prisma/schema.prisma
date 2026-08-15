@@ -169,6 +169,46 @@ model EventMention {
   @@map("event_mentions")
 }
 
+// ---------------------------------------------------------------------------
+// M13 groundwork: Economic Causal Graph. Transmission-path edges between
+// economic variables, always confidence-qualified and never presented as
+// confirmed causation from correlation alone (docs/PRODUCT_SPEC.md "Economic
+// Causal Graph"). `counterexamples` is required, not optional — an edge
+// without an acknowledged limitation is not allowed into the schema, which
+// forces epistemic honesty structurally rather than relying on every future
+// caller to remember to add one.
+// ---------------------------------------------------------------------------
+
+enum CausalDirection {
+  POSITIVE // an increase in `fromVariable` tends to increase `toVariable`
+  NEGATIVE // an increase in `fromVariable` tends to decrease `toVariable`
+  AMBIGUOUS // direction is context-dependent; see `conditions`
+}
+
+enum CausalConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model CausalEdge {
+  id              String           @id @default(cuid())
+  fromVariable    String // free-text variable/event name, e.g. "Oil price (WTI)"
+  toVariable      String // e.g. "Headline CPI inflation"
+  direction       CausalDirection
+  confidence      CausalConfidence // deliberately an enum, not a fabricated precise float
+  mechanism       String // the transmission mechanism in plain language
+  evidence        String // why this is believed — established literature/precedent, not a citation-shaped guess
+  lag             String // descriptive, e.g. "1-2 quarters" — not a fabricated precise number
+  conditions      String? // when this relationship holds or is stronger/weaker
+  counterexamples String // REQUIRED: at least one known limitation, exception, or counterexample
+  createdAt       DateTime         @default(now())
+
+  @@index([fromVariable])
+  @@index([toVariable])
+  @@map("causal_edges")
+}
+
 enum ClaimType {
   FACT
   CALCULATION

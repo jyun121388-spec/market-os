@@ -230,3 +230,29 @@ and too easy to get subtly wrong for financial-calendar data.
 **Follow-up**: Revisit once `api.stlouisfed.org` is reachable (to use the real Releases API for
 actual release dates) and/or a legitimate free consensus-estimate source is identified; logged
 in `docs/REVIEW_DEBT.md`.
+
+## 2026-08-15 — CausalEdge.counterexamples is required, not optional
+
+**Decision**: `prisma/schema.prisma`'s `CausalEdge` model makes `counterexamples` a required
+`String`, not `String?`, and `confidence` a `LOW|MEDIUM|HIGH` enum rather than a numeric score.
+**Reason**: docs/LEGAL_GUARDRAILS.md and docs/ARCHITECTURE.md both require correlation to never
+be presented as confirmed causation. Making the limitation field optional would rely on every
+future edge-author remembering to fill it in; making it required means the database itself
+rejects an edge that doesn't acknowledge at least one limitation. A numeric confidence (e.g.
+"73% confidence") would imply a precision that doesn't exist for qualitative macro reasoning —
+an enum keeps the honesty proportional to what's actually known.
+**Alternatives**: Optional counterexamples with a code-review convention to always fill it in —
+rejected; conventions get forgotten, schema constraints don't.
+
+## 2026-08-15 — M13 seeded with 7 textbook mechanisms, no path-finding/traversal logic yet
+
+**Decision**: `prisma/causalEdges.ts` ships 7 well-established, single-hop transmission
+mechanisms (oil→inflation→rate expectations→bond yields; US-KR rate differential→USD/KRW→Korea
+import inflation; yield curve inversion→recession probability; VIX→credit spreads). No
+multi-hop path-finding between arbitrary variables is implemented.
+**Reason**: docs/CURRENT_TASK.md scoped M13 as schema + curated seed data, not a traversal
+algorithm — no real consumer needs multi-hop paths yet (that's M21 Ask Market). Building
+traversal now would be speculative work ahead of a real caller, the same pattern avoided in
+M08/M09's Claim Ledger build-out.
+**Follow-up**: Add `getPath(from, to)` (or similar) when M21 actually needs to present a causal
+chain to a user, not before.

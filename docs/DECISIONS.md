@@ -129,3 +129,19 @@ is wired in.
 **Follow-up**: M07 in this session ships schema + clustering + tests using fixture-style
 mentions; no live news/metadata source is integrated yet (none was in scope/reachable to
 verify in this environment) — see docs/CURRENT_TASK.md.
+
+## 2026-08-15 — Claim Ledger wired to a real caller in M08, not left as unused code
+
+**Decision**: Added `src/server/domain/claimStore.ts` (`createClaim`, backed by
+`assertValidClaim`; `createFactClaimFromObservation`) as the one real write path for `Claim`
+rows, with integration tests proving an unsourced FACT claim is rejected before it ever reaches
+the database.
+**Reason**: `assertValidClaim` (M01) had no caller anywhere in the codebase outside its own
+unit test — a real instance of CLAUDE.md's Completion Standard warning ("validation exists →
+verify the production path invokes it"). M09 (Claim Ledger + verification pipeline) will need
+this immediately; shipping it now means M09 builds on a fully-wired minimal version instead of
+a half-built one.
+**Follow-up**: `createFactClaimFromObservation` is deliberately narrow (Observation → FACT
+only). CALCULATION and INFERENCE claim construction belongs to the milestones that actually
+produce those (M11 Macro Regime Engine for CALCULATION; M21 Ask Market for INFERENCE) — no
+speculative support added ahead of a real caller.

@@ -1,51 +1,48 @@
 LAST COMPLETED
-M07 (partial, as scoped for this dev environment): Event Intelligence groundwork. Added Event
-+ EventMention Prisma models (migration 20260815162331_events) and deterministic keyword-based
-clustering (src/server/domain/eventClustering.ts: Jaccard similarity over a stopword-filtered
-keyword set + time window — explicitly NOT an LLM call, see docs/DECISIONS.md) plus the ingest
-orchestration (src/server/domain/eventIngest.ts: dedupe by exact URL, cluster into an existing
-open event or create a new one, track mentionCount/distinctTierCount). 61/61 tests pass (32
-unit + 29 integration against a real local Postgres, verified stable across repeated runs).
-Full verify chain green.
-
-No live news/metadata source is wired yet in this environment — that's future work (a news
-adapter analogous to M03-M06, once a suitable free source is identified and its reachability
-confirmed, since ecos.bok.or.kr/opendart.fss.or.kr/data.sec.gov were all egress-blocked here).
-Logged clearly as scope-limited in PROJECT_STATE.md rather than claiming M07 fully done.
+M08: Data normalization + provenance hardening. Added `src/server/domain/claimStore.ts`
+(`createClaim` backed by `assertValidClaim`; `createFactClaimFromObservation`) as the first
+real write path for `Claim` rows — previously `assertValidClaim` (M01) had no caller anywhere
+outside its own unit test, a genuine instance of the Completion Standard's "validation exists →
+verify the production path invokes it" warning. Integration tests prove an unsourced FACT claim
+is rejected before it reaches the database, and that `createFactClaimFromObservation` builds a
+correctly sourced/evidenced claim from a real Observation row. Also did a lightweight audit of
+FRED/ECOS/DART/EDGAR against docs/DATA_POLICY.md's financial-data checklist: timezone/UTC
+parsing, revision tracking, and missing-value handling are all solid; two real gaps were found
+and logged (not silently ignored) in docs/REVIEW_DEBT.md — `releaseDate` is never populated by
+any adapter, and there's no automatic cross-source DataConflict detection yet (both deferred
+with reasons, not oversights). 65/65 tests pass (34 unit + 31 integration against a real local
+Postgres). Full verify chain green.
 
 CURRENT TASK
-M08: Data normalization + provenance hardening — see docs/CURRENT_TASK.md. Key gap identified:
-`assertValidClaim` (Claim Ledger invariant enforcement) has no real caller outside its own unit
-test yet — nothing in the app actually creates a Claim row through it. This is exactly the kind
-of "mechanism exists but isn't wired to a path" the completion standard warns about.
+M09: Claim Ledger + verification pipeline — see docs/CURRENT_TASK.md. Build a `verifyClaim`
+function that checks a FACT claim's evidence actually references a real, matching Observation
+row, rather than trusting `evidence` blindly.
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M06 commit)
-prisma/schema.prisma (+Event, +EventMention models), prisma/migrations/
-20260815162331_events/, src/server/domain/eventClustering.ts (new),
-src/server/domain/eventIngest.ts (new), tests/domain/eventClustering.test.ts (new),
-tests/integration/event-ingest.test.ts (new).
+CHANGED FILES (since M07 commit)
+src/server/domain/claimStore.ts (new), tests/integration/claim-store.test.ts (new).
 
 TEST STATUS
-61/61 pass with DATABASE_URL set, verified stable across 3 repeated runs. Integration suite
-skips gracefully without a DB.
+65/65 pass with DATABASE_URL set. Integration suite skips gracefully without a DB.
 
 NEXT EXACT ACTION
-Start M08 by closing the Claim Ledger wiring gap: add a real caller of `assertValidClaim` (a
-helper that creates a `Claim` DB row from e.g. an Observation, enforcing invariants at the
-write boundary), then audit FRED/ECOS/DART/EDGAR adapters against the DATA_POLICY.md financial
-checklist for any gaps (most items are already covered — timezone/UTC parsing, revision
-tracking, missing-value handling, idempotency — but this hasn't been done as a dedicated pass).
+Start M09: create src/server/domain/claimVerification.ts with `verifyClaim(claimId)` — for now,
+scoped to the FACT-from-Observation shape that createFactClaimFromObservation produces (look up
+evidence.observationId, confirm it exists, confirm the claim text's stated value matches the
+stored Decimal value). Extend to CALCULATION/INFERENCE once M11/M21 give those real producers —
+don't build speculative support ahead of a real caller (see M08's DECISIONS.md entry for why
+that pattern matters here).
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
 role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember `npx prisma
 generate` after every schema.prisma change. vitest.config.mts has fileParallelism: false, and
 every integration test file must scope cleanup to rows it owns (own source codes / url or topic
-prefixes) — never a bare deleteMany() on a shared table (see docs/DECISIONS.md, this bit the
-project once already in M06). Seven commits pushed so far (M00-M06) to
-origin/claude/market-os-development-7vnicg; M07 is about to be committed and pushed. No PR
-opened yet (none requested). All milestones from M00-M07 have real, passing tests against a
-real Postgres instance — nothing has been declared done on the strength of code existing alone.
+prefixes) — never a bare deleteMany() on a shared table. Eight commits pushed so far (M00-M07)
+to origin/claude/market-os-development-7vnicg; M08 is about to be committed and pushed. No PR
+opened yet (none requested). Milestones M00-M08 all have real, passing tests against a real
+Postgres instance; two known scope gaps are tracked in REVIEW_DEBT.md rather than silently
+presumed complete (M07's missing live news source, M08's releaseDate/DataConflict-detection
+gaps).

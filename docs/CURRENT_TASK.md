@@ -1,22 +1,24 @@
 # Current Task
 
-MILESTONE: M07 — Event model + news-intelligence foundation
+MILESTONE: M08 — Data normalization + provenance hardening
 
-TASK: Design and build the Event Intelligence groundwork per docs/ARCHITECTURE.md /
-docs/PRODUCT_SPEC.md "Event Intelligence": cluster many articles/mentions of the same real-world
-event into one Event record with confirmed facts, disputed claims, primary source, significance,
-and affected variables (linking to Series/Filing where relevant). This is the first milestone
-past the source-adapter pattern (M03-M06 are done) — it's new domain modeling, not another
-adapter.
+TASK: This milestone strengthens the M02-M07 pipeline rather than adding new surface area.
+Concretely: (1) audit every adapter (FRED/ECOS/DART/EDGAR) against docs/DATA_POLICY.md's
+financial-data checklist (timezone, observation vs release date, revision, missing values,
+duplicates) and close any gaps found; (2) verify the Claim Ledger's `assertValidClaim`
+invariants (src/server/domain/claimLedger.ts) are actually enforced on every write path that
+will eventually create a Claim — right now nothing calls it outside its own unit test, so there
+is no real "production path" invoking it yet; (3) consider whether Event/Filing/Observation
+need a shared "provenance summary" helper for later Presentation-layer use (M20 Today
+Intelligence, M21 Ask Market) versus deferring that to when a consumer actually exists.
 
-STATUS: Not started — M06 (SEC EDGAR adapter) complete and verified. All planned macro/filing
-adapters (FRED, ECOS, DART, EDGAR) are now done.
+STATUS: Not started — M07 (Event model + clustering, partial per PROJECT_STATE.md) complete
+and verified.
 
-NEXT EXACT ACTION: Design the Event/EventMention (or similar) Prisma schema addition — an Event
-has a topic, first_seen, latest_update, source_count, significance, affected variable
-references; an EventMention links a specific news/metadata item (title, url, source_tier,
-published_at) to an Event. Per docs/DATA_POLICY.md "News policy", store metadata (title, url,
-source, timestamp) — never bulk-copy full article text. No news API is wired yet in this
-environment; the M07 scope for this dev environment is the schema + clustering logic + tests
-using fixture data, not a live news source integration (that would be its own adapter,
-analogous to M03-M06, and can follow once a suitable free news/metadata source is identified).
+NEXT EXACT ACTION: Start with the Claim Ledger gap: nothing in the codebase currently
+constructs a `Claim` row via `assertValidClaim` outside its unit test — this is real
+"code exists but isn't wired to a path" per CLAUDE.md's Completion Standard. Decide whether M08
+should add the first real caller (e.g. a small helper that creates a Claim from an Observation,
+enforcing FACT-requires-sourceId at the DB-write boundary) or whether that's better deferred to
+M09 (Claim Ledger + verification pipeline) — lean toward doing it now since M09 will need it
+immediately and a half-built Claim Ledger is worse than a fully-wired minimal one.

@@ -35,10 +35,11 @@ model Source {
   homepage  String?
   createdAt DateTime   @default(now())
 
-  series       Series[]
-  observations Observation[]
-  claims       Claim[]
-  filings      Filing[]
+  series        Series[]
+  observations  Observation[]
+  claims        Claim[]
+  filings       Filing[]
+  eventMentions EventMention[]
 
   @@map("sources")
 }
@@ -124,6 +125,48 @@ model Filing {
   @@unique([sourceId, receiptNo])
   @@index([sourceId, corpCode])
   @@map("filings")
+}
+
+// ---------------------------------------------------------------------------
+// M07 groundwork: Event Intelligence. Many news/metadata mentions of the same
+// real-world event are clustered into one Event. Clustering is a deterministic
+// keyword/time-window heuristic (src/server/domain/eventClustering.ts) — no
+// LLM is used to decide event membership. News is a detection sensor: only
+// metadata (title/url/timestamp/source) is stored, never full article text
+// (docs/DATA_POLICY.md "News policy").
+// ---------------------------------------------------------------------------
+
+model Event {
+  id                String   @id @default(cuid())
+  topic             String // representative headline, taken from the first mention
+  keywords          String[] // deterministic keyword set used for clustering new mentions
+  firstSeenAt       DateTime
+  latestUpdateAt    DateTime
+  mentionCount      Int      @default(1)
+  distinctTierCount Int      @default(1) // how many distinct source tiers have mentioned this
+  createdAt         DateTime @default(now())
+
+  mentions EventMention[]
+
+  @@index([latestUpdateAt])
+  @@map("events")
+}
+
+model EventMention {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+  sourceId    String?
+  source      Source?  @relation(fields: [sourceId], references: [id])
+  title       String
+  url         String   @unique // dedupes the exact same article being ingested twice
+  publishedAt DateTime
+  retrievedAt DateTime @default(now())
+  raw         Json // source metadata only — never full article body, see docs/DATA_POLICY.md
+  createdAt   DateTime @default(now())
+
+  @@index([eventId])
+  @@map("event_mentions")
 }
 
 enum ClaimType {

@@ -2,16 +2,16 @@ CURRENT RELEASE
 0.0.1-alpha
 
 COMPLETED
-M00, M01, M02, M03, M04, M05, M06
+M00, M01, M02, M03, M04, M05, M06, M07 (partial — see below)
 
 CURRENT
-M07
+M08
 
 STATUS
 READY
 
 TESTS
-49 / 49 PASS (24 unit, 25 integration against a real Postgres instance)
+61 / 61 PASS (32 unit, 29 integration against a real Postgres instance)
 
 OPEN P0
 0
@@ -21,14 +21,16 @@ OPEN P1
 
 REVIEW DEBT
 See docs/REVIEW_DEBT.md — DB schema + adapter pattern (FRED/ECOS/DART/EDGAR) not yet
-Codex-reviewed (no Codex session available in this environment); ECOS/DART/EDGAR field-level
-shapes unverified against live API responses (egress to all three domains blocked in this dev
-environment; needs real API keys/User-Agent, a Human Gate, to confirm).
+Codex-reviewed; ECOS/DART/EDGAR field-level shapes unverified against live API responses
+(egress blocked in this dev environment). M07 note: no live news/metadata source is wired yet
+— the Event/EventMention schema, deterministic keyword-clustering heuristic
+(src/server/domain/eventClustering.ts, eventIngest.ts), and tests are done and verified against
+a real Postgres, but a real news adapter (analogous to M03-M06) is future work once a suitable
+free source is identified and reachability confirmed.
 
 NEXT
-M07: Event model + news-intelligence foundation. All four planned M03-M06 adapters
-(FRED/ECOS/DART/EDGAR) are done — this is the first milestone building genuinely new
-intelligence (event clustering) rather than another source adapter. Design an Event/
-EventSource(s) schema per docs/ARCHITECTURE.md's "Event Intelligence" feature area before
-writing ingestion code; news is a detection sensor, not a content source (docs/DATA_POLICY.md
-"News policy").
+M08: Data normalization + provenance hardening. Review the FRED/ECOS/DART/EDGAR/Event pipeline
+built in M02-M07 end-to-end against docs/DATA_POLICY.md's financial-data checklist and
+docs/ARCHITECTURE.md's Claim Ledger design — this milestone is about strengthening what exists,
+not adding a new adapter, before M09 (Claim Ledger + verification pipeline) builds on top of
+it.

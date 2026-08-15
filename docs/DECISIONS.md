@@ -109,3 +109,23 @@ cleanup queries to that source's id.
 **Follow-up**: Apply this rule to every new integration test file going forward — it's a
 correctness requirement, not a style preference, given `fileParallelism: false` means all
 suites share one live database sequentially.
+
+## 2026-08-15 — Event clustering is a deterministic keyword-overlap heuristic, not an LLM call
+
+**Decision**: `src/server/domain/eventClustering.ts` decides whether a new mention belongs to
+an existing Event using Jaccard similarity over a stopword-filtered keyword set, within a
+configurable time window — no LLM/API call is involved.
+**Reason**: CLAUDE.md's zero-extra-AI-cost rule and docs/AI_RESOURCE_POLICY.md's "prefer
+deterministic calculations over LLM-generated reasoning" both point the same direction: event
+membership is a decision that needs to happen for every ingested mention (potentially high
+volume), so it must not depend on a paid or usage-metered model call. A simple, inspectable
+heuristic also makes the pipeline's behavior testable and auditable, matching the
+hallucination-resistant architecture's spirit even outside the FACT/CALCULATION/INFERENCE
+claim path specifically.
+**Alternatives**: Embedding-similarity clustering — deferred; would need either a local
+embedding model (not currently part of the stack) or a paid API, neither justified yet at this
+milestone's scope. Revisit if the keyword heuristic proves too coarse once a real news source
+is wired in.
+**Follow-up**: M07 in this session ships schema + clustering + tests using fixture-style
+mentions; no live news/metadata source is integrated yet (none was in scope/reachable to
+verify in this environment) — see docs/CURRENT_TASK.md.

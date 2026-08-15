@@ -256,3 +256,25 @@ traversal now would be speculative work ahead of a real caller, the same pattern
 M08/M09's Claim Ledger build-out.
 **Follow-up**: Add `getPath(from, to)` (or similar) when M21 actually needs to present a causal
 chain to a user, not before.
+
+## 2026-08-15 — Historical Analog Engine: single-series trailing-change similarity, period-based not calendar-month-based
+
+**Decision**: `src/server/domain/historicalAnalog.ts` computes similarity by comparing a
+series' current "trailing change over N observations" against the same metric at every
+historical point (z-score-normalized distance, deterministic), then reports actual subsequent
+changes N/3N/6N observations later at each matched historical point. Results are labeled
+"observations ahead," not literal "1M/3M/6M," unless the series' own frequency is monthly.
+**Reason**: docs/PRODUCT_SPEC.md's "1M/3M/6M" framing assumes monthly-cadence analysis; several
+currently-tracked series are daily (DGS10, VIXCLS, DCOILWTICO, ...). Labeling a daily series'
+"next 3 observations" as "3 months" would be a factually wrong claim about time, exactly the
+kind of subtle inaccuracy the financial-data invariants exist to catch — better to be correct
+and slightly less on-brand-with-the-spec than to mislabel units.
+**Reason (data availability)**: This dev environment's database has very little real historical
+data (no FRED_API_KEY configured — Human Gate — so no real multi-year backfill has run). This
+milestone ships the algorithm with full test coverage against seeded synthetic historical data,
+proving the math is correct; real usage with meaningful sample sizes awaits real ingestion.
+Every result carries a required `sampleSize` and `limitations` string (mirroring
+CausalEdge.counterexamples) — a small sample size is surfaced, never hidden.
+**Alternatives**: A multi-variable regime-state similarity (matching M11's 8 axes) — deferred
+as materially more complex for a first version; single-series analog is a real, useful,
+independently-shippable increment that a multi-variable version can build on later.

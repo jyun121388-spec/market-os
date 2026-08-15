@@ -1,56 +1,57 @@
 LAST COMPLETED
-M13: Economic Causal Graph. Added `CausalEdge` model (migration 20260815172053_causal_edges)
-with `counterexamples` as a REQUIRED field and `confidence` as a `LOW|MEDIUM|HIGH` enum rather
-than a fabricated float — the database itself now rejects an edge that doesn't acknowledge a
-limitation (docs/DECISIONS.md: "no invented precision" applies to schema design, not just
-runtime logic). Seeded 7 well-established, textbook-level macro transmission mechanisms (oil→
-inflation→rate expectations→bond yields; US-KR rate differential→USD/KRW→Korea import
-inflation; yield curve inversion→recession probability with its correlational nature made
-explicit in the edge itself; VIX→credit spreads) via `prisma/causalEdges.ts` (pure data) +
-`prisma/seedCausalEdges.ts` (idempotent — verified by running it twice: 7 inserted, then 0
-inserted/7 already present). `src/server/domain/causalGraph.ts` provides exact-match
-`getEdgesFrom`/`getEdgesTo`/`getDirectEdge` — deliberately no fuzzy matching (would risk
-misattributing a causal claim) and no multi-hop traversal yet (no real consumer needs it until
-M21 Ask Market — logged as scoped-out, not forgotten). 90/90 tests pass (39 unit + 51
-integration against a real local Postgres, verified stable). Full verify chain green.
+M14: Historical Analog Engine (single-series scope — see docs/DECISIONS.md). Added
+`src/server/domain/historicalAnalog.ts`'s `computeHistoricalAnalog(seriesId, options)`: compares
+a series' current trailing change over `windowSize` observations against every historical point
+using z-score-normalized distance (deterministic, no LLM), returns the topK most similar
+historical periods with their actual subsequent changes N/3N/6N observations later. Results are
+labeled "observations ahead," not literal calendar months, since several tracked series are
+daily (mislabeling a daily series' next-3-observations as "3 months" would be a factually wrong
+claim). Every result carries a required, non-optional `limitations` disclaimer and `sampleSize`
+— mirrors M13's `CausalEdge.counterexamples` pattern of enforcing epistemic honesty structurally.
+Test dataset was hand-designed with an exact expected answer (10 points, specific values chosen
+so the 3 nearest historical trailing changes are unambiguous) — all hand-computed expected
+values (similarity ranking, subsequent changes, one deliberate out-of-range null) matched
+exactly on the first test run. Verified end-to-end with a real invocation script
+(`npm run analog:print -- <seriesId> <windowSize>`) against real data left by the test suite —
+output matched the hand-computed math exactly. 94/94 tests pass (39 unit + 55 integration
+against a real local Postgres, verified stable). Full verify chain green.
 
 CURRENT TASK
-M14: Historical Analog Engine — see docs/CURRENT_TASK.md. Real constraint identified before
-coding: this dev DB has very little historical data (no FRED_API_KEY here, so no real backfill
-has run), so a genuinely useful historical-analog comparison isn't buildable end-to-end in this
-environment yet. Plan is to build and test the deterministic similarity algorithm against
-seeded/synthetic historical data, proving the math is correct, while being explicit that real
-usage awaits real historical ingestion (Human Gate).
+M15: Company X-Ray — see docs/CURRENT_TASK.md. Real scoping question before any code: M05/M06
+only stored Filing *metadata*, not structured financial figures. Need to check whether EDGAR's
+XBRL company-facts API (data.sec.gov/api/xbrl/companyfacts/...) is reachable — would provide
+structured data without parsing raw filing HTML/PDF, which is a much larger and riskier
+undertaking (risk of fabricating structured data from unstructured text).
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M12 commit)
-prisma/schema.prisma (+CausalEdge, +CausalDirection, +CausalConfidence),
-prisma/migrations/20260815172053_causal_edges/, prisma/causalEdges.ts (new),
-prisma/seedCausalEdges.ts (new), src/server/domain/causalGraph.ts (new), package.json
-(db:seed-causal-edges script), tests/causalEdges.test.ts (new),
-tests/integration/causal-graph.test.ts (new).
+CHANGED FILES (since M13 commit)
+src/server/domain/historicalAnalog.ts (new), scripts/print-analog.ts (new), package.json
+(analog:print script), tests/integration/historical-analog.test.ts (new).
 
 TEST STATUS
-90/90 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite skips
+94/94 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite skips
 gracefully without a DB.
 
 NEXT EXACT ACTION
-Start M14: design the deterministic similarity methodology first (e.g. z-scored distance across
-a small macro-state vector) and write it down in DECISIONS.md before touching schema/code.
-Build src/server/domain/historicalAnalog.ts with a required sampleSize + limitations output,
-test against seeded synthetic historical data (not live-ingested data, which doesn't exist in
-meaningful volume in this dev environment yet).
+Start M15: WebFetch-probe data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json (Apple, same CIK
+already used in M06's fixtures) to check reachability before designing anything. If blocked
+(consistent with api.stlouisfed.org/ecos.bok.or.kr/opendart.fss.or.kr all being blocked in this
+container), explicitly scope M15 down or log it BLOCKED in REVIEW_DEBT.md with a clear
+unblocking condition (a real environment where data.sec.gov is reachable), rather than
+attempting HTML/PDF parsing of raw filings.
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
 role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember `npx prisma
 generate` after every schema.prisma change. vitest.config.mts has fileParallelism: false, and
 every integration test file must scope cleanup to rows it owns — never a bare deleteMany() on a
-shared table. Thirteen commits pushed so far (M00-M12) to
-origin/claude/market-os-development-7vnicg; M13 is about to be committed and pushed. No PR
-opened yet (none requested). Consistent project pattern to continue: when a milestone's full
-spec needs something this dev environment genuinely can't provide (blocked egress, thin real
-data, no paid source), scope down explicitly, document why in DECISIONS.md, log the gap in
-REVIEW_DEBT.md, and ship the honestly smaller real feature — never fabricate to look complete.
+shared table. Fourteen commits pushed so far (M00-M13) to
+origin/claude/market-os-development-7vnicg; M14 is about to be committed and pushed. No PR
+opened yet (none requested). This session confirmed egress-blocked: ecos.bok.or.kr,
+opendart.fss.or.kr, data.sec.gov (submissions endpoint), api.stlouisfed.org. data.sec.gov's XBRL
+endpoint specifically has NOT been probed yet — don't assume it's blocked just because
+data.sec.gov's other endpoint was; test it directly for M15, since a different path on the same
+host is sometimes handled differently by egress proxies (though often not — verify, don't
+assume either way).

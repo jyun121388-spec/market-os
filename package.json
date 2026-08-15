@@ -19,7 +19,8 @@
     "ingest:edgar": "tsx scripts/ingest-edgar.ts",
     "regime:print": "tsx scripts/print-regime.ts",
     "calendar:print": "tsx scripts/print-calendar.ts",
-    "db:seed-causal-edges": "tsx prisma/seedCausalEdges.ts"
+    "db:seed-causal-edges": "tsx prisma/seedCausalEdges.ts",
+    "analog:print": "tsx scripts/print-analog.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -1,25 +1,25 @@
 # Current Task
 
-MILESTONE: M14 — Historical Analog Engine
+MILESTONE: M15 — Company X-Ray
 
-TASK: Per docs/PRODUCT_SPEC.md "Historical Analog Engine": similarity score + comparable
-historical periods + subsequent 1M/3M/6M actual outcomes + sample size + explicit limitations.
-"Past results do not guarantee future outcomes" must be structural (a required field, mirroring
-M13's `counterexamples`), not just prose. Real constraint: this dev environment's database has
-very little historical Observation data (no FRED_API_KEY configured here, so adapters haven't
-actually backfilled years of history — see REVIEW_DEBT.md). A historical-analog comparison
-needs meaningful history to be honest; don't build something that looks like a working feature
-but would only ever return "insufficient sample size" against this dev database.
+TASK: Per docs/PRODUCT_SPEC.md "Company X-Ray": revenue, operating income, net income, cash
+flow, debt, inventory, capex, filings, risk factors, management-language changes, related
+industry/macro variables. This needs structured financial-statement line items — a genuinely
+new data shape. M05 (DART) and M06 (EDGAR) only stored Filing *metadata* (report name, receipt
+number, date) — not the financial figures inside those filings. Extracting structured data from
+raw filing documents (HTML/PDF parsing) is a much larger undertaking than anything built so
+far.
 
-STATUS: Not started — M13 (Economic Causal Graph, partial: single-hop only) complete and
+STATUS: Not started — M14 (Historical Analog Engine, partial: single-series) complete and
 verified.
 
-NEXT EXACT ACTION: Design the similarity methodology BEFORE writing schema: for a chosen
-"current state" vector (e.g. a snapshot of a few macro series' recent % changes), define a
-deterministic distance metric (e.g. normalized Euclidean or cosine distance across
-z-scored series) against historical windows of the same series — no LLM judgment call on
-similarity. Explicitly require `sampleSize` and a `limitations` field (non-optional, like
-CausalEdge.counterexamples) on any persisted analog result. Given the thin-data constraint,
-scope V1 to: the algorithm + tests using synthetic/seeded historical data proving the math is
-correct, with real usage against actual multi-year history deferred until real ingestion has
-run (Human Gate: FRED_API_KEY) — document this scope decision in DECISIONS.md before coding.
+NEXT EXACT ACTION: Before writing any code, check whether EDGAR's XBRL "company facts" API
+(https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json) is reachable — it would provide
+already-structured financial data (revenue, net income, etc. as tagged values) without needing
+to parse filing documents, which is a fundamentally different (and much more tractable) scope
+than scraping. If reachable, design a `FinancialFact` model (or reuse Observation-like shape)
+around XBRL concept/value/period/unit tuples for EDGAR first (Korean DART equivalent structured
+data would be a separate, later sub-scope). If data.sec.gov remains egress-blocked (as it was
+for M06's submissions API), explicitly scope M15 down or mark it BLOCKED pending reachability,
+documenting the decision in DECISIONS.md rather than attempting to parse raw HTML filings by
+hand, which risks fabricating structured data from unstructured text.

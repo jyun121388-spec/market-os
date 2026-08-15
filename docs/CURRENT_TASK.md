@@ -1,14 +1,16 @@
 # Current Task
 
-MILESTONE: M03 — FRED / US macro adapter
+MILESTONE: M04 — ECOS (Bank of Korea) macro adapter
 
-TASK: Build `src/server/adapters/fred/` — fetch a small set of key series (e.g. DGS10, DGS2,
-DXY-equivalent series, CPI) from the FRED API, normalize into Observation rows via the M01/M02
-schema, with a fixture-based test path when `FRED_API_KEY` is unset (see docs/DATA_POLICY.md
-"Adapter architecture" — adapters must work without live secrets using mock/fixture data).
+TASK: Build `src/server/adapters/ecos/` mirroring the FRED adapter shape
+(client.ts/types.ts/normalize.ts/ingest.ts/__fixtures__/) for Korean macro series (e.g. base
+rate, KRW/USD). ECOS uses a different missing-value convention and KST-dated releases — do not
+assume FRED's conventions carry over uncritically; verify against ECOS's actual documented API
+response shape before writing normalize.ts.
 
-STATUS: Not started — M02 complete and verified.
+STATUS: Not started — M03 (FRED adapter) complete and verified.
 
-NEXT EXACT ACTION: Design the adapter interface (fetch raw payload -> typed raw shape), add a
-recorded-fixture integration test, then a normalization function feeding the Observation model
-with correct timezone/date handling per docs/DATA_POLICY.md's financial-data checklist.
+NEXT EXACT ACTION: Look up the real ECOS StatisticSearch API response shape (fields, date
+format, missing-value marker) before writing types.ts, so the adapter isn't built against
+assumptions. Then follow the same client/normalize/ingest/test structure as
+src/server/adapters/fred/.

@@ -1,22 +1,24 @@
 # Current Task
 
-MILESTONE: M11 — Macro Regime Engine
+MILESTONE: M12 — Economic Calendar
 
-TASK: Structure economic state across the axes in docs/PRODUCT_SPEC.md's "Macro Regime
-Engine": Growth, Inflation, Liquidity, Risk, Rates, USD, Credit, Commodity. Deterministic
-calculation where inputs allow — no LLM-invented scores (docs/ARCHITECTURE.md). Realistically
-needs more tracked series than currently exist: `TRACKED_FRED_SERIES` has 4 (DGS10, DGS2,
-DTWEXBGS, CPIAUCSL) and `TRACKED_ECOS_SERIES` has 1 (base rate) — a regime engine built on 5
-series can only speak to Rates/USD/Inflation-ish axes narrowly. Expand series coverage as part
-of this milestone (more FRED series at minimum — unemployment, GDP, credit spreads are all on
-FRED) rather than shipping a Regime Engine that can't actually assess most of its own axes.
+TASK: Per docs/PRODUCT_SPEC.md "Economic Calendar": release time, previous/consensus/actual/
+surprise/revision, importance, linked variables, initial market reaction. This needs a data
+shape none of the M03-M06 adapters provide as-is: FRED/ECOS give realized historical values,
+not a forward-looking release schedule with consensus estimates. A real economic calendar
+needs either (a) a dedicated calendar data source (many are paid — check
+docs/DATA_POLICY.md's cost policy before assuming one is usable), or (b) a deterministically
+derived calendar from known release patterns of already-tracked series (e.g. CPI/UNRATE release
+on a predictable monthly schedule) without consensus/surprise data, which is a materially
+smaller feature than the full spec describes.
 
-STATUS: Not started — M10 (What Changed) complete and verified.
+STATUS: Not started — M11 (Macro Regime Engine) complete and verified.
 
-NEXT EXACT ACTION: First decide the minimal viable axis set for V1 (probably start with
-Rates + USD + Inflation, which the current FRED/ECOS series already support reasonably, and
-explicitly mark Growth/Liquidity/Risk/Credit/Commodity as "insufficient data" rather than
-fabricating a score for them — consistent with computeSeriesChange's INSUFFICIENT_DATA
-pattern from M10). Then design `computeRegimeSnapshot()` in
-`src/server/domain/macroRegime.ts`, reusing computeSeriesChange's deterministic-calc →
-CALCULATION-claim pattern for whatever composite/derived values it produces.
+NEXT EXACT ACTION: Research whether a genuinely free economic calendar data source exists
+(check reachability first, same discipline as M04-M06 — several candidate domains in this
+project have turned out to be egress-blocked in this dev environment). If nothing free and
+reachable provides consensus/surprise data, scope M12 down explicitly (schema + "next expected
+release date" derived from historical release cadence of tracked series, marking
+consensus/surprise/actual as a documented future gap) rather than blocking the milestone
+entirely or fabricating consensus numbers that don't exist. Record whichever path is chosen in
+docs/DECISIONS.md before writing schema.

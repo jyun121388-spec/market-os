@@ -1,5 +1,6 @@
 import { prisma } from "@/server/db/client";
 import { createClaim } from "./claimStore";
+import { computeChange, getRecentObservationPair } from "./seriesReadings";
 
 export type ChangeStatus = "COMPUTED" | "INSUFFICIENT_DATA";
 
@@ -15,33 +16,22 @@ export interface ChangeResult {
  * Deterministically computes the change between a series' two most recent distinct
  * observation dates (never an LLM judgment call — docs/AI_RESOURCE_POLICY.md), and persists
  * the result as a CALCULATION claim via src/server/domain/claimStore.ts so it carries the same
- * provenance guarantees as a FACT claim. Revisions are respected: for each date, the most
- * recently retrieved value is used (see the retrievedAt-desc ordering below), not necessarily
- * the first one ever ingested.
+ * provenance guarantees as a FACT claim. See seriesReadings.ts for the shared revision-aware
+ * read logic and pure change calculation.
  */
 export async function computeSeriesChange(seriesId: string): Promise<ChangeResult> {
   const series = await prisma.series.findUniqueOrThrow({ where: { id: seriesId } });
 
-  const recent = await prisma.observation.findMany({
-    where: { seriesId },
-    orderBy: [{ observationDate: "desc" }, { retrievedAt: "desc" }],
-    distinct: ["observationDate"],
-    take: 2,
-  });
-
-  if (recent.length < 2) {
+  const pair = await getRecentObservationPair(seriesId);
+  if (!pair) {
     return { status: "INSUFFICIENT_DATA" };
   }
+  const { current, previous } = pair;
 
-  const [current, previous] = recent;
+  const { absoluteChange, percentChange, bpsChange } = computeChange(pair, series.unit);
+
   const currentValue = Number(current.value.toString());
   const previousValue = Number(previous.value.toString());
-
-  const absoluteChange = round(currentValue - previousValue, 6);
-  const percentChange =
-    previousValue === 0 ? null : round((absoluteChange / previousValue) * 100, 4);
-  const bpsChange = series.unit === "percent" ? round(absoluteChange * 100, 2) : null;
-
   const currentDateStr = current.observationDate.toISOString().slice(0, 10);
   const previousDateStr = previous.observationDate.toISOString().slice(0, 10);
   const sign = absoluteChange >= 0 ? "+" : "";
@@ -67,9 +57,4 @@ export async function computeSeriesChange(seriesId: string): Promise<ChangeResul
   });
 
   return { status: "COMPUTED", claimId: claim.id, absoluteChange, percentChange, bpsChange };
-}
-
-function round(value: number, decimals: number): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
 }

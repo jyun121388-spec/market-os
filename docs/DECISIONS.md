@@ -179,3 +179,30 @@ silently.
 needs currency-cents-level precision or very large-magnitude series where `Number` precision
 could plausibly matter (flag in a future DECISIONS entry if that happens, don't silently
 upgrade without noting why).
+
+## 2026-08-15 — Macro Regime Engine reports per-series readings, never a fabricated composite score
+
+**Decision**: `src/server/domain/macroRegime.ts`'s `computeRegimeSnapshot()` returns, per axis,
+the latest deterministic value/change/direction for each mapped series — not a single 0-100 (or
+any other) "regime score" per axis.
+**Reason**: docs/ARCHITECTURE.md's "LLM does not invent scores" principle extends to
+deterministic code too: combining a policy rate, a volatility index, and a commodity price into
+one number requires a real weighting methodology, which doesn't exist yet. Inventing one now
+just to have a single number would be exactly the kind of unsupported-but-confident-looking
+output the project's guardrails exist to prevent — a fabricated composite is no more honest for
+being computed by code instead of an LLM.
+**Alternatives**: A simple average/percentile composite — rejected for now as arbitrary;
+revisit only with a documented methodology (e.g. citing an established macro framework) if a
+future milestone genuinely needs one number per axis for presentation.
+
+## 2026-08-15 — Expanded TRACKED_FRED_SERIES from 4 to 11 series for M11 axis coverage
+
+**Decision**: Added UNRATE, INDPRO (Growth), M2SL, WALCL (Liquidity), VIXCLS (Risk), BAA10Y
+(Credit), DCOILWTICO (Commodity) to `TRACKED_FRED_SERIES`, all free FRED series with stable,
+well-known series IDs.
+**Reason**: The Macro Regime Engine's 8 planned axes were previously supported by only
+Rates/USD/Inflation via the original 4 series (+ 1 ECOS rate); shipping the engine without
+expanding coverage would have meant 5 of 8 axes permanently reporting NOT_TRACKED. No live
+ingestion has run against these yet in this dev environment (no FRED_API_KEY configured here —
+Human Gate), so real values are still pending; `computeRegimeSnapshot()` correctly reports
+NOT_TRACKED/INSUFFICIENT_DATA rather than fabricating readings until ingestion actually runs.

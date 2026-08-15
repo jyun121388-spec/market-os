@@ -59,4 +59,46 @@ export const TRACKED_FRED_SERIES: FredSeriesDefinition[] = [
     unit: "index",
     frequency: "monthly",
   },
+  {
+    seriesId: "UNRATE",
+    name: "Unemployment Rate",
+    unit: "percent",
+    frequency: "monthly",
+  },
+  {
+    seriesId: "INDPRO",
+    name: "Industrial Production Index",
+    unit: "index",
+    frequency: "monthly",
+  },
+  {
+    seriesId: "M2SL",
+    name: "M2 Money Stock",
+    unit: "USD_billions",
+    frequency: "monthly",
+  },
+  {
+    seriesId: "WALCL",
+    name: "Federal Reserve Total Assets (Balance Sheet)",
+    unit: "USD_millions",
+    frequency: "weekly",
+  },
+  {
+    seriesId: "VIXCLS",
+    name: "CBOE Volatility Index (VIX)",
+    unit: "index",
+    frequency: "daily",
+  },
+  {
+    seriesId: "BAA10Y",
+    name: "Moody's Baa Corporate Bond Yield Relative to 10-Year Treasury",
+    unit: "percent",
+    frequency: "daily",
+  },
+  {
+    seriesId: "DCOILWTICO",
+    name: "WTI Crude Oil Price",
+    unit: "USD_per_barrel",
+    frequency: "daily",
+  },
 ];

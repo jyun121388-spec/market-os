@@ -3,16 +3,16 @@ CURRENT RELEASE
 
 COMPLETED
 M00, M01, M02, M03, M04, M05, M06, M07 (partial — see REVIEW_DEBT), M08, M09 (partial —
-FACT+CALCULATION now, INFERENCE still pending), M10
+FACT+CALCULATION now, INFERENCE still pending), M10, M11
 
 CURRENT
-M11
+M12
 
 STATUS
 READY
 
 TESTS
-74 / 74 PASS (34 unit, 40 integration against a real Postgres instance)
+78 / 78 PASS (35 unit, 43 integration against a real Postgres instance)
 
 OPEN P0
 0
@@ -24,12 +24,15 @@ REVIEW DEBT
 See docs/REVIEW_DEBT.md — DB schema + full pipeline not yet Codex-reviewed; ECOS/DART/EDGAR
 field-level shapes unverified against live APIs (egress blocked); no live news source wired
 (M07); releaseDate/cross-source-conflict gaps (M08); verifyClaim still doesn't support
-INFERENCE claims (no real producer exists yet — M21).
+INFERENCE claims (M09, no real producer yet — M21); no live data has actually been ingested for
+the 7 series added in M11 (no FRED_API_KEY configured in this dev environment — Human Gate), so
+5 of 8 regime axes currently report NOT_TRACKED/INSUFFICIENT_DATA against a real but empty
+database, which is correct behavior, not a bug.
 
 NEXT
-M11: Macro Regime Engine — structured state across Growth/Inflation/Liquidity/Risk/Rates/USD/
-Credit/Commodity axes, deterministic where inputs allow (per docs/PRODUCT_SPEC.md). Builds
-directly on M10's computeSeriesChange pattern (deterministic calc → CALCULATION claim →
-verifiable). Needs more tracked series than the 4 FRED + 1 ECOS currently in
-TRACKED_FRED_SERIES/TRACKED_ECOS_SERIES to be meaningful — expand series coverage as part of
-this milestone rather than declaring a regime engine "done" against a near-empty dataset.
+M12: Economic Calendar. Release time, previous/consensus/actual/surprise/revision, importance,
+linked variables, initial market reaction (per docs/PRODUCT_SPEC.md). No adapter currently
+supplies economic-calendar-with-consensus data (FRED gives realized values only, not forward
+consensus estimates) — research a free source (e.g. econdb, or manually curated release-date
+metadata cross-referenced with FRED series) before designing the schema, same "verify before
+assuming" discipline used for M04-M06.

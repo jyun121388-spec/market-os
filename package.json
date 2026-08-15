@@ -21,7 +21,8 @@
     "calendar:print": "tsx scripts/print-calendar.ts",
     "db:seed-causal-edges": "tsx prisma/seedCausalEdges.ts",
     "analog:print": "tsx scripts/print-analog.ts",
-    "ingest:edgar-xbrl": "tsx scripts/ingest-edgar-xbrl.ts"
+    "ingest:edgar-xbrl": "tsx scripts/ingest-edgar-xbrl.ts",
+    "filing-diff:print": "tsx scripts/print-filing-diff.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

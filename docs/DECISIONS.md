@@ -302,3 +302,21 @@ sub-scope, not attempted here.
 **Follow-up**: Revisit field-shape verification once `data.sec.gov` is reachable with a real
 environment; extend concept coverage and add a DART financial-statement adapter as separate
 follow-on work.
+
+## 2026-08-15 — M16 Filing Diff split into a shipped numeric half and an explicitly blocked text half
+
+**Decision**: `src/server/domain/filingDiff.ts` ships `computeFinancialFactDiff`/
+`computeFilingDiff` — deterministic deltas between the two most recent `FinancialFact` rows for
+a concept, reusing the same change-calculation approach as `seriesReadings.ts`. New/removed
+risk factors and management-language-change detection (the "text diff" half of
+docs/PRODUCT_SPEC.md's Filing Diff) are NOT implemented.
+**Reason**: The numeric half is real, tested, and buildable today on data M15 already ingests
+(including verified restatement history). The text half needs actual filing document text
+(HTML/PDF), which no adapter in this project has ever fetched — DART (M05), EDGAR filings
+(M06), and EDGAR XBRL (M15) all stored metadata or structured facts, never document bodies.
+Building a text-diff feature without real filing text would mean either fabricating a diff or
+building an entirely new, materially larger capability (document fetching + parsing + diffing)
+disguised as a small extension of what exists.
+**Follow-up**: A filing-text-fetching adapter (fetching + storing raw filing HTML/text,
+distinct from Filing's current metadata-only scope) is required before the text-diff half can
+be attempted; logged in `docs/REVIEW_DEBT.md` as blocked on that prerequisite, not forgotten.

@@ -278,3 +278,27 @@ CausalEdge.counterexamples) — a small sample size is surfaced, never hidden.
 **Alternatives**: A multi-variable regime-state similarity (matching M11's 8 axes) — deferred
 as materially more complex for a first version; single-series analog is a real, useful,
 independently-shippable increment that a multi-variable version can build on later.
+
+## 2026-08-15 — M15 Company X-Ray built against SEC EDGAR's XBRL companyfacts API shape
+
+**Decision**: Confirmed via WebFetch that `data.sec.gov/api/xbrl/companyfacts/...` is
+egress-blocked in this dev environment (same as its submissions endpoint used in M06). Rather
+than treat this as a hard block on M15, applied the same discipline already used for
+M04-M06/M12: build the adapter against the well-documented, stable, extensively-known XBRL
+companyfacts response shape (parallel-array-free, per-concept `units.USD[]` arrays with
+`val`/`end`/`fy`/`fp`/`form`/`accn`), with fixture-based tests, and log the live-shape
+verification gap in `docs/REVIEW_DEBT.md` rather than blocking or attempting to parse raw
+filing HTML/PDF (which risks fabricating structured numbers from unstructured text — explicitly
+rejected as an alternative).
+**Reason**: XBRL structured facts are a fundamentally more tractable and lower-risk data source
+than parsing filing documents by hand — the whole point of the SEC's XBRL mandate is that these
+values are already machine-readable and tagged, not free text requiring interpretation.
+**Scope**: A `FinancialFact` model + EDGAR adapter for a small set of core concepts (Revenues,
+NetIncomeLoss, OperatingIncomeLoss, Assets, Liabilities,
+CashAndCashEquivalentsAtCarryingValue) — not the full "Company X-Ray" feature set (risk
+factors, management-language changes require filing _text_, not XBRL facts, and are explicitly
+out of scope for this pass). DART/Korean structured-financials equivalent is a separate future
+sub-scope, not attempted here.
+**Follow-up**: Revisit field-shape verification once `data.sec.gov` is reachable with a real
+environment; extend concept coverage and add a DART financial-statement adapter as separate
+follow-on work.

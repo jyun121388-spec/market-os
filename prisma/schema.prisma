@@ -35,11 +35,12 @@ model Source {
   homepage  String?
   createdAt DateTime   @default(now())
 
-  series        Series[]
-  observations  Observation[]
-  claims        Claim[]
-  filings       Filing[]
-  eventMentions EventMention[]
+  series         Series[]
+  observations   Observation[]
+  claims         Claim[]
+  filings        Filing[]
+  eventMentions  EventMention[]
+  financialFacts FinancialFact[]
 
   @@map("sources")
 }
@@ -125,6 +126,40 @@ model Filing {
   @@unique([sourceId, receiptNo])
   @@index([sourceId, corpCode])
   @@map("filings")
+}
+
+// ---------------------------------------------------------------------------
+// M15 groundwork: Company X-Ray — structured financial-statement facts (e.g.
+// SEC EDGAR's XBRL companyfacts API). Distinct from Filing: a Filing is a
+// document/event; a FinancialFact is a single tagged numeric value from
+// inside one (e.g. "Revenues" = $383,285,000,000 for FY2023, accession
+// 0000320193-23-000106). See docs/DECISIONS.md for scope (structured XBRL
+// facts only — filing *text*, e.g. risk factors, is out of scope here).
+// ---------------------------------------------------------------------------
+
+model FinancialFact {
+  id              String    @id @default(cuid())
+  sourceId        String
+  source          Source    @relation(fields: [sourceId], references: [id])
+  corpCode        String // CIK for EDGAR, DART corp_code later
+  taxonomy        String // e.g. "us-gaap"
+  concept         String // e.g. "Revenues", "NetIncomeLoss"
+  unit            String // e.g. "USD"
+  periodStart     DateTime? // null for instant (point-in-time) concepts like Assets
+  periodEnd       DateTime
+  fiscalYear      Int
+  fiscalPeriod    String // "Q1" | "Q2" | "Q3" | "FY"
+  form            String // e.g. "10-K", "10-Q"
+  accessionNumber String // links back to the Filing.receiptNo this value came from
+  filedDate       DateTime
+  value           Decimal   @db.Decimal(24, 4)
+  retrievedAt     DateTime  @default(now())
+  raw             Json // untouched source payload for this fact
+  createdAt       DateTime  @default(now())
+
+  @@unique([sourceId, corpCode, concept, unit, periodEnd, accessionNumber])
+  @@index([sourceId, corpCode, concept])
+  @@map("financial_facts")
 }
 
 // ---------------------------------------------------------------------------

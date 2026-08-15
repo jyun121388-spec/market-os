@@ -1,24 +1,22 @@
 # Current Task
 
-MILESTONE: M10 — What Changed (24h change detection)
+MILESTONE: M11 — Macro Regime Engine
 
-TASK: The first milestone that is a real user-facing *feature*, not adapter/pipeline
-groundwork. For each tracked Series (FRED/ECOS), deterministically compute the change between
-the latest Observation and the one ~24h (or one period, for non-daily series) prior: absolute
-change, percent change, and — where the unit is "percent" (e.g. yields, rates) — basis-point
-change. Store the result as a CALCULATION claim via `src/server/domain/claimStore.ts` (extend
-`createClaim`'s usage, not its invariants) so the number has the same provenance guarantees as
-FACT claims. Frame per docs/PRODUCT_SPEC.md: what changed → how much → (why it matters and what
-to check next are presentation-layer concerns for a later milestone, not this one).
+TASK: Structure economic state across the axes in docs/PRODUCT_SPEC.md's "Macro Regime
+Engine": Growth, Inflation, Liquidity, Risk, Rates, USD, Credit, Commodity. Deterministic
+calculation where inputs allow — no LLM-invented scores (docs/ARCHITECTURE.md). Realistically
+needs more tracked series than currently exist: `TRACKED_FRED_SERIES` has 4 (DGS10, DGS2,
+DTWEXBGS, CPIAUCSL) and `TRACKED_ECOS_SERIES` has 1 (base rate) — a regime engine built on 5
+series can only speak to Rates/USD/Inflation-ish axes narrowly. Expand series coverage as part
+of this milestone (more FRED series at minimum — unemployment, GDP, credit spreads are all on
+FRED) rather than shipping a Regime Engine that can't actually assess most of its own axes.
 
-STATUS: Not started — M09 (Claim Ledger verification, FACT-scoped) complete and verified.
+STATUS: Not started — M10 (What Changed) complete and verified.
 
-NEXT EXACT ACTION: Design `computeSeriesChange(seriesId, opts)` in a new
-`src/server/domain/whatChanged.ts`: query the two most recent Observations for a series
-(respecting revisions — always compare the latest non-superseded value at each date), compute
-delta/percent/bps deterministically (no LLM), and build a CALCULATION claim via
-`createClaim` with `evidence` referencing both observation ids. Add unit tests for the
-arithmetic (including a case where the "prior" observation was itself revised) and an
-integration test proving the resulting Claim is verifiable end-to-end once
-`claimVerification.ts` is extended to handle CALCULATION (extend it in this milestone rather
-than leaving another FACT-only gap).
+NEXT EXACT ACTION: First decide the minimal viable axis set for V1 (probably start with
+Rates + USD + Inflation, which the current FRED/ECOS series already support reasonably, and
+explicitly mark Growth/Liquidity/Risk/Credit/Commodity as "insufficient data" rather than
+fabricating a score for them — consistent with computeSeriesChange's INSUFFICIENT_DATA
+pattern from M10). Then design `computeRegimeSnapshot()` in
+`src/server/domain/macroRegime.ts`, reusing computeSeriesChange's deterministic-calc →
+CALCULATION-claim pattern for whatever composite/derived values it produces.

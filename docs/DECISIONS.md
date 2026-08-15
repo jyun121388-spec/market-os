@@ -163,3 +163,19 @@ bug in claim construction, or a claim inserted by a path that bypasses claimStor
 producer that exists (M08). Extend to Filing-evidenced claims and CALCULATION/INFERENCE once
 those have real producers — see the M08 entry above for why speculative support isn't added
 early.
+
+## 2026-08-15 — What Changed uses plain `Number` arithmetic, not a decimal library
+
+**Decision**: `src/server/domain/whatChanged.ts` converts `Observation.value` (Prisma
+`Decimal`, `NUMERIC(20,6)`) to a JS `Number` for the delta/percent/bps calculation, rounding to
+6/4/2 decimal places respectively.
+**Reason**: The values in scope (macro rates/indices, not high-frequency trade prices) fit
+comfortably within `Number`'s safe precision at 6 decimal places; introducing a decimal library
+(e.g. decimal.js) is not yet justified by any observed correctness problem. `verifyClaim`
+recomputes independently from the same evidenced Observations and compares within a 1e-6
+tolerance, so any future precision drift would surface as a VALUE_MISMATCH rather than pass
+silently.
+**Alternatives**: decimal.js/big.js for exact decimal arithmetic — revisit if/when a feature
+needs currency-cents-level precision or very large-magnitude series where `Number` precision
+could plausibly matter (flag in a future DECISIONS entry if that happens, don't silently
+upgrade without noting why).

@@ -1,13 +1,14 @@
 # Current Task
 
-MILESTONE: M01 — Core architecture + database
+MILESTONE: M02 — Source/data model
 
-TASK: Scaffold Next.js (App Router, TS) app, ESLint/Prettier, Vitest, Prisma + Postgres schema
-for sources/observations/claims (M02 groundwork can start here at the schema-skeleton level),
-CI workflow, base smoke tests.
+TASK: Build on the M01 schema skeleton (Source, Series, Observation, DataConflict, Claim) with:
+seed data for initial Tier S sources (FRED, ECOS, DART, SEC EDGAR, BOK, KOSIS...), any missing
+fields identified while building the first real adapter (M03), and broaden integration test
+coverage for DataConflict handling and revision tracking.
 
-STATUS: Starting.
+STATUS: Not started — M01 complete and verified.
 
-NEXT EXACT ACTION: `npx create-next-app` (TS, App Router, Tailwind, ESLint) into repo root,
-add Prisma, add Vitest, add a minimal Prisma schema, add CI workflow, verify build/lint/typecheck
-pass, commit.
+NEXT EXACT ACTION: Add a seed script (`prisma/seed.ts`) registering the initial source registry
+with correct SourceTier values, add an integration test for the DataConflict flow, then proceed
+to M03 (FRED adapter) which will validate the schema against real data.

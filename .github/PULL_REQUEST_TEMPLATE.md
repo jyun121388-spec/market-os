@@ -1,13 +1,17 @@
 ## Milestone
+
 <!-- e.g. M03 FRED adapter -->
 
 ## Summary
+
 -
 
 ## Changes
+
 -
 
 ## Test plan
+
 - [ ] format
 - [ ] lint
 - [ ] typecheck
@@ -17,9 +21,11 @@
 - [ ] build
 
 ## Docs updated
+
 - [ ] PROJECT_STATE.md
 - [ ] Relevant docs/ files
 
 ## Codex review
+
 - [ ] Not required for this change
 - [ ] Completed — findings addressed or logged in REVIEW_DEBT.md

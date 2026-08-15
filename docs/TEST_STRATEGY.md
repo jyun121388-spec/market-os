@@ -1,6 +1,7 @@
 # Test Strategy
 
 ## Layers
+
 - **Unit** (Vitest): pure functions — normalization, unit conversion, regime calculations,
   claim-ledger construction, causal-graph edge logic, financial-data-correctness checklist
   cases (timezone, revision, scale, missing values — see `DATA_POLICY.md`).
@@ -16,10 +17,12 @@
   `compiler > test > AI opinion`.
 
 ## Order of operations per milestone
+
 format → lint → typecheck → unit → integration → E2E (if in scope) → build → error-handling
 spot check → docs update → PROJECT_STATE update → Codex review (if in scope) → commit.
 
 ## Failure loop
+
 FAIL → classify → find root cause → minimal fix → add a regression test → rerun. No asking the
 user to approve fixing a test failure. If the same failure survives 3 fix attempts: reconsider
 the approach, check for an architecture problem, escalate to Opus if warranted (see
@@ -27,11 +30,13 @@ the approach, check for an architecture problem, escalate to Opus if warranted (
 different independent task rather than stalling the whole project.
 
 ## Prohibited "fixes"
+
 Never delete a failing test to make the suite pass, remove validation to hide an error, weaken
 type safety to silence a type error, silently swallow a critical error, replace a data error
 with 0/null to hide it, or fabricate a source-less financial claim.
 
 ## Codex review scope
+
 See `AGENTS.md`. Required for DB/data-model, financial normalization, Claim Ledger, Event
 Intelligence, Causal Graph, Historical Analog, auth, security, guardrails, release candidates.
 Not required for formatting/docs/trivial rename/spacing-only changes.

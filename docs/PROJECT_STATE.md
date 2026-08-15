@@ -2,16 +2,16 @@ CURRENT RELEASE
 0.0.1-alpha
 
 COMPLETED
-M00
+M00, M01
 
 CURRENT
-M01
+M02
 
 STATUS
-BUILDING
+READY
 
 TESTS
-0 / 0 PASS
+10 / 10 PASS (7 unit, 3 integration against a real Postgres instance)
 
 OPEN P0
 0
@@ -20,7 +20,9 @@ OPEN P1
 0
 
 REVIEW DEBT
-none
+M01 DB schema (sources/observations/claims) not yet Codex-reviewed — required before M03+
+adapters write real data against it (see AGENTS.md Codex review scope).
 
 NEXT
-Core architecture + database scaffold (Next.js + TS + Prisma + Postgres schema, CI, base tests).
+M02: Source/data model — finalize schema details, seed script for Tier S sources, migration,
+integration tests for the Claim Ledger invariants against a real Prisma-backed DB.

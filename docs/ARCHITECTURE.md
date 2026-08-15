@@ -1,11 +1,13 @@
 # Market OS — Architecture (V1)
 
 ## Style
+
 **Modular monolith.** No microservices in V1 — unnecessary operational cost for the current
 scale and team (one AI developer + human owner). Split out services later only if a concrete
 scaling/deploy need forces it, and record that decision in `DECISIONS.md`.
 
 ## Stack
+
 - **Frontend**: TypeScript, Next.js (App Router, latest stable), React, Tailwind CSS.
   Mobile-first responsive, PWA-friendly later.
 - **Backend**: TypeScript, served from the same Next.js app initially (API routes / route
@@ -22,9 +24,11 @@ scaling/deploy need forces it, and record that decision in `DECISIONS.md`.
   availability in this environment).
 
 ## Layering (hallucination-resistant pipeline)
+
 ```
 SOURCE DATA -> NORMALIZATION -> FACT -> CALCULATION -> INFERENCE -> PRESENTATION
 ```
+
 - **Source adapters** (`src/server/adapters/<source>/`) fetch raw data from a specific source
   (FRED, ECOS, DART, SEC EDGAR, ...) and do nothing else — no interpretation.
 - **Normalization** converts raw source payloads into a common internal shape (units, timezone,
@@ -38,21 +42,25 @@ SOURCE DATA -> NORMALIZATION -> FACT -> CALCULATION -> INFERENCE -> PRESENTATION
   backing claim_ids is not shown as a factual statement.
 
 ## Claim Ledger (core data-integrity primitive)
+
 Every material AI-authored claim shown to a user is backed by a stored row:
 `claim_id, claim_text, claim_type (FACT|CALCULATION|INFERENCE), source_id, source_url,
 source_timestamp, retrieved_at, evidence, confidence, conflict_status, generated_at`.
 A FACT-typed claim with no source is a bug, not a feature — it must not render as fact.
 
 ## Data conflict handling
+
 When sources disagree, the system stores a `DATA_CONFLICT` state (source A, source B, official
 source if known, timestamps, revision status) instead of silently picking one value.
 
 ## Source hierarchy
+
 Tier S: government / central bank / exchange / official filings / official statistics agencies.
 Tier A: major wire services / high-trust primary reporting. Tier B: major financial press.
 Tier C: general press. Tier D: social/community. Stored as `source_tier` metadata per source.
 
 ## Directory layout (initial)
+
 ```
 /
 ├── src/
@@ -70,10 +78,12 @@ Tier C: general press. Tier D: social/community. Stored as `source_tier` metadat
 ```
 
 ## Data sources (initial, free-first — see `DATA_POLICY.md` for the full list and priority)
+
 Korea: BOK ECOS, KOSIS, OpenDART, 공공데이터포털, MOLIT. US: FRED, SEC EDGAR, BLS, BEA, Treasury,
 Federal Reserve. Global: IMF, World Bank, OECD. Adapter-per-source architecture so paid sources
 can be added later without redesign; absence of paid data never blocks development.
 
 ## Caching principle
+
 Shared analyses (e.g. Morning Brief) are generated once, verified, and cached/stored — not
 regenerated per user. AI generation cost must not scale linearly with user count.

@@ -37,6 +37,7 @@ Order below is the default; deviations must be recorded in `DECISIONS.md` with a
 - **M28** — Release Candidate.
 
 ## Rationale for dependency order (recorded here; full decisions in `DECISIONS.md`)
+
 Data model (M01-M02) must precede any adapter. Macro adapters (M03-M04) come before filings
 adapters (M05-M06) because macro data is structurally simpler and exercises the normalization/
 claim-ledger pipeline first. Event/news (M07) and provenance/claim-ledger hardening (M08-M09)

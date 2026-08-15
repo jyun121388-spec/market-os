@@ -4,6 +4,7 @@ Market OS is an Economic & Market Intelligence SaaS (not a trading/advice produc
 Full governance lives in `docs/`. This file holds only what must be read every session.
 
 ## Read order for a new session
+
 1. This file
 2. `docs/PROJECT_STATE.md` — current milestone, status, test counts
 3. `docs/CURRENT_TASK.md` — exact next action
@@ -14,6 +15,7 @@ Do not re-read the whole repo or reconstruct history from chat. `PROJECT_STATE.m
 single source of truth for progress.
 
 ## Absolute rules
+
 - **Zero extra AI/API cost.** Never activate paid Anthropic/OpenAI/Google/Bedrock/Vertex usage,
   buy credits, or use a PAYG key. If Max 20x included usage is exhausted, stop and write
   `USAGE_LIMIT_PAUSE` into `PROJECT_STATE.md`.
@@ -29,6 +31,7 @@ single source of truth for progress.
   human approval.
 
 ## Human Gate (stop and ask) — otherwise keep working autonomously
+
 Cost (paid API/service), production deployment, destructive prod DB ops, real secrets,
 real payment activation, bulk email/SMS, credential/security changes, force-push, making the
 repo public, or any feature that crosses `docs/LEGAL_GUARDRAILS.md`.
@@ -36,21 +39,25 @@ If a task is blocked on a Human Gate, switch to the next independent task instea
 all work.
 
 ## Development loop (repeat per milestone)
+
 READ STATE → DEFINE TASK → IMPLEMENT → TEST → FIX → RETEST → SELF REVIEW →
 CODEX REVIEW (if in scope, see `docs/TEST_STRATEGY.md`) → UPDATE DOCS →
 UPDATE `PROJECT_STATE.md` → COMMIT → NEXT MILESTONE.
 Do not ask permission between these steps.
 
 ## Model/agent economy
+
 Default model: Sonnet. Use Haiku-tier subagents only for trivial read-only lookups. Escalate
 to Opus only per the rules in `docs/AI_RESOURCE_POLICY.md`. Max 1 subagent at a time normally,
 2 concurrent max. Don't spawn agents for work you can do directly and cheaply.
 
 ## Architecture defaults
+
 Modular monolith. TypeScript everywhere. Next.js (frontend) + TypeScript backend with a clear
 API boundary. PostgreSQL. No microservices in V1. Details: `docs/ARCHITECTURE.md`.
 
 ## Definition of Done (per milestone)
+
 Implementation + format + lint + typecheck + unit tests + relevant integration/E2E + build all
 pass; docs and `PROJECT_STATE.md` updated; P0/P1 = 0; Codex review done or logged as Review
 Debt. See `docs/RELEASE_CHECKLIST.md` for release-level criteria.

@@ -6,6 +6,7 @@ labels: milestone
 ---
 
 ## Milestone
+
 <!-- e.g. M03 FRED adapter -->
 
 ## Goal
@@ -13,4 +14,5 @@ labels: milestone
 ## Dependencies
 
 ## Definition of Done
+
 See docs/RELEASE_CHECKLIST.md / CLAUDE.md Definition of Done section.

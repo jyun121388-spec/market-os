@@ -1,0 +1,127 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// M01/M02 groundwork: source registry, normalized observations, and the
+// Claim Ledger (see docs/ARCHITECTURE.md "Claim Ledger" and
+// "Hallucination-resistant pipeline"). Adapters write raw + normalized data;
+// nothing here is written by an LLM directly.
+// ---------------------------------------------------------------------------
+
+enum SourceTier {
+  TIER_S // government / central bank / exchange / official filings / stats agencies
+  TIER_A // major wire services / high-trust primary reporting
+  TIER_B // major financial press
+  TIER_C // general press
+  TIER_D // social / community
+}
+
+model Source {
+  id        String     @id @default(cuid())
+  code      String     @unique // e.g. "FRED", "ECOS", "DART", "SEC_EDGAR"
+  name      String
+  tier      SourceTier
+  homepage  String?
+  createdAt DateTime   @default(now())
+
+  series       Series[]
+  observations Observation[]
+  claims       Claim[]
+
+  @@map("sources")
+}
+
+// A tracked economic/market variable (e.g. "US 10Y Treasury Yield", "UST10Y").
+model Series {
+  id          String   @id @default(cuid())
+  sourceId    String
+  source      Source   @relation(fields: [sourceId], references: [id])
+  externalId  String // the identifier used by the source (e.g. FRED series id "DGS10")
+  name        String
+  unit        String // e.g. "percent", "index", "USD", "KRW_per_USD"
+  frequency   String // e.g. "daily", "weekly", "monthly", "quarterly"
+  createdAt   DateTime @default(now())
+
+  observations Observation[]
+
+  @@unique([sourceId, externalId])
+  @@map("series")
+}
+
+// A single normalized data point. Raw source payload is preserved in `raw`
+// for auditability; normalized fields are what the app reads.
+model Observation {
+  id              String   @id @default(cuid())
+  seriesId        String
+  series          Series   @relation(fields: [seriesId], references: [id])
+  sourceId        String
+  source          Source   @relation(fields: [sourceId], references: [id])
+  observationDate DateTime // the date/period the value describes (not when it was released)
+  releaseDate     DateTime? // when the source published this value, if known
+  value           Decimal  @db.Decimal(20, 6)
+  isPreliminary   Boolean  @default(false)
+  isRevision      Boolean  @default(false)
+  revisionOf      String? // id of the Observation this revises, if any
+  retrievedAt     DateTime @default(now())
+  raw             Json // untouched source payload for this observation
+  createdAt       DateTime @default(now())
+
+  conflicts DataConflict[]
+
+  @@unique([seriesId, observationDate, isRevision, revisionOf])
+  @@index([seriesId, observationDate])
+  @@map("observations")
+}
+
+// Recorded when two sources disagree on a value instead of silently picking one.
+// See docs/ARCHITECTURE.md "Data conflict handling".
+model DataConflict {
+  id              String       @id @default(cuid())
+  observationId   String
+  observation     Observation  @relation(fields: [observationId], references: [id])
+  conflictingWith Json // { sourceCode, value, observationDate, retrievedAt } for the other source
+  officialSource  String? // source code considered authoritative, if determinable
+  resolved        Boolean      @default(false)
+  resolutionNote  String?
+  createdAt       DateTime     @default(now())
+
+  @@map("data_conflicts")
+}
+
+enum ClaimType {
+  FACT
+  CALCULATION
+  INFERENCE
+}
+
+// The Claim Ledger: every material AI-authored (or derived) statement shown
+// to a user is backed by one of these rows. A FACT-typed claim with no
+// source must never render as fact — see docs/ARCHITECTURE.md.
+model Claim {
+  id             String    @id @default(cuid())
+  claimText      String
+  claimType      ClaimType
+  sourceId       String?
+  source         Source?   @relation(fields: [sourceId], references: [id])
+  sourceUrl      String?
+  sourceTimestamp DateTime?
+  retrievedAt    DateTime?
+  evidence       Json? // supporting data: observation ids, calculation inputs, etc.
+  confidence     Float? // 0..1, required for INFERENCE claims
+  conflictStatus String? // "none" | "DATA_CONFLICT" | ...
+  generatedAt    DateTime  @default(now())
+
+  @@index([claimType])
+  @@map("claims")
+}

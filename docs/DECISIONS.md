@@ -145,3 +145,21 @@ a half-built one.
 only). CALCULATION and INFERENCE claim construction belongs to the milestones that actually
 produce those (M11 Macro Regime Engine for CALCULATION; M21 Ask Market for INFERENCE) — no
 speculative support added ahead of a real caller.
+
+## 2026-08-15 — Claim verification checks evidence against the DB, not just its own shape
+
+**Decision**: `src/server/domain/claimVerification.ts`'s `verifyClaim` re-reads the evidenced
+Observation from the database and checks both that the claim text contains the actual stored
+value and that `claim.sourceId` matches the observation's source — not just that `evidence`
+looks well-formed.
+**Reason**: A claim with syntactically valid evidence that doesn't actually match the
+underlying data is exactly the kind of "hallucination-shaped-like-a-fact" CLAUDE.md's
+guardrails exist to catch. Checking shape alone (does `evidence.observationId` exist as a key)
+would pass a claim whose text was fabricated or attributed to the wrong source.
+**Alternatives**: Trust `evidence` once written by `createClaim` — rejected; the point of a
+separate verification pass is to catch cases where evidence and text drift apart (e.g. a future
+bug in claim construction, or a claim inserted by a path that bypasses claimStore.ts).
+**Follow-up**: Scoped to FACT claims with an `observationId` only, matching the one real
+producer that exists (M08). Extend to Filing-evidenced claims and CALCULATION/INFERENCE once
+those have real producers — see the M08 entry above for why speculative support isn't added
+early.

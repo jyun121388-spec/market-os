@@ -1,19 +1,24 @@
 # Current Task
 
-MILESTONE: M09 — Claim Ledger + verification pipeline
+MILESTONE: M10 — What Changed (24h change detection)
 
-TASK: Build on `src/server/domain/claimStore.ts` (M08, the write path) with a verification
-layer: given a Claim, confirm its `evidence` actually references real, existing rows (e.g. an
-`evidence.observationId` that really exists and really supports the claimed value), and that
-INFERENCE claims carry a confidence score and (once M21 Ask Market exists) a list of
-FACT/CALCULATION claim_ids they're grounded in. This is the "no hallucinated financial facts"
-guarantee made mechanically checkable rather than just asserted in docs.
+TASK: The first milestone that is a real user-facing *feature*, not adapter/pipeline
+groundwork. For each tracked Series (FRED/ECOS), deterministically compute the change between
+the latest Observation and the one ~24h (or one period, for non-daily series) prior: absolute
+change, percent change, and — where the unit is "percent" (e.g. yields, rates) — basis-point
+change. Store the result as a CALCULATION claim via `src/server/domain/claimStore.ts` (extend
+`createClaim`'s usage, not its invariants) so the number has the same provenance guarantees as
+FACT claims. Frame per docs/PRODUCT_SPEC.md: what changed → how much → (why it matters and what
+to check next are presentation-layer concerns for a later milestone, not this one).
 
-STATUS: Not started — M08 (Claim Ledger wired to a real caller) complete and verified.
+STATUS: Not started — M09 (Claim Ledger verification, FACT-scoped) complete and verified.
 
-NEXT EXACT ACTION: Design `verifyClaim(claimId)` in a new
-`src/server/domain/claimVerification.ts`: for a FACT claim, look up `evidence.observationId`
-(or `evidence.filingId`) and confirm it exists and that the claim text's stated value matches
-the stored value (a cheap, deterministic string/number check — not an LLM judgment call). For
-now this only needs to support the FACT-from-Observation shape `createFactClaimFromObservation`
-produces; extend when CALCULATION/INFERENCE claims get real producers (M11, M21).
+NEXT EXACT ACTION: Design `computeSeriesChange(seriesId, opts)` in a new
+`src/server/domain/whatChanged.ts`: query the two most recent Observations for a series
+(respecting revisions — always compare the latest non-superseded value at each date), compute
+delta/percent/bps deterministically (no LLM), and build a CALCULATION claim via
+`createClaim` with `evidence` referencing both observation ids. Add unit tests for the
+arithmetic (including a case where the "prior" observation was itself revised) and an
+integration test proving the resulting Claim is verifiable end-to-end once
+`claimVerification.ts` is extended to handle CALCULATION (extend it in this milestone rather
+than leaving another FACT-only gap).

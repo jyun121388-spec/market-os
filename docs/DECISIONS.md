@@ -320,3 +320,29 @@ disguised as a small extension of what exists.
 **Follow-up**: A filing-text-fetching adapter (fetching + storing raw filing HTML/text,
 distinct from Filing's current metadata-only scope) is required before the text-diff half can
 be attempted; logged in `docs/REVIEW_DEBT.md` as blocked on that prerequisite, not forgotten.
+
+## 2026-08-15 — M17 ETF X-Ray scoped to schema + guardrail enforcement only, no ingestion
+
+**Decision**: Confirmed via WebFetch that both candidate free ETF-holdings sources
+(ssga.com/SPDR, ishares.com) are egress-blocked in this dev environment. Unlike M04-M06/M15
+(government/regulatory APIs with strong, stable, well-documented shapes from training
+knowledge), ETF holdings-file formats vary by issuer and change over time — there is no single
+well-established public shape to build against with the same confidence used for FRED/ECOS/
+DART/EDGAR. Building an adapter against a guessed, unverifiable, issuer-specific CSV/XLSX
+format would carry materially higher fabrication risk than the prior "build against documented
+API shape" pattern.
+**Decision (what ships instead)**: An `Etf`/`EtfHolding` schema (index, expense ratio, issuer,
+holdings with ticker/weight/sector/country — the facts docs/PRODUCT_SPEC.md calls for) plus a
+structural guardrail test proving the schema and any future computed output can never carry a
+recommendation-style field (score/rating/suitability), mirroring the enforcement approach used
+for `CausalEdge` (M13). No real ingestion, no adapter, no fixture data claiming to be a real
+issuer's holdings.
+**Reason**: Shipping a fabricated-looking adapter against a guessed format would be worse than
+shipping nothing — it would look like real data-ingestion capability while actually being
+unverifiable guesswork, which is exactly what the project's anti-hallucination guardrails exist
+to prevent. The schema and guardrail are real, useful groundwork regardless of when a real
+source becomes available.
+**Follow-up**: Build the real adapter once either (a) ssga.com/ishares.com/a similar issuer
+source becomes reachable in a real deployment environment, or (b) a well-documented, stable
+public ETF data API is identified (unlike issuer holdings pages, which are essentially website
+scraping targets, not APIs) — logged as BLOCKED in `docs/REVIEW_DEBT.md`.

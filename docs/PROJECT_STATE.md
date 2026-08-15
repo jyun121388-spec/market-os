@@ -2,20 +2,18 @@ CURRENT RELEASE
 0.0.1-alpha
 
 COMPLETED
-M00, M01, M02, M03, M04, M05, M06, M07 (partial — see REVIEW_DEBT), M08, M09 (partial —
-FACT+CALCULATION now, INFERENCE still pending), M10, M11, M12 (partial — cadence projection
-only), M13 (partial — single-hop edges only), M14 (partial — single-series analog), M15
-(partial — 6 core XBRL concepts, EDGAR only), M16 (partial — numeric deltas only, text-diff
-blocked pending a filing-text adapter)
+M00, M01, M02, M03, M04, M05, M06, M07 (partial), M08, M09 (partial), M10, M11, M12 (partial),
+M13 (partial), M14 (partial), M15 (partial), M16 (partial), M17 (partial — schema + legal
+guardrail enforcement + exposure aggregation only, no ingestion adapter — see REVIEW_DEBT)
 
 CURRENT
-M17
+M18
 
 STATUS
 READY
 
 TESTS
-106 / 106 PASS (43 unit, 63 integration against a real Postgres instance)
+111 / 111 PASS (46 unit, 65 integration against a real Postgres instance)
 
 OPEN P0
 0
@@ -24,20 +22,17 @@ OPEN P1
 0
 
 REVIEW DEBT
-See docs/REVIEW_DEBT.md for the full list (16 entries as of M16). Summary categories: Codex
-review pending for the whole pipeline; several adapter field-shapes unverified against live
-APIs (egress blocked to ecos.bok.or.kr/opendart.fss.or.kr/data.sec.gov/api.stlouisfed.org); no
-live news source (M07); releaseDate/cross-source-conflict gaps (M08); verifyClaim lacks
-INFERENCE support (M09); most regime axes unpopulated pending real FRED_API_KEY (M11); no
-calendar consensus data (M12); no causal-graph traversal (M13); analog engine single-series
-only (M14); Company X-Ray EDGAR-only/6-concepts (M15); Filing Diff text-half blocked on a
-not-yet-built filing-text adapter (M16).
+See docs/REVIEW_DEBT.md for the full list (18 entries as of M17). All entries are honestly
+scoped-down or blocked features with documented reasons — no entry represents an unnoticed
+gap. Most are pending either a real API key (Human Gate), a reachable external domain not
+available in this dev environment, or a real consumer that doesn't exist yet (avoiding
+speculative build-ahead).
 
 NEXT
-M17: ETF X-Ray. Index, expense ratio, holdings, sector/country/currency exposure, duration,
-macro sensitivity (per docs/PRODUCT_SPEC.md) — explicitly NO "buy fitness score" or
-investment-recommendation output (docs/LEGAL_GUARDRAILS.md hard prohibition). Real scoping
-question first: ETF holdings/exposure data typically comes from the fund issuer or a paid data
-vendor, not from FRED/ECOS/DART/EDGAR's existing adapter surface — check whether any free,
-reachable source exists (e.g. an issuer's public holdings CSV/API) before designing schema;
-this may turn out similarly constrained as M12's consensus-data search.
+M18: Real Estate Intelligence (Korea). Public transaction/price/rate/permit/completion/unsold/
+supply/auction data (per docs/PRODUCT_SPEC.md). Likely candidate source: 국토교통부
+(MOLIT) 실거래가 공개시스템 / 공공데이터포털 (data.go.kr) — both already in the seeded Tier S
+source registry (M02) but never actually probed for reachability. Check before designing
+anything, same discipline as every prior milestone. Expect the same pattern as M04-M06/M12/M15:
+either build a real adapter against a documented API shape (logging live-verification as
+review debt if blocked), or scope down explicitly if genuinely no path exists.

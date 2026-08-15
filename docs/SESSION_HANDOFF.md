@@ -1,51 +1,53 @@
 LAST COMPLETED
-M16: Filing Diff, numeric half only (text half explicitly blocked — see below).
-`src/server/domain/filingDiff.ts`'s `computeFinancialFactDiff`/`computeFilingDiff` compute
-deterministic deltas between the two most recent `FinancialFact` rows for a concept, reusing
-the M10/M11 change-calculation pattern. Verified end-to-end with a real invocation script
-(`npm run filing-diff:print -- <cik>`) against real data left by M15's own restatement test —
-output correctly showed the real Revenues change (400B→405B, +1.25%) and INSUFFICIENT_DATA for
-every other concept (only Revenues has 2 accession numbers in the dev DB). New/removed risk
-factors and management-language-change detection (the text-diff half of the spec) were NOT
-built: no adapter in this project (DART/EDGAR filings/EDGAR XBRL) has ever fetched filing
-document text, only metadata or structured facts — attempting a text diff without real text
-would mean fabricating one. Logged as blocked-on-a-prerequisite in REVIEW_DEBT.md, not
-forgotten. 106/106 tests pass (43 unit + 63 integration against a real local Postgres, verified
-stable). Full verify chain green.
+M17: ETF X-Ray, scoped to schema + legal-guardrail enforcement + exposure aggregation only, no
+ingestion adapter (see docs/DECISIONS.md). Confirmed via WebFetch that both candidate free
+holdings sources (ssga.com, ishares.com) are egress-blocked. Unlike M04-M06/M15's
+government/regulatory APIs, ETF issuer holdings files aren't a stable, well-documented public
+API shape — building an adapter against a guessed format was judged too fabrication-prone and
+rejected. What shipped instead: `Etf`/`EtfHolding` Prisma models (migration
+20260815173856_etf_xray) with NO score/rating/recommendation field anywhere, enforced by a
+dedicated structural test (`tests/etfSchemaGuardrail.test.ts`) that greps the actual
+schema.prisma source for forbidden patterns — a real regression test, not just a design
+intention. `src/server/domain/etfExposure.ts`'s `computeSectorExposure`/`computeCountryExposure`
+purely sum stored holding weights into buckets (deterministic, no LLM, no invented score) —
+verified against real seeded data including an "Unclassified" bucket for a holding with no
+recorded sector. 111/111 tests pass (46 unit + 65 integration against a real local Postgres,
+verified stable). Full verify chain green.
 
 CURRENT TASK
-M17: ETF X-Ray — see docs/CURRENT_TASK.md. Real scoping question before any code: ETF
-holdings/exposure data is a genuinely different category from anything built so far (issuer
-sites or paid vendors, not government/regulatory APIs like FRED/ECOS/DART/EDGAR). Need to check
-reachability of a candidate free source before designing schema. Hard constraint to keep in
-mind throughout: NO buy-fitness-score or recommendation output (docs/LEGAL_GUARDRAILS.md).
+M18: Real Estate Intelligence (Korea) — see docs/CURRENT_TASK.md. Candidate sources (MOLIT,
+data.go.kr) are already in the M02 seed registry but have never actually been probed for
+reachability. Given every financial-data domain tested this session has been egress-blocked,
+budget effort accordingly — probe once, then move to scoping down if blocked, rather than
+repeated probing.
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M15 commit)
-src/server/domain/filingDiff.ts (new), scripts/print-filing-diff.ts (new), package.json
-(filing-diff:print script), tests/integration/filing-diff.test.ts (new).
+CHANGED FILES (since M16 commit)
+prisma/schema.prisma (+Etf, +EtfHolding models), prisma/migrations/20260815173856_etf_xray/,
+src/server/domain/etfExposure.ts (new), tests/etfSchemaGuardrail.test.ts (new),
+tests/integration/etf-exposure.test.ts (new).
 
 TEST STATUS
-106/106 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite
+111/111 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite
 skips gracefully without a DB.
 
 NEXT EXACT ACTION
-Start M17: WebFetch-probe a candidate free ETF holdings source (e.g. an issuer's public
-holdings CSV/API — check SPDR/iShares/Vanguard public data pages) for reachability before
-designing schema. If nothing free and reachable exists, scope down explicitly (schema +
-legal-guardrail tests only, no real ingestion) or mark BLOCKED in REVIEW_DEBT.md, same
-discipline as M12.
+Start M18: WebFetch-probe MOLIT/data.go.kr for reachability once. If blocked (likely, given the
+session's pattern so far), scope down to schema + a deterministic domain-logic module (e.g.
+price-index change reusing seriesReadings.ts) tested against seeded fixture data — don't spend
+excess effort re-probing already-established egress restrictions.
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
 role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember `npx prisma
 generate` after every schema.prisma change. vitest.config.mts has fileParallelism: false, and
 every integration test file must scope cleanup to rows it owns — never a bare deleteMany() on a
-shared table. Sixteen commits pushed so far (M00-M15) to
-origin/claude/market-os-development-7vnicg; M16 is about to be committed and pushed. No PR
-opened yet (none requested). Confirmed egress-blocked domains so far: ecos.bok.or.kr,
-opendart.fss.or.kr, data.sec.gov (submissions + XBRL companyfacts), api.stlouisfed.org — a new
-domain for M17 (an ETF issuer site) has NOT been probed yet, don't assume it's blocked or
-reachable without checking directly.
+shared table. Seventeen commits pushed so far (M00-M16) to
+origin/claude/market-os-development-7vnicg; M17 is about to be committed and pushed. No PR
+opened yet (none requested). Confirmed egress-blocked so far: ecos.bok.or.kr,
+opendart.fss.or.kr, data.sec.gov (submissions + XBRL), api.stlouisfed.org, ssga.com,
+ishares.com — this dev container appears to block essentially all financial-data-provider
+domains, which is a real, consistent environmental constraint rather than intermittent — factor
+this into how much time is spent probing new domains for future milestones (M18 onward).

@@ -41,6 +41,7 @@ model Source {
   filings        Filing[]
   eventMentions  EventMention[]
   financialFacts FinancialFact[]
+  etfs           Etf[]
 
   @@map("sources")
 }
@@ -160,6 +161,55 @@ model FinancialFact {
   @@unique([sourceId, corpCode, concept, unit, periodEnd, accessionNumber])
   @@index([sourceId, corpCode, concept])
   @@map("financial_facts")
+}
+
+// ---------------------------------------------------------------------------
+// M17 groundwork: ETF X-Ray. Exposure facts only — index, expense ratio,
+// holdings, sector/country/currency exposure. Deliberately NO score/rating/
+// suitability field anywhere in this model: docs/LEGAL_GUARDRAILS.md hard-
+// prohibits a "buy fitness score" or investment-recommendation output, and
+// the schema itself should make that impossible to add by accident (same
+// enforce-via-schema approach as CausalEdge.counterexamples, M13). No
+// ingestion adapter ships with this milestone — see docs/DECISIONS.md: the
+// candidate free holdings sources (ssga.com, ishares.com) are egress-blocked
+// in this dev environment, and issuer holdings files are not a stable,
+// well-documented public API the way FRED/ECOS/DART/EDGAR are.
+// ---------------------------------------------------------------------------
+
+model Etf {
+  id           String   @id @default(cuid())
+  sourceId     String
+  source       Source   @relation(fields: [sourceId], references: [id])
+  ticker       String
+  name         String
+  issuer       String
+  trackedIndex String? // the index this ETF tracks, if applicable
+  expenseRatio Decimal? @db.Decimal(6, 4) // e.g. 0.0945 = 0.0945%
+  asOfDate     DateTime // date this snapshot's facts (expense ratio, holdings) are as of
+  retrievedAt  DateTime @default(now())
+  raw          Json
+  createdAt    DateTime @default(now())
+
+  holdings EtfHolding[]
+
+  @@unique([sourceId, ticker, asOfDate])
+  @@map("etfs")
+}
+
+model EtfHolding {
+  id            String   @id @default(cuid())
+  etfId         String
+  etf           Etf      @relation(fields: [etfId], references: [id])
+  holdingName   String
+  holdingTicker String?
+  weightPct     Decimal  @db.Decimal(8, 5) // percent of fund, e.g. 7.12345
+  sector        String?
+  country       String?
+  currency      String?
+  createdAt     DateTime @default(now())
+
+  @@index([etfId])
+  @@map("etf_holdings")
 }
 
 // ---------------------------------------------------------------------------

@@ -1,21 +1,20 @@
 # Current Task
 
-MILESTONE: M17 — ETF X-Ray
+MILESTONE: M18 — Real Estate Intelligence (Korea)
 
-TASK: Per docs/PRODUCT_SPEC.md "ETF X-Ray": index, expense ratio, holdings, sector/country/
-currency exposure, duration, macro sensitivity. Hard constraint from docs/LEGAL_GUARDRAILS.md:
-NO "buy fitness score" or any investment-recommendation output — expose facts, never a
-recommendation number (e.g. no "매수 적합도 93"). This is a real, tested-by-guardrail
-requirement, not just a style note.
+TASK: Per docs/PRODUCT_SPEC.md "Real Estate Intelligence": 매매/전세/거래량/실거래가/금리/
+인허가/착공/입주/미분양/공급/경매 (sale/jeonse prices, transaction volume, actual transaction
+prices, rates, permits, construction starts, move-ins, unsold inventory, supply, auctions)
+using Korean public data. Candidate sources already in the M02 seed registry but never probed:
+국토교통부(MOLIT) 실거래가 공개시스템, 공공데이터포털(data.go.kr).
 
-STATUS: Not started — M16 (Filing Diff, numeric half) complete and verified.
+STATUS: Not started — M17 (ETF X-Ray, schema+guardrail only) complete and verified.
 
-NEXT EXACT ACTION: Research whether a free, reachable source of ETF holdings/exposure data
-exists before designing anything — this is a different data category from anything built so
-far (FRED/ECOS/DART/EDGAR are all official government/regulatory sources; ETF holdings
-typically come from the fund issuer's own site or a paid data vendor like Morningstar). Check a
-candidate issuer (e.g. State Street's SPDR holdings CSV endpoints, iShares' public holdings
-files) for reachability via WebFetch before assuming either way. If nothing free and reachable
-exists, scope M17 down explicitly (e.g. design the schema and legal-guardrail test now, defer
-real ingestion) or mark it BLOCKED in REVIEW_DEBT.md with a clear unblocking condition — same
-discipline as M12's Economic Calendar scoping decision. Do not fabricate holdings data.
+NEXT EXACT ACTION: WebFetch-probe MOLIT's real-transaction-price API
+(https://www.data.go.kr or a direct rt.molit.go.kr endpoint) for reachability before designing
+anything — same discipline as every prior milestone. Given this session's pattern so far (every
+Korean/US financial-data domain tested — ecos.bok.or.kr, opendart.fss.or.kr, data.sec.gov,
+api.stlouisfed.org — has been egress-blocked), budget for the likely outcome: if blocked, scope
+M18 down to schema + a deterministic domain-logic module (e.g. price-index change calculation
+reusing seriesReadings.ts) tested against seeded fixture data, mirroring M12/M17's approach,
+rather than spending excess effort on repeated reachability probes once the pattern is clear.

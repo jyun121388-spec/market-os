@@ -1,44 +1,47 @@
 LAST COMPLETED
-M04: ECOS (Bank of Korea) adapter (src/server/adapters/ecos/: client.ts, types.ts, normalize.ts,
-ingest.ts, __fixtures__/base-rate.json), mirroring the FRED adapter's shape. Extracted the
-shared revision-aware observation upsert into src/server/domain/observationIngest.ts once the
-same logic was needed a second time (see docs/DECISIONS.md). ECOS's missing-value marker could
-not be verified against a live API (network to ecos.bok.or.kr is blocked in this dev
-environment — WebFetch confirmed this); normalize.ts is deliberately conservative (any
-non-finite DATA_VALUE is treated as missing) rather than guessing at an unverified convention.
-Logged as REVIEW_DEBT, not silently assumed correct. Real invocation path
-`npm run ingest:ecos`, verified to fail safely without ECOS_API_KEY. 32/32 tests pass (16 unit +
-16 integration against a real local Postgres). Full verify chain green.
+M05: OpenDART adapter (src/server/adapters/dart/: client.ts, types.ts, normalize.ts, ingest.ts,
+__fixtures__/samsung-list.json). Added a new `Filing` Prisma model (migration
+20260815161529_filings) since filings are discrete documents, not time-series observations —
+see docs/DECISIONS.md for why this wasn't forced into Series/Observation. Handles DART's
+status "013" (no matching data) as an empty result vs. other non-"000" statuses as real errors.
+OpenDART's exact field/status shape is unverified against a live API (opendart.fss.or.kr is
+egress-blocked in this dev environment, confirmed via WebFetch, same as ecos.bok.or.kr) —
+logged in REVIEW_DEBT, not silently presumed correct. Real invocation path
+`npm run ingest:dart`, verified to fail safely without DART_API_KEY. 41/41 tests pass (20 unit +
+21 integration against a real local Postgres). Full verify chain green.
 
 CURRENT TASK
-M05: OpenDART adapter — see docs/CURRENT_TASK.md. This is the first genuinely different adapter
-shape (filings/documents, not time-series observations) — don't force-fit it into
-Series/Observation; a new Filing model is likely needed.
+M06: SEC EDGAR adapter — see docs/CURRENT_TASK.md. Reuses the Filing model from M05. EDGAR uses
+CIK + accession numbers and a User-Agent header instead of an API key — different auth pattern
+from FRED/ECOS/DART, don't assume it carries over uncritically.
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M03 commit)
-src/server/adapters/ecos/* (new), src/server/domain/observationIngest.ts (new, extracted from
-fred+ecos ingest.ts duplication), src/server/adapters/fred/ingest.ts (refactored to use the
-shared helper), scripts/ingest-ecos.ts (new), package.json (ingest:ecos script),
-tests/adapters/ecos-normalize.test.ts (new), tests/integration/ecos-ingest.test.ts (new).
+CHANGED FILES (since M04 commit)
+prisma/schema.prisma (+Filing model), prisma/migrations/20260815161529_filings/,
+src/server/adapters/dart/* (new), scripts/ingest-dart.ts (new), package.json (ingest:dart
+script), tests/adapters/dart-normalize.test.ts (new), tests/integration/dart-ingest.test.ts
+(new).
 
 TEST STATUS
-32/32 pass with DATABASE_URL set. Integration suite skips gracefully without a DB.
+41/41 pass with DATABASE_URL set. Integration suite skips gracefully without a DB.
 
 NEXT EXACT ACTION
-Start M05: research OpenDART's real API shape (WebSearch, since direct fetch to
-opendart.fss.or.kr may also be blocked — check before assuming), design a Filing schema
-addition + migration, then build the adapter.
+Start M06: check whether data.sec.gov is reachable (test with WebFetch first — ecos.bok.or.kr
+and opendart.fss.or.kr were both blocked, data.sec.gov may or may not be), research the real
+submissions API shape, then build src/server/adapters/edgar/ following the DART adapter's
+pattern (Filing model, fixture-based tests, real invocation script) adapted for EDGAR's
+CIK/accession-number/User-Agent conventions.
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
-role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). vitest.config.mts has
-fileParallelism: false (required — integration tests share one live DB). WebFetch to
-ecos.bok.or.kr is EGRESS_BLOCKED in this environment; check egress access for any new external
-domain (opendart.fss.or.kr, sec.gov, etc.) with a quick WebFetch/WebSearch probe before relying
-on it, and design adapters to degrade to "unverified, documented as such" rather than blocking
-entirely when live verification isn't possible. Four commits pushed so far (M00-M03) to
-origin/claude/market-os-development-7vnicg; M04 is about to be committed and pushed. No PR
-opened yet (none requested).
+role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember to run
+`npx prisma generate` after any schema.prisma change — forgetting this caused a typecheck
+failure this session (Property 'filing' does not exist on type 'PrismaClient') until it was
+regenerated. vitest.config.mts has fileParallelism: false (required). Five commits pushed so
+far (M00-M04) to origin/claude/market-os-development-7vnicg; M05 is about to be committed and
+pushed. No PR opened yet (none requested). Both ECOS and DART adapters were built from
+documentation/general knowledge rather than a verified live API response, since egress to both
+domains is blocked in this container — this is a real, tracked limitation (REVIEW_DEBT.md), not
+an oversight; the same check-first approach should apply to EDGAR in M06.

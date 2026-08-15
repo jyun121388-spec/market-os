@@ -38,20 +38,21 @@ model Source {
   series       Series[]
   observations Observation[]
   claims       Claim[]
+  filings      Filing[]
 
   @@map("sources")
 }
 
 // A tracked economic/market variable (e.g. "US 10Y Treasury Yield", "UST10Y").
 model Series {
-  id          String   @id @default(cuid())
-  sourceId    String
-  source      Source   @relation(fields: [sourceId], references: [id])
-  externalId  String // the identifier used by the source (e.g. FRED series id "DGS10")
-  name        String
-  unit        String // e.g. "percent", "index", "USD", "KRW_per_USD"
-  frequency   String // e.g. "daily", "weekly", "monthly", "quarterly"
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  sourceId   String
+  source     Source   @relation(fields: [sourceId], references: [id])
+  externalId String // the identifier used by the source (e.g. FRED series id "DGS10")
+  name       String
+  unit       String // e.g. "percent", "index", "USD", "KRW_per_USD"
+  frequency  String // e.g. "daily", "weekly", "monthly", "quarterly"
+  createdAt  DateTime @default(now())
 
   observations Observation[]
 
@@ -62,20 +63,20 @@ model Series {
 // A single normalized data point. Raw source payload is preserved in `raw`
 // for auditability; normalized fields are what the app reads.
 model Observation {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   seriesId        String
-  series          Series   @relation(fields: [seriesId], references: [id])
+  series          Series    @relation(fields: [seriesId], references: [id])
   sourceId        String
-  source          Source   @relation(fields: [sourceId], references: [id])
+  source          Source    @relation(fields: [sourceId], references: [id])
   observationDate DateTime // the date/period the value describes (not when it was released)
   releaseDate     DateTime? // when the source published this value, if known
-  value           Decimal  @db.Decimal(20, 6)
-  isPreliminary   Boolean  @default(false)
-  isRevision      Boolean  @default(false)
+  value           Decimal   @db.Decimal(20, 6)
+  isPreliminary   Boolean   @default(false)
+  isRevision      Boolean   @default(false)
   revisionOf      String? // id of the Observation this revises, if any
-  retrievedAt     DateTime @default(now())
+  retrievedAt     DateTime  @default(now())
   raw             Json // untouched source payload for this observation
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   conflicts DataConflict[]
 
@@ -87,16 +88,42 @@ model Observation {
 // Recorded when two sources disagree on a value instead of silently picking one.
 // See docs/ARCHITECTURE.md "Data conflict handling".
 model DataConflict {
-  id              String       @id @default(cuid())
+  id              String      @id @default(cuid())
   observationId   String
-  observation     Observation  @relation(fields: [observationId], references: [id])
+  observation     Observation @relation(fields: [observationId], references: [id])
   conflictingWith Json // { sourceCode, value, observationDate, retrievedAt } for the other source
   officialSource  String? // source code considered authoritative, if determinable
-  resolved        Boolean      @default(false)
+  resolved        Boolean     @default(false)
   resolutionNote  String?
-  createdAt       DateTime     @default(now())
+  createdAt       DateTime    @default(now())
 
   @@map("data_conflicts")
+}
+
+// ---------------------------------------------------------------------------
+// M05 groundwork: corporate disclosures/filings (OpenDART, later SEC EDGAR).
+// Structurally different from Series/Observation — a filing is a discrete
+// document/event, not a time-series data point.
+// ---------------------------------------------------------------------------
+
+model Filing {
+  id          String   @id @default(cuid())
+  sourceId    String
+  source      Source   @relation(fields: [sourceId], references: [id])
+  corpCode    String // source-specific company identifier (DART corp_code, CIK for EDGAR, ...)
+  corpName    String
+  stockCode   String? // exchange ticker/code, if applicable
+  reportName  String // e.g. "사업보고서 (2026.06)"
+  receiptNo   String // source-specific unique receipt/accession number (DART rcept_no)
+  receiptDate DateTime // date DART/EDGAR received the filing (not a fiscal period)
+  remark      String? // source-specific flag, e.g. DART's `rm` (정정/첨부 등)
+  retrievedAt DateTime @default(now())
+  raw         Json // untouched source payload for this filing
+  createdAt   DateTime @default(now())
+
+  @@unique([sourceId, receiptNo])
+  @@index([sourceId, corpCode])
+  @@map("filings")
 }
 
 enum ClaimType {
@@ -109,18 +136,18 @@ enum ClaimType {
 // to a user is backed by one of these rows. A FACT-typed claim with no
 // source must never render as fact — see docs/ARCHITECTURE.md.
 model Claim {
-  id             String    @id @default(cuid())
-  claimText      String
-  claimType      ClaimType
-  sourceId       String?
-  source         Source?   @relation(fields: [sourceId], references: [id])
-  sourceUrl      String?
+  id              String    @id @default(cuid())
+  claimText       String
+  claimType       ClaimType
+  sourceId        String?
+  source          Source?   @relation(fields: [sourceId], references: [id])
+  sourceUrl       String?
   sourceTimestamp DateTime?
-  retrievedAt    DateTime?
-  evidence       Json? // supporting data: observation ids, calculation inputs, etc.
-  confidence     Float? // 0..1, required for INFERENCE claims
-  conflictStatus String? // "none" | "DATA_CONFLICT" | ...
-  generatedAt    DateTime  @default(now())
+  retrievedAt     DateTime?
+  evidence        Json? // supporting data: observation ids, calculation inputs, etc.
+  confidence      Float? // 0..1, required for INFERENCE claims
+  conflictStatus  String? // "none" | "DATA_CONFLICT" | ...
+  generatedAt     DateTime  @default(now())
 
   @@index([claimType])
   @@map("claims")

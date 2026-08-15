@@ -69,3 +69,29 @@ third-party documentation/tutorials. A conservative "any non-numeric = missing" 
 silently fabricate a financial value even if the real marker differs from what was assumed.
 **Follow-up**: Revisit once a real `ECOS_API_KEY` and a live response are available (Human
 Gate — see docs/DATA_POLICY.md); logged in `docs/REVIEW_DEBT.md`.
+
+## 2026-08-15 — Filing model added for M05 (not forced into Series/Observation)
+
+**Decision**: OpenDART disclosures are stored in a new `Filing` model
+(sourceId/corpCode/corpName/stockCode/reportName/receiptNo/receiptDate/remark/raw), not shoehorned
+into `Series`/`Observation`.
+**Reason**: A filing is a discrete document/event keyed by a source-issued receipt number, not
+a numeric time-series data point — the revision-vs-overwrite logic that Series/Observation
+exists for doesn't apply the same way (DART amendments arrive as new filings with their own
+receipt number, not a same-date value change). Forcing it into Observation would require a
+fake/null `value` and lose the actual document metadata (report name, filer, remark flags).
+**Alternatives**: Store filings as Observations with a sentinel value — rejected as exactly the
+kind of "fabricate a value to fit the schema" move the financial-data invariants prohibit.
+
+## 2026-08-15 — OpenDART API shape built from documentation, not a verified live response
+
+**Decision**: `src/server/adapters/dart/types.ts` documents the list.json shape (status/
+message envelope, corp_code/rcept_no/rcept_dt/... fields, status "013" = no data) based on
+third-party documentation and general knowledge of this long-stable public API, since direct
+network access to opendart.fss.or.kr is blocked in this dev environment (confirmed via
+WebFetch, same as ecos.bok.or.kr).
+**Reason**: Same reasoning as the ECOS decision above — build the adapter now so the schema and
+pipeline are validated end-to-end, but be explicit that field-level correctness is unverified
+rather than silently presenting it as confirmed.
+**Follow-up**: Revisit once a real `DART_API_KEY` and a live response are available (Human
+Gate); logged in `docs/REVIEW_DEBT.md`.

@@ -14,7 +14,8 @@
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
     "db:seed": "tsx prisma/seed.ts",
     "ingest:fred": "tsx scripts/ingest-fred.ts",
-    "ingest:ecos": "tsx scripts/ingest-ecos.ts"
+    "ingest:ecos": "tsx scripts/ingest-ecos.ts",
+    "ingest:dart": "tsx scripts/ingest-dart.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

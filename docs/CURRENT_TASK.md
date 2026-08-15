@@ -1,18 +1,18 @@
 # Current Task
 
-MILESTONE: M05 — OpenDART (Korea filings) adapter
+MILESTONE: M06 — SEC EDGAR (US filings) adapter
 
-TASK: Build `src/server/adapters/dart/`. Unlike FRED/ECOS (macro time series), DART returns
-corporate filings/disclosures — this is structurally a different shape and probably needs a new
-`Filing` (or similar) Prisma model, not a forced fit into Series/Observation. Research the real
-OpenDART API (disclosure list endpoint, financial statement endpoint) before designing the
-schema addition.
+TASK: Build `src/server/adapters/edgar/`, reusing the `Filing` model added in M05 (M05's
+DECISIONS.md entry explains why Filing exists as its own model rather than being forced into
+Series/Observation). EDGAR's submissions API is CIK-based (not corp_code), uses "accession
+number" instead of DART's rcept_no, and requires a descriptive User-Agent header per SEC's
+fair-access policy (not an API key) — check this before coding, don't assume DART's auth
+pattern carries over.
 
-STATUS: Not started — M04 (ECOS adapter) complete and verified.
+STATUS: Not started — M05 (OpenDART adapter) complete and verified.
 
-NEXT EXACT ACTION: Research OpenDART's actual API response shape (list.json for disclosure
-search, fnlttSinglAcntAll.json or similar for financial statements) via WebSearch since direct
-fetch to opendart.fss.or.kr may be blocked (as ecos.bok.or.kr was — verify first). Design a
-minimal `Filing` schema addition (prisma/schema.prisma) sufficient for M05's scope, add a
-migration, then build client/normalize/ingest following the M03/M04 pattern where it fits and
-diverging where filings genuinely differ from time-series observations.
+NEXT EXACT ACTION: Research the real SEC EDGAR submissions API shape
+(https://data.sec.gov/submissions/CIK##########.json) via WebSearch/WebFetch (test whether
+data.sec.gov is reachable before assuming it's blocked like ecos.bok.or.kr/opendart.fss.or.kr
+were), then design types.ts/client.ts/normalize.ts/ingest.ts following the DART adapter's
+pattern where it fits.

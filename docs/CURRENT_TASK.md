@@ -1,20 +1,20 @@
 # Current Task
 
-MILESTONE: M19 — Watchlist
+MILESTONE: M20 — Today / Morning Intelligence
 
-TASK: Companies/ETFs/indicators/industries/themes a user tracks (docs/PRODUCT_SPEC.md).
-Personalization is limited to information filtering — never personalized investment judgment
-(same guardrail family as ETF X-Ray's no-score rule). Resolved dependency question (see
-docs/DECISIONS.md): ship a minimal placeholder `User` model now (id + createdAt only, no auth
-fields) so `WatchlistItem` has real referential integrity; M22 (Auth) extends this same table
-with real auth fields later rather than replacing it.
+TASK: Per docs/PRODUCT_SPEC.md "Today / Morning Intelligence": a 5-minute daily brief covering
+overnight events, KR-relevant variables, data to watch, filings, calendar, "what changed",
+sources, confidence. This composes existing domain modules (eventClustering/M07,
+whatChanged/M10, macroRegime/M11, economicCalendar/M12, Company X-Ray/M15, filingDiff/M16) into
+one view — it does not ingest new data itself.
 
-STATUS: Not started — M18 (Real Estate Intelligence, schema+algorithm only) complete and
-verified.
+STATUS: Not started — M19 (Watchlist) complete and verified.
 
-NEXT EXACT ACTION: Add `User` and `WatchlistItem` models to prisma/schema.prisma.
-WatchlistItem: userId, itemType (COMPANY | ETF | INDICATOR | INDUSTRY | THEME), itemRef
-(source-specific identifier — corpCode/ticker/seriesId/free-text theme), label, addedAt.
-Migrate, then build src/server/domain/watchlist.ts (add/remove/list, idempotent add — adding
-the same item twice is a no-op, not a duplicate row) with unit + integration tests against a
-real Postgres, same pattern as every prior domain module.
+NEXT EXACT ACTION: Decide UI scope first (record in DECISIONS.md): the Next.js app currently
+has only the M01 scaffold page, no real UI. Given the project's completion standard ("verify
+the actual user path, not just code existing"), M20 should ship a real minimal page
+(src/app/today/page.tsx or similar) that calls a server-side buildMorningBrief() composition
+function and renders it — not just another untested data module. Keep the UI simple (per
+docs/PRODUCT_SPEC.md's UX principle: show what changed and why, not everything) — a plain
+server-rendered list is sufficient for V1, no client-side framework additions needed. Verify by
+actually starting the dev server and loading the page, not just unit-testing the data function.

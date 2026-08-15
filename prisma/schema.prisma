@@ -249,6 +249,46 @@ model RealEstateTransaction {
 }
 
 // ---------------------------------------------------------------------------
+// M19 groundwork: Watchlist. `User` is deliberately minimal (id + createdAt
+// only) — M22 (Auth) adds real auth fields to this SAME table later rather
+// than replacing it; see docs/DECISIONS.md for why this isn't premature
+// scaffolding. Personalization here is limited to information filtering
+// (which items a user tracks), never personalized investment judgment
+// (docs/PRODUCT_SPEC.md "Watchlist").
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  watchlistItems WatchlistItem[]
+
+  @@map("users")
+}
+
+enum WatchlistItemType {
+  COMPANY
+  ETF
+  INDICATOR
+  INDUSTRY
+  THEME
+}
+
+model WatchlistItem {
+  id       String            @id @default(cuid())
+  userId   String
+  user     User              @relation(fields: [userId], references: [id])
+  itemType WatchlistItemType
+  itemRef  String // source-specific identifier: corpCode/ticker/seriesId/free-text theme
+  label    String // display label, e.g. "Apple Inc." or "US 10Y Treasury Yield"
+  addedAt  DateTime          @default(now())
+
+  @@unique([userId, itemType, itemRef])
+  @@index([userId])
+  @@map("watchlist_items")
+}
+
+// ---------------------------------------------------------------------------
 // M07 groundwork: Event Intelligence. Many news/metadata mentions of the same
 // real-world event are clustered into one Event. Clustering is a deterministic
 // keyword/time-window heuristic (src/server/domain/eventClustering.ts) — no

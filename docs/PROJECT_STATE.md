@@ -3,17 +3,16 @@ CURRENT RELEASE
 
 COMPLETED
 M00, M01, M02, M03, M04, M05, M06, M07 (partial), M08, M09 (partial), M10, M11, M12 (partial),
-M13 (partial), M14 (partial), M15 (partial), M16 (partial), M17 (partial), M18 (partial —
-schema + median-based price-change analysis only, no ingestion adapter — see REVIEW_DEBT)
+M13 (partial), M14 (partial), M15 (partial), M16 (partial), M17 (partial), M18 (partial), M19
 
 CURRENT
-M19
+M20
 
 STATUS
 READY
 
 TESTS
-114 / 114 PASS (46 unit, 68 integration against a real Postgres instance)
+119 / 119 PASS (46 unit, 73 integration against a real Postgres instance)
 
 OPEN P0
 0
@@ -22,19 +21,16 @@ OPEN P1
 0
 
 REVIEW DEBT
-See docs/REVIEW_DEBT.md (19 entries as of M18). All entries are honestly scoped-down or
-blocked features with documented reasons. This dev environment has confirmed egress-blocked:
-ecos.bok.or.kr, opendart.fss.or.kr, data.sec.gov (submissions + XBRL), api.stlouisfed.org,
-ssga.com, ishares.com, data.go.kr — essentially every real financial/economic-data provider
-domain tested. M03-M18 (macro/filing/company/ETF/real-estate adapters) are all built against
-documented API shapes or scoped down to schema+algorithm-only where no shape could be
-responsibly assumed; live-verification is consistently logged as review debt, not hidden.
+See docs/REVIEW_DEBT.md (19 entries, unchanged by M19 — Watchlist introduced no new gaps).
 
 NEXT
-M19: Watchlist. Companies/ETFs/indicators/industries/themes a user tracks. Per
-docs/PRODUCT_SPEC.md: personalization limited to information filtering — never personalized
-investment judgment. This is the first milestone needing a User concept (even a minimal one)
-since nothing built so far has per-user state; auth itself is M22, so Watchlist likely needs a
-placeholder/anonymous-user-scoped design for now, or should be reordered after M22 if a real
-user model is a hard prerequisite — evaluate and record the decision in DECISIONS.md rather
-than building throwaway auth scaffolding to unblock this milestone.
+M20: Today / Morning Intelligence. 5-minute daily brief: overnight events, KR-relevant
+variables, data to watch, filings, calendar, "what changed", sources, confidence (per
+docs/PRODUCT_SPEC.md). This is the first milestone that's a genuine PRESENTATION-layer
+aggregator — it doesn't ingest new data, it composes what M07/M10/M11/M12/M15/M16 already
+produce into one user-facing view. Real question to resolve: this is a Next.js app with almost
+no UI built yet (only the default scaffold page from M01) — decide whether M20 builds an actual
+page/route (src/app/) or stays a server-side "buildMorningBrief()" data-composition function
+with UI deferred to a later pass. Given CLAUDE.md's "verify actual user path, not just code
+existing" completion standard, some minimal real UI is probably warranted here rather than
+another data-only module — record the decision in DECISIONS.md before starting.

@@ -346,3 +346,42 @@ source becomes available.
 source becomes reachable in a real deployment environment, or (b) a well-documented, stable
 public ETF data API is identified (unlike issuer holdings pages, which are essentially website
 scraping targets, not APIs) — logged as BLOCKED in `docs/REVIEW_DEBT.md`.
+
+## 2026-08-15 — M18 Real Estate Intelligence scoped to schema + deterministic median-based analysis, no ingestion
+
+**Decision**: Confirmed via WebFetch that `www.data.go.kr` (Korea's public data portal, which
+would front MOLIT's real-transaction-price API) is egress-blocked, consistent with every other
+Korean/US financial-data-adjacent domain tested this session (ecos.bok.or.kr,
+opendart.fss.or.kr, data.sec.gov, api.stlouisfed.org, ssga.com, ishares.com — all blocked). This
+container blocks essentially all financial-data-provider domains as a systemic constraint, not
+an intermittent one; further per-domain probing for this milestone was skipped once the pattern
+was already this consistent, to avoid spending effort re-confirming an established fact.
+**Decision (what ships instead)**: A `RealEstateTransaction` model (individual transaction
+records — region, deal type, property type, area, price, deal date — matching MOLIT's actual
+실거래가 data shape from general knowledge of this well-known public dataset) plus a
+deterministic domain module computing median price-per-area change between two time windows
+(median, not a two-point delta, since individual real-estate transactions have high per-unit
+variance — a single outlier sale shouldn't swing a "24h change"-style calculation the way it's
+fine to for a liquid market series). No ingestion adapter; tested against seeded fixture data.
+**Reason**: Same reasoning as M12/M17 — ship the honestly smaller real feature (schema + tested
+algorithm) rather than block the milestone or fabricate transaction data.
+**Follow-up**: Build the real MOLIT/data.go.kr adapter once reachable in a real deployment
+environment; logged as BLOCKED in `docs/REVIEW_DEBT.md`.
+
+## 2026-08-15 — M19 Watchlist ships with a minimal placeholder `User` model, not deferred to after M22
+
+**Decision**: Added a minimal `User` model (id, createdAt only — no email/password/auth fields)
+now, so `WatchlistItem` can have a real foreign key rather than a bare unvalidated string
+`userId`. Full authentication (email, password hashing, sessions) is still M22's job, added on
+top of this same table later.
+**Reason**: `docs/ROADMAP.md` orders Watchlist (M19) before Auth (M22), and Watchlist
+fundamentally needs a concept of "whose list is this." Two options: (a) a bare `userId: String`
+field with no referential integrity, to be replaced later, or (b) a minimal real `User` table
+now that M22 extends. (b) avoids a later migration that has to rewrite every WatchlistItem row's
+identifier format, and a bare id-only User table is not "throwaway auth scaffolding" — it's the
+same table M22 will add columns to, not a table M22 will delete and replace.
+**Alternatives**: Reorder M22 before M19 — rejected; M22's actual scope (real auth flows,
+sessions, security review) is much larger than what M19 needs, and blocking Watchlist on all of
+that would be a bigger reordering than the roadmap's stated dependency reasoning justifies.
+**Follow-up**: When M22 is built, add auth fields to this same `User` model rather than creating
+a second one; record any schema changes there in a new DECISIONS.md entry at that time.

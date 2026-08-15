@@ -35,13 +35,14 @@ model Source {
   homepage  String?
   createdAt DateTime   @default(now())
 
-  series         Series[]
-  observations   Observation[]
-  claims         Claim[]
-  filings        Filing[]
-  eventMentions  EventMention[]
-  financialFacts FinancialFact[]
-  etfs           Etf[]
+  series                 Series[]
+  observations           Observation[]
+  claims                 Claim[]
+  filings                Filing[]
+  eventMentions          EventMention[]
+  financialFacts         FinancialFact[]
+  etfs                   Etf[]
+  realEstateTransactions RealEstateTransaction[]
 
   @@map("sources")
 }
@@ -210,6 +211,41 @@ model EtfHolding {
 
   @@index([etfId])
   @@map("etf_holdings")
+}
+
+// ---------------------------------------------------------------------------
+// M18 groundwork: Real Estate Intelligence (Korea). Individual transaction
+// records — 실거래가 (actual transaction price) data shape, matching MOLIT's
+// well-known public dataset. No ingestion adapter ships with this milestone
+// (data.go.kr is egress-blocked in this dev environment) — see
+// docs/DECISIONS.md. Schema + a deterministic median-based analysis module
+// are tested against seeded fixture data.
+// ---------------------------------------------------------------------------
+
+enum RealEstateDealType {
+  SALE // 매매
+  JEONSE // 전세
+  WOLSE // 월세
+}
+
+model RealEstateTransaction {
+  id           String             @id @default(cuid())
+  sourceId     String
+  source       Source             @relation(fields: [sourceId], references: [id])
+  region       String // e.g. "서울특별시 강남구" — dong-level or gu-level, source-dependent
+  propertyType String // e.g. "아파트", "오피스텔" — kept as source-provided text, not an enum
+  dealType     RealEstateDealType
+  areaSqm      Decimal            @db.Decimal(8, 2)
+  price        Decimal            @db.Decimal(16, 2) // KRW 만원 (10,000 KRW) units, per MOLIT convention
+  dealDate     DateTime
+  buildYear    Int?
+  floor        Int?
+  retrievedAt  DateTime           @default(now())
+  raw          Json
+  createdAt    DateTime           @default(now())
+
+  @@index([sourceId, region, dealType, dealDate])
+  @@map("real_estate_transactions")
 }
 
 // ---------------------------------------------------------------------------

@@ -1,53 +1,48 @@
 LAST COMPLETED
-M17: ETF X-Ray, scoped to schema + legal-guardrail enforcement + exposure aggregation only, no
-ingestion adapter (see docs/DECISIONS.md). Confirmed via WebFetch that both candidate free
-holdings sources (ssga.com, ishares.com) are egress-blocked. Unlike M04-M06/M15's
-government/regulatory APIs, ETF issuer holdings files aren't a stable, well-documented public
-API shape — building an adapter against a guessed format was judged too fabrication-prone and
-rejected. What shipped instead: `Etf`/`EtfHolding` Prisma models (migration
-20260815173856_etf_xray) with NO score/rating/recommendation field anywhere, enforced by a
-dedicated structural test (`tests/etfSchemaGuardrail.test.ts`) that greps the actual
-schema.prisma source for forbidden patterns — a real regression test, not just a design
-intention. `src/server/domain/etfExposure.ts`'s `computeSectorExposure`/`computeCountryExposure`
-purely sum stored holding weights into buckets (deterministic, no LLM, no invented score) —
-verified against real seeded data including an "Unclassified" bucket for a holding with no
-recorded sector. 111/111 tests pass (46 unit + 65 integration against a real local Postgres,
-verified stable). Full verify chain green.
+M18: Real Estate Intelligence (Korea), scoped to schema + median-based price-change analysis,
+no ingestion adapter (data.go.kr confirmed egress-blocked via WebFetch, consistent with every
+other financial-data domain tested this session). Added `RealEstateTransaction` model
+(migration 20260815174238_real_estate) matching MOLIT's well-known 실거래가 (actual
+transaction price) data shape. `src/server/domain/realEstateAnalysis.ts`'s
+`computeRegionalPriceChange` compares MEDIAN price-per-sqm between two time windows (not a
+two-point delta like whatChanged.ts) — deliberately chosen because individual real-estate
+transactions have high per-unit variance, so a median over a window is more honest than
+comparing two arbitrary transactions. Requires a minimum sample size in each window (default 3)
+or returns INSUFFICIENT_DATA. Verified against hand-computed seeded data — all exact values
+(median 110 vs 95, absolute change 15, percent change 15.7895%) matched on the first test run.
+114/114 tests pass (46 unit + 68 integration against a real local Postgres, verified stable).
+Full verify chain green.
 
 CURRENT TASK
-M18: Real Estate Intelligence (Korea) — see docs/CURRENT_TASK.md. Candidate sources (MOLIT,
-data.go.kr) are already in the M02 seed registry but have never actually been probed for
-reachability. Given every financial-data domain tested this session has been egress-blocked,
-budget effort accordingly — probe once, then move to scoping down if blocked, rather than
-repeated probing.
+M19: Watchlist — see docs/CURRENT_TASK.md. Resolved a real dependency question before coding:
+Watchlist needs "whose list is this" but Auth is M22. Decision (recorded in DECISIONS.md):
+ship a minimal placeholder User model (id + createdAt only) now, which M22 extends with real
+auth fields later rather than replacing.
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M16 commit)
-prisma/schema.prisma (+Etf, +EtfHolding models), prisma/migrations/20260815173856_etf_xray/,
-src/server/domain/etfExposure.ts (new), tests/etfSchemaGuardrail.test.ts (new),
-tests/integration/etf-exposure.test.ts (new).
+CHANGED FILES (since M17 commit)
+prisma/schema.prisma (+RealEstateTransaction, +RealEstateDealType),
+prisma/migrations/20260815174238_real_estate/, src/server/domain/realEstateAnalysis.ts (new),
+tests/integration/real-estate-analysis.test.ts (new).
 
 TEST STATUS
-111/111 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite
+114/114 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite
 skips gracefully without a DB.
 
 NEXT EXACT ACTION
-Start M18: WebFetch-probe MOLIT/data.go.kr for reachability once. If blocked (likely, given the
-session's pattern so far), scope down to schema + a deterministic domain-logic module (e.g.
-price-index change reusing seriesReadings.ts) tested against seeded fixture data — don't spend
-excess effort re-probing already-established egress restrictions.
+Implementing M19 now in this same session: add User + WatchlistItem models, migrate, build
+src/server/domain/watchlist.ts with idempotent add/remove/list, test against real Postgres.
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
 role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember `npx prisma
 generate` after every schema.prisma change. vitest.config.mts has fileParallelism: false, and
 every integration test file must scope cleanup to rows it owns — never a bare deleteMany() on a
-shared table. Seventeen commits pushed so far (M00-M16) to
-origin/claude/market-os-development-7vnicg; M17 is about to be committed and pushed. No PR
-opened yet (none requested). Confirmed egress-blocked so far: ecos.bok.or.kr,
-opendart.fss.or.kr, data.sec.gov (submissions + XBRL), api.stlouisfed.org, ssga.com,
-ishares.com — this dev container appears to block essentially all financial-data-provider
-domains, which is a real, consistent environmental constraint rather than intermittent — factor
-this into how much time is spent probing new domains for future milestones (M18 onward).
+shared table. Eighteen commits pushed so far (M00-M17) to
+origin/claude/market-os-development-7vnicg; M18 is about to be committed and pushed. No PR
+opened yet (none requested). This dev environment's egress restrictions are now well-established
+(ecos.bok.or.kr, opendart.fss.or.kr, data.sec.gov, api.stlouisfed.org, ssga.com, ishares.com,
+data.go.kr all blocked) — for any future milestone needing an external data source, probe once,
+then move directly to scoping down if blocked rather than re-litigating the pattern.

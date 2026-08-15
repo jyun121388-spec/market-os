@@ -206,3 +206,27 @@ expanding coverage would have meant 5 of 8 axes permanently reporting NOT_TRACKE
 ingestion has run against these yet in this dev environment (no FRED_API_KEY configured here —
 Human Gate), so real values are still pending; `computeRegimeSnapshot()` correctly reports
 NOT_TRACKED/INSUFFICIENT_DATA rather than fabricating readings until ingestion actually runs.
+
+## 2026-08-15 — M12 Economic Calendar scoped down to cadence projection (no consensus data)
+
+**Decision**: `src/server/domain/economicCalendar.ts` projects each series' next expected
+observation date from the median historical interval between its own past observation dates.
+It does NOT implement consensus/surprise/actual-vs-expected from docs/PRODUCT_SPEC.md's full
+Economic Calendar spec.
+**Reason**: `api.stlouisfed.org` (FRED, including its Releases API which gives real release
+dates) is egress-blocked in this dev environment, confirmed via WebFetch — same pattern as
+ecos.bok.or.kr/opendart.fss.or.kr/data.sec.gov. FRED's Releases API doesn't provide
+forward-looking consensus estimates even when reachable; a genuine consensus source is
+typically paid. Rather than either blocking the milestone entirely or guessing at specific
+FRED `release_id`-to-series mappings without being able to verify them (which would risk
+displaying wrong release dates as if confirmed — exactly what the Claim Ledger's provenance
+requirements exist to prevent), this milestone ships an honestly smaller feature: a
+deterministic cadence projection from data the app has already verifiably ingested itself, with
+the gap explicitly logged rather than silently presented as the full spec.
+**Alternatives**: Block M12 entirely pending a reachable consensus source — rejected, since a
+real (if partial) feature is buildable now and "next expected release" is still genuinely
+useful. Guess at FRED release_id mappings from training knowledge — rejected as unverifiable
+and too easy to get subtly wrong for financial-calendar data.
+**Follow-up**: Revisit once `api.stlouisfed.org` is reachable (to use the real Releases API for
+actual release dates) and/or a legitimate free consensus-estimate source is identified; logged
+in `docs/REVIEW_DEBT.md`.

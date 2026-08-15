@@ -17,7 +17,8 @@
     "ingest:ecos": "tsx scripts/ingest-ecos.ts",
     "ingest:dart": "tsx scripts/ingest-dart.ts",
     "ingest:edgar": "tsx scripts/ingest-edgar.ts",
-    "regime:print": "tsx scripts/print-regime.ts"
+    "regime:print": "tsx scripts/print-regime.ts",
+    "calendar:print": "tsx scripts/print-calendar.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

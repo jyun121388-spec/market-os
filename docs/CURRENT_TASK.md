@@ -1,16 +1,18 @@
 # Current Task
 
-MILESTONE: M04 — ECOS (Bank of Korea) macro adapter
+MILESTONE: M05 — OpenDART (Korea filings) adapter
 
-TASK: Build `src/server/adapters/ecos/` mirroring the FRED adapter shape
-(client.ts/types.ts/normalize.ts/ingest.ts/__fixtures__/) for Korean macro series (e.g. base
-rate, KRW/USD). ECOS uses a different missing-value convention and KST-dated releases — do not
-assume FRED's conventions carry over uncritically; verify against ECOS's actual documented API
-response shape before writing normalize.ts.
+TASK: Build `src/server/adapters/dart/`. Unlike FRED/ECOS (macro time series), DART returns
+corporate filings/disclosures — this is structurally a different shape and probably needs a new
+`Filing` (or similar) Prisma model, not a forced fit into Series/Observation. Research the real
+OpenDART API (disclosure list endpoint, financial statement endpoint) before designing the
+schema addition.
 
-STATUS: Not started — M03 (FRED adapter) complete and verified.
+STATUS: Not started — M04 (ECOS adapter) complete and verified.
 
-NEXT EXACT ACTION: Look up the real ECOS StatisticSearch API response shape (fields, date
-format, missing-value marker) before writing types.ts, so the adapter isn't built against
-assumptions. Then follow the same client/normalize/ingest/test structure as
-src/server/adapters/fred/.
+NEXT EXACT ACTION: Research OpenDART's actual API response shape (list.json for disclosure
+search, fnlttSinglAcntAll.json or similar for financial statements) via WebSearch since direct
+fetch to opendart.fss.or.kr may be blocked (as ecos.bok.or.kr was — verify first). Design a
+minimal `Filing` schema addition (prisma/schema.prisma) sufficient for M05's scope, add a
+migration, then build client/normalize/ingest following the M03/M04 pattern where it fits and
+diverging where filings genuinely differ from time-series observations.

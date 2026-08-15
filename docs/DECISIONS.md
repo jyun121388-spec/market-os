@@ -46,3 +46,26 @@ instance, deferring the full source registry / seed data and additional domain t
 causal graph edges, filings, etc.) to their respective milestones (M02, M07, M13, M15-M17).
 **Reason**: Keeps M01 scoped to "core architecture + database" as roadmapped; avoids building
 schema for features not yet designed in detail.
+
+## 2026-08-15 — Shared revision-aware observation upsert extracted after the 2nd adapter
+
+**Decision**: `src/server/domain/observationIngest.ts` centralizes the
+insert/revise/unchanged logic every adapter's `ingest.ts` needs, instead of each adapter
+reimplementing it.
+**Reason**: FRED (M03) and ECOS (M04) needed byte-for-byte identical revision-tracking logic;
+duplicating it a second time made a third copy (DART/EDGAR, M05-M06) look inevitable, so this
+crossed from "three similar lines" into a real shared invariant worth protecting in one place.
+**Alternatives**: Leave duplicated per-adapter — rejected, this is exactly the kind of
+correctness-critical logic (docs/DATA_POLICY.md financial-data checklist) that should not drift
+between copies.
+
+## 2026-08-15 — ECOS missing-value handling is conservative, not verified against a live API
+
+**Decision**: `src/server/adapters/ecos/normalize.ts` treats any non-finite `DATA_VALUE` as
+missing (skipped, never coerced to 0), rather than matching a specific documented marker.
+**Reason**: Network access to ecos.bok.or.kr is blocked in this dev environment, so the exact
+missing-value convention could not be confirmed against a live response — only inferred from
+third-party documentation/tutorials. A conservative "any non-numeric = missing" rule cannot
+silently fabricate a financial value even if the real marker differs from what was assumed.
+**Follow-up**: Revisit once a real `ECOS_API_KEY` and a live response are available (Human
+Gate — see docs/DATA_POLICY.md); logged in `docs/REVIEW_DEBT.md`.

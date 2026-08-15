@@ -91,4 +91,35 @@ describeIfDb("prisma schema (integration)", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("records a DataConflict instead of silently picking a value when sources disagree", async () => {
+    const series = await prisma.series.findFirstOrThrow({ where: { externalId: "DGS10" } });
+    const observation = await prisma.observation.findFirstOrThrow({
+      where: { seriesId: series.id },
+    });
+
+    const conflict = await prisma.dataConflict.create({
+      data: {
+        observationId: observation.id,
+        conflictingWith: {
+          sourceCode: "US_TREASURY",
+          value: "4.27",
+          observationDate: "2026-08-14",
+          retrievedAt: "2026-08-15T00:00:00.000Z",
+        },
+        officialSource: null,
+        resolved: false,
+      },
+    });
+
+    expect(conflict.resolved).toBe(false);
+    expect((conflict.conflictingWith as { sourceCode: string }).sourceCode).toBe("US_TREASURY");
+
+    const stored = await prisma.observation.findUniqueOrThrow({
+      where: { id: observation.id },
+      include: { conflicts: true },
+    });
+    expect(stored.value.toString()).toBe("4.25"); // original value is untouched, not overwritten
+    expect(stored.conflicts).toHaveLength(1);
+  });
 });

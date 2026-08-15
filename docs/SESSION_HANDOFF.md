@@ -1,37 +1,35 @@
 LAST COMPLETED
-M01: Next.js (TS, App Router, Tailwind) + Prisma/PostgreSQL scaffold, CI workflow, Vitest.
-Prisma schema covers Source/Series/Observation/DataConflict/Claim (Claim Ledger groundwork).
-Migration applied and verified against a real local Postgres instance; full verify chain
-(format/lint/typecheck/test/build) green with 10/10 tests passing (7 unit + 3 integration).
+M02: seed script (prisma/seed.ts, prisma/sources.ts) for the initial 14 Tier S sources
+(FRED, SEC EDGAR, BLS, BEA, US Treasury, Fed, ECOS, KOSIS, DART, 공공데이터포털, MOLIT, IMF,
+World Bank, OECD), a DataConflict integration test, and a pure unit test validating the source
+registry. 14/14 tests pass (10 unit + 4 integration against a real local Postgres). Full verify
+chain green.
 
 CURRENT TASK
-M02: Source/data model — seed script for initial sources, DataConflict integration coverage.
+M03: FRED adapter — see docs/CURRENT_TASK.md.
 
 CURRENT FAILURE
 none
 
-CHANGED FILES
-Full Next.js scaffold (src/app, src/server/db/client.ts, src/server/domain/claimLedger.ts),
-prisma/schema.prisma + migrations, tests/, vitest.config.mts, .github/workflows/ci.yml,
-package.json, README.md, .env.example, .gitignore, .prettierrc.json.
+CHANGED FILES (since M01 commit)
+prisma/seed.ts, prisma/sources.ts, tests/sources.test.ts,
+tests/integration/schema.test.ts (added DataConflict test), package.json (db:seed script,
+prisma.seed config, tsx devDependency).
 
 TEST STATUS
-10/10 pass locally with DATABASE_URL set (postgresql://market_os:market_os_dev@localhost:5432/
-market_os). 7/10 run (3 skipped) without DATABASE_URL — by design, so `npm test` never hard-fails
-in a DB-less environment.
+14/14 pass with DATABASE_URL set. Tests degrade gracefully (integration suite skips) without a
+DB, so `npm test` never hard-fails in a DB-less environment — this matters for any future
+session/CI runner that doesn't provision Postgres.
 
 NEXT EXACT ACTION
-Start M02: add prisma/seed.ts with the initial Tier S source registry (FRED, ECOS, OpenDART,
-SEC EDGAR, BOK, KOSIS, 공공데이터포털, MOLIT), add a DataConflict integration test, update
-PROJECT_STATE, then move to M03 (FRED adapter — first real external data source).
+Start M03: scaffold src/server/adapters/fred/ (raw fetch + typed shape), add a fixture-based
+test (works without FRED_API_KEY), add normalization into Observation rows, verify against the
+docs/DATA_POLICY.md financial-data checklist (timezone, observation vs release date, revisions).
 
 IMPORTANT CONTEXT
-Repo was empty at session start; branch claude/market-os-development-7vnicg used throughout,
-per task instructions. Local Postgres 16 is available in this container (`service postgresql
-start`); a dev role/db were created (market_os/market_os_dev) — not committed, .env is
-gitignored. Prisma 7 requires a driver adapter (@prisma/adapter-pg) instead of a `url` in
-schema.prisma; see src/server/db/client.ts and docs/DECISIONS.md if this trips up a future
-session. M01 DB schema is open Codex review debt (see PROJECT_STATE.md) — should be reviewed
-before M03+ adapters depend heavily on it, but that review has not yet been requested since no
-Codex session is available in this environment; log status in REVIEW_DEBT.md if still pending
-when a decision point is reached.
+Local Postgres 16 running in this container via `service postgresql start`; dev role/db
+market_os/market_os_dev created (not committed — .env is gitignored, only .env.example is
+tracked). Prisma 7 uses a driver-adapter pattern (@prisma/adapter-pg), not `datasource.url` in
+schema.prisma — see docs/DECISIONS.md if this trips up a future session or Codex review.
+Two commits pushed to origin/claude/market-os-development-7vnicg so far (M00, M01); M02 is
+about to be committed. Branch has no PR opened yet (none requested by the user).

@@ -121,12 +121,22 @@ SECOND ROUND (night autonomous run, 2026-08-17) — further defects found, all f
 11. **`DATABASE_URL` unset would silently skip all 25 integration files** and still report a
     green run. `tests/integration-coverage-guard.test.ts` now fails loudly in CI.
 
+12. **Provider API keys were reaching logs, and then the database.** `HttpTimeoutError` embeds
+    the request URL; ECOS puts its key in a path segment, FRED and DART in a query parameter.
+    Persisting ingest-run errors turned a transient log line into a stored secret rendered on
+    /admin. Redacted at both the error constructor and at persistence.
+13. **`filings.files[].name` was interpolated straight into a request URL** — a small SSRF
+    surface from a third-party response. Now constrained to the filename shape SEC documents.
+14. **`truncated` was a field nobody read.** Every adapter reported completeness and all of it
+    went to `console.warn`. Now persisted as `IngestRun` and surfaced on /admin as "Ingest
+    completeness" (fetched vs. the provider's own total).
+
 TESTS
-247 / 247 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
-`npm run e2e` 22/22 checks in a real browser (up from 12) — the walkthrough now drives the Ask
+258 / 258 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+`npm run e2e` 24/24 checks in a real browser (up from 12) — the walkthrough now drives the Ask
 Market guardrail through the real page, not just the domain function. `npm run verify:live:edgar`
-59/59 against real data.sec.gov. Lint / typecheck / format / production build all clean. Full
-suite runs in ~25s.
+59/59 against real data.sec.gov. All 13 migrations apply cleanly to a genuinely fresh database.
+Lint / typecheck / format / production build all clean. Full suite runs in ~22s.
 
 Note on the suite runtime: it briefly reached ~137s when pagination was first tested by pushing
 14,000 synthetic rows through the real ingest. That was moved to client-level tests, which is

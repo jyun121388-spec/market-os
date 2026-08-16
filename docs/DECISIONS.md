@@ -1020,3 +1020,131 @@ action rather than a defect.
 **Verification**: 218/218 tests against a real local PostgreSQL 16.10 (up from 209 — 8 watchlist
 server-action tests, 1 null-fiscal-label regression), `npm run e2e` 17/17 in a real browser (up
 from 12), 55/55 live EDGAR contract checks, lint/typecheck/format/production build all clean.
+
+---
+
+## 2026-08-17 (night) — Hardening round: completeness, guardrails, and secrets
+
+A continuation of the local-environment round above, and it kept finding the same shape of
+defect. Recording the pattern once here rather than eleven times below: **code that skips or
+caps data and says nothing, so an incomplete result is indistinguishable from a complete one.**
+Every finding in this round is an instance of it, in a different layer.
+
+### EDGAR was storing 45% of Apple's filing history
+
+`filings.recent` is hard-capped by SEC at 1000 entries; everything older spills into
+`filings.files[]`, each naming another JSON document. The adapter read `recent` alone. Real
+ingest went from 1000 filings (oldest 2015-06-04) to 2240 (oldest 1994-01-26).
+
+The uncomfortable part is how it survived: the live contract check written the previous day
+verified the response shape, printed "1000 recent filings" as an informational line, and
+concluded `VERIFIED`. Shape verification is not completeness verification, and a suspiciously
+round total should be read as a cap rather than a count. `docs/RELEASE_READINESS.md`'s EDGAR row
+now records that its own first verification was incomplete, because that is more useful to the
+next reader than a clean-looking VERIFIED. The script asserts completeness now.
+
+### Silent pagination truncation in all three keyed adapters
+
+FRED's `count`, ECOS's `list_total_count`, and DART's `total_page` were each received and then
+ignored; every client fetched page one and treated it as the whole answer. DART is the starkest:
+one request capped at 100 rows, against a filer that files several hundred disclosures a year.
+Found by reading the adapters against their own documented response shapes, before any key
+existed — worth noting, because it means the fix did not need the Human Gate to be resolved.
+
+Each client now pages to the provider's own total, bounded, and returns `truncated` plus that
+total. Tested at the client boundary rather than by pushing 14,000 synthetic rows through the
+real ingest, which added ~100s to the suite and proved nothing extra.
+
+### `truncated` was a field nobody read
+
+Which the Codex packet itself asked about. Every adapter returned a completeness signal and all
+of it went to `console.warn`. Added the `IngestRun` model (purely additive migration),
+`recordIngestRun` at the script entry points — the real run boundary, so tests do not litter the
+table — and an "Ingest completeness" section on /admin showing fetched vs. provider total.
+
+SUCCESS, PARTIAL and FAILED are kept as three distinct outcomes. Collapsing PARTIAL into SUCCESS
+is precisely how a partial dataset comes to read as a whole one. A failure is recorded and
+re-thrown rather than swallowed: the caller still needs to fail, but a run that died is the run
+an operator most wants to see afterwards.
+
+### Provider API keys were reaching logs — and then the database
+
+`HttpTimeoutError` embeds the request URL, and credentials live in those URLs: ECOS in a path
+segment, FRED and DART in a query parameter. Already bad as console output; persisting
+ingest-run errors made it materially worse, since a single upstream timeout would have written a
+live key into `ingest_runs.error` and rendered it on /admin.
+
+`redactSecrets` redacts the actual configured credential values wherever they appear — exact
+rather than pattern-based, so it covers path segments, query parameters, and any provider added
+later that nobody wrote a pattern for — plus known credential parameter names as a second layer.
+Applied at the error constructor and again at persistence. It ignores implausibly short values,
+since a two-character key would match everywhere and destroy every message's diagnostic value.
+
+### Third-party input in a URL
+
+`filings.files[].name` was interpolated straight into a request URL. A path traversal or absolute
+URL in that field would send the request elsewhere. Constrained to the filename shape SEC
+documents; anything else throws. Small surface, but not worth leaving open on the grounds that
+the third party is trustworthy today.
+
+### 14 real bypasses in the Ask Market buy/sell guardrail
+
+The most serious: "price target" was undetected. Price targets are named explicitly in
+`docs/LEGAL_GUARDRAILS.md`'s hard-prohibitions list and only the "target price" word order was
+covered — the reverse, which is the more common phrasing, went straight through. Same for
+목표가/목표주가.
+
+Two of the closed bypasses were ones `docs/CODEX_REVIEW_PACKET.md` had itself listed as open,
+written down as suggested reviewer inputs rather than fixed. Better that a re-reviewer finds them
+handled than confirms a hole we had already documented.
+
+Guarded the opposite failure deliberately. A guardrail that redirects everything is
+indistinguishable from a broken product and pushes users toward tools with no guardrail at all,
+so seven analytical controls now share vocabulary with the new patterns and must keep passing
+through. Non-English-non-Korean input remains genuinely unhandled — the honest limit of a
+deterministic pattern approach, and an argument for the M21 LLM decision rather than something to
+keep patching.
+
+### Watchlist request-path audit
+
+Three findings. An unused exported server action (every export in a `"use server"` module is a
+network-reachable endpoint whether or not a page calls it, so an unused export is HTTP surface,
+not dead code). No per-user row cap. And an `upsert` that could surface a raw P2002 under
+concurrent submission — the same read-then-write-treated-as-atomic shape as the observation
+revision race.
+
+The design decision worth preserving: no action accepts a `WatchlistItem.id`. Removal is
+addressed by `(itemType, itemRef)` resolved together with the session user's id, so there is no
+direct object reference to tamper with. A delete-by-row-id refactor would introduce exactly the
+IDOR this avoids.
+
+### Test-suite honesty
+
+Two fixes aimed at the suite itself rather than the product. `tests/integration-coverage-guard.
+test.ts` fails loudly in CI when `DATABASE_URL` is unset, because otherwise all 25 integration
+files skip themselves and the run still reports green. And `npm run e2e` now drives the Ask
+Market guardrail through the real page — the detector was unit-tested, but nothing proved it was
+wired into the page a user reaches.
+
+### Completed the 2026-08-16 impossible-date sweep
+
+That pass added `assertValidCalendarDate` to FRED and ECOS. DART, EDGAR submissions and EDGAR
+XBRL were all missed; a `\d{8}` or `\d{4}-\d{2}-\d{2}` check proves shape, not validity, so
+"20260230" would have rolled silently to Mar 2 and filed data under a date the source never
+reported. All four adapters now share the guard.
+
+### Measured and deliberately did not act
+
+Re-ingesting 2240 filings runs in 2.7s against local Postgres despite a per-row `findUnique`.
+The N+1 is real and the workload is not, so it was left alone rather than optimised on
+principle.
+
+A full security sweep found nothing further: one raw query in application code and it is a
+parameterised tagged template, no `RawUnsafe` calls, no hardcoded secrets, only `.env.example`
+tracked, no `dangerouslySetInnerHTML`, no environment logging.
+
+**Verification**: 258/258 tests against real local PostgreSQL 16.10, `npm run e2e` 24/24 in a
+real browser, `npm run verify:live:edgar` 59/59 against real data.sec.gov, all 13 migrations
+applied cleanly to a genuinely fresh database, lint/typecheck/format/production build clean.
+Nothing here is self-declared APPROVE, and no provider other than SEC EDGAR is claimed
+live-verified.

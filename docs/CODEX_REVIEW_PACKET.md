@@ -101,8 +101,10 @@ reported data.
 
 - **Where**: `prisma/migrations/20260817120000_financial_fact_nullable_fiscal_label/`,
   `src/server/adapters/edgar-xbrl/{types,normalize}.ts`, `src/server/domain/askMarket.ts`.
-- **Evidence**: 55/55 live contract checks, real ingest of 1000 filings and 1099 facts, then a
-  re-ingest returning 0 inserted / all unchanged.
+- **Evidence at the time**: 55/55 live contract checks, real ingest of 1000 filings and 1099
+  facts, re-ingest returning 0 inserted / all unchanged. **Both of those counts later turned out
+  to be symptoms** — the 1000 was SEC's cap (R14's neighbour, see the submissions overflow above)
+  and the 1099 was 168 facts short (R12). Current: 67/67 checks, 2240 filings, 1428 facts.
 - **Try to break it**: is there any consumer that still assumes a non-null `fiscalYear`? Does
   `/ask` render the null case in a way that could be mistaken for a reported value?
 

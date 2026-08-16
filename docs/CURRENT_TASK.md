@@ -1,6 +1,12 @@
 # Current Task
 
-MILESTONE: Post-M28 local-environment verification round — DONE.
+MILESTONE: Post-M28 local-environment and hardening rounds — DONE.
+
+> **Superseded detail below.** The figures in the STATUS paragraph ("55/55 contract checks, 1000
+> filings, 1099 facts") were accurate when written and are now known to have been symptoms:
+> the 1000 was SEC's hard cap on `filings.recent` and the 1099 was 168 facts short of what SEC
+> reports. Current state is 67/67 checks, 2240 filings, 1428 facts — see
+> `docs/PROJECT_STATE.md`, which is the source of truth.
 
 STATUS: Development moved from the Claude Code Web sandbox to a local Windows/VS Code machine
 (2026-08-17). The point of the move was to run the things the sandbox could not: a real
@@ -28,6 +34,16 @@ NEXT EXACT ACTION FOR A FUTURE SESSION, in order:
 3. If no key has arrived, there is no further live-verification work available. Do not
    substitute speculative engineering for it.
 
-The Codex re-review remains the one non-Product gate and is not something to poll for. Its
-scope has grown — see `docs/PROJECT_STATE.md` NEXT item 1 for the corrected base..head range and
-why a re-reviewer must be told the H3 fix was itself defective and has been re-fixed.
+Also outstanding: HG-001, `PUSH_PENDING_AUTH`. 41 commits are local-only because this machine has
+no GitHub credential. One `git push` once that exists.
+
+The Codex re-review remains the one non-Product gate and is not something to poll for. Its scope
+has grown considerably — see `docs/CODEX_REVIEW_PACKET.md` §0.1, which now runs to R1-R17 and
+names the two patterns behind most of them.
+
+**The most transferable thing learned on 2026-08-17**, worth applying before writing any new
+code: almost every defect found was surfaced by looking at real numbers and asking whether they
+were plausible, not by reading code. A round 1000. 168 rows "unchanged" against an empty table.
+2240 filings and 933 facts with zero joinable rows. 244 rows of net income against 13 of revenue.
+A +233% revenue increase. None had a failing test; several had passing ones. If you ingest
+something new, look at what landed before trusting that it landed correctly.

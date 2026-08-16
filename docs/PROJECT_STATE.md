@@ -83,9 +83,11 @@ Also fixed: `rcept_dt` was missing the impossible-date guard FRED and ECOS recei
 
 Live provider verification (docs/RELEASE_READINESS.md "Data adapters"):
 
-- **SEC EDGAR submissions + XBRL: `VERIFIED`.** 55/55 live contract checks against real
-  data.sec.gov (`npm run verify:live:edgar`), then a real ingest of 1000 filings and 1099
-  financial facts, then a re-ingest confirming 0 inserted / all unchanged.
+- **SEC EDGAR submissions + XBRL: `VERIFIED`.** 67/67 live contract checks against real
+  data.sec.gov (`npm run verify:live:edgar`), then a real ingest of 2240 filings and 1428
+  financial facts, then a re-ingest confirming 0 inserted / all unchanged. (The earlier
+  "1000 filings, 1099 facts" figures were themselves the symptom of two defects — see items 5
+  and 17 below.)
 - **FRED / ECOS / OpenDART: `LIVE_KEY_PENDING`** (HG-002/003/004). All three hosts are
   reachable; each needs a free API key the user registers for. `scripts/verify-{fred,ecos,dart}
 -live.ts` are written and wired to `npm run verify:live:*`, built on the same harness as the

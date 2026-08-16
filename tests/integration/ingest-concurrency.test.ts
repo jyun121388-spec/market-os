@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { prisma as PrismaClientInstance } from "@/server/db/client";
 import edgarFixture from "@/server/adapters/edgar/__fixtures__/apple-submissions.json";
-import { TRACKED_EDGAR_COMPANIES } from "@/server/adapters/edgar/types";
+import { TRACKED_EDGAR_COMPANIES, padCik } from "@/server/adapters/edgar/types";
 
 /**
  * Concurrent runs of the same ingest.
@@ -22,6 +22,8 @@ const hasDb = Boolean(process.env.DATABASE_URL);
 const describeIfDb = hasDb ? describe : describe.skip;
 
 const APPLE = TRACKED_EDGAR_COMPANIES[0];
+/** Filings are stored under the canonical zero-padded CIK — see corp-code-consistency.test.ts. */
+const APPLE_CORP_CODE = padCik(APPLE.cik);
 
 describeIfDb("concurrent ingest runs (integration)", () => {
   let prisma: typeof PrismaClientInstance;
@@ -35,16 +37,16 @@ describeIfDb("concurrent ingest runs (integration)", () => {
 
   afterEach(async () => {
     vi.unstubAllGlobals();
-    await prisma.filing.deleteMany({ where: { corpCode: edgarFixture.cik } });
+    await prisma.filing.deleteMany({ where: { corpCode: APPLE_CORP_CODE } });
   });
 
   afterAll(async () => {
-    await prisma.filing.deleteMany({ where: { corpCode: edgarFixture.cik } });
+    await prisma.filing.deleteMany({ where: { corpCode: APPLE_CORP_CODE } });
     await prisma.$disconnect();
   });
 
   it("N concurrent EDGAR ingests store each filing exactly once and never throw", async () => {
-    await prisma.filing.deleteMany({ where: { corpCode: edgarFixture.cik } });
+    await prisma.filing.deleteMany({ where: { corpCode: APPLE_CORP_CODE } });
 
     vi.stubGlobal(
       "fetch",
@@ -59,7 +61,7 @@ describeIfDb("concurrent ingest runs (integration)", () => {
       ingestEdgarFilings(APPLE),
     ]);
 
-    const stored = await prisma.filing.findMany({ where: { corpCode: edgarFixture.cik } });
+    const stored = await prisma.filing.findMany({ where: { corpCode: APPLE_CORP_CODE } });
     const fixtureCount = edgarFixture.filings.recent.accessionNumber.length;
 
     // Exactly one row per filing, no duplicates.

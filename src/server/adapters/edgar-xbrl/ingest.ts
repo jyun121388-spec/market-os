@@ -53,16 +53,20 @@ export async function ingestCompanyFacts(company: XbrlCompanyDefinition): Promis
   let unchanged = 0;
 
   for (const fact of facts) {
-    const existing = await prisma.financialFact.findUnique({
+    // `periodStart` is part of a fact's identity: one filing reports both a year-to-date and a
+    // quarterly figure under the same period end and accession, differing only in `start`. It
+    // is a `findFirst` rather than a `findUnique` because the constraint enforcing this is two
+    // partial indexes (periodStart NULL vs NOT NULL), which Prisma cannot express as a single
+    // compound unique key — see the 20260817230000 migration.
+    const existing = await prisma.financialFact.findFirst({
       where: {
-        sourceId_corpCode_concept_unit_periodEnd_accessionNumber: {
-          sourceId: source.id,
-          corpCode: fact.corpCode,
-          concept: fact.concept,
-          unit: fact.unit,
-          periodEnd: fact.periodEnd,
-          accessionNumber: fact.accessionNumber,
-        },
+        sourceId: source.id,
+        corpCode: fact.corpCode,
+        concept: fact.concept,
+        unit: fact.unit,
+        periodStart: fact.periodStart,
+        periodEnd: fact.periodEnd,
+        accessionNumber: fact.accessionNumber,
       },
     });
 

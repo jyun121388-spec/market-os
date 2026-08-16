@@ -1,4 +1,5 @@
 import { assertValidCalendarDate } from "../dateValidation";
+import { padCik } from "../edgar/types";
 import type { XbrlCompanyFacts, XbrlFactValue } from "./types";
 import { TRACKED_XBRL_CONCEPTS } from "./types";
 
@@ -60,6 +61,16 @@ export function normalizeCompanyFacts(
   response: XbrlCompanyFacts,
   cik: string,
 ): NormalizeCompanyFactsResult {
+  // Canonical, zero-padded 10-digit CIK — SEC's own identifier form, and the one the filings
+  // adapter already stores (it uses the `cik` SEC returns, which is padded).
+  //
+  // This used to store whatever the caller passed, which is the UNPADDED "320193" from
+  // TRACKED_XBRL_COMPANIES. The result: Apple's filings were saved under "0000320193" and its
+  // financial facts under "320193", so the same company existed twice under two identifiers.
+  // `askMarket.ts`'s `findCompanyFacts` looks facts up by a Filing's corpCode, so its entire
+  // "Company facts" section silently returned nothing for every EDGAR company — 2240 filings
+  // and 933 facts in the dev database with zero joinable rows between them.
+  const corpCode = padCik(cik);
   const usGaap = response.facts["us-gaap"];
   if (!usGaap) {
     return {
@@ -103,7 +114,7 @@ export function normalizeCompanyFacts(
       }
 
       facts.push({
-        corpCode: cik,
+        corpCode,
         taxonomy: "us-gaap",
         concept,
         unit: "USD",

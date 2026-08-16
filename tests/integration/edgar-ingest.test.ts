@@ -1,12 +1,18 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { prisma as PrismaClientInstance } from "@/server/db/client";
 import fixture from "@/server/adapters/edgar/__fixtures__/apple-submissions.json";
-import { TRACKED_EDGAR_COMPANIES } from "@/server/adapters/edgar/types";
+import { TRACKED_EDGAR_COMPANIES, padCik } from "@/server/adapters/edgar/types";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 const describeIfDb = hasDb ? describe : describe.skip;
 
 const APPLE = TRACKED_EDGAR_COMPANIES[0];
+/**
+ * Filings are stored under the canonical zero-padded CIK. The adapter used to pass SEC's `cik`
+ * straight through — padded in real responses, unpadded in this fixture — so the stored
+ * identifier depended on where the data came from. See tests/integration/corp-code-consistency.
+ */
+const APPLE_CORP_CODE = padCik(APPLE.cik);
 
 describeIfDb("EDGAR adapter ingest (integration)", () => {
   let prisma: typeof PrismaClientInstance;
@@ -19,7 +25,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
 
     const source = await prisma.source.findUnique({ where: { code: "SEC_EDGAR" } });
     if (source) {
-      await prisma.filing.deleteMany({ where: { sourceId: source.id, corpCode: APPLE.cik } });
+      await prisma.filing.deleteMany({ where: { sourceId: source.id, corpCode: APPLE_CORP_CODE } });
     }
   });
 
@@ -48,7 +54,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
       truncated: false,
     });
 
-    const stored = await prisma.filing.findMany({ where: { corpCode: APPLE.cik } });
+    const stored = await prisma.filing.findMany({ where: { corpCode: APPLE_CORP_CODE } });
     expect(stored).toHaveLength(2);
     expect(stored.every((f) => f.stockCode === "AAPL")).toBe(true);
   });
@@ -70,7 +76,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
       truncated: false,
     });
 
-    const count = await prisma.filing.count({ where: { corpCode: APPLE.cik } });
+    const count = await prisma.filing.count({ where: { corpCode: APPLE_CORP_CODE } });
     expect(count).toBe(2);
   });
 
@@ -80,7 +86,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
     // read `recent` alone, so Apple's stored history was exactly 1000 filings back to 2015 and
     // silently missing 1240 more covering 1994-2015 — 55% of it, absent without a word. The
     // stored count being exactly 1000 was the tell.
-    await prisma.filing.deleteMany({ where: { corpCode: APPLE.cik } });
+    await prisma.filing.deleteMany({ where: { corpCode: APPLE_CORP_CODE } });
 
     const requested: string[] = [];
     const overflowRow = (i: number) => `000032019${String(i).padStart(2, "0")}-94-000001`;
@@ -144,7 +150,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
     expect(result.inserted).toBe(4);
     expect(result.truncated).toBe(false);
 
-    const stored = await prisma.filing.findMany({ where: { corpCode: APPLE.cik } });
+    const stored = await prisma.filing.findMany({ where: { corpCode: APPLE_CORP_CODE } });
     expect(stored).toHaveLength(4);
     // The 1994 filing is the one the old code dropped entirely.
     expect(stored.some((f) => f.receiptDate.toISOString().startsWith("1994-01-26"))).toBe(true);
@@ -152,7 +158,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
     // none of their own.
     expect(stored.every((f) => f.stockCode === "AAPL")).toBe(true);
 
-    await prisma.filing.deleteMany({ where: { corpCode: APPLE.cik } });
+    await prisma.filing.deleteMany({ where: { corpCode: APPLE_CORP_CODE } });
   });
 
   it("throws EdgarApiError on a non-OK HTTP response rather than a silent empty result", async () => {

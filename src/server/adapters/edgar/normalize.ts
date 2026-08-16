@@ -1,6 +1,6 @@
 import { assertValidCalendarDate } from "../dateValidation";
 import type { EdgarFilingHistory } from "./client";
-import type { EdgarRecentFilings, EdgarSubmissionsResponse } from "./types";
+import { padCik, type EdgarRecentFilings, type EdgarSubmissionsResponse } from "./types";
 
 export interface NormalizedEdgarFiling {
   corpCode: string; // CIK
@@ -55,6 +55,13 @@ function normalizeEdgarFilingArrays(
 ): NormalizedEdgarFiling[] {
   assertParallelArraysAligned(recent);
 
+  // Canonicalise the CIK rather than storing whatever arrived. This adapter used to pass
+  // `response.cik` straight through, which is padded in real SEC responses and unpadded in the
+  // test fixture — so the identifier depended on where the data came from. The XBRL adapter
+  // stored the unpadded tracked constant, and the two diverged in production, leaving the same
+  // company under two identifiers with nothing able to join its filings to its facts. Both
+  // adapters now pad, so the invariant holds regardless of the input's shape.
+  const corpCode = padCik(company.cik);
   const stockCode = company.stockCode;
   const count = recent.accessionNumber.length;
   const filings: NormalizedEdgarFiling[] = [];
@@ -66,7 +73,7 @@ function normalizeEdgarFilingArrays(
     }
 
     filings.push({
-      corpCode: company.cik,
+      corpCode,
       corpName: company.name,
       stockCode,
       reportName: recent.primaryDocDescription[i]?.trim()

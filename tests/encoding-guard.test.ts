@@ -22,8 +22,14 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 
-/** U+FFFD, what a decoder emits when it gives up. Never legitimate in source. */
-const REPLACEMENT_CHAR = "�";
+/**
+ * U+FFFD, what a decoder emits when it gives up. Never legitimate in source.
+ *
+ * Built from its code point rather than written literally, so this file does not contain the
+ * character it searches for — otherwise the guard flags itself, and the natural fix (excluding
+ * this file) would stop it checking the one file most likely to be edited carelessly.
+ */
+const REPLACEMENT_CHAR = String.fromCharCode(0xfffd);
 
 /**
  * `??` immediately followed by a letter — the signature of an em dash or Hangul lost to an ANSI
@@ -70,7 +76,7 @@ describe("source encoding guard", () => {
       } catch {
         continue;
       }
-      // This guard file necessarily contains the pattern it looks for.
+      // This guard file necessarily contains the regex source it looks for.
       if (file.endsWith("tests/encoding-guard.test.ts")) continue;
       if (MANGLED_PUNCTUATION.test(content)) bad.push(file);
     }

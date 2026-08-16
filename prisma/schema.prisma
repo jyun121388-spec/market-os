@@ -224,8 +224,22 @@ model FinancialFact {
   raw             Json // untouched source payload for this fact
   createdAt       DateTime  @default(now())
 
-  @@unique([sourceId, corpCode, concept, unit, periodEnd, accessionNumber])
+  // NOTE: the identity of a fact includes `periodStart`, and that cannot be expressed as a
+  // Prisma `@@unique` here — see the `20260817230000_financial_fact_period_start_identity`
+  // migration for the two partial unique indexes that enforce it at the database level.
+  //
+  // The constraint used to be `@@unique([sourceId, corpCode, concept, unit, periodEnd,
+  // accessionNumber])`, which is wrong: SEC reports a year-to-date figure and a quarterly figure
+  // under the SAME period end and the SAME accession number, distinguished only by `start`. For
+  // Apple's NetIncomeLoss on 2008-06-28 those are $3.698B (nine months) and $1.072B (one
+  // quarter) — a 3.4x difference, and the constraint silently kept whichever arrived first. A
+  // single real ingest discarded 168 facts this way, reporting them as "unchanged".
+  //
+  // `periodStart` is null for instant concepts (Assets, Liabilities), and Postgres treats NULL
+  // as distinct from NULL in a unique index — the same trap as the H3 observation constraint —
+  // so this is two partial indexes rather than one nullable column in the key.
   @@index([sourceId, corpCode, concept])
+  @@index([sourceId, corpCode, concept, unit, periodEnd, accessionNumber])
   @@map("financial_facts")
 }
 

@@ -104,7 +104,40 @@ async function main() {
     body = await page.textContent("body");
     check("removed item is gone", !(body ?? "").includes("US 10Y Treasury Yield"));
 
-    console.log("[6] Ask Market refuses a buy/sell question through the real request path");
+    console.log("[6] Company X-Ray renders reported figures without any judgment");
+    await page.goto(`${BASE_URL}/company`);
+    body = await page.textContent("body");
+    check("company index renders", (body ?? "").includes("Companies"));
+
+    const companyLink = page.locator('a[href^="/company/"]').first();
+    if ((await companyLink.count()) > 0) {
+      await companyLink.click();
+      await page.waitForURL("**/company/**", { timeout: 10000 });
+      body = await page.textContent("body");
+      check(
+        "company page shows reported figures",
+        (body ?? "").includes("Latest reported figures"),
+      );
+      check(
+        "company page states it does not score or rate",
+        (body ?? "").includes("does not score, rate or value companies"),
+      );
+      // The legal guardrail, checked structurally rather than trusted: no scoring or
+      // recommendation language may appear on a company page.
+      const lowered = (body ?? "").toLowerCase();
+      check(
+        "company page contains no rating or recommendation language",
+        !/\b(strong buy|strong sell|overweight|underweight|price target|our rating|score:)\b/.test(
+          lowered,
+        ),
+      );
+    } else {
+      // No ingested company in this database — the page must say so rather than render a shell
+      // implying coverage it does not have.
+      check("empty company index explains itself", (body ?? "").includes("No filings ingested"));
+    }
+
+    console.log("[7] Ask Market refuses a buy/sell question through the real request path");
     // The single highest legal-risk surface in the product (docs/LEGAL_GUARDRAILS.md). The
     // detector is unit-tested, but until now nothing proved it was actually wired into the page
     // a user reaches — a guardrail that exists only in a domain function protects nobody.
@@ -126,7 +159,7 @@ async function main() {
       );
     }
 
-    console.log("[7] Ask Market answers a factual topic query normally");
+    console.log("[8] Ask Market answers a factual topic query normally");
     await page.goto(`${BASE_URL}/ask?q=${encodeURIComponent("inflation")}`);
     body = await page.textContent("body");
     check(
@@ -134,20 +167,20 @@ async function main() {
       !(body ?? "").includes("doesn't give personalized buy/sell recommendations"),
     );
 
-    console.log("[8] Log out (logout control lives on /today)");
+    console.log("[9] Log out (logout control lives on /today)");
     await page.goto(`${BASE_URL}/today`);
     await page.getByRole("button", { name: /log ?out/i }).click();
     await page.waitForURL("**/login", { timeout: 10000 });
     check("redirected to /login after logout", page.url() === `${BASE_URL}/login`);
 
-    console.log("[9] Wrong password is rejected without revealing which part was wrong");
+    console.log("[10] Wrong password is rejected without revealing which part was wrong");
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', "totally-wrong-password");
     await page.click('button[type="submit"]');
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("wrong password rejected", page.url() === `${BASE_URL}/login`);
 
-    console.log("[10] Login lockout after 5 total failed attempts (1 already made above)");
+    console.log("[11] Login lockout after 5 total failed attempts (1 already made above)");
     for (let i = 0; i < 4; i += 1) {
       await page.fill('input[name="email"]', TEST_EMAIL);
       await page.fill('input[name="password"]', "totally-wrong-password");
@@ -160,7 +193,7 @@ async function main() {
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("locked out even with correct password", page.url() === `${BASE_URL}/login`);
 
-    console.log("[11] Expired session redirects to /login instead of showing stale auth state");
+    console.log("[12] Expired session redirects to /login instead of showing stale auth state");
     const user = await prisma.user.findUniqueOrThrow({ where: { email: TEST_EMAIL } });
     const expiredSession = await prisma.session.create({
       data: {

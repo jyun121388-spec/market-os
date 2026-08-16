@@ -17,6 +17,9 @@ export default async function TodayPage() {
         </div>
         {user ? (
           <form action={signOutAction} className="flex items-center gap-3 text-sm text-zinc-500">
+            <Link href="/company" className="underline">
+              Companies
+            </Link>
             <Link href="/watchlist" className="underline">
               Watchlist
             </Link>

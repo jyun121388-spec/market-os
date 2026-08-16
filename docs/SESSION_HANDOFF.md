@@ -1,69 +1,51 @@
 LAST COMPLETED
-M22: Auth / User System. Built `src/server/domain/auth.ts` from scratch (Node's built-in
-`crypto.scryptSync` for password hashing — no third-party auth library; see docs/DECISIONS.md
-for the reasoning). Migration `20260816001500_auth` adds `email`/`passwordHash` to `User` and a
-new `Session` model (opaque bearer token = the row's id, validated by DB lookup — no JWT, no
-signing secret, revocation is deleting the row). `signIn` returns an identical error message
-regardless of whether the email or password was wrong (no user-enumeration signal).
-
-Real pages shipped: `/signup`, `/login` (client components using React 19's `useActionState`
-with server actions in `src/server/actions/auth.ts`), and `/today` now shows the logged-in
-user's email + a logout link, or a login link when signed out.
-
-Verified the FULL real flow with Playwright driving an actual browser against `npm run dev` —
-not just tests: signup creates a session and redirects to `/today` with the email visible;
-logout clears the session and redirects to `/login`; a wrong password is rejected with the
-correct error while staying on the login page. `curl` could NOT be used for this (it can't
-drive a Next.js Server Action directly — confirmed by an actual 500 error first, diagnosed, and
-switched to Playwright, which was added as a devDependency; the browser binary was already
-pre-installed in this environment). 137/137 tests pass (52 unit + 85 integration against a real
-local Postgres, stable across repeated runs). Full verify chain green, all 5 routes (/,
-/signup, /login, /today, /_not-found) build correctly.
-
-Migration note for future sessions: `prisma migrate dev` fails in this non-interactive shell
-whenever there's an ambiguous-change warning (e.g. adding a unique constraint) — even with
-`--create-only`. Workaround used: `prisma migrate diff --from-config-datasource --to-schema
-prisma/schema.prisma --script` to get the raw SQL, then hand-write it into a
-`prisma/migrations/<timestamp>_<name>/migration.sql` file (following the existing timestamp
-format) and apply with `prisma migrate deploy` (non-interactive-safe). Worth repeating for any
-future schema change that isn't a trivial additive one.
+M23: Subscription-ready architecture, scoped to the genuinely buildable extension point (see
+docs/DECISIONS.md): `User.plan` (`FREE | PRO` enum, default `FREE`, migration
+20260816002025_subscription_plan — applied cleanly with `prisma migrate dev` this time, no
+ambiguous-change prompt) and `src/server/domain/entitlements.ts`'s `hasEntitlement`/
+`canUseFeature`. `FEATURE_PLAN_REQUIREMENTS` is deliberately empty — no feature is currently
+paid-gated, which is an honest statement about the product today, not an oversight. No
+Subscription/billing model, no payment processor, no checkout flow — actual payment activation
+remains a Human Gate. 144/144 tests pass (58 unit + 86 integration against a real local
+Postgres, verified stable). Full verify chain green.
 
 CURRENT TASK
-M23: Subscription-ready architecture — see docs/CURRENT_TASK.md. Real question to resolve
-before coding: no feature currently gates on a paid tier, so there may be nothing real to build
-yet beyond a minimal forward-compatible placeholder (leaning toward a small `plan` field +
-always-true entitlement helper, mirroring the M19 User-model precedent) — confirm the
-reasoning holds, don't default to adding a field out of momentum.
+M24: Admin / Monitoring — see docs/CURRENT_TASK.md. Scoped to an internal pipeline-health view
+(last ingest per source, unresolved DataConflict count) built from data already in the DB, no
+new paid service. Gated to any authenticated user (no role system yet — that would be
+speculative for a single-operator product).
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M20 commit)
-prisma/schema.prisma (+email/passwordHash on User, +Session model),
-prisma/migrations/20260816001500_auth/, src/server/domain/auth.ts (new),
-src/server/actions/auth.ts (new), src/app/signup/page.tsx (new), src/app/login/page.tsx (new),
-src/app/today/page.tsx (shows logged-in state), tests/auth.test.ts (new),
-tests/integration/auth.test.ts (new), tests/integration/watchlist.test.ts (fixed to supply
-email/passwordHash for its test User), package.json (+playwright devDependency).
+CHANGED FILES (since M22 commit)
+prisma/schema.prisma (+Plan enum, +User.plan), prisma/migrations/
+20260816002025_subscription_plan/, src/server/domain/entitlements.ts (new),
+tests/entitlements.test.ts (new), tests/integration/auth.test.ts (added a plan-default
+assertion).
 
 TEST STATUS
-137/137 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite
-skips gracefully without a DB. `/signup` → `/login` → `/today` flow verified via a real
-Playwright browser session, not just automated tests.
+144/144 pass with DATABASE_URL set, verified stable across repeated runs. Integration suite
+skips gracefully without a DB.
 
 NEXT EXACT ACTION
-Resolve the M23 scoping question in docs/CURRENT_TASK.md (add minimal plan field + entitlement
-helper, or defer to M24) and record the decision in DECISIONS.md before writing any code.
+Start M24: build src/server/domain/systemHealth.ts (per-source last-ingest timestamps +
+unresolved DataConflict count, pure reads), then a real /admin page gated by getCurrentUser().
+Verify with an actual Playwright browser session against npm run dev, same as M20/M22 — not
+just unit tests.
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
 role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored). Remember `npx prisma
-generate` after every schema.prisma change, AND use the migrate-diff-then-hand-write-SQL
-workaround above for any non-trivial schema change (adding unique constraints, etc.) since
-`prisma migrate dev` fails non-interactively for those. vitest.config.mts has
-fileParallelism: false, and every integration test file must scope cleanup to rows it owns.
-Twenty-one commits pushed so far (M00-M20) to origin/claude/market-os-development-7vnicg; M22
-is about to be committed and pushed (M21 skip is already recorded in the M20 commit). No PR
-opened yet (none requested). Auth is flagged in REVIEW_DEBT.md with extra emphasis as
-Codex-review-required (security-sensitive) per AGENTS.md's stated scope — prioritize this if a
-Codex session ever becomes available in a future session.
+generate` after every schema.prisma change. For schema changes that add a unique constraint (or
+anything else ambiguous), `prisma migrate dev` fails non-interactively — use `prisma migrate
+diff --from-config-datasource --to-schema prisma/schema.prisma --script` to get the SQL, then
+hand-write it into `prisma/migrations/<timestamp>_<name>/migration.sql` and apply with `prisma
+migrate deploy` (this session's M22 hit this; M23's simple additive column did not).
+vitest.config.mts has fileParallelism: false, and every integration test file must scope
+cleanup to rows it owns. `playwright` is now a devDependency — use it (not curl) to verify any
+Server Action / interactive flow in a real browser, launching with `executablePath:
+'/opt/pw-browsers/chromium'`. Twenty-two commits pushed so far (M00-M22) to
+origin/claude/market-os-development-7vnicg; M23 is about to be committed and pushed. No PR
+opened yet (none requested). M21 remains BLOCKED_HUMAN_GATE — do not attempt to unblock it
+without explicit human direction on LLM provider/funding/credentials.

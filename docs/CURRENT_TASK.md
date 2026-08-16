@@ -1,22 +1,21 @@
 # Current Task
 
-MILESTONE: M23 — Subscription-ready architecture
+MILESTONE: M24 — Admin / Monitoring
 
-TASK: Per docs/ROADMAP.md, actual payment activation is a Human Gate. This milestone is about
-the ARCHITECTURE being subscription-ready, not integrating a real payment processor. Real
-question to resolve before coding: no feature currently built requires a paid tier to use, so
-there is nothing real to gate yet. A `plan`/`tier` field on `User` with no enforcement anywhere
-would be speculative schema — the same pattern this project has repeatedly avoided (e.g. M13's
-"no multi-hop traversal until a real consumer exists").
+TASK: No admin surface exists yet. Real scoping decision: "monitoring" often implies external
+paid services (error tracking, uptime, APM) — those are Human Gates per docs/DATA_POLICY.md
+cost policy if paid. What's buildable now without any new service: an internal admin view of
+data-pipeline health using data already in the DB — last successful ingest per Source
+(`MAX(Observation.retrievedAt)` / `MAX(Filing.retrievedAt)` / etc.), counts, and any
+`DataConflict` rows still unresolved. Gate the page to authenticated users (reuse M22's auth) —
+for V1 with no role system, "any signed-in user" is an acceptable placeholder; do not build a
+speculative admin-role system for a single-operator product without being asked.
 
-STATUS: Not started — M22 (Auth) complete and verified with a real browser-tested signup/login/
-logout flow.
+STATUS: Not started — M23 (Subscription-ready architecture) complete and verified.
 
-NEXT EXACT ACTION: Decide and record in DECISIONS.md: either (a) add a minimal `plan` field to
-`User` (default "FREE") plus a small `hasEntitlement(user, feature)` helper that currently
-always returns true for every existing feature (since nothing is paid-gated yet) — genuinely
-minimal, forward-compatible groundwork, analogous to M19's placeholder User model — or (b) mark
-this milestone explicitly deferred/low-value until a real paid feature exists to gate, and move
-to M24 (Admin/Monitoring) instead. Leaning toward (a) since it's small and mirrors the M19
-precedent, but confirm the reasoning holds before implementing rather than defaulting to
-"add a field" out of momentum.
+NEXT EXACT ACTION: Design `src/server/domain/systemHealth.ts` computing per-source health
+(sourceCode, lastIngestAt across whichever tables that source writes to, unresolved
+DataConflict count) purely by reading existing tables — no new ingestion, no new external
+service. Build `/admin` page gated by `getCurrentUser()` (redirect to `/login` if not signed
+in). Verify with the same discipline as M20/M22: real Playwright browser check against
+`npm run dev`, not just unit tests.

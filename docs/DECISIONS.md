@@ -461,3 +461,25 @@ reference the browser's JS runtime provides) — this is also useful going forwa
 Production QA's E2E requirements.
 **Follow-up**: When M21 (Ask Market) is eventually unblocked, its pages should use
 `getCurrentUser()` from `src/server/actions/auth.ts` the same way `/today` does.
+
+## 2026-08-16 — M23 ships a minimal plan field + entitlement helper, no billing integration
+
+**Decision**: Added `User.plan` (`FREE | PRO` enum, default `FREE`) and
+`src/server/domain/entitlements.ts` (`hasEntitlement(userPlan, requiredPlan)` — a pure function
+— plus `FEATURE_PLAN_REQUIREMENTS`, currently empty since no feature is paid-gated yet, and
+`canUseFeature(user, featureKey)` built on top of it). No real payment processor, no
+`Subscription`/billing model, no checkout flow — actual payment activation remains a Human Gate
+per docs/ROADMAP.md.
+**Reason**: This mirrors the M19 precedent (`User` model added minimally ahead of full Auth,
+extended later rather than replaced): no feature currently requires a paid tier, so a full
+billing system would be speculative work with nothing real to gate. What's real and useful now
+is the extension point — a `plan` column that exists on every user row, and a tested,
+correct comparison function — so that whenever a first paid feature is designed, gating it is
+"add one entry to `FEATURE_PLAN_REQUIREMENTS`," not a schema migration plus new logic built
+under time pressure.
+**Alternatives**: Skip this milestone entirely until a real paid feature exists — considered,
+but rejected since the marginal cost of the `plan` field + pure comparison function is small
+and it avoids a later migration that has to backfill a plan value onto every existing user row.
+**Follow-up**: Wire `canUseFeature` into an actual feature once the human decides which one
+should be paid-gated first — until then, `FEATURE_PLAN_REQUIREMENTS` stays empty by design,
+not by oversight.

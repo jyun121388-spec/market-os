@@ -37,10 +37,11 @@ describeIfDb("auth (integration)", () => {
     await prisma.$disconnect();
   });
 
-  it("signs up a new user with a normalized (lowercased/trimmed) email", async () => {
+  it("signs up a new user with a normalized (lowercased/trimmed) email, defaulting to the FREE plan", async () => {
     const user = await signUp(`  ${TEST_EMAIL.toUpperCase()}  `, "correct-horse-battery-staple");
     expect(user.email).toBe(TEST_EMAIL);
     expect(user.passwordHash).not.toContain("correct-horse-battery-staple");
+    expect(user.plan).toBe("FREE");
   });
 
   it("rejects a duplicate signup for the same email", async () => {

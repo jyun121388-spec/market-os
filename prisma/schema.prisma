@@ -257,10 +257,18 @@ model RealEstateTransaction {
 // (docs/PRODUCT_SPEC.md "Watchlist").
 // ---------------------------------------------------------------------------
 
+// M23 groundwork: subscription-ready architecture. Two tiers only, no billing entity yet — see
+// docs/DECISIONS.md. Real payment activation remains a Human Gate.
+enum Plan {
+  FREE
+  PRO
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String // "<N>:<r>:<p>:<saltHex>:<hashHex>" — see src/server/domain/auth.ts
+  plan         Plan     @default(FREE)
   createdAt    DateTime @default(now())
 
   watchlistItems WatchlistItem[]

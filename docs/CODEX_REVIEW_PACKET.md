@@ -16,6 +16,91 @@ completed `codex login` with their own ChatGPT account.** Nothing else in this d
 based on where Codex runs — only §12's login precondition differs from a hypothetical
 already-authenticated cloud session.
 
+## 0. THIS IS A RE-REVIEW — read this section first, then §12
+
+A local-Codex review already ran once against this branch and returned **REVISE** with 3 P0/HIGH
+blockers. All 3 have been fixed, each with a dedicated real-Postgres regression test that did not
+exist before. This section is a scoped index so a re-reviewer doesn't need to re-read the whole
+repository — go straight to the 3 files/tests below, confirm each BEFORE failure mode is actually
+closed, then decide whether anything else in the diff needs a look.
+
+**Diff to review**: `git diff 9b34f8bb6be120dacd381fe22577870f40d6e5fa..8f4f76ca74e01f1b9541a7f7295521f3eda08803`
+(the fix-round commit only — `9b34f8b` was the exact head the first REVIEW ran against).
+Full packet still applies for anything not covered here (§1-11 below are unchanged architecture
+context); only §2's SHAs and §9's test count are updated for this round.
+
+### B1 (was P0/HIGH) — Auth migration upgrade safety
+
+- **BEFORE**: `prisma/migrations/20260816001500_auth/migration.sql` did
+  `ALTER TABLE "users" ADD COLUMN "email" TEXT NOT NULL, ADD COLUMN "passwordHash" TEXT NOT NULL`
+  with no `DEFAULT` — Postgres rejects this against any `users` table with pre-existing rows, so
+  the migration could only ever succeed against an empty table. M19 (Watchlist) shipped before
+  M22 (Auth), so a real deployment could have pre-existing `User` rows via `WatchlistItem` FKs.
+- **AFTER**: staged migration (nullable → legacy backfill with a synthetic, unguessable identity
+  and a non-credential sentinel hash → `NOT NULL`); `signIn()` rejects `isLegacyAccount` users
+  before ever calling `verifyPassword` on the sentinel.
+- **Regression test**: `tests/integration/auth-migration-upgrade.test.ts` (new) — real Postgres,
+  applies pre-auth migrations, inserts a pre-auth-schema `User`+`WatchlistItem` fixture, applies
+  the rest, asserts survival/FK-integrity/legacy-flagging/constraint-enforcement. Plus a
+  `signIn()` legacy-rejection case in `tests/integration/auth.test.ts`.
+- **Changed files**: `prisma/schema.prisma`, `prisma/migrations/20260816001500_auth/migration.sql`,
+  `src/server/domain/auth.ts`.
+- **Try to break it**: does any code path still construct a `User` row without going through the
+  migration's backfill or `signUp()`? Does `signIn()` truly short-circuit before touching
+  `passwordHash` for a legacy row, or could a code change accidentally reorder those checks?
+
+### B2 (was P0/HIGH) — Claim verification structural redesign
+
+- **BEFORE**: `claimVerification.ts` decided FACT `VERIFIED` via
+  `claimText.includes(String(observation.value))` — `"3.5"` is a substring of `"13.50"`, so an
+  evidenced observation with a wrong value could false-positive as verified.
+- **AFTER**: exact-text reconstruction from re-fetched DB rows via shared builders
+  (`buildFactClaimText`/`buildChangeClaimText`, used by both the creation and verification paths
+  so they can't drift), plus explicit series/source identity checks, chronological-order checks,
+  and full recomputation of CALCULATION's absoluteChange/percentChange/bpsChange.
+- **Regression tests**: `tests/integration/claim-verification.test.ts`'s new "H2 adversarial
+  regressions" block (9 cases) — the exact `3.5`/`13.50` collision, false claimText vs. true
+  evidence, wrong `evidence.seriesId`, cross-series CALCULATION, reversed current/previous, and
+  tampered absolute/percent/bps changes.
+- **Changed files**: `src/server/domain/claimVerification.ts`, `src/server/domain/claimStore.ts`,
+  `src/server/domain/whatChanged.ts`.
+- **Try to break it**: is there any numeric formatting edge case (locale, trailing zeros, decimal
+  precision) where the reconstructed text could legitimately differ from the stored text for a
+  truly-correct claim, causing a false `VALUE_MISMATCH`? Is there any claim shape that skips the
+  final `claim.claimText !== expectedText` check entirely?
+
+### B3 (was P0/HIGH) — Concurrent observation ingestion race
+
+- **BEFORE**: `upsertRevisionAwareObservation()` did `findFirst` then `create` — the old
+  `@@unique([seriesId, observationDate, isRevision, revisionOf])` constraint does not block two
+  concurrent "original" inserts, because Postgres treats `NULL` as distinct from `NULL` and every
+  original row has `revisionOf = NULL`.
+- **AFTER**: a NULL-free partial unique index (`observations_series_date_original_unique` on
+  `(seriesId, observationDate) WHERE isRevision = false`) plus an atomic
+  `INSERT ... ON CONFLICT ... DO NOTHING RETURNING id` for "become original," and a bounded
+  optimistic-retry loop (catching Prisma `P2002`) for "become a revision."
+- **Regression tests**: `tests/integration/observation-ingest-concurrency.test.ts` (new) — (A) 8
+  concurrent same-value writers → exactly 1 original; (B) 6 concurrent different-value writers →
+  exactly 1 original plus a verified acyclic revision chain; (C) a direct duplicate-original
+  insert bypassing the app layer → rejected by the DB constraint itself. Stable across 6 repeated
+  runs.
+- **Changed files**: `prisma/schema.prisma`, new migration
+  `prisma/migrations/20260816090000_original_observation_unique/migration.sql`,
+  `src/server/domain/observationIngest.ts`.
+- **Try to break it**: is `MAX_REVISION_RETRIES = 20` actually sufficient under higher contention
+  than the 6-8-way tests exercise? Is there any insert path into `observations` (a script, a
+  seed, a different domain function) that bypasses `upsertRevisionAwareObservation()` entirely
+  and could still race?
+
+### P1s fixed alongside (not blockers, but touched in this diff)
+
+Ask Market guardrail bypass phrasing (`src/server/domain/askMarket.ts`), a `fetch` timeout on
+every external adapter client plus a subprocess timeout on `scripts/run-ingest-jobs.ts`
+(`src/server/adapters/httpTimeout.ts`, new), and impossible-calendar-date rejection in FRED/ECOS
+date parsing (`src/server/adapters/dateValidation.ts`, new). Full detail in
+`docs/DECISIONS.md`'s 2026-08-16 P1 entries — lower priority for re-review time, worth a glance
+only if B1-B3 look clean.
+
 ## 1. Architecture summary
 
 Market OS is a modular-monolith Next.js 16 (App Router) + TypeScript app, PostgreSQL via Prisma
@@ -42,17 +127,22 @@ invariants" section below.
 - **BASE SHA**: `df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e` (tip of `main` at branch creation —
   `main` has had no other commits since, so this is still `main`'s current tip as of
   2026-08-16).
-- **HEAD SHA**: `9b34f8bb6be120dacd381fe22577870f40d6e5fa` (tip of
-  `claude/market-os-development-7vnicg` as of 2026-08-16, matching what's pushed to PR #1).
+- **HEAD SHA**: `8f4f76ca74e01f1b9541a7f7295521f3eda08803` (tip of
+  `claude/market-os-development-7vnicg` as of 2026-08-16 — the fix round for the first Codex
+  REVISE verdict, applied on top of the previously-reviewed `9b34f8b`).
   **Before running the review, re-verify this is still the actual head** — `git ls-remote
 origin claude/market-os-development-7vnicg` or the PR page — in case a newer commit landed
   after this packet was last updated. If the head has moved, update this line (and re-run
   `npm run verify`/`npm run e2e` locally to confirm the new head is still green) before treating
   the review as covering the real current state.
-- 35 commits between BASE and HEAD, built from an empty repository through the full M00-M28
-  roadmap plus post-M28 follow-up work (timezone/staleness fixes, a security-review skill pass,
-  an M21 safe-mode MVP, this pre-release audit).
-- 160+ files changed, ~21k lines added (`git diff --stat df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e...9b34f8bb6be120dacd381fe22577870f40d6e5fa`).
+- **This is a RE-REVIEW.** See §0 above for the scoped fix-round diff
+  (`9b34f8b..8f4f76c`) and the exact BEFORE/AFTER/test/files for each of the 3 blockers the first
+  review found. The full history below (35+ commits from an empty repo through M00-M28 plus
+  post-M28 follow-up) is still accurate background, just not what changed in this round.
+- 160+ files changed, ~21k lines added across the full history
+  (`git diff --stat df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e...9b34f8bb6be120dacd381fe22577870f40d6e5fa`);
+  28 files changed in the fix round alone
+  (`git diff --stat 9b34f8bb6be120dacd381fe22577870f40d6e5fa...8f4f76ca74e01f1b9541a7f7295521f3eda08803`).
 - Full commit history and reasoning for every non-obvious decision: `docs/DECISIONS.md`
   (chronological, append-only, ~37 entries).
 
@@ -126,8 +216,10 @@ docstring for the full scoping rationale. The pattern list (`ADVICE_REQUEST_PATT
 single most safety-critical piece of code added this pass: a false negative here (a personalized
 advice request that isn't detected) would let a buy/sell-shaped question through to a plain
 factors response, which is _not_ itself giving advice (the factors response never contains a
-recommendation), but is a gap in the "always redirect" requirement. Recommended specific test
-inputs for a reviewer, in addition to `tests/askMarket.test.ts`'s existing 11 cases:
+recommendation), but is a gap in the "always redirect" requirement. A 2026-08-16 fix round
+(P1 recommendation from the first Codex review) closed several bypasses that used to slip
+through — see `docs/DECISIONS.md`'s P1 entry — but this is still not exhaustive. Recommended
+specific test inputs for a reviewer, in addition to `tests/askMarket.test.ts`'s existing 14 cases:
 
 - Indirect phrasing: "would now be a wise time to add to my position"
 - Third-person framing: "is Samsung Electronics a buy right now"
@@ -166,7 +258,9 @@ npm run dev                                       # then, in another shell:
 npm run e2e                                       # real-browser E2E walkthrough
 ```
 
-184/184 automated tests passing as of this packet's writing (98 unit, 86 integration).
+209/209 automated tests passing as of this packet's writing (up from 184 — 25 new regression
+tests added in the fix round: 1 migration-upgrade, 1 legacy-signin, 9 H2 adversarial, 3 H3
+concurrency, 3 Ask Market bypass, 3 httpTimeout, 6 impossible-date).
 
 ## 10. Known limitations (not hidden, see docs/REVIEW_DEBT.md for the full list)
 
@@ -214,20 +308,27 @@ git rev-parse HEAD   # confirm this matches §2's HEAD SHA above; if not, update
 npx @openai/codex login status   # must show logged in before proceeding
 ```
 
-Scope the review to the release-critical diff and docs, not the whole repository (most of the
-repo is unremarkable adapter/domain code already covered by tests — the packet's §3/§4/§5/§6
-sections above are the actual risk surface):
+**This is a re-review.** Scope it to the fix-round diff first (§0 above), then the same
+release-critical surface as before if time allows (most of the repo is unremarkable adapter/
+domain code already covered by tests — the packet's §3/§4/§5/§6 sections are the actual risk
+surface):
 
 ```bash
 npx @openai/codex exec \
   --sandbox read-only \
-  "Review this repository as an independent code reviewer for a release candidate. \
-Read docs/CODEX_REVIEW_PACKET.md first for full context, critical invariants, and specific \
-attack prompts to try. Focus on: src/server/domain/auth.ts, src/server/actions/auth.ts, \
-src/server/domain/askMarket.ts, src/server/domain/claimStore.ts, \
+  "This is a RE-REVIEW: a prior run of this exact review returned REVISE with 3 P0 blockers. \
+Read docs/CODEX_REVIEW_PACKET.md section 0 first — it has the exact BEFORE/AFTER/regression-test/ \
+changed-files for each of the 3 blockers (auth migration upgrade safety, claim verification \
+substring collision, concurrent observation ingestion race) as fixed in commit \
+8f4f76ca74e01f1b9541a7f7295521f3eda08803. Verify each fix actually closes the failure scenario \
+the original blocker described — do not just check that code changed. \
+Diff prior head 9b34f8bb6be120dacd381fe22577870f40d6e5fa against new head \
+8f4f76ca74e01f1b9541a7f7295521f3eda08803 for the fix-round changes specifically. \
+If time allows, also re-check the broader release-critical surface: src/server/domain/auth.ts, \
+src/server/actions/auth.ts, src/server/domain/askMarket.ts, src/server/domain/claimStore.ts, \
 src/server/domain/claimVerification.ts, src/server/domain/observationIngest.ts, \
-prisma/schema.prisma, and src/server/adapters/*/normalize.ts. \
-Diff base df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e against head 9b34f8bb6be120dacd381fe22577870f40d6e5fa. \
+prisma/schema.prisma, and src/server/adapters/*/normalize.ts \
+(full diff base df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e). \
 Output your findings as a single JSON object matching the schema in \
 docs/CODEX_REVIEW_PACKET.md section 13, and nothing else." \
   > reviews/market-os-final-review.json
@@ -249,8 +350,8 @@ the schema below — the schema is what matters, not the exact invocation mechan
   "reviewer": "codex-cli",
   "reviewer_version": "<output of `npx @openai/codex --version`>",
   "reviewed_at": "<ISO 8601 timestamp, real, not fabricated>",
-  "base_sha": "df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e",
-  "head_sha": "9b34f8bb6be120dacd381fe22577870f40d6e5fa",
+  "base_sha": "9b34f8bb6be120dacd381fe22577870f40d6e5fa",
+  "head_sha": "8f4f76ca74e01f1b9541a7f7295521f3eda08803",
   "verdict": "APPROVE | REVISE",
   "summary": "<one paragraph — reviewer's overall assessment>",
   "blockers": [

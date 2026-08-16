@@ -14,7 +14,8 @@ describeIfDb("computeSystemHealth (integration)", () => {
 
   beforeAll(async () => {
     ({ prisma } = await import("@/server/db/client"));
-    ({ computeSystemHealth } = await import("@/server/domain/systemHealth"));
+    const systemHealth = await import("@/server/domain/systemHealth");
+    ({ computeSystemHealth } = systemHealth);
 
     for (const code of [SOURCE_WITH_DATA, SOURCE_WITHOUT_DATA]) {
       const existing = await prisma.source.findUnique({ where: { code } });
@@ -62,6 +63,8 @@ describeIfDb("computeSystemHealth (integration)", () => {
         resolved: false,
       },
     });
+
+    systemHealth.clearSystemHealthCache();
   });
 
   afterAll(async () => {

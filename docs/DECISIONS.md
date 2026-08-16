@@ -507,3 +507,47 @@ infrastructure; this milestone's view computes on-demand at page-load, which is 
 current traffic and data volume.
 **Follow-up**: Add real alerting (email/SMS/push on ingest failure) only once a concrete delivery
 mechanism is chosen — bulk email/SMS is itself a Human Gate per CLAUDE.md.
+
+## 2026-08-16 — M25 Performance/Cache/Background Jobs: in-process TTL cache + subprocess job runner, no deployed scheduler
+
+**Decision**: `src/server/domain/cache.ts` ships a generic `TtlCache<T>`/`withCache()` helper
+(process-local `Map`, not Redis/a shared cache), applied to `computeSystemHealth()` with a
+30-second TTL. `scripts/run-ingest-jobs.ts` (`npm run jobs:ingest-all`) sequences the existing
+`ingest:fred`/`ingest:ecos`/`ingest:dart`/`ingest:edgar`/`ingest:edgar-xbrl` npm scripts as
+separate subprocesses, logging per-job start/success/failure/duration and a summary, continuing
+past a failed job rather than aborting the run, and exiting non-zero if any job failed. No
+cron/queue service (Vercel Cron, a hosted queue, etc.) is wired up.
+**Reason**: An unattended production scheduler only makes sense once something is actually
+deployed to run unattended — deploying is itself a Human Gate per CLAUDE.md until a human
+approves it, so building against a specific scheduler now would be speculative infrastructure
+for a deployment topology that doesn't exist yet. What's genuinely useful and buildable today:
+(a) a cache primitive that removes real redundant work on the one read path (`/admin`) that
+recomputes five aggregate queries per page load, and (b) a runnable script that already replaces
+"manually type five `npm run ingest:X` commands in order" with one command a human (or a future
+scheduler) can invoke — real progress toward "background jobs" without inventing a fake
+scheduler abstraction with nothing to schedule against.
+**Why a process-local cache, not Redis**: This app runs as a single Next.js dev/prod process
+today; a shared cache implies a specific multi-instance deployment shape not yet decided. A
+process-local `Map` is correct for the current topology and trivially replaceable later — the
+`TtlCache`/`withCache` interface doesn't leak its in-memory implementation to callers.
+**Why subprocesses, not in-process sequential calls**: Each `ingest:*` script creates and
+disconnects its own Prisma client and can throw on a missing API key (`FRED_API_KEY`/
+`ECOS_API_KEY`/`DART_API_KEY`/`EDGAR_USER_AGENT` — all Human Gates per docs/DATA_POLICY.md, not
+configured in this dev environment). Running them in-process would mean one job's uncaught
+throw or disconnected Prisma client could break the next job in the same process; subprocess
+isolation means a failed job is just a logged failure, and the run continues.
+**Verification**: `npm run jobs:ingest-all` was actually invoked in this environment — all five
+jobs correctly fail with their existing, specific "API key/User-Agent not set — Human Gate"
+errors (expected, since no real keys are configured here), the runner logs each failure without
+crashing, prints a summary table, and exits 1 (confirmed via a separate `echo $?` check, not
+just log inspection). `tests/cache.test.ts` (11 tests, fake-timer-based hit/miss/expiry/clear
+coverage) and the updated `tests/integration/system-health.test.ts` (added a
+`clearSystemHealthCache()` test-only escape hatch, called after seeding, so integration tests
+assert on fresh DB state rather than a stale cache entry) both pass. 155/155 tests total, full
+verify chain green.
+**Alternatives**: A real cron/queue integration (Vercel Cron, BullMQ + Redis, etc.) — deferred,
+logged in docs/REVIEW_DEBT.md as blocked on the production-deployment Human Gate, not skipped
+silently.
+**Follow-up**: Once production deployment is approved, wire `scripts/run-ingest-jobs.ts` (or an
+equivalent) behind whatever scheduler the deployment platform provides, rather than rewriting
+the job sequencing logic — it's already deployment-agnostic.

@@ -48,6 +48,16 @@ reports green while testing almost nothing. `tests/integration-coverage-guard.te
 that into a hard failure in CI; locally it prints a warning. Bare `vitest` does not read `.env`,
 so export `DATABASE_URL` in the shell first.
 
+The tests are **destructive** — they delete rows by corpCode, sourceId and email to isolate
+themselves. Point them at a scratch database so a test run does not erase data you have ingested:
+
+```bash
+export TEST_DATABASE_URL="postgresql://.../market_os_test?schema=public"
+```
+
+When set, tests use it and leave `DATABASE_URL` (and a running `npm run dev`) alone. When unset,
+tests use `DATABASE_URL` exactly as before.
+
 ## Data sources
 
 SEC EDGAR needs no API key — only a descriptive `EDGAR_USER_AGENT` of the form

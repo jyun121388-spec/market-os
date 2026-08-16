@@ -108,10 +108,17 @@ Network egress works. SEC returns 403 for a User-Agent that is not roughly "<nam
 `EDGAR_USER_AGENT` is set in `.env` to the user's own contact address with their explicit
 approval (2026-08-17).
 
-The dev database is shared with the test suite, and several integration tests delete rows by
-`corpCode` in `beforeAll`. After running the full suite, real ingested EDGAR data is partly
-cleared — re-run `npx tsx scripts/ingest-edgar.ts` if you need it back. Not a defect, but
-surprising if unexpected.
+**Set `TEST_DATABASE_URL` so the suite stops wiping your ingested data.** Integration tests are
+destructive by design — they `deleteMany` by corpCode, sourceId and email to isolate themselves —
+so running them against the dev database erases whatever real data shares those keys. This bit
+three times in one session, each time presenting as "the page suddenly shows nothing" rather than
+as anything test-related. `vitest.config.mts` now redirects tests to `TEST_DATABASE_URL` when it
+is set, leaving `DATABASE_URL` and `npm run dev` untouched:
+
+    $env:TEST_DATABASE_URL = 'postgresql://postgres:devpassword@127.0.0.1:55432/market_os_test?schema=public'
+
+The `market_os_test` database already exists locally with migrations applied. If the variable is
+unset, behaviour is unchanged (tests use `DATABASE_URL`), so CI is unaffected.
 
 Standing user instructions: continue autonomously, never self-declare Codex APPROVE, never
 activate paid APIs or services, record Human Gates in the queue and keep working around them.

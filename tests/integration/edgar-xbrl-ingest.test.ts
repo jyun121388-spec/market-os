@@ -30,6 +30,21 @@ describeIfDb("EDGAR XBRL adapter ingest (integration)", () => {
   });
 
   afterAll(async () => {
+    // Clean up the fixture rows. These are synthetic Apple financials (a fabricated $400B
+    // "Revenues"), and the same dev database can also hold facts from a real EDGAR ingest —
+    // leaving them behind puts invented numbers next to sourced ones, which is exactly the
+    // confusion docs/DATA_POLICY.md exists to prevent. beforeAll already clears them on the
+    // way in; this clears them on the way out too.
+    const source = await prisma.source.findUnique({ where: { code: "SEC_EDGAR" } });
+    if (source) {
+      await prisma.financialFact.deleteMany({
+        where: {
+          sourceId: source.id,
+          corpCode: APPLE.cik,
+          accessionNumber: { in: ["0000320193-26-000045", "0000320193-26-000099"] },
+        },
+      });
+    }
     await prisma.$disconnect();
   });
 
@@ -40,13 +55,20 @@ describeIfDb("EDGAR XBRL adapter ingest (integration)", () => {
     );
 
     const result = await ingestCompanyFacts(APPLE);
-    expect(result).toEqual({ cik: APPLE.cik, inserted: 3, unchanged: 0 });
+    expect(result).toEqual({ cik: APPLE.cik, inserted: 4, unchanged: 0 });
 
     const stored = await prisma.financialFact.findMany({ where: { corpCode: APPLE.cik } });
-    expect(stored).toHaveLength(3);
+    expect(stored).toHaveLength(4);
     const revenue = stored.find((f) => f.concept === "Revenues")!;
     expect(revenue.value.toString()).toBe("400000000000");
     expect(revenue.fiscalYear).toBe(2026);
+
+    // A row SEC reports with no fiscal label must persist rather than fail the NOT NULL
+    // constraint the columns used to carry — see the 20260817120000 migration.
+    const unlabeled = stored.find((f) => f.accessionNumber === "0001193125-15-023732")!;
+    expect(unlabeled.fiscalYear).toBeNull();
+    expect(unlabeled.fiscalPeriod).toBeNull();
+    expect(unlabeled.value.toString()).toBe("207000000000");
   });
 
   it("is idempotent: re-ingesting identical facts does not duplicate rows", async () => {
@@ -56,10 +78,10 @@ describeIfDb("EDGAR XBRL adapter ingest (integration)", () => {
     );
 
     const result = await ingestCompanyFacts(APPLE);
-    expect(result).toEqual({ cik: APPLE.cik, inserted: 0, unchanged: 3 });
+    expect(result).toEqual({ cik: APPLE.cik, inserted: 0, unchanged: 4 });
 
     const count = await prisma.financialFact.count({ where: { corpCode: APPLE.cik } });
-    expect(count).toBe(3);
+    expect(count).toBe(4);
   });
 
   it("preserves a restated value as a new row when a later filing reports a different accession number", async () => {

@@ -8,8 +8,11 @@ export interface NormalizedFinancialFact {
   unit: string;
   periodStart: Date | null;
   periodEnd: Date;
-  fiscalYear: number;
-  fiscalPeriod: string;
+  // Null when SEC itself reports no fiscal label for the row (see XbrlFactValue.fy). The fact
+  // is still fully sourced — value, period, form and accession number are all real — so it is
+  // kept rather than dropped; only the label is missing.
+  fiscalYear: number | null;
+  fiscalPeriod: string | null;
   form: string;
   accessionNumber: string;
   filedDate: Date;
@@ -48,8 +51,8 @@ export function normalizeCompanyFacts(
         unit: "USD",
         periodStart: raw.start ? parseXbrlDateAsUtc(raw.start) : null,
         periodEnd: parseXbrlDateAsUtc(raw.end),
-        fiscalYear: raw.fy,
-        fiscalPeriod: raw.fp,
+        fiscalYear: raw.fy ?? null,
+        fiscalPeriod: raw.fp ?? null,
         form: raw.form,
         accessionNumber: raw.accn,
         filedDate: parseXbrlDateAsUtc(raw.filed),

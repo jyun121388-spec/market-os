@@ -9,10 +9,9 @@
  * reported, grouped by taxonomy (e.g. "us-gaap") then by concept (e.g. "Revenues"), each with
  * an array of dated values per unit.
  *
- * NOTE: direct network access to data.sec.gov (including this XBRL endpoint specifically) is
- * blocked in this dev environment (confirmed via WebFetch — see docs/DECISIONS.md), so this
- * shape is built from SEC's own published documentation rather than a verified live response.
- * Logged in docs/REVIEW_DEBT.md.
+ * VERIFIED LIVE against data.sec.gov on 2026-08-17 via `npx tsx scripts/verify-edgar-live.ts`
+ * (55 contract checks). That run corrected one assumption taken from the documentation — see
+ * `fy`/`fp` below.
  */
 
 export interface XbrlFactValue {
@@ -20,13 +19,19 @@ export interface XbrlFactValue {
   end: string; // YYYY-MM-DD — the period end / instant date
   val: number;
   accn: string; // accession number, e.g. "0000320193-23-000106"
-  fy: number; // fiscal year
-  fp: string; // "Q1" | "Q2" | "Q3" | "FY"
+  // Fiscal year / fiscal period. Documented as always present, but real responses disagree:
+  // Apple's companyfacts returns rows with `fy: null, fp: null` (typically facts republished
+  // for a `frame` under a later restating filing — e.g. CY2012 figures carried in a 2015 8-K).
+  // Found by the live contract check; the fixtures had never exercised it. Treat the fiscal
+  // label as genuinely absent for those rows — do not derive one from `end`, which would turn
+  // an inference into what looks like reported source data.
+  fy: number | null;
+  fp: string | null; // "Q1" | "Q2" | "Q3" | "FY", or null — see fy above
   form: string; // e.g. "10-K", "10-Q"
   filed: string; // YYYY-MM-DD
   frame?: string;
   // Index signature so this shape can be stored directly in a Prisma Json column.
-  [key: string]: string | number | undefined;
+  [key: string]: string | number | null | undefined;
 }
 
 export interface XbrlConcept {

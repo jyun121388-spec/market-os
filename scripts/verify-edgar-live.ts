@@ -162,15 +162,18 @@ async function verifyCompanyFacts() {
         typeof f.end !== "string" ||
         !ISO_DATE.test(f.end) ||
         typeof f.accn !== "string" ||
-        typeof f.fy !== "number" ||
-        typeof f.fp !== "string" ||
+        // fy/fp are genuinely nullable in live data — SEC's documentation implies otherwise,
+        // and the first run of this script is what caught it. Null is valid; anything other
+        // than null-or-the-right-primitive is not.
+        (f.fy !== null && typeof f.fy !== "number") ||
+        (f.fp !== null && typeof f.fp !== "string") ||
         typeof f.form !== "string" ||
         typeof f.filed !== "string" ||
         !ISO_DATE.test(f.filed) ||
         (f.start !== undefined && (typeof f.start !== "string" || !ISO_DATE.test(f.start))),
     );
     check(
-      `${concept} fact rows match XbrlFactValue (val/end/accn/fy/fp/form/filed types + date formats)`,
+      `${concept} fact rows match XbrlFactValue (val/end/accn/fy?/fp?/form/filed types + date formats)`,
       bad === undefined,
       bad ? JSON.stringify(bad) : undefined,
     );

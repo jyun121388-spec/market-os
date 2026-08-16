@@ -48,8 +48,8 @@ export interface CausalFactor {
 
 export interface CompanyFactFactor {
   concept: string;
-  fiscalPeriod: string;
-  fiscalYear: number;
+  fiscalPeriod: string | null;
+  fiscalYear: number | null;
   unit: string;
   value: number;
   form: string;

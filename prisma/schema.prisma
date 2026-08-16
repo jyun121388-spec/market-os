@@ -163,8 +163,12 @@ model FinancialFact {
   unit            String // e.g. "USD"
   periodStart     DateTime? // null for instant (point-in-time) concepts like Assets
   periodEnd       DateTime
-  fiscalYear      Int
-  fiscalPeriod    String // "Q1" | "Q2" | "Q3" | "FY"
+  // Nullable because SEC really does return `fy: null, fp: null` on some companyfacts rows
+  // (verified live against data.sec.gov, 2026-08-17). The fact itself is fully sourced; only
+  // the fiscal label is absent. Deriving one from periodEnd would store an inference as if it
+  // were reported data, and dropping the row would silently lose real, sourced history.
+  fiscalYear      Int?
+  fiscalPeriod    String? // "Q1" | "Q2" | "Q3" | "FY", or null when SEC reports none
   form            String // e.g. "10-K", "10-Q"
   accessionNumber String // links back to the Filing.receiptNo this value came from
   filedDate       DateTime

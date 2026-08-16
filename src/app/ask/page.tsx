@@ -98,7 +98,11 @@ export default async function AskMarketPage({
                   >
                     <div className="font-medium">{f.concept}</div>
                     <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                      {f.value} {f.unit} — {f.fiscalPeriod} {f.fiscalYear} ({f.form})
+                      {f.value} {f.unit} —{" "}
+                      {f.fiscalYear !== null
+                        ? `${f.fiscalPeriod ?? ""} ${f.fiscalYear}`.trim()
+                        : "fiscal period not reported"}{" "}
+                      ({f.form})
                     </div>
                   </li>
                 ))}

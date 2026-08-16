@@ -627,3 +627,35 @@ considered, but rejected as unnecessary infrastructure for this pass; the existi
 library + a plain `tsx` script matches every other real-invocation script in this project
 (`scripts/print-*.ts`, `scripts/ingest-*.ts`) and needed no new devDependency or config file.
 Revisit if E2E coverage grows enough that assertion/retry ergonomics become a real pain point.
+
+## 2026-08-16 — M28 Release Candidate: honest BLOCKED status, not a forced completion
+
+**Decision**: M28 does not declare a Release Candidate. `docs/RELEASE_CHECKLIST.md` is updated
+to its final M28 state: every criterion achievable without a human decision or external tooling
+is closed, and the two genuine blockers (M21 Ask Market — BLOCKED_HUMAN_GATE; Codex security
+review — no Codex session available at any point across this entire session) are stated plainly
+as the reason RC status isn't reached, not worked around.
+**What M28 actually did**: Ran a real cross-feature Claim Ledger audit — `verifyClaim` against
+every one of the 11 real `Claim` rows in the dev database (a mix of legitimate and
+deliberately-broken fixtures from `claimVerification.test.ts`), confirming every legitimate
+claim VERIFIED and every broken one was correctly rejected with the right failure code; also
+confirmed all 34 `Observation` rows have non-null `sourceId`/`retrievedAt` (provenance holds with
+real data). Clarified, with a citation to `docs/ARCHITECTURE.md`'s actual wording ("every
+material **AI-authored** claim... is backed by a stored row"), that Today Brief/Macro Regime
+correctly not persisting a Claim per view (M20's decision) is architecturally correct, not a
+gap — the Claim Ledger is for AI-authored assertions, and raw Observation display already
+carries its own source-attributed provenance. Logged two smaller open items (timezone/KST-
+boundary tests, user-facing stale-data marking) as `REVIEW_DEBT` rather than building them under
+time pressure at the tail of a long session without a concrete motivating failure case.
+**Reason for not forcing completion**: CLAUDE.md's Definition of Done requires "Codex review
+done or logged as Review Debt" — it does not require inventing a substitute for a review that
+genuinely hasn't happened. Marking M28/the roadmap "complete" while M21 and the security review
+remain open would misrepresent the project's actual state to whoever reads `PROJECT_STATE.md`
+next — exactly the kind of "confident-looking but unsupported" output this project's own
+anti-hallucination principles exist to prevent, applied to project status itself, not just
+financial data.
+**What unblocks the remaining roadmap**: (1) A human decision on M21's LLM provider/funding/
+credentials — see the M21 DECISIONS.md entry for exactly what's needed. (2) A Codex session
+becoming available in this environment, to run the security-critical review flagged since M22.
+Both are named, tracked (`docs/REVIEW_DEBT.md`), and ready to act on the moment either becomes
+available — this is a stopping point for genuine Human Gates, not an abandoned task.

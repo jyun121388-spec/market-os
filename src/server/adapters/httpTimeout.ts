@@ -6,11 +6,16 @@
  * is a drop-in `fetch` replacement that aborts and throws a distinguishable error after
  * `timeoutMs`.
  */
+import { redactSecrets } from "./redactSecrets";
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export class HttpTimeoutError extends Error {
   constructor(url: string, timeoutMs: number) {
-    super(`Request to ${url} timed out after ${timeoutMs}ms`);
+    // The URL carries provider credentials — ECOS in a path segment, FRED and DART in a query
+    // parameter — and this message is logged, persisted to `ingest_runs.error`, and rendered on
+    // /admin. Redact before it leaves this constructor rather than at each consumer.
+    super(`Request to ${redactSecrets(url)} timed out after ${timeoutMs}ms`);
   }
 }
 

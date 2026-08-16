@@ -97,6 +97,18 @@ export async function fetchEdgarFilingHistory(cik: string): Promise<EdgarFilingH
   const toFetch = overflowFiles.slice(0, MAX_OVERFLOW_FILES);
 
   for (const file of toFetch) {
+    // `file.name` comes from SEC's response, not from us. Interpolating a third-party string
+    // into a URL is how a path traversal ("../../…") or an absolute URL becomes a request to
+    // somewhere else entirely — a small SSRF surface, and not one worth leaving open just
+    // because the third party is trustworthy today. Constrain it to the filename shape SEC
+    // actually documents and uses.
+    if (!/^CIK\d{10}-submissions-\d{3}\.json$/.test(file.name)) {
+      throw new EdgarApiError(
+        `SEC EDGAR returned an unexpected overflow filename ${JSON.stringify(file.name)}. ` +
+          "Refusing to fetch it — this is either schema drift or something worse.",
+        0,
+      );
+    }
     const url = `https://data.sec.gov/submissions/${file.name}`;
     const response = await fetchWithTimeout(url, { headers: { "User-Agent": userAgent } });
     if (!response.ok) {

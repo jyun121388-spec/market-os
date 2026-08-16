@@ -1,4 +1,5 @@
 import { prisma } from "@/server/db/client";
+import { redactSecrets } from "@/server/adapters/redactSecrets";
 import type { IngestRunStatus } from "@/generated/prisma/client";
 
 /**
@@ -87,7 +88,9 @@ async function writeRun(args: {
       fetched: outcome.fetched ?? null,
       requestsMade: outcome.requestsMade ?? null,
       truncated: outcome.truncated ?? false,
-      error: args.error ? args.error.slice(0, 500) : null,
+      // Defence in depth: HttpTimeoutError already redacts, but any error from any layer can
+      // end up here, and this row is both persisted and rendered on an authenticated page.
+      error: args.error ? redactSecrets(args.error).slice(0, 500) : null,
     },
   });
 }

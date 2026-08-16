@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/server/db/client";
+import { findRevisionChainTail } from "@/server/domain/revisionChain";
 import { Prisma } from "@/generated/prisma/client";
 
 export type ObservationIngestStatus = "inserted" | "revised" | "unchanged";
@@ -69,7 +70,7 @@ export async function upsertRevisionAwareObservation(
   // An original already exists (created by this call's own prior attempt in a previous run, or
   // by a concurrent writer that won the race above). Fall through to the revision path.
   for (let attempt = 0; attempt < MAX_REVISION_RETRIES; attempt++) {
-    const latest = await findRevisionChainTail(input.seriesId, input.observationDate);
+    const latest = await loadRevisionChainTail(input.seriesId, input.observationDate);
 
     // tryInsertOriginal just told us an original exists (DO NOTHING fired), so this should
     // never be null — but if it somehow is (e.g. the original was deleted between the two
@@ -116,51 +117,20 @@ export async function upsertRevisionAwareObservation(
 }
 
 /**
- * Returns the tail of the revision chain for one (seriesId, observationDate) — the row that no
- * other row points at via `revisionOf` — or null if no rows exist for that key at all.
+ * Loads the revision chain for one (seriesId, observationDate) and returns its tail.
  *
- * This used to be `findFirst({ orderBy: { retrievedAt: "desc" } })`, which is wrong, and wrong
- * in a way that only shows up on a fast machine. Prisma maps `DateTime` to Postgres
- * `timestamp(3)`, so `retrievedAt` has millisecond resolution; an original and its revision
- * written in the same millisecond get byte-identical timestamps, and Postgres is then free to
- * return them in either order. When the ordering came back "wrong", the caller compared the
- * incoming value against the ORIGINAL instead of the newest revision, decided a revision was
- * needed, and tried to attach a second child to a parent that already had one — violating the
- * `(seriesId, observationDate, isRevision, revisionOf)` unique constraint. The retry loop then
- * re-read the same ambiguous ordering and failed again, so it burned all its attempts and threw
- * a raw P2002. Two real failures surfaced this on a local Windows/Postgres 16 run: a plain
- * sequential re-ingest of already-revised data (no concurrency involved at all), and the
- * N-concurrent-different-values case.
- *
- * The chain structure itself is unambiguous, so use that instead of the clock: the 4-column
- * unique constraint guarantees at most one child per parent, which makes the chain a linked
- * list with exactly one tail. That answer is the same no matter how coarse the timestamps are.
+ * The tail-finding itself lives in `revisionChain.ts`, shared with the READ path: the same
+ * mistake — ordering by `retrievedAt` on a `timestamp(3)` column — was made independently in
+ * both places, and having one implementation is what stops them drifting apart again. See that
+ * module for why the clock cannot answer this question.
  */
-async function findRevisionChainTail(seriesId: string, observationDate: Date) {
+async function loadRevisionChainTail(seriesId: string, observationDate: Date) {
   const rows = await prisma.observation.findMany({
     where: { seriesId, observationDate },
-    // Only a tiebreaker for a malformed chain (see below) — correctness no longer depends on it.
+    // Only a tiebreaker for a chain that should be impossible — correctness does not depend on it.
     orderBy: [{ retrievedAt: "desc" }, { id: "desc" }],
   });
-  if (rows.length === 0) {
-    return null;
-  }
-
-  const referencedIds = new Set(rows.map((r) => r.revisionOf).filter((id): id is string => !!id));
-  const tails = rows.filter((r) => !referencedIds.has(r.id));
-
-  if (tails.length === 0) {
-    // Every row is someone's parent — only possible if the chain contains a cycle, which the
-    // constraints above should make unreachable. Fail loudly rather than loop or guess.
-    throw new Error(
-      `observation revision chain for seriesId=${seriesId} ` +
-        `observationDate=${observationDate.toISOString()} has no tail (cycle in revisionOf)`,
-    );
-  }
-
-  // More than one tail means the chain forked, which the unique constraint should prevent. Take
-  // the deterministically-newest one so behavior stays stable, rather than an arbitrary row.
-  return tails[0];
+  return findRevisionChainTail(rows);
 }
 
 /**

@@ -104,6 +104,15 @@ export default async function AskMarketPage({
                         : "fiscal period not reported"}{" "}
                       ({f.form})
                     </div>
+                    {/*
+                      The actual period covered. A filing reports both a year-to-date and a
+                      quarterly figure under the SAME fiscal label, so without this the list
+                      shows two different revenue numbers both labelled "Q3 2026" with no way
+                      to tell them apart.
+                    */}
+                    <div className="text-xs text-zinc-500">
+                      {f.periodStart ? `${f.periodStart} → ${f.periodEnd}` : `as of ${f.periodEnd}`}
+                    </div>
                   </li>
                 ))}
               </ul>

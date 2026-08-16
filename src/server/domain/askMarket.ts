@@ -50,6 +50,15 @@ export interface CompanyFactFactor {
   concept: string;
   fiscalPeriod: string | null;
   fiscalYear: number | null;
+  /**
+   * The period the figure actually covers. Load-bearing, not decoration: one filing reports both
+   * a year-to-date and a quarterly figure under the same fiscal label, so without these two
+   * dates a reader sees "Revenue $364.4B (Q3 2026)" directly above "Revenue $109.4B (Q3 2026)"
+   * and has no way to tell which is which. `periodStart` is null for instant concepts (Assets,
+   * Liabilities, Cash), which are a balance at a date rather than a flow over a span.
+   */
+  periodStart: string | null; // YYYY-MM-DD
+  periodEnd: string; // YYYY-MM-DD
   unit: string;
   value: number;
   form: string;
@@ -232,6 +241,8 @@ async function findCompanyFacts(
       concept: f.concept,
       fiscalPeriod: f.fiscalPeriod,
       fiscalYear: f.fiscalYear,
+      periodStart: f.periodStart?.toISOString().slice(0, 10) ?? null,
+      periodEnd: f.periodEnd.toISOString().slice(0, 10),
       unit: f.unit,
       value: Number(f.value.toString()),
       form: f.form,

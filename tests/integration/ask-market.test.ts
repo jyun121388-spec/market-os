@@ -103,6 +103,28 @@ describeIfDb("askMarket (integration)", () => {
         raw: {},
       },
     });
+
+    // A second figure for the SAME fiscal label, differing only in how much time it covers —
+    // the shape SEC actually produces (a year-to-date figure alongside a quarterly one). Both
+    // must survive storage, and both must be distinguishable once displayed.
+    await prisma.financialFact.create({
+      data: {
+        sourceId: source.id,
+        corpCode: filing.corpCode,
+        taxonomy: "us-gaap",
+        concept: "Revenues",
+        unit: "USD",
+        periodStart: new Date("2026-01-01T00:00:00.000Z"),
+        periodEnd: new Date("2026-03-31T00:00:00.000Z"),
+        fiscalYear: 2026,
+        fiscalPeriod: "Q1",
+        form: "10-Q",
+        accessionNumber: "TEST_ACCN",
+        filedDate: new Date("2026-05-01T00:00:00.000Z"),
+        value: "250000",
+        raw: {},
+      },
+    });
   });
 
   afterAll(async () => {
@@ -133,8 +155,30 @@ describeIfDb("askMarket (integration)", () => {
     const result = await askMarket("TEST Widget Corp");
     expect(result.status).toBe("FACTORS_FOUND");
     expect(result.matchedTopic).toBe(CORP_NAME);
-    expect(result.companyFacts).toHaveLength(1);
-    expect(result.companyFacts[0].concept).toBe("Revenues");
+    expect(result.companyFacts).toHaveLength(2);
+    expect(result.companyFacts.every((f) => f.concept === "Revenues")).toBe(true);
+  });
+
+  it("carries the covered period, so two figures sharing a fiscal label stay distinguishable", async () => {
+    // Both fixtures are "Q1 2026 Revenues" with different values — one covering the quarter,
+    // one with no start at all. Rendered on `/ask` with only the fiscal label, a reader sees
+    // two contradictory revenue numbers and no way to tell which is which. Against real Apple
+    // data this is not hypothetical: OperatingIncomeLoss for Q3 2026 is $122.4B over nine
+    // months and $35.7B over one quarter, both under the same label.
+    const result = await askMarket("TEST Widget Corp");
+
+    const quarterly = result.companyFacts.find((f) => f.value === 250000)!;
+    expect(quarterly.periodStart).toBe("2026-01-01");
+    expect(quarterly.periodEnd).toBe("2026-03-31");
+
+    // Instant concepts genuinely have no start; null must survive rather than being invented.
+    const noStart = result.companyFacts.find((f) => f.value === 1000000)!;
+    expect(noStart.periodStart).toBeNull();
+    expect(noStart.periodEnd).toBe("2026-03-31");
+
+    // The fiscal label alone cannot separate them, which is the whole point.
+    expect(quarterly.fiscalPeriod).toBe(noStart.fiscalPeriod);
+    expect(quarterly.fiscalYear).toBe(noStart.fiscalYear);
   });
 
   it("redirects a personalized buy request even when a real match exists, but still shows factors", async () => {

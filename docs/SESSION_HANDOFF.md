@@ -1,91 +1,112 @@
 LAST COMPLETED
-Moved development from the Claude Code Web sandbox to a local Windows/VS Code machine and ran
-everything the sandbox could not. Four commits on top of `6cb74fc`:
 
-- `5ea3b9b` — three defects found by running the suite on real infrastructure: the
-  revision-chain race in `observationIngest.ts` (see below), `run-ingest-jobs.ts` spawning
-  `npm` (ENOENT on Windows, and `spawnSync` reports it as a normal FAILED job rather than
-  throwing), and the H1 migration-upgrade test spawning `npx` (ENOENT/EINVAL on Windows, so
-  that regression had never actually executed on this platform).
-- `de49452` — M19 Watchlist's real request path: `src/server/actions/watchlist.ts` +
-  `/watchlist`, 8 new integration tests through the session boundary, real-browser e2e
-  coverage, and `PLAYWRIGHT_CHROMIUM_PATH` replacing the hardcoded `/opt/pw-browsers/chromium`.
-- `49f1483` — `scripts/verify-edgar-live.ts`, a live contract check for both EDGAR adapters.
-- `4d33f6d` — the schema drift that check found, fixed end to end.
+Night autonomous run, 2026-08-17. Fourteen commits on top of `6cb74fc`, none pushed (HG-001).
+Baseline moved 209 → 247 tests, e2e 12 → 22 checks, live EDGAR contract checks 0 → 59.
 
-The revision-chain one is worth reading carefully, because it means the H3 fix from the Codex
-REVISE round was itself wrong. It found the chain's "latest" row with
-`orderBy: { retrievedAt: "desc" }`. Prisma maps DateTime to `timestamp(3)`, so an original and
-its revision written in the same millisecond get identical timestamps and Postgres may return
-either first. On the wrong ordering the code compared the incoming value against the ORIGINAL,
-decided a revision was needed, tried to attach a second child to a parent that already had one,
-and threw a raw P2002 after burning all 20 retries. Not concurrency-only — a plain sequential
-re-ingest of already-revised data hit it. The tail is now found structurally: the row nothing
-else points at via `revisionOf`, which the existing 4-column unique constraint makes
-unambiguous no matter how coarse the timestamps are.
+The through-line: development moved from the Claude Code Web sandbox to a local Windows machine
+with a real PostgreSQL 16.10, a real browser and real network egress. Every defect below was
+found by running or reading work that the cloud environment had already reported as green.
 
-The EDGAR drift: SEC returns `fy: null, fp: null` on some companyfacts rows (facts republished
-for a `frame` under a later restating filing). Types and DB columns were non-nullable, so a real
-ingest would have failed on the first one — Apple alone has 20 across the six tracked concepts.
-Widened rather than dropped, because the fact is fully sourced and only the label is missing;
-deriving a fiscal year from `periodEnd` would store an inference as reported data.
+Local-environment round (`5ea3b9b`, `de49452`, `49f1483`, `4d33f6d`, `9b20f01`):
+
+- The H3 concurrency fix from the Codex REVISE round **was itself defective**. It found the
+  revision chain's tail with `orderBy: retrievedAt desc` on a `timestamp(3)` column, so an
+  original and its revision written in the same millisecond were indistinguishable. Not
+  concurrency-only — a sequential re-ingest reproduced it. Re-fixed structurally: the tail is
+  the row nothing else points at via `revisionOf`.
+- The H1 migration-upgrade regression test had never executed on Windows (`npx` ENOENT/EINVAL),
+  so it reported as a passing file while asserting nothing.
+- `run-ingest-jobs.ts` spawned `npm`; `spawnSync` returns `status: null` rather than throwing,
+  so every job would have read as FAILED instead of never-started.
+- Real SEC schema drift: `fy: null, fp: null` on some companyfacts rows against non-nullable
+  columns. Widened, not guessed.
+- M19 Watchlist got its first real request path.
+
+Hardening round (`e0eecf6`, `d590c11`, `3fd6533`, `eeeb9ba`, `453962f`, `af942f9`, `fe511e2`,
+`19221e0`, `7407ec3`):
+
+- **EDGAR was storing 45% of Apple's filing history.** `filings.recent` is capped by SEC at
+  1000; everything older spills into `filings.files[]`, which the adapter never fetched. Real
+  ingest went 1000 filings (oldest 2015-06-04) → 2240 (oldest 1994-01-26). Note this got past
+  the live contract check the day before, which verified shape, printed "1000 recent filings"
+  as an info line, and called it VERIFIED. Shape verification is not completeness verification,
+  and a round number should be read as a cap.
+- Silent pagination truncation in all three keyed adapters (FRED `count`, ECOS
+  `list_total_count`, DART `total_page` — each received and ignored). Found by code reading.
+- Watchlist audit: an unused exported server action (a "use server" export is a reachable
+  endpoint whether or not a page calls it), no per-user row cap, and an upsert that could
+  surface a raw P2002 under concurrent submission.
+- 14 real bypasses closed in the Ask Market buy/sell guardrail, including "price target" — the
+  reverse word order of the covered "target price", and an explicitly prohibited output — plus
+  two bypasses the Codex packet itself had documented as open. Seven analytical controls guard
+  the opposite failure.
+- The impossible-date guard from 2026-08-16 had only reached FRED and ECOS; DART, EDGAR
+  submissions and EDGAR XBRL were all missed. All four adapters now share it.
+- The XBRL normalizer reported nothing about what it dropped; it now matches FRED/ECOS's
+  `skippedMissing` convention.
+- `tests/integration-coverage-guard.test.ts`: with `DATABASE_URL` unset, all 25 integration
+  files skip themselves and the run still reports green. Now fails loudly in CI.
 
 CURRENT TASK
-None in progress. Next work is gated on the three free API keys — see docs/CURRENT_TASK.md.
+None in progress. Everything unblocked has been done; remaining work is gated — see
+`docs/HUMAN_GATE_QUEUE.md` (HG-001..HG-008) and docs/CURRENT_TASK.md.
 
 CURRENT FAILURE
 none.
 
 TEST STATUS
-218/218 against a real local PostgreSQL 16.10 (was 209 in the cloud env). `npm run e2e` 17/17
-in a real browser (was 12). Lint, typecheck, format, production build all clean. Live EDGAR
-contract check 55/55 against real data.sec.gov.
+247/247 against a real local PostgreSQL 16.10. `npm run e2e` 22/22 in a real browser.
+`npm run verify:live:edgar` 59/59 against real data.sec.gov. Lint, typecheck, format and
+production build all clean. Full suite ~25s.
 
 NEXT EXACT ACTION
-See docs/CURRENT_TASK.md. Short version: if a FRED/ECOS/OpenDART key has arrived, live-verify
-that adapter using `scripts/verify-edgar-live.ts` as the template and expect to find drift. If
-not, there is no further live-verification work — say so rather than inventing scope.
 
-IMPORTANT CONTEXT — LOCAL WINDOWS ENVIRONMENT (this supersedes the old Linux-sandbox notes)
+1. HG-001: `git push origin claude/market-os-development-7vnicg` once GitHub auth exists. 14
+   commits are local-only. Nothing was rewritten; no force operation was attempted.
+2. HG-002/003/004: when a FRED/ECOS/OpenDART key lands, run `npm run verify:live:<provider>`
+   then the full sequence in docs/RELEASE_READINESS.md's header before classifying it
+   LIVE_VERIFIED. Expect drift — EDGAR had it twice.
+3. HG-005: Codex re-review, scope `9b34f8b..HEAD`, per docs/CODEX_REVIEW_PACKET.md §0.1.
 
-Postgres is a portable install, not a service. It lives in `.local/pgsql` (gitignored, ~322MB,
-downloaded from EnterpriseDB's binaries-only zip — no installer, no admin rights, no Docker).
-Start it each session with:
+IMPORTANT CONTEXT — LOCAL WINDOWS ENVIRONMENT
+
+Postgres is a portable install, not a service. `.local/pgsql` (gitignored, ~322MB, EnterpriseDB
+binaries-only zip — no installer, no admin, no Docker). Start each session with:
 
     .local\pgsql\bin\pg_ctl.exe -D .local\pgdata -l .local\pg.log -o "-p 55432 -c listen_addresses=127.0.0.1" -w start
 
 Port 55432 deliberately, to avoid colliding with any system Postgres. Superuser `postgres` /
-`devpassword`, database `market_os_dev`. `DATABASE_URL` is in `.env` (gitignored). Deleting
-`.local/` reverses the whole thing. Stop with the same `pg_ctl` and `stop`.
+`devpassword`, database `market_os_dev`. Deleting `.local/` reverses the whole thing.
 
-Bare `vitest`/`prisma` invocations do NOT inherit `.env` — set `$env:DATABASE_URL` first in the
-PowerShell session. Run `npx prisma generate` after every schema.prisma change.
+Bare `vitest`/`prisma` do NOT inherit `.env` — set `$env:DATABASE_URL` first. Run
+`npx prisma generate` after every schema change.
 
-Do NOT use `npx prettier --write .` without checking `.prettierignore` first — `.local` holds
-322MB of Postgres files and prettier will try to walk all of it. `.local/` and
-`.tmp-test-artifacts/` are now excluded from both prettier and eslint.
+`core.autocrlf=true`, so `git status` lists nearly every file as modified. Line-ending noise
+only — check `git diff --stat`, not `git status`, before committing.
 
-`core.autocrlf=true` on this machine, so `git status` lists nearly every file as modified. This
-is line-ending noise only — `git diff --stat` shows the real content changes, and git normalizes
-to LF on the index side, so commits are clean. Check `git diff --stat`, not `git status`, before
-committing. Repo-local git identity is set to `Claude <noreply@anthropic.com>` to match history.
+Two PowerShell 5.1 traps, both of which cost time tonight:
 
-PowerShell here-strings mangle git commit messages containing double quotes. Write the message
-to a scratchpad file and use `git commit -F <file>`.
+- Commit messages with double quotes get mangled by here-strings. Write the message to a
+  scratchpad file and use `git commit -F <file>`.
+- `Get-Content`/`Set-Content` round-trip **corrupts Korean text** (reads as ANSI). Never rewrite
+  a file containing Hangul that way — use the Edit tool. This silently mangled a test file's
+  Korean strings into an invalid regex before being caught.
 
-Playwright: browsers installed via `npx playwright install chromium` to the standard
-`%LOCALAPPDATA%\ms-playwright` cache. `scripts/e2e-full-walkthrough.ts` no longer hardcodes a
-path — set `PLAYWRIGHT_CHROMIUM_PATH` only if you need to override it. `npm run e2e` requires
-`npm run dev` already running in another shell.
+Do not run `npx prettier --write .` without checking `.prettierignore` — `.local` holds 322MB of
+Postgres files. `.local/` and `.tmp-test-artifacts/` are excluded from prettier and eslint.
 
-Network egress works from here. data.sec.gov, api.stlouisfed.org, ecos.bok.or.kr and
-opendart.fss.or.kr are all reachable — the `LIVE_VERIFICATION_REQUIRED` labels were about the
-old sandbox, not the adapters. SEC returns 403 for a User-Agent that is not roughly
-"<name> <contact email>"; a bare product name or repo URL is rejected. `EDGAR_USER_AGENT` is set
-in `.env` to the user's own contact address, with their explicit approval on 2026-08-17.
+Playwright: `npx playwright install chromium`, standard `%LOCALAPPDATA%\ms-playwright` cache.
+`PLAYWRIGHT_CHROMIUM_PATH` overrides only if needed. `npm run e2e` needs `npm run dev` running.
 
-Standing user instructions still in force: continue autonomously through the roadmap, do not
-stop at milestone/phase transitions or ask for routine approval, never self-declare Codex
-APPROVE, never activate paid APIs or services, and stop only for genuine Human Gates. The user
-approved obtaining free FRED/ECOS/OpenDART keys themselves (2026-08-17) — those are pending
-their action, not blocked on anything here. PR-status polling remains stopped.
+Network egress works. SEC returns 403 for a User-Agent that is not roughly "<name> <email>";
+`EDGAR_USER_AGENT` is set in `.env` to the user's own contact address with their explicit
+approval (2026-08-17).
+
+The dev database is shared with the test suite, and several integration tests delete rows by
+`corpCode` in `beforeAll`. After running the full suite, real ingested EDGAR data is partly
+cleared — re-run `npx tsx scripts/ingest-edgar.ts` if you need it back. Not a defect, but
+surprising if unexpected.
+
+Standing user instructions: continue autonomously, never self-declare Codex APPROVE, never
+activate paid APIs or services, record Human Gates in the queue and keep working around them.
+Do not promote status to RELEASE_CANDIDATE_READY until every condition in PROJECT_STATE is met.

@@ -96,10 +96,37 @@ Live provider verification (docs/RELEASE_READINESS.md "Data adapters"):
 Codex re-review is still the one non-Product gate, and its scope has grown materially — see
 NEXT and `docs/CODEX_REVIEW_PACKET.md` §0.1.
 
+SECOND ROUND (night autonomous run, 2026-08-17) — further defects found, all fixed:
+
+5. **EDGAR was storing 45% of Apple's filing history.** `filings.recent` is hard-capped by SEC
+   at 1000; everything older spills into `filings.files[]`, which the adapter never fetched.
+   Real ingest went from 1000 filings (oldest 2015-06-04) to 2240 (oldest 1994-01-26). This got
+   past the live contract check run the day before, which verified the response SHAPE, printed
+   "1000 recent filings" as an informational line, and concluded VERIFIED. Shape verification is
+   not completeness verification, and a suspiciously round total should be read as a cap.
+6. **Silent pagination truncation in all three keyed adapters.** FRED's `count`, ECOS's
+   `list_total_count` and DART's `total_page` were each received and ignored; every client
+   fetched page one and treated it as the whole answer.
+7. **Watchlist audit** — an unused exported server action (a `"use server"` export is a
+   network-reachable endpoint whether or not a page calls it), no per-user row cap, and an
+   upsert that could surface a raw P2002 under concurrent submission.
+8. **14 real bypasses in the Ask Market buy/sell guardrail**, including "price target" (the
+   reverse word order of the covered "target price", and an explicitly prohibited output) and
+   two bypasses `docs/CODEX_REVIEW_PACKET.md` had itself documented as open.
+9. **The 2026-08-16 impossible-date guard had only reached FRED and ECOS.** DART, EDGAR
+   submissions and EDGAR XBRL were all missed; all four adapters now share it.
+10. **The XBRL normalizer reported nothing about what it dropped** — a filer with no us-gaap
+    taxonomy, or a concept in a non-USD unit, ingested as a confident zero. Now matches
+    FRED/ECOS's `skippedMissing` convention.
+11. **`DATABASE_URL` unset would silently skip all 25 integration files** and still report a
+    green run. `tests/integration-coverage-guard.test.ts` now fails loudly in CI.
+
 TESTS
-233 / 233 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
-`npm run e2e` 17/17 checks in a real browser (up from 12). Lint / typecheck / format /
-production build all clean. Full suite runs in ~36s.
+247 / 247 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+`npm run e2e` 22/22 checks in a real browser (up from 12) — the walkthrough now drives the Ask
+Market guardrail through the real page, not just the domain function. `npm run verify:live:edgar`
+59/59 against real data.sec.gov. Lint / typecheck / format / production build all clean. Full
+suite runs in ~25s.
 
 Note on the suite runtime: it briefly reached ~137s when pagination was first tested by pushing
 14,000 synthetic rows through the real ingest. That was moved to client-level tests, which is

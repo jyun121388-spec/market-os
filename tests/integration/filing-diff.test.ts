@@ -108,6 +108,177 @@ describeIfDb("computeFinancialFactDiff (integration)", () => {
     expect(diff.status).toBe("INSUFFICIENT_DATA");
   });
 
+  it("never compares a year-to-date figure against a quarter from the same filing", async () => {
+    // The exact shape that produced a fabricated +232.9985% revenue "increase" against real
+    // Apple data. One 10-Q reports revenue twice: nine months ending 2026-06-27 ($364.357B) and
+    // three months ending the SAME date ($109.417B), under the same accession number. Taking
+    // "the two most recent rows" picked exactly those two and subtracted them.
+    const concept = "PeriodMismatchTest";
+    const accn = "0000000000-26-000020";
+    const periodEnd = new Date("2026-06-27T00:00:00.000Z");
+
+    await prisma.financialFact.createMany({
+      data: [
+        {
+          sourceId,
+          corpCode: CORP_CODE,
+          taxonomy: "us-gaap",
+          concept,
+          unit: "USD",
+          periodStart: new Date("2025-09-28T00:00:00.000Z"), // nine months
+          periodEnd,
+          fiscalYear: 2026,
+          fiscalPeriod: "Q3",
+          form: "10-Q",
+          accessionNumber: accn,
+          filedDate: new Date("2026-07-31T00:00:00.000Z"),
+          value: "364357000000",
+          raw: {},
+        },
+        {
+          sourceId,
+          corpCode: CORP_CODE,
+          taxonomy: "us-gaap",
+          concept,
+          unit: "USD",
+          periodStart: new Date("2026-03-29T00:00:00.000Z"), // three months, same end
+          periodEnd,
+          fiscalYear: 2026,
+          fiscalPeriod: "Q3",
+          form: "10-Q",
+          accessionNumber: accn,
+          filedDate: new Date("2026-07-31T00:00:00.000Z"),
+          value: "109417000000",
+          raw: {},
+        },
+        {
+          sourceId,
+          corpCode: CORP_CODE,
+          taxonomy: "us-gaap",
+          concept,
+          unit: "USD",
+          periodStart: new Date("2025-12-29T00:00:00.000Z"), // the PREVIOUS quarter
+          periodEnd: new Date("2026-03-28T00:00:00.000Z"),
+          fiscalYear: 2026,
+          fiscalPeriod: "Q2",
+          form: "10-Q",
+          accessionNumber: "0000000000-26-000013",
+          filedDate: new Date("2026-05-01T00:00:00.000Z"),
+          value: "111184000000",
+          raw: {},
+        },
+      ],
+    });
+
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, concept, "USD");
+
+    expect(diff.status).toBe("COMPUTED");
+    // Quarter against the previous quarter, not against the year-to-date figure beside it.
+    expect(diff.currentValue).toBe(109417000000);
+    expect(diff.previousValue).toBe(111184000000);
+    expect(diff.percentChange).toBe(-1.5893);
+    expect(diff.periodMonths).toBe(3);
+    // Different period ends, and therefore genuinely a period-over-period comparison.
+    expect(diff.currentPeriodEnd).toBe("2026-06-27");
+    expect(diff.previousPeriodEnd).toBe("2026-03-28");
+    expect(diff.currentAccession).not.toBe(diff.previousAccession);
+
+    await prisma.financialFact.deleteMany({ where: { sourceId, concept } });
+  });
+
+  it("reports INSUFFICIENT_DATA rather than comparing across period lengths", async () => {
+    // Only one figure of each length exists, so there is no valid comparison. Saying so is the
+    // point — the alternative is a confident number built from incomparable inputs.
+    const concept = "OnlyMismatchedLengths";
+    await prisma.financialFact.createMany({
+      data: [
+        {
+          sourceId,
+          corpCode: CORP_CODE,
+          taxonomy: "us-gaap",
+          concept,
+          unit: "USD",
+          periodStart: new Date("2025-09-28T00:00:00.000Z"),
+          periodEnd: new Date("2026-06-27T00:00:00.000Z"),
+          fiscalYear: 2026,
+          fiscalPeriod: "Q3",
+          form: "10-Q",
+          accessionNumber: "0000000000-26-000020",
+          filedDate: new Date("2026-07-31T00:00:00.000Z"),
+          value: "364357000000",
+          raw: {},
+        },
+        {
+          sourceId,
+          corpCode: CORP_CODE,
+          taxonomy: "us-gaap",
+          concept,
+          unit: "USD",
+          periodStart: new Date("2026-03-29T00:00:00.000Z"),
+          periodEnd: new Date("2026-06-27T00:00:00.000Z"),
+          fiscalYear: 2026,
+          fiscalPeriod: "Q3",
+          form: "10-Q",
+          accessionNumber: "0000000000-26-000020",
+          filedDate: new Date("2026-07-31T00:00:00.000Z"),
+          value: "109417000000",
+          raw: {},
+        },
+      ],
+    });
+
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, concept, "USD");
+    expect(diff.status).toBe("INSUFFICIENT_DATA");
+    expect(diff.percentChange).toBeUndefined();
+
+    await prisma.financialFact.deleteMany({ where: { sourceId, concept } });
+  });
+
+  it("compares instant concepts, which have no period length, across two dates", async () => {
+    const concept = "InstantConceptTest";
+    await prisma.financialFact.createMany({
+      data: [
+        {
+          sourceId,
+          corpCode: CORP_CODE,
+          taxonomy: "us-gaap",
+          concept,
+          unit: "USD",
+          periodEnd: new Date("2026-06-27T00:00:00.000Z"),
+          fiscalYear: 2026,
+          fiscalPeriod: "Q3",
+          form: "10-Q",
+          accessionNumber: "0000000000-26-000020",
+          filedDate: new Date("2026-07-31T00:00:00.000Z"),
+          value: "383266000000",
+          raw: {},
+        },
+        {
+          sourceId,
+          corpCode: CORP_CODE,
+          taxonomy: "us-gaap",
+          concept,
+          unit: "USD",
+          periodEnd: new Date("2026-03-28T00:00:00.000Z"),
+          fiscalYear: 2026,
+          fiscalPeriod: "Q2",
+          form: "10-Q",
+          accessionNumber: "0000000000-26-000013",
+          filedDate: new Date("2026-05-01T00:00:00.000Z"),
+          value: "371082000000",
+          raw: {},
+        },
+      ],
+    });
+
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, concept, "USD");
+    expect(diff.status).toBe("COMPUTED");
+    expect(diff.periodMonths).toBeNull();
+    expect(diff.percentChange).toBe(3.2834);
+
+    await prisma.financialFact.deleteMany({ where: { sourceId, concept } });
+  });
+
   it("computeFilingDiff batches multiple concepts in one call", async () => {
     const diffs = await computeFilingDiff(sourceId, CORP_CODE, [
       { concept: "Revenues", unit: "USD" },

@@ -258,12 +258,30 @@ model RealEstateTransaction {
 // ---------------------------------------------------------------------------
 
 model User {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String // "<N>:<r>:<p>:<saltHex>:<hashHex>" — see src/server/domain/auth.ts
+  createdAt    DateTime @default(now())
 
   watchlistItems WatchlistItem[]
+  sessions       Session[]
 
   @@map("users")
+}
+
+// M22 groundwork: Auth. Opaque bearer-token sessions stored server-side (the
+// session id IS the token) — no JWT/signing-secret needed, since validation
+// is a DB lookup, not a signature check. Simpler and easier to revoke
+// (delete the row) than a self-contained signed token.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
 }
 
 enum WatchlistItemType {

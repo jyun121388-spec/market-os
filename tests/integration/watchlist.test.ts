@@ -16,7 +16,20 @@ describeIfDb("watchlist (integration)", () => {
     ({ addWatchlistItem, removeWatchlistItem, listWatchlist } =
       await import("@/server/domain/watchlist"));
 
-    const user = await prisma.user.create({ data: {} });
+    const existing = await prisma.user.findUnique({
+      where: { email: "test-watchlist-user@example.com" },
+    });
+    if (existing) {
+      await prisma.watchlistItem.deleteMany({ where: { userId: existing.id } });
+      await prisma.user.delete({ where: { id: existing.id } });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        email: "test-watchlist-user@example.com",
+        passwordHash: "test-fixture-not-a-real-hash",
+      },
+    });
     userId = user.id;
   });
 

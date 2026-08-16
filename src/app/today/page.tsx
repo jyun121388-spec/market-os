@@ -1,17 +1,33 @@
+import Link from "next/link";
 import { buildMorningBrief } from "@/server/domain/morningBrief";
+import { getCurrentUser, signOutAction } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic"; // always reflects current data, never statically cached
 
 export default async function TodayPage() {
-  const brief = await buildMorningBrief();
+  const [brief, user] = await Promise.all([buildMorningBrief(), getCurrentUser()]);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
-        <p className="text-sm text-zinc-500">
-          Generated {new Date(brief.generatedAt).toLocaleString()}
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
+          <p className="text-sm text-zinc-500">
+            Generated {new Date(brief.generatedAt).toLocaleString()}
+          </p>
+        </div>
+        {user ? (
+          <form action={signOutAction} className="flex items-center gap-3 text-sm text-zinc-500">
+            <span>{user.email}</span>
+            <button type="submit" className="underline">
+              Log out
+            </button>
+          </form>
+        ) : (
+          <Link href="/login" className="text-sm font-medium underline">
+            Log in
+          </Link>
+        )}
       </header>
 
       <Section title="What Changed">

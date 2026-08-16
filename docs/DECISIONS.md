@@ -419,7 +419,7 @@ purpose) require calling an LLM live, for every real user question, at product r
 categorically different from this development session's own LLM usage (Claude Code driven by
 the user's Max 20x subscription): a deployed backend answering end-user questions needs its
 own API credentials and incurs its own per-token cost against whatever provider serves it — the
-Max subscription authenticates *this coding session*, not a running production service. CLAUDE.md
+Max subscription authenticates _this coding session_, not a running production service. CLAUDE.md
 is explicit that any paid API/service activation is a Human Gate, and that "if a task is
 blocked on a Human Gate, switch to the next independent task instead of stopping all work" —
 this is exactly that situation, not a judgment call to route around unilaterally (e.g. by
@@ -433,3 +433,31 @@ a Human Gate per CLAUDE.md's "never commit secrets" / "real credentials are a HU
 in the same milestone, and dedicated legal-guardrail tests (the "삼성전자 지금 살까?" redirect
 requirement) must ship with the first real Ask Market implementation, not after it.
 **Meanwhile**: Continuing to M22 (Auth / User System), which has no LLM dependency.
+
+## 2026-08-16 — M22 Auth: from-scratch email+password, opaque server-side sessions
+
+**Decision**: Built `src/server/domain/auth.ts` from scratch (Node's built-in `crypto.scryptSync`
+for password hashing, no third-party auth library) rather than adopting next-auth/Auth.js.
+Sessions are opaque bearer tokens (`Session.id` doubles as the token) validated by DB lookup —
+no JWT, no signing secret, revocation is just deleting the row.
+**Reason**: Smallest dependency/attack surface, easiest to reason about in a later security
+review (M26), and consistent with this project's pattern of preferring deterministic, self-owned
+code over external libraries where the scope is manageable (see the M07 event-clustering
+decision for the same philosophy). A third-party auth library often pulls in OAuth-provider
+integrations that are themselves potential Human Gates (external service registration) even
+when unused.
+**Correctness details worth noting**: `signIn` returns the identical error message
+("Invalid email or password") whether the email doesn't exist or the password is wrong — no
+user-enumeration signal. `scryptSync` (not the promisified async `scrypt`) is used because the
+promisified callback form hit a TypeScript overload-resolution error with the options object;
+sync is acceptable here given login/signup is a low-volume path, not a hot loop.
+**Verification**: Confirmed the full real flow with Playwright driving an actual browser against
+`npm run dev` (not just unit/integration tests) — signup creates a session and redirects to
+`/today` showing the logged-in email; logout clears the cookie and redirects to `/login`; a
+wrong password is rejected with the correct error while staying on the login page. `playwright`
+was added as a devDependency (the browser binary was already pre-installed in this environment)
+since `curl` cannot drive a Next.js Server Action directly (it requires the client-side action
+reference the browser's JS runtime provides) — this is also useful going forward for M27
+Production QA's E2E requirements.
+**Follow-up**: When M21 (Ask Market) is eventually unblocked, its pages should use
+`getCurrentUser()` from `src/server/actions/auth.ts` the same way `/today` does.

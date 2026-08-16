@@ -1,25 +1,22 @@
 # Current Task
 
-MILESTONE: M22 — Auth / User System (M21 skipped: BLOCKED_HUMAN_GATE, see PROJECT_STATE.md /
-DECISIONS.md — Ask Market needs a live product-runtime LLM call, a cost decision for the human
-to make, not this session to decide unilaterally)
+MILESTONE: M23 — Subscription-ready architecture
 
-TASK: Real authentication on top of the minimal `User` model already added in M19 (id +
-createdAt only). Per docs/ROADMAP.md this is scoped as "Auth / User System" — needs at minimum:
-credential storage (password hashing — never plaintext, never a weak/custom hash), session
-handling, and the actual login/signup flow wired to real pages (continuing M20's precedent of
-shipping real UI, not just backend logic). Real secrets (session signing key, etc.) are a Human
-Gate per CLAUDE.md — use `.env.example` placeholders and generate a random dev-only value
-locally, never hardcode or commit a real production secret.
+TASK: Per docs/ROADMAP.md, actual payment activation is a Human Gate. This milestone is about
+the ARCHITECTURE being subscription-ready, not integrating a real payment processor. Real
+question to resolve before coding: no feature currently built requires a paid tier to use, so
+there is nothing real to gate yet. A `plan`/`tier` field on `User` with no enforcement anywhere
+would be speculative schema — the same pattern this project has repeatedly avoided (e.g. M13's
+"no multi-hop traversal until a real consumer exists").
 
-STATUS: Not started — M20 (Today / Morning Intelligence) complete and verified with a real
-rendered page.
+STATUS: Not started — M22 (Auth) complete and verified with a real browser-tested signup/login/
+logout flow.
 
-NEXT EXACT ACTION: Decide the auth approach before coding: a from-scratch email+password flow
-(bcrypt/argon2 hashing, a Session model, httpOnly cookies) is the most control-preserving and
-dependency-light option consistent with this project's "prefer deterministic, self-owned code"
-pattern so far, versus pulling in a library like next-auth/Auth.js (more features, more
-dependency surface, some auth providers involve external services that could themselves be
-Human Gates — e.g. OAuth with a third party). Recommend: from-scratch email+password for V1
-(smallest surface, no external dependency, easiest to reason about for a security review later
-in M26) — record this choice and reasoning in DECISIONS.md before implementing.
+NEXT EXACT ACTION: Decide and record in DECISIONS.md: either (a) add a minimal `plan` field to
+`User` (default "FREE") plus a small `hasEntitlement(user, feature)` helper that currently
+always returns true for every existing feature (since nothing is paid-gated yet) — genuinely
+minimal, forward-compatible groundwork, analogous to M19's placeholder User model — or (b) mark
+this milestone explicitly deferred/low-value until a real paid feature exists to gate, and move
+to M24 (Admin/Monitoring) instead. Leaning toward (a) since it's small and mirrors the M19
+precedent, but confirm the reasoning holds before implementing rather than defaulting to
+"add a field" out of momentum.

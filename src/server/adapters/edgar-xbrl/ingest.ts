@@ -7,6 +7,10 @@ export interface IngestResult {
   cik: string;
   inserted: number;
   unchanged: number;
+  /** Tracked concepts that yielded nothing, with the reason — never a silent zero. */
+  skippedConcepts: number;
+  /** Individual fact rows dropped for a non-finite value. Never coerced to 0. */
+  skippedNonNumeric: number;
 }
 
 /**
@@ -23,7 +27,26 @@ export async function ingestCompanyFacts(company: XbrlCompanyDefinition): Promis
   });
 
   const raw = await fetchCompanyFacts(company.cik);
-  const facts = normalizeCompanyFacts(raw, company.cik);
+  const { facts, skippedConcepts, skippedNonNumeric, noUsGaapTaxonomy } = normalizeCompanyFacts(
+    raw,
+    company.cik,
+  );
+
+  if (noUsGaapTaxonomy) {
+    console.warn(
+      `[EDGAR XBRL] ${company.cik}: filer reports no us-gaap taxonomy at all — zero facts ` +
+        "ingested. This is a scope limit of the adapter, not an empty filing.",
+    );
+  }
+  for (const skipped of skippedConcepts) {
+    if (skipped.reason === "NO_USD_UNIT") {
+      console.warn(
+        `[EDGAR XBRL] ${company.cik}: concept ${skipped.concept} is reported but not in USD ` +
+          `(units: ${skipped.unitsAvailable?.join(", ") || "none"}) — skipped. A non-USD filer ` +
+          "would otherwise ingest silently as zero.",
+      );
+    }
+  }
 
   let inserted = 0;
   let unchanged = 0;
@@ -68,5 +91,11 @@ export async function ingestCompanyFacts(company: XbrlCompanyDefinition): Promis
     inserted++;
   }
 
-  return { cik: company.cik, inserted, unchanged };
+  return {
+    cik: company.cik,
+    inserted,
+    unchanged,
+    skippedConcepts: skippedConcepts.length,
+    skippedNonNumeric: skippedNonNumeric.length,
+  };
 }

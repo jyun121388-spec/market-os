@@ -55,7 +55,15 @@ describeIfDb("EDGAR XBRL adapter ingest (integration)", () => {
     );
 
     const result = await ingestCompanyFacts(APPLE);
-    expect(result).toEqual({ cik: APPLE.cik, inserted: 4, unchanged: 0 });
+    expect(result).toEqual({
+      cik: APPLE.cik,
+      inserted: 4,
+      unchanged: 0,
+      // The fixture tracks 6 concepts but only defines 3 — those 3 are now reported as
+      // skipped rather than silently absent from the output.
+      skippedConcepts: 3,
+      skippedNonNumeric: 0,
+    });
 
     const stored = await prisma.financialFact.findMany({ where: { corpCode: APPLE.cik } });
     expect(stored).toHaveLength(4);
@@ -78,7 +86,13 @@ describeIfDb("EDGAR XBRL adapter ingest (integration)", () => {
     );
 
     const result = await ingestCompanyFacts(APPLE);
-    expect(result).toEqual({ cik: APPLE.cik, inserted: 0, unchanged: 4 });
+    expect(result).toEqual({
+      cik: APPLE.cik,
+      inserted: 0,
+      unchanged: 4,
+      skippedConcepts: 3,
+      skippedNonNumeric: 0,
+    });
 
     const count = await prisma.financialFact.count({ where: { corpCode: APPLE.cik } });
     expect(count).toBe(4);

@@ -95,6 +95,12 @@ Two PowerShell 5.1 traps, both of which cost time tonight:
 Do not run `npx prettier --write .` without checking `.prettierignore` — `.local` holds 322MB of
 Postgres files. `.local/` and `.tmp-test-artifacts/` are excluded from prettier and eslint.
 
+**Restart `npm run dev` after `npx prisma generate`.** A running dev server holds the old
+generated client, so any page touching a newly added model fails at runtime while the code,
+tests, typecheck and build are all clean. This presented as four `/admin` e2e checks failing
+together — including two that had passed minutes earlier — which reads like a regression and is
+not one.
+
 Playwright: `npx playwright install chromium`, standard `%LOCALAPPDATA%\ms-playwright` cache.
 `PLAYWRIGHT_CHROMIUM_PATH` overrides only if needed. `npm run e2e` needs `npm run dev` running.
 

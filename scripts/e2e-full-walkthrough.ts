@@ -75,6 +75,14 @@ async function main() {
     body = await page.textContent("body");
     check("shows Pipeline Health heading", (body ?? "").includes("Pipeline Health"));
     check("shows signed-in email on /admin", (body ?? "").includes(TEST_EMAIL));
+    // Ingest completeness is the operator-facing answer to "is the stored data complete?".
+    // Every adapter reports a truncation flag now; this is the surface that makes it readable
+    // rather than a console line nobody sees.
+    check("shows the Ingest completeness section", (body ?? "").includes("Ingest completeness"));
+    check(
+      "explains what fetched-vs-provider means rather than showing a bare number",
+      (body ?? "").includes("what the provider itself said exists"),
+    );
 
     console.log("[5] Watchlist: add, see it listed, remove it");
     await page.goto(`${BASE_URL}/watchlist`);

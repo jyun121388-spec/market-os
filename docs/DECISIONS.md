@@ -551,3 +551,48 @@ silently.
 **Follow-up**: Once production deployment is approved, wire `scripts/run-ingest-jobs.ts` (or an
 equivalent) behind whatever scheduler the deployment platform provides, rather than rewriting
 the job sequencing logic — it's already deployment-agnostic.
+
+## 2026-08-16 — M26 Security Hardening: session tokens now explicitly random, plus a minimal login-lockout
+
+**Decision**: Two concrete fixes to `src/server/domain/auth.ts`, found via a self-review pass
+(no Codex session available in this environment — see docs/REVIEW_DEBT.md's M01-M22 row, still
+PENDING): (1) `createSession` now generates the session's `id` explicitly via
+`randomBytes(32).toString("hex")` instead of relying on the schema's `@default(cuid())`; (2)
+`signIn` now tracks failed attempts per normalized email in a process-local `Map` and locks out
+further attempts (including a subsequently-correct password) for 15 minutes after 5 failures
+within that window, resetting on any success. A `resetLoginAttemptTracking()` test-only export
+was added for test isolation.
+**Reason (session token)**: The `Session.id` column doubles as the bearer token itself (see the
+M22 decision above) — its security property needs to be "hard to guess," not merely "unique."
+Prisma's `cuid()` default is designed for the latter (collision resistance across a distributed
+system), not the former (resistance to a targeted enumeration/guessing attack against a secret).
+Relying on it for a security-sensitive token conflated two different properties that happened to
+both be satisfied by convenience rather than by design. `crypto.randomBytes(32)` gives 256 bits
+of cryptographic randomness, which is the standard practice for bearer tokens.
+**Reason (login lockout)**: Nothing previously limited how many password guesses an attacker
+could make against one account — `verifyPassword`'s `scryptSync` cost factor slows each attempt
+but doesn't cap the total number over time. A minimal per-email counter (in-memory, matching
+M25's "no external service unless genuinely needed" pattern — a distributed rate limiter needs
+its own infrastructure decision, deferred) closes the unlimited-guessing gap for the realistic
+threat (one attacker targeting one known account) without adding a new dependency. Both the
+locked-out case and the wrong-password case return the identical "Invalid email or password"
+message — a distinct "you're locked out" message would itself leak that the email exists.
+**Scope explicitly NOT changed**: Cookie flags (`httpOnly`/`secure` in production/`sameSite:
+lax`, in `src/server/actions/auth.ts`) were reviewed and found already correct — no change
+needed. `scryptSync`'s parameters (N=16384, r=8, p=1) match Node's own documented interactive-
+login recommendation — no change needed. CSRF: Next.js Server Actions enforce a same-origin
+check on the request by default (comparing the `Origin` header against the deployment's allowed
+origins) — this is framework-level protection already in effect, not something this project
+implements itself; verified by reviewing Next.js's own Server Actions security documentation
+rather than assumed.
+**Not addressed this milestone**: Distributed/IP-level rate limiting (credential stuffing across
+many accounts, or many IPs against one account) is out of scope for a single-process in-memory
+counter — would need shared infrastructure (Redis, a WAF/edge rate limiter) which is exactly the
+kind of "no new paid/hosted service" boundary M25 and this milestone both respect. Logged as
+follow-up, not silently ignored.
+**Verification**: Added `tests/integration/auth.test.ts` cases: session token matches
+`/^[0-9a-f]{64}$/`; 5 failed attempts lock out even a subsequently-correct password; a reset
+clears the lockout. Verified live with Playwright against `npm run dev`: signup issues a
+64-char hex session cookie with `httpOnly: true, sameSite: Lax`; 5 wrong-password attempts then
+a 6th attempt with the CORRECT password is still rejected with "Invalid email or password".
+157/157 tests pass, full verify chain green.

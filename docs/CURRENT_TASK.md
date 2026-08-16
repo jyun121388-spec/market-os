@@ -1,27 +1,26 @@
 # Current Task
 
-MILESTONE: M26 — Security Hardening
+MILESTONE: M27 — Production QA
 
-TASK: No dedicated security-review pass has happened yet on Auth (M22) or Admin (M24) — the
-docs/REVIEW_DEBT.md M01-M22 row already flags this as Codex-review-required, and no Codex
-session has been available in this environment for the whole session so far. Real scoping
-without a Codex session: a thorough self-review against docs/LEGAL_GUARDRAILS.md and standard
-web-app security basics, specifically: (1) session cookie flags (httpOnly/secure/sameSite) on
-the `market_os_session` cookie, (2) scrypt parameters used for password hashing (are they
-reasonable defaults or need tuning), (3) whether login/signup have any rate-limiting or brute-
-force protection (currently none — is that acceptable for this stage or worth adding a minimal
-in-memory limiter, consistent with M25's "no external service" pattern), (4) whether any error
-path could leak a secret, stack trace, or internal detail to the client, (5) CSRF: Next.js
-Server Actions enforce same-origin by default — verify this is actually true for this Next.js
-version rather than assuming, and check if any additional protection is warranted. No new paid
-security-scanning service (that's a Human Gate the moment it's paid) — use eslint, manual review
-of the actual source, and the existing test suite.
+TASK: Every milestone through M26 was verified individually (its own Playwright script, its own
+`npm run *:print`, its own integration tests) but the app has never had one continuous
+cross-feature walkthrough exercising every real page and flow together in sequence, the way a
+real user session would. Real scoping: full "production QA" (load testing, real traffic,
+multi-environment) needs an actual deployment, which is gated behind the same
+production-deployment Human Gate as M25's scheduler — not attempted here. What's genuinely
+buildable now: (1) one comprehensive Playwright script/test exercising the full real user path
+in this dev environment — signup, login, /today, /admin (both as unauthenticated redirect-check
+and as a real logged-in view), logout, wrong-password rejection, the M26 lockout, and session
+expiry — asserting on real rendered content at each step, not just HTTP status; (2) a pass over
+`docs/RELEASE_CHECKLIST.md` comparing its criteria against actual current state, updating it
+honestly (some criteria will still be open — that's expected, not a failure, given multiple
+BLOCKED_HUMAN_GATE items).
 
-STATUS: Not started — M25 (Performance / Cache / Background Jobs) complete and verified.
+STATUS: Not started — M26 (Security Hardening) complete and verified.
 
-NEXT EXACT ACTION: Read `src/server/domain/auth.ts` and `src/server/actions/auth.ts` in full,
-check the cookie-setting code for the session cookie's flags, check `scryptSync` parameters
-against Node's documented recommended minimums, and decide concretely (not speculatively)
-whether a minimal login-rate-limiter is in scope for this pass. Write findings + fixes, add
-tests proving any new protection actually works (e.g. wrong-password lockout after N attempts,
-if added), and verify with Playwright as usual for any behavior change to the login/signup flow.
+NEXT EXACT ACTION: Read `docs/RELEASE_CHECKLIST.md` in full first (if it exists) to know its
+actual criteria, then write a single Playwright test file (not an ad hoc throwaway script this
+time — a real `tests/e2e/*.spec.ts` or similar under version control, since this is exactly the
+kind of full-flow regression coverage that should persist across sessions, not be re-typed each
+time) covering the full walkthrough above. Run it for real against `npm run dev`. Update
+RELEASE_CHECKLIST.md with an honest done/open status per item.

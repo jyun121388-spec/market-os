@@ -14,11 +14,19 @@ describeIfDb("auth (integration)", () => {
   let validateSession: typeof import("@/server/domain/auth").validateSession;
   let destroySession: typeof import("@/server/domain/auth").destroySession;
   let AuthError: typeof import("@/server/domain/auth").AuthError;
+  let resetLoginAttemptTracking: typeof import("@/server/domain/auth").resetLoginAttemptTracking;
 
   beforeAll(async () => {
     ({ prisma } = await import("@/server/db/client"));
-    ({ signUp, signIn, createSession, validateSession, destroySession, AuthError } =
-      await import("@/server/domain/auth"));
+    ({
+      signUp,
+      signIn,
+      createSession,
+      validateSession,
+      destroySession,
+      AuthError,
+      resetLoginAttemptTracking,
+    } = await import("@/server/domain/auth"));
 
     const existing = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
     if (existing) {
@@ -79,6 +87,31 @@ describeIfDb("auth (integration)", () => {
 
     const validated = await validateSession(session.id);
     expect(validated?.id).toBe(user.id);
+  });
+
+  it("session token is a cryptographically random 64-char hex string, not a sequential/cuid id", async () => {
+    const user = await signIn(TEST_EMAIL, "correct-horse-battery-staple");
+    const session = await createSession(user.id);
+
+    expect(session.id).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("locks out sign-in after repeated failed attempts, then allows the correct password again once reset", async () => {
+    resetLoginAttemptTracking();
+    for (let i = 0; i < 5; i += 1) {
+      await expect(signIn(TEST_EMAIL, "wrong-password")).rejects.toThrow(
+        "Invalid email or password",
+      );
+    }
+
+    // 6th attempt is locked out even with the CORRECT password.
+    await expect(signIn(TEST_EMAIL, "correct-horse-battery-staple")).rejects.toThrow(
+      "Invalid email or password",
+    );
+
+    resetLoginAttemptTracking();
+    const user = await signIn(TEST_EMAIL, "correct-horse-battery-staple");
+    expect(user.email).toBe(TEST_EMAIL);
   });
 
   it("destroySession invalidates the token; a destroyed session no longer validates", async () => {

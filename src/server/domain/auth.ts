@@ -46,6 +46,46 @@ function normalizeEmail(email: string): string {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Minimal in-memory brute-force protection on sign-in (M26 Security Hardening) — no external
+ * service (that would be a Human Gate the moment it's paid, matching M25's caching decision).
+ * Process-local and keyed by normalized email: a targeted attacker guessing one account's
+ * password is the threat this defends against, not distributed credential stuffing (which needs
+ * IP-level/infrastructure-level defenses out of scope for a single-process app today).
+ */
+const LOGIN_ATTEMPT_LIMIT = 5;
+const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const failedLoginAttempts = new Map<string, { count: number; windowStart: number }>();
+
+function recordFailedLogin(email: string): void {
+  const now = Date.now();
+  const entry = failedLoginAttempts.get(email);
+  if (!entry || now - entry.windowStart >= LOGIN_ATTEMPT_WINDOW_MS) {
+    failedLoginAttempts.set(email, { count: 1, windowStart: now });
+    return;
+  }
+  entry.count += 1;
+}
+
+function isLoginLocked(email: string): boolean {
+  const entry = failedLoginAttempts.get(email);
+  if (!entry) return false;
+  if (Date.now() - entry.windowStart >= LOGIN_ATTEMPT_WINDOW_MS) {
+    failedLoginAttempts.delete(email);
+    return false;
+  }
+  return entry.count >= LOGIN_ATTEMPT_LIMIT;
+}
+
+function clearFailedLogins(email: string): void {
+  failedLoginAttempts.delete(email);
+}
+
+/** Test-only escape hatch — resets brute-force tracking between test cases. */
+export function resetLoginAttemptTracking(): void {
+  failedLoginAttempts.clear();
+}
+
 export async function signUp(email: string, password: string) {
   const normalized = normalizeEmail(email);
   if (!EMAIL_PATTERN.test(normalized)) {
@@ -64,22 +104,46 @@ export async function signUp(email: string, password: string) {
   return prisma.user.create({ data: { email: normalized, passwordHash } });
 }
 
-/** Returns the User on success. Never reveals whether the email or the password was wrong. */
+/**
+ * Returns the User on success. Never reveals whether the email or the password was wrong, and
+ * never reveals whether the lockout is why the attempt failed (a distinct error message for
+ * "locked out" vs. "wrong password" would itself leak that the email exists and has had failed
+ * attempts against it).
+ */
 export async function signIn(email: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } });
+  const normalized = normalizeEmail(email);
+  if (isLoginLocked(normalized)) {
+    throw new AuthError("Invalid email or password");
+  }
+
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
   if (!user) {
+    recordFailedLogin(normalized);
     throw new AuthError("Invalid email or password");
   }
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
+    recordFailedLogin(normalized);
     throw new AuthError("Invalid email or password");
   }
+  clearFailedLogins(normalized);
   return user;
+}
+
+/**
+ * The session id doubles as the bearer token (see module docstring), so it must be
+ * unpredictable, not just unique. Prisma's schema-level `@default(cuid())` is designed for
+ * collision-resistant IDs, not for resisting a targeted guessing/enumeration attack against a
+ * secret — so the token is generated explicitly here with `crypto.randomBytes`, overriding the
+ * schema default, rather than relying on it.
+ */
+function generateSessionToken(): string {
+  return randomBytes(32).toString("hex");
 }
 
 export async function createSession(userId: string) {
   return prisma.session.create({
-    data: { userId, expiresAt: new Date(Date.now() + SESSION_TTL_MS) },
+    data: { id: generateSessionToken(), userId, expiresAt: new Date(Date.now() + SESSION_TTL_MS) },
   });
 }
 

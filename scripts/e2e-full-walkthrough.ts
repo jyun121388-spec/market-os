@@ -38,7 +38,12 @@ async function cleanupTestUser() {
 async function main() {
   await cleanupTestUser();
 
-  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  // The browser binary location is environment-specific: the cloud dev sandbox ships a
+  // pre-installed Chromium at a fixed path, while a local machine uses Playwright's own
+  // download cache. Hardcoding either one makes this script unrunnable in the other, so the
+  // path is opt-in via PLAYWRIGHT_CHROMIUM_PATH and otherwise left to Playwright to resolve.
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
   const page = await browser.newPage();
 
   try {
@@ -71,20 +76,40 @@ async function main() {
     check("shows Pipeline Health heading", (body ?? "").includes("Pipeline Health"));
     check("shows signed-in email on /admin", (body ?? "").includes(TEST_EMAIL));
 
-    console.log("[5] Log out (logout control lives on /today)");
+    console.log("[5] Watchlist: add, see it listed, remove it");
+    await page.goto(`${BASE_URL}/watchlist`);
+    body = await page.textContent("body");
+    check("watchlist starts empty", (body ?? "").includes("Nothing tracked yet"));
+
+    await page.selectOption('select[name="itemType"]', "INDICATOR");
+    await page.fill('input[name="itemRef"]', "DGS10");
+    await page.fill('input[name="label"]', "US 10Y Treasury Yield");
+    await page.click('button[type="submit"]');
+    await page.waitForSelector("text=US 10Y Treasury Yield", { timeout: 10000 });
+    body = await page.textContent("body");
+    check("added item appears in the list", (body ?? "").includes("US 10Y Treasury Yield"));
+    check("added item shows its type and ref", (body ?? "").includes("INDICATOR · DGS10"));
+    check("tracked count reflects the new item", (body ?? "").includes("Tracked items (1)"));
+
+    await page.getByRole("button", { name: "Remove" }).click();
+    await page.waitForSelector("text=Nothing tracked yet", { timeout: 10000 });
+    body = await page.textContent("body");
+    check("removed item is gone", !(body ?? "").includes("US 10Y Treasury Yield"));
+
+    console.log("[6] Log out (logout control lives on /today)");
     await page.goto(`${BASE_URL}/today`);
     await page.getByRole("button", { name: /log ?out/i }).click();
     await page.waitForURL("**/login", { timeout: 10000 });
     check("redirected to /login after logout", page.url() === `${BASE_URL}/login`);
 
-    console.log("[6] Wrong password is rejected without revealing which part was wrong");
+    console.log("[7] Wrong password is rejected without revealing which part was wrong");
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', "totally-wrong-password");
     await page.click('button[type="submit"]');
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("wrong password rejected", page.url() === `${BASE_URL}/login`);
 
-    console.log("[7] Login lockout after 5 total failed attempts (1 already made above)");
+    console.log("[8] Login lockout after 5 total failed attempts (1 already made above)");
     for (let i = 0; i < 4; i += 1) {
       await page.fill('input[name="email"]', TEST_EMAIL);
       await page.fill('input[name="password"]', "totally-wrong-password");
@@ -97,7 +122,7 @@ async function main() {
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("locked out even with correct password", page.url() === `${BASE_URL}/login`);
 
-    console.log("[8] Expired session redirects to /login instead of showing stale auth state");
+    console.log("[9] Expired session redirects to /login instead of showing stale auth state");
     const user = await prisma.user.findUniqueOrThrow({ where: { email: TEST_EMAIL } });
     const expiredSession = await prisma.session.create({
       data: {

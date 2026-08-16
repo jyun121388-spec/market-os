@@ -17,6 +17,12 @@ export default async function TodayPage() {
         </div>
         {user ? (
           <form action={signOutAction} className="flex items-center gap-3 text-sm text-zinc-500">
+            <Link href="/watchlist" className="underline">
+              Watchlist
+            </Link>
+            <Link href="/ask" className="underline">
+              Ask
+            </Link>
             <span>{user.email}</span>
             <button type="submit" className="underline">
               Log out

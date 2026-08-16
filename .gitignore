@@ -43,3 +43,6 @@ next-env.d.ts
 
 /src/generated/prisma
 .tmp-test-artifacts/
+
+# local dev tooling installed into the workspace (portable Postgres, throwaway data dirs)
+.local/

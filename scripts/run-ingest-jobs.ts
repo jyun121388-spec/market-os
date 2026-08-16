@@ -21,6 +21,12 @@ const JOBS = ["ingest:fred", "ingest:ecos", "ingest:dart", "ingest:edgar", "inge
 // `killSignal` fallback to SIGKILL only kicks in if the child ignores that.
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
+// On Windows the npm entry point is `npm.cmd`; `spawnSync("npm", ...)` without a shell fails
+// with ENOENT there. That failure is especially nasty here because it does not throw — it comes
+// back as `status: null`, which this runner reports as a normal FAILED job, so every job would
+// look like it ran and failed rather than never having started.
+const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+
 interface JobResult {
   job: string;
   ok: boolean;
@@ -31,7 +37,7 @@ interface JobResult {
 function runJob(job: string): JobResult {
   const startedAt = Date.now();
   console.log(`[jobs] starting ${job}`);
-  const result = spawnSync("npm", ["run", job], {
+  const result = spawnSync(NPM, ["run", job], {
     stdio: "inherit",
     timeout: JOB_TIMEOUT_MS,
     killSignal: "SIGTERM",

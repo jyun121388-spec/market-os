@@ -22,6 +22,7 @@ const describeIfDb = hasDb ? describe : describe.skip;
 describeIfDb("auth migration upgrade safety (integration)", () => {
   const repoRoot = path.resolve(__dirname, "..", "..");
   const migrationsRoot = path.join(repoRoot, "prisma", "migrations");
+  const prismaCli = path.join(repoRoot, "node_modules", "prisma", "build", "index.js");
   const testDbName = "market_os_migration_upgrade_test";
 
   const baseUrl = new URL(process.env.DATABASE_URL!);
@@ -53,7 +54,12 @@ export default defineConfig({
 });
 `;
     writeFileSync(configPath, configContents);
-    execFileSync("npx", ["prisma", "migrate", "deploy", "--config", configPath], {
+    // Run Prisma's CLI as a plain Node script rather than going through `npx`. `npx` resolves to
+    // `npx.cmd` on Windows, and modern Node refuses to spawn a .cmd without a shell (EINVAL,
+    // the CVE-2024-27980 mitigation) while the bare name is ENOENT — so the npx route fails
+    // this suite before its first assertion on Windows either way. Invoking the CLI entry point
+    // directly is both portable and one process shorter.
+    execFileSync(process.execPath, [prismaCli, "migrate", "deploy", "--config", configPath], {
       cwd: repoRoot,
       env: { ...process.env, DATABASE_URL: testDbUrl.toString() },
       stdio: "pipe",

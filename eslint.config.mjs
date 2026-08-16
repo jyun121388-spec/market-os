@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local-only dev tooling and throwaway test artifacts — not source.
+    ".local/**",
+    ".tmp-test-artifacts/**",
+    "src/generated/**",
   ]),
 ]);
 

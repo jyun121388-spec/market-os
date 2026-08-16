@@ -6,6 +6,16 @@ independent reviewer) becomes available, review can start immediately without re
 context. It is not a substitute for the review — `docs/REVIEW_DEBT.md`'s M01-M22 row stays
 `PENDING` until an actual independent review happens.
 
+**Review path**: `codex-cli` (via `npx @openai/codex`) requires an interactive ChatGPT login
+(`npx @openai/codex login`), which this remote/cloud development environment cannot complete —
+confirmed 2026-08-16 (`npx @openai/codex login status` → "Not logged in", no OpenAI API key
+configured or used, per `CLAUDE.md`'s zero-extra-cost rule). This is an environment limitation,
+not a product defect, and is not a reason to build workarounds. **The defined final-review path
+is: run this packet's procedure (§12) from a local development machine where a human has already
+completed `codex login` with their own ChatGPT account.** Nothing else in this document changes
+based on where Codex runs — only §12's login precondition differs from a hypothetical
+already-authenticated cloud session.
+
 ## 1. Architecture summary
 
 Market OS is a modular-monolith Next.js 16 (App Router) + TypeScript app, PostgreSQL via Prisma
@@ -29,11 +39,22 @@ invariants" section below.
 ## 2. PR / commit scope
 
 - PR: `jyun121388-spec/market-os#1`, branch `claude/market-os-development-7vnicg` → `main`.
-- ~35 commits, built from an empty repository through the full M00-M28 roadmap plus post-M28
-  follow-up work (timezone/staleness fixes, a security-review skill pass, an M21 safe-mode MVP).
-- 160+ files changed, ~20k lines added.
+- **BASE SHA**: `df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e` (tip of `main` at branch creation —
+  `main` has had no other commits since, so this is still `main`'s current tip as of
+  2026-08-16).
+- **HEAD SHA**: `9b34f8bb6be120dacd381fe22577870f40d6e5fa` (tip of
+  `claude/market-os-development-7vnicg` as of 2026-08-16, matching what's pushed to PR #1).
+  **Before running the review, re-verify this is still the actual head** — `git ls-remote
+origin claude/market-os-development-7vnicg` or the PR page — in case a newer commit landed
+  after this packet was last updated. If the head has moved, update this line (and re-run
+  `npm run verify`/`npm run e2e` locally to confirm the new head is still green) before treating
+  the review as covering the real current state.
+- 35 commits between BASE and HEAD, built from an empty repository through the full M00-M28
+  roadmap plus post-M28 follow-up work (timezone/staleness fixes, a security-review skill pass,
+  an M21 safe-mode MVP, this pre-release audit).
+- 160+ files changed, ~21k lines added (`git diff --stat df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e...9b34f8bb6be120dacd381fe22577870f40d6e5fa`).
 - Full commit history and reasoning for every non-obvious decision: `docs/DECISIONS.md`
-  (chronological, append-only, ~35 entries).
+  (chronological, append-only, ~37 entries).
 
 ## 3. Critical invariants (things a reviewer should specifically try to break)
 
@@ -175,3 +196,124 @@ npm run e2e                                       # real-browser E2E walkthrough
    `concept`, `mechanism` strings) are rendered in `src/app/ask/page.tsx`? (React auto-escapes
    text content by default and no `dangerouslySetInnerHTML` is used anywhere in the codebase —
    confirmed via grep — but worth independent confirmation.)
+
+## 12. How to run the review (local machine, logged-in Codex only)
+
+Precondition: a human has run `npx @openai/codex login` on their own machine with their own
+ChatGPT account and it succeeds (`npx @openai/codex login status` reports logged in). This
+cannot be done from an unattended/headless session — it requires an interactive browser OAuth
+flow. Do not attempt this with an API key instead; that is a different, paid cost category and a
+Human Gate per `CLAUDE.md`.
+
+```bash
+git clone https://github.com/jyun121388-spec/market-os.git
+cd market-os
+git checkout claude/market-os-development-7vnicg
+git rev-parse HEAD   # confirm this matches §2's HEAD SHA above; if not, update the packet first
+
+npx @openai/codex login status   # must show logged in before proceeding
+```
+
+Scope the review to the release-critical diff and docs, not the whole repository (most of the
+repo is unremarkable adapter/domain code already covered by tests — the packet's §3/§4/§5/§6
+sections above are the actual risk surface):
+
+```bash
+npx @openai/codex exec \
+  --sandbox read-only \
+  "Review this repository as an independent code reviewer for a release candidate. \
+Read docs/CODEX_REVIEW_PACKET.md first for full context, critical invariants, and specific \
+attack prompts to try. Focus on: src/server/domain/auth.ts, src/server/actions/auth.ts, \
+src/server/domain/askMarket.ts, src/server/domain/claimStore.ts, \
+src/server/domain/claimVerification.ts, src/server/domain/observationIngest.ts, \
+prisma/schema.prisma, and src/server/adapters/*/normalize.ts. \
+Diff base df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e against head 9b34f8bb6be120dacd381fe22577870f40d6e5fa. \
+Output your findings as a single JSON object matching the schema in \
+docs/CODEX_REVIEW_PACKET.md section 13, and nothing else." \
+  > reviews/market-os-final-review.json
+```
+
+`--sandbox read-only` is required — the review must not modify the working tree. If the exact
+flag name differs in the installed `codex-cli` version, use whatever equivalent read-only/
+no-write sandbox mode that version documents (`npx @openai/codex --help`); never grant write or
+network-execute access for this review run.
+
+If the CLI does not support piping structured JSON output directly, run it interactively instead
+and manually save the model's final JSON response into `reviews/market-os-final-review.json` in
+the schema below — the schema is what matters, not the exact invocation mechanics.
+
+## 13. Result file: `reviews/market-os-final-review.json`
+
+```json
+{
+  "reviewer": "codex-cli",
+  "reviewer_version": "<output of `npx @openai/codex --version`>",
+  "reviewed_at": "<ISO 8601 timestamp, real, not fabricated>",
+  "base_sha": "df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e",
+  "head_sha": "9b34f8bb6be120dacd381fe22577870f40d6e5fa",
+  "verdict": "APPROVE | REVISE",
+  "summary": "<one paragraph — reviewer's overall assessment>",
+  "blockers": [
+    {
+      "id": "B1",
+      "severity": "P0 | P1",
+      "file": "src/server/domain/askMarket.ts",
+      "line": 0,
+      "description": "<concrete defect, not a style preference>",
+      "exploit_or_failure_scenario": "<specific input/state -> wrong output or real risk>",
+      "recommended_fix": "<what should change, not required to be exact code>"
+    }
+  ],
+  "non_blocking_notes": ["<P2/P3 observations that don't need to block APPROVE — optional>"]
+}
+```
+
+`blockers` MUST be empty for a `verdict: "APPROVE"` result. `verdict: "REVISE"` requires at
+least one entry in `blockers` — that's what makes it a REVISE and not just notes. Every blocker
+must have a concrete `file`/`line` and a real failure scenario, not a hypothetical "could be
+improved" — this repo's own review culture (see `docs/DECISIONS.md`, `docs/TEST_STRATEGY.md`)
+treats vague findings as noise, not signal.
+
+## 14. If verdict is `REVISE`: how blockers get fixed
+
+For each entry in `blockers`, in severity order (all P0s before any P1):
+
+1. Reproduce the finding — read the cited `file`/`line`, confirm the `exploit_or_failure_scenario`
+   is real against the actual code (not a misreading of it).
+2. Classify: if it's a real defect, fix it with the minimal correct change (no unrelated
+   refactoring, per this project's own AGENTS.md/CLAUDE.md discipline). If, on reproduction, the
+   finding is NOT actually valid (a false positive), record why in `docs/DECISIONS.md` with the
+   same reasoning-out-loud standard used for the `security-review` skill's false positive this
+   session — do not silently drop it.
+3. Add or update a regression test that would have caught the real defect, where testable.
+4. Re-run the full relevant verification for whatever was touched: `npm run verify` at minimum;
+   `npm run e2e` if auth/admin/ask flows were touched; the specific adapter's test file if a
+   `normalize.ts` was touched.
+5. Commit each fix with a message citing the blocker id (e.g. `Fix B1: ...`), push to
+   `claude/market-os-development-7vnicg`.
+6. Once all blockers are addressed (fixed or documented as false positives), update
+   `reviews/market-os-final-review.json`'s blockers with an `outcome` field per entry (`"fixed"`
+   | `"false_positive"` | `"deferred_to_review_debt"`) and re-run §12 against the new HEAD SHA —
+   update this packet's §2 HEAD SHA first.
+7. This is the same fix loop CLAUDE.md's Development Loop already describes
+   (TEST → FIX → RETEST → CODEX REVIEW) — nothing new here, just Codex substituting for the
+   "self-review" step this session used in its absence.
+
+## 15. If verdict is `APPROVE`: how status updates
+
+1. Update `docs/REVIEW_DEBT.md`'s M01-M22 row: status changes from `PENDING` to `DONE`, citing
+   `reviews/market-os-final-review.json`'s `reviewed_at`/`head_sha` as evidence.
+2. Update `docs/RELEASE_READINESS.md`'s "Codex critical review" row: `CODEX_REVIEW_PENDING` →
+   `VERIFIED`.
+3. Update `docs/PROJECT_STATE.md`'s `CURRENT`/`STATUS` fields to record
+   **`RELEASE_CANDIDATE_CODEX_APPROVED`** as the project's terminal technical status — this is a
+   distinct, stronger status than the prior `RELEASE_CANDIDATE_READY` (which had Codex review as
+   `CODEX_REVIEW_PENDING`). Cite the review file path and head SHA.
+4. Add a `docs/DECISIONS.md` entry recording the approval, the reviewer version, and a one-line
+   summary of what was checked — same pattern as every other entry in that log.
+5. Commit these doc updates (`git commit -m "Record Codex APPROVE: reviews/market-os-final-review.json"`),
+   push.
+6. The three Product/Human Gates (full LLM-based Ask Market, production deployment, payment
+   activation) are unaffected by this — Codex approval closes the _technical_ review gate only.
+   `RELEASE_CANDIDATE_CODEX_APPROVED` still means "ready modulo Product/Human decisions," not
+   "shippable to production without human sign-off."

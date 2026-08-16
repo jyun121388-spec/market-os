@@ -16,16 +16,21 @@ events from here on.
 
 STATUS
 `codex-cli` (0.147.0, via `npx @openai/codex`) was checked in this environment on 2026-08-16 and
-confirmed present but NOT logged in (`npx @openai/codex login status` → "Not logged in"). No
-ChatGPT session exists here, and per absolute cost rules no OpenAI API key was configured or
-used to work around that. Codex review therefore remains genuinely unavailable in this
-environment — `docs/CODEX_REVIEW_PACKET.md` stays ready for whenever a logged-in Codex session
-(or any independent reviewer) becomes available. This is the terminal state for this session:
-no further code changes are needed or planned absent new input.
+confirmed present but NOT logged in (`npx @openai/codex login status` → "Not logged in"). This
+is a remote/cloud environment limitation (no interactive OAuth possible unattended), not a
+product defect, and was not worked around with an API key. **The defined final-review path**
+(per explicit user instruction) is a LOCAL machine with `codex login` already completed, running
+the exact procedure in `docs/CODEX_REVIEW_PACKET.md` §12-15 — base
+`df56ace3ab27c2a7cb6bf52e95153d4a8dd06f7e`, head `9b34f8bb6be120dacd381fe22577870f40d6e5fa` (git
+tree clean as of this update, no code changes this pass — docs/reviews-scaffolding only). Result
+lands in `reviews/market-os-final-review.json` (schema in the packet). REVISE → fix loop and
+APPROVE → status-update procedure are both fully specified there. This is the terminal state for
+this session: no further code changes are needed or planned absent new input or a produced
+review result.
 
 TESTS
 184 / 184 PASS (98 unit, 86 integration against a real Postgres instance) + npm run e2e (12/12
-checks, real browser). CI green on PR #1's current head (e00a390).
+checks, real browser). CI green on PR #1's current head (9b34f8b before this doc-only commit).
 
 OPEN P0
 0
@@ -46,7 +51,7 @@ engineering, and not a reason to keep polling PR #1:
 (a) Full free-text LLM-based Ask Market — needs a funded LLM provider/credential decision.
 (b) Production deployment approval.
 (c) Payment/subscription activation.
-A Codex session becoming available (real ChatGPT login, not an API key) would let the review in
-docs/CODEX_REVIEW_PACKET.md run immediately — that is the one non-Product gate still open, and is
-also not something to poll for; act on it when the user brings it up or a session becomes
-available through normal means.
+The Codex review (the one non-Product gate still open) has a defined path now — run
+docs/CODEX_REVIEW_PACKET.md §12 from a local machine with codex login already done, and drop the
+result at reviews/market-os-final-review.json. When that file appears with a `verdict`, follow
+§14 (REVISE) or §15 (APPROVE) as written. Not something to poll for in the meantime.

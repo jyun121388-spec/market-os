@@ -228,17 +228,70 @@ Two things were deliberately NOT done, and should be reviewed as decisions rathe
   today, so a 1990 observation arrives stamped with today's date. Mapping it would fill a
   provenance column with a confident, checkable, wrong answer. See `docs/REVIEW_DEBT.md`'s M08.
 
+### R12 — 168 financial facts were being silently discarded on every ingest
+
+A fact's identity includes the period START. The unique key was
+`(sourceId, corpCode, concept, unit, periodEnd, accessionNumber)`, assuming one filing reports a
+concept at most once per period end. SEC reports both a year-to-date and a quarterly figure under
+the same period end and the same accession, distinguished only by `start`: Apple's NetIncomeLoss
+under accession `0001193125-09-153165` ending 2008-06-28 is $3.698B over nine months **and**
+$1.072B over one quarter. The constraint treated those as one row and kept whichever arrived
+first, so which figure survived depended on array order in SEC's response.
+
+The tell was a fresh-database ingest reporting "933 inserted, 168 unchanged" — nothing can be
+unchanged against an empty table. After the fix: 1101 inserted, 0 unchanged, and a re-ingest
+reports 0 inserted / 1101 unchanged.
+
+Enforced as two partial unique indexes, not by adding `periodStart` to the key: it is NULL for
+instant concepts, and Postgres treats NULL as distinct from NULL in a unique index, so the naive
+fix would have silently stopped enforcing uniqueness for exactly those rows — the same trap as
+the H3 observation constraint.
+
+- **Note on the migration itself**: its first version dropped the old index by guessed name and
+  was a silent no-op, because Prisma truncates generated names to 63 characters. It now drops by
+  shape. `DROP INDEX IF EXISTS` against a misspelled name reports success.
+- **Try to break it**: is there any other unique constraint in `schema.prisma` whose column list
+  is narrower than the real identity of the thing it constrains?
+
+### R13 — the two EDGAR adapters disagreed about how to identify a company
+
+Filings stored SEC's `cik` verbatim (padded); XBRL stored the unpadded constant from its tracked
+list. Apple's filings went under `0000320193` and its facts under `320193`: 2240 filings, 933
+facts, **zero** joinable rows. `askMarket.ts`'s `findCompanyFacts` finds a Filing by name then
+looks facts up by that filing's `corpCode`, so Ask Market's "Company facts" section returned
+nothing for every EDGAR company — with nothing to distinguish "no facts" from "broken lookup".
+
+Neither adapter canonicalised; they simply differed. Both now pad explicitly. A unit test on
+either adapter alone would have passed, which is why the new test
+(`tests/integration/corp-code-consistency.test.ts`) ingests through both and joins the results.
+
+- **Try to break it**: DART corp codes are 8-digit identifiers in a different namespace and must
+  NOT be padded — the backfill migration is scoped to the SEC_EDGAR source for that reason. Is
+  that scoping correct? Are there other cross-adapter identifiers that could diverge the same
+  way (`Series.externalId`, for instance)?
+
 ### Current verification state (2026-08-17)
 
-264/264 tests against a real local PostgreSQL 16.10, `npm run e2e` 24/24 in a real browser,
-59/59 live EDGAR contract checks, all 13 migrations applied cleanly to a genuinely fresh
+272/272 tests against a real local PostgreSQL 16.10, `npm run e2e` 24/24 in a real browser,
+59/59 live EDGAR contract checks, all 15 migrations applied cleanly to a genuinely fresh
 database, lint/typecheck/format/production build clean. Nothing in this packet is self-declared
 APPROVE, and no provider other than SEC EDGAR is claimed live-verified.
 
-**The single most useful thing a reviewer can do with this packet**: note that R1, R5, R7 and R9
-are four instances of one mistake — a read-then-write, or a read-and-pick, treated as atomic or
-as ordered when the ordering key cannot bear the weight. Three were found only after the first
-one was fixed and its shape was known. If a fifth exists, it is likely in code none of R1-R11
+**Two patterns are worth more to a reviewer than the individual findings.**
+
+_Identity and ordering keys that cannot bear the weight put on them._ R1, R5, R7, R9 and R12 are
+all instances: a read-then-write treated as atomic, a read-and-pick treated as ordered, or a
+uniqueness key narrower than the real identity of the thing it constrains. Four of the five were
+found only after the first was fixed and its shape was known.
+
+_Silence where there should be a signal._ R3, R4, R12 and R13 all stored or displayed less than
+they should have while reporting success. The most reliable way to find these turned out not to
+be reading code but looking at real numbers and asking whether they were plausible — 1000 filings
+is a suspiciously round total; 168 rows "unchanged" against an empty table is impossible; 2240
+filings and 933 facts with zero joinable rows is not a coincidence. None of these had a failing
+test, and several had passing ones.
+
+If a further instance of either pattern exists, it is most likely somewhere none of R1-R13
 touched.
 
 ### B1 (was P0/HIGH) — Auth migration upgrade safety

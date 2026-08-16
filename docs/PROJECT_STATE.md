@@ -142,13 +142,30 @@ SECOND ROUND (night autonomous run, 2026-08-17) — further defects found, all f
     `findUnique` → `create`. Confirmed real rather than theoretical — the old pattern run four
     ways concurrently rejected 3 of 4 with P2002.
 
-Four of the defects found in this project — H3, the watchlist upsert, the three read paths, and
-the filing ingests — are the same mistake: a read-then-write, or a read-and-pick, treated as
-atomic or as ordered when the ordering key cannot bear the weight. Three of them were found only
-after the first was fixed and its shape was known. Worth carrying into any future review.
+17. **168 financial facts were silently discarded on every ingest.** A fact's identity includes
+    the period START — SEC reports a year-to-date and a quarterly figure under the same period
+    end and accession, distinguished only by `start` (Apple: $3.698B over nine months vs $1.072B
+    over one quarter). The unique key omitted it, so one of each pair was dropped and reported
+    as "unchanged". Enforced now as two partial unique indexes, because `periodStart` is NULL
+    for instant concepts and a NULL in a unique key stops enforcing anything.
+18. **The two EDGAR adapters identified companies differently** — filings under `0000320193`,
+    facts under `320193`. 2240 filings, 933 facts, zero joinable rows, and Ask Market's "Company
+    facts" section silently empty for every EDGAR company.
+
+Two patterns account for most of what was found, and both are worth carrying forward.
+
+_Identity and ordering keys that cannot bear the weight put on them_ — H3, the watchlist upsert,
+the three read paths, the filing ingests, and the fact-identity key. Four of the five were found
+only after the first was fixed and its shape was known.
+
+_Silence where there should be a signal_ — every truncation defect, plus the two above. The most
+reliable way to find these was not reading code but looking at real numbers and asking whether
+they were plausible: 1000 filings is a suspiciously round total; 168 rows "unchanged" against an
+empty table is impossible; 2240 filings and 933 facts with zero joinable rows is not a
+coincidence. None had a failing test, and several had passing ones.
 
 TESTS
-264 / 264 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+272 / 272 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 24/24 checks in a real browser (up from 12) — the walkthrough now drives the Ask
 Market guardrail through the real page, not just the domain function. `npm run verify:live:edgar`
 59/59 against real data.sec.gov. All 13 migrations apply cleanly to a genuinely fresh database.

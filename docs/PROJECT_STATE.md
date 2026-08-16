@@ -2,28 +2,24 @@ CURRENT RELEASE
 0.0.1-alpha
 
 COMPLETED
-M00, M01, M02, M03, M04, M05, M06, M07 (partial), M08, M09 (partial), M10, M11, M12 (partial),
-M13 (partial), M14 (partial), M15 (partial), M16 (partial), M17 (partial), M18 (partial), M19,
-M20, M22, M23, M24, M25 (partial), M26 (partial), M27 (partial), M28 (honest status: BLOCKED,
-not a forced completion — see below). Post-M28: closed the 2 non-blocking REVIEW_DEBT items
-(timezone/KST test coverage + a real UTC-display bug fix; user-facing stale-data marking); ran
-the `security-review` skill (independent finder + verifier sub-agents) against the full branch
-diff — zero high-confidence findings, one candidate verified as a false positive. This is real
-additional security coverage but explicitly does NOT close the Codex-review REVIEW_DEBT item —
-see DECISIONS.md for why a different tool isn't treated as satisfying that specific requirement.
+M00-M28 (see docs/RELEASE_READINESS.md for the precise, honest per-subsystem status — this
+section is intentionally brief; that document is now the source of truth for readiness).
+Post-M28: timezone/staleness fixes, a security-review skill pass, and a pre-release audit that
+shipped M21's deterministic Ask Market safe mode (`src/server/domain/askMarket.ts` + `/ask`).
 
 CURRENT
-M28 — BLOCKED_HUMAN_GATE (2 named blockers remain; every other criterion, including the two
-smaller items originally open at M28, is now closed)
+Pre-Release Audit complete. Status: `RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES` (see
+docs/RELEASE_READINESS.md for the full verdict and evidence).
 
 STATUS
-BLOCKED_HUMAN_GATE — the whole roadmap through M28, plus the non-blocking follow-up work, has
-been worked as far as this session can take it without a human decision or a Codex session. This
-is a genuine stopping point, not a paused task waiting on nothing in particular.
+BLOCKED_HUMAN_GATE / CODEX_REVIEW_PENDING — every task buildable, fixable, or auditable without
+external input is done. Two things remain, both requiring something this session cannot supply:
+a Codex session (packet ready at docs/CODEX_REVIEW_PACKET.md), and human decisions on named
+Human Gates (M21's full LLM-based Ask Market, production deployment, payment activation).
 
 TESTS
-173 / 173 PASS (87 unit, 86 integration against a real Postgres instance) + npm run e2e (12/12
-checks, real browser)
+184 / 184 PASS (98 unit, 86 integration against a real Postgres instance) + npm run e2e (12/12
+checks, real browser). CI green on PR #1's current head.
 
 OPEN P0
 0
@@ -32,36 +28,22 @@ OPEN P1
 0
 
 REVIEW DEBT
-See docs/REVIEW_DEBT.md (24 entries — 2 closed since M28, both marked DONE with what was found/
-fixed). Two entries are the actual remaining release blockers:
-
-- M21 Ask Market: BLOCKED_HUMAN_GATE — needs a human decision on LLM provider/funding/
-  credentials (a real production runtime cost, not covered by this session's own Max 20x usage).
-- Codex critical security review: PENDING — no Codex session has been available in this
-  environment at any point this entire session, despite being flagged as required since M22.
-
-Everything else in REVIEW_DEBT.md is either a data-source reachability limitation (this dev
-sandbox blocks essentially every financial-data-provider domain — documented per-milestone) or a
-deliberately deferred scope decision, all logged with reasoning in DECISIONS.md, none silently
-skipped.
+See docs/REVIEW_DEBT.md (24 entries — 4 marked DONE this session with what was found/fixed,
+including M21's safe-mode scope). docs/RELEASE_READINESS.md is now the canonical per-subsystem
+classification (VERIFIED / VERIFIED_WITH_LIMITATION / LIVE_VERIFICATION_REQUIRED /
+CODEX_REVIEW_PENDING / HUMAN_GATE / BLOCKED) — read it before assuming anything is "done."
 
 NEXT
-This session cannot progress the roadmap further without one of:
-(a) A human decision on M21 Ask Market's LLM provider/funding/credentials — see the M21 and M28
-DECISIONS.md entries for exactly what's needed.
-(b) A Codex session becoming available, to run the security-critical review owed since M22 (M26
-already applied a self-review in the meantime — see DECISIONS.md — but that is not a
-substitute).
-(c) Real API keys/reachable network for any of the REVIEW_DEBT items marked PENDING on data
-sources (FRED/ECOS/DART/EDGAR/etc.) — would let several "schema + algorithm only" milestones
-(M07, M12, M14, M17, M18) gain real ingestion.
-(d) Explicit human approval of production deployment — would unblock M25's real scheduler wiring
-and let M27's E2E coverage extend to a real deployed environment.
-Absent any of these, do not force a "complete" status — see the M28 DECISIONS.md entry for why.
-The remaining REVIEW_DEBT.md PENDING items (M26's distributed rate limiting; the various
-data-source live-verification rows) are additional optional non-blocking work if more
-independent tasks are wanted, but they're each smaller/lower-value than the two just closed, and
-most (data-source verification) are themselves gated on Human Gates (real API keys). No further
-independent, non-Human-Gate-blocked work has been identified as of this pass. If new instructions
-or new environment capabilities arrive in a future session, re-read this file,
-docs/REVIEW_DEBT.md, and docs/RELEASE_CHECKLIST.md before resuming.
+Nothing further is available to build autonomously without one of:
+(a) A Codex session becoming available — docs/CODEX_REVIEW_PACKET.md is ready to hand off
+    immediately, no re-derivation needed.
+(b) A human decision on M21's full free-text Ask Market (LLM provider/funding/credentials) — see
+    docs/DECISIONS.md's two M21 entries for the precise boundary between what's done (topic
+    search + guardrail) and what's blocked (arbitrary natural language).
+(c) Real API keys/reachable network for any `LIVE_VERIFICATION_REQUIRED` row in
+    docs/RELEASE_READINESS.md.
+(d) Production-deployment approval (unblocks the real job scheduler and live E2E against a
+    deployed environment).
+Do not force a "complete" status in the absence of these — see docs/RELEASE_READINESS.md's
+verdict section for why `RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES` is the accurate terminal
+state, not a failure to reach `RELEASE_CANDIDATE_READY`.

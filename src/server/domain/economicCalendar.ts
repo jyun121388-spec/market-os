@@ -1,4 +1,5 @@
 import { prisma } from "@/server/db/client";
+import { getObservationsOneRowPerDate } from "./seriesReadings";
 
 /**
  * Economic Calendar (docs/PRODUCT_SPEC.md "Economic Calendar") — V1 scope note (see
@@ -52,11 +53,10 @@ export async function computeCalendarEntry(seriesId: string): Promise<CalendarEn
     include: { source: true },
   });
 
-  const observations = await prisma.observation.findMany({
-    where: { seriesId },
-    orderBy: [{ observationDate: "asc" }, { retrievedAt: "desc" }],
-    distinct: ["observationDate"],
-  });
+  // One row per date, resolved through the revision chain — see getObservationsOneRowPerDate.
+  // Cadence only needs the dates, but `lastObservedValue` below is a displayed number, and the
+  // retrievedAt-desc + distinct query this replaced could return a superseded one.
+  const observations = await getObservationsOneRowPerDate(seriesId);
 
   const base = {
     seriesId: series.id,

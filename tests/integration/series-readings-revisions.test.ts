@@ -151,6 +151,30 @@ describeIfDb("getRecentObservationPair with revisions (integration)", () => {
     expect([...values]).toEqual(["4|1.5"]);
   });
 
+  it("getObservationsOneRowPerDate returns one revised row per date, oldest first", async () => {
+    // economicCalendar and historicalAnalog had each written the broken retrievedAt+distinct
+    // query independently, and both use the VALUE — the calendar displays `lastObservedValue`,
+    // the analog engine z-scores every point. One shared reader now answers for all of them.
+    const { getObservationsOneRowPerDate } = await import("@/server/domain/seriesReadings");
+    const rows = await getObservationsOneRowPerDate(seriesId);
+
+    expect(rows.map((r) => r.value.toString())).toEqual(["1.5", "4"]);
+    expect(rows.map((r) => r.observationDate.toISOString())).toEqual([
+      DAY_1.toISOString(),
+      DAY_2.toISOString(),
+    ]);
+  });
+
+  it("the economic calendar reports the revised value, not the original", async () => {
+    const { computeCalendarEntry } = await import("@/server/domain/economicCalendar");
+    const entry = await computeCalendarEntry(seriesId);
+
+    expect(entry.status).toBe("PROJECTED");
+    // 4.00, not 2.00 — `lastObservedValue` is rendered to users.
+    expect(entry.lastObservedValue).toBe(4);
+    expect(entry.lastObservedDate).toBe("2026-08-11");
+  });
+
   it("computes the change from the revised values, not the superseded ones", async () => {
     const { computeChange } = await import("@/server/domain/seriesReadings");
     const pair = await getRecentObservationPair(seriesId);

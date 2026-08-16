@@ -58,6 +58,45 @@ export async function getRecentObservationPair(seriesId: string): Promise<Observ
   return { current, previous };
 }
 
+/**
+ * Every observation date for a series, oldest first, with exactly one row per date: the current
+ * value, resolved through the revision chain.
+ *
+ * The natural-looking query for this is
+ * `orderBy: [{ observationDate: "asc" }, { retrievedAt: "desc" }], distinct: ["observationDate"]`,
+ * and it is wrong for the reason described in revisionChain.ts — `retrievedAt` is a
+ * `timestamp(3)`, so it cannot separate an original from a revision written in the same
+ * millisecond. Both `economicCalendar.ts` and `historicalAnalog.ts` had written that query
+ * independently, and both display or compute on the resulting VALUE, so both could have used a
+ * superseded number.
+ *
+ * Exists so there is one correct way to ask this question, rather than three call sites each
+ * getting it subtly wrong in their own file.
+ */
+export async function getObservationsOneRowPerDate(seriesId: string): Promise<Observation[]> {
+  const rows = await prisma.observation.findMany({
+    where: { seriesId },
+    // Deterministic tiebreak only, for a forked chain that should be impossible.
+    orderBy: [{ observationDate: "asc" }, { retrievedAt: "desc" }, { id: "desc" }],
+  });
+
+  const byDate = new Map<number, Observation[]>();
+  for (const row of rows) {
+    const key = row.observationDate.getTime();
+    const bucket = byDate.get(key);
+    if (bucket) bucket.push(row);
+    else byDate.set(key, [row]);
+  }
+
+  const resolved: Observation[] = [];
+  for (const bucket of byDate.values()) {
+    const tail = findRevisionChainTail(bucket);
+    if (tail) resolved.push(tail);
+  }
+
+  return resolved.sort((a, b) => a.observationDate.getTime() - b.observationDate.getTime());
+}
+
 export interface DeterministicChange {
   absoluteChange: number;
   percentChange: number | null; // null when previous value is 0 (percent change undefined)

@@ -1,5 +1,4 @@
-import { prisma } from "@/server/db/client";
-import { round } from "./seriesReadings";
+import { getObservationsOneRowPerDate, round } from "./seriesReadings";
 
 /**
  * Historical Analog Engine (docs/PRODUCT_SPEC.md "Historical Analog Engine") — see
@@ -75,11 +74,10 @@ export async function computeHistoricalAnalog(
   const windowSize = options.windowSize ?? 5;
   const topK = options.topK ?? 3;
 
-  const observations = await prisma.observation.findMany({
-    where: { seriesId },
-    orderBy: [{ observationDate: "asc" }, { retrievedAt: "desc" }],
-    distinct: ["observationDate"],
-  });
+  // One row per date, resolved through the revision chain — see getObservationsOneRowPerDate.
+  // The retrievedAt-desc + distinct query this replaced could pick a superseded value, which
+  // here would silently skew every z-score the analog engine computes.
+  const observations = await getObservationsOneRowPerDate(seriesId);
 
   const points: Point[] = observations.map((o) => ({
     date: o.observationDate,

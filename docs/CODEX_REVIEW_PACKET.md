@@ -152,11 +152,94 @@ passes and `Date.UTC` silently rolls it to Mar 2, storing a filing under a date 
 reported. FRED and ECOS received `assertValidCalendarDate` in the 2026-08-16 P1 pass; DART was
 missed. Now covered.
 
+### R7 — the R1 bug was ALSO in the read path, deciding what users see
+
+Worth reading immediately after R1, because it is the same mistake in the layer that matters
+most. `getRecentObservationPair` — which feeds What Changed, Macro Regime, Ask Market and Today —
+resolved "which row wins for this observation date" with `orderBy: retrievedAt desc` plus
+`distinct`, and its docstring asserted that this respected revisions. It does not, for the same
+`timestamp(3)` reason as R1: an original and its revision written in the same millisecond are
+byte-identical on that column, so Postgres may return either and `distinct` keeps whichever came
+first.
+
+Ingesting a revision immediately after its original is the normal path, so this was not an edge
+case, and the wrong answer was non-deterministic rather than consistently wrong. For a product
+whose central claim is that displayed numbers trace to a source, showing a superseded value as
+current is close to the worst available failure, and it leaves no trace — 1.00 instead of 1.50 is
+a perfectly plausible number.
+
+A sweep of every Observation read found two more independent instances of the same query:
+`economicCalendar.ts` (renders `lastObservedValue`) and `historicalAnalog.ts` (z-scores every
+point, so one superseded value skews the whole comparison). Three call sites, three independent
+instances.
+
+- **Where**: `src/server/domain/revisionChain.ts` (pure tail-finding, now shared with the ingest),
+  `seriesReadings.ts`'s `getRecentObservationPair` and `getObservationsOneRowPerDate`.
+- **Regression test**: `tests/integration/series-readings-revisions.test.ts` writes original and
+  revision with IDENTICAL `retrievedAt`, which is the state the old code could not resolve and
+  which re-running would never reliably surface.
+- **Try to break it**: `claimVerification.ts` looks observations up by exact id from a claim's
+  evidence, which should be immune — is it? Is there any remaining path that reads an Observation
+  value without going through `revisionChain.ts`?
+
+### R8 — provider API keys were reaching logs, the database, and /admin
+
+`HttpTimeoutError` embeds the request URL in its message; ECOS puts its key in a PATH segment,
+FRED and DART in a query parameter. Already bad as console output, and made materially worse by
+the new ingest-run persistence: one upstream timeout would have written a live key into
+`ingest_runs.error` and rendered it on the authenticated /admin page.
+
+`redactSecrets` redacts the actual configured credential values wherever they appear — exact
+rather than pattern-based, so it covers path segments, query parameters and echoed headers alike,
+including a provider added later that nobody wrote a pattern for — plus known credential
+parameter names as a second layer.
+
+- **Try to break it**: is there a path where a credential reaches a log or the database without
+  passing through `redactSecrets`? Prisma error messages on a failed connection, for instance.
+
+### R9 — a third instance of read-then-write treated as atomic
+
+After the observation chain (R1) and the watchlist upsert (R5), the EDGAR/DART/XBRL ingests all
+did `findUnique` → `create`. Confirmed real before fixing: the old pattern run four ways
+concurrently rejected 3 of 4 with P2002. Sequential runs never hit it, which is why it survived,
+and a real scheduler is one Human Gate away. `insertIfAbsent` now treats a lost race as
+"already there" and counts it as `unchanged` rather than `inserted` — an inflated insert count
+is quieter than a crash but still a false report.
+
+### R10 — third-party input interpolated into a URL
+
+`filings.files[].name` came from SEC's response and was placed straight into a request URL. Path
+traversal or an absolute URL in that field would send the request elsewhere. Now constrained to
+the filename shape SEC documents.
+
+### R11 — observability, and the honest limits
+
+`truncated` was a field nothing read — the packet asked about this directly under R4. Ingest runs
+are now persisted (`IngestRun`, additive migration) and surfaced on /admin as fetched vs. the
+provider's own total. SUCCESS / PARTIAL / FAILED are kept distinct, because collapsing PARTIAL
+into SUCCESS is how a partial dataset comes to read as a whole one.
+
+Two things were deliberately NOT done, and should be reviewed as decisions rather than omissions:
+
+- Re-ingesting 2240 filings runs in 2.7s despite a per-row `findUnique`. The N+1 is real, the
+  workload is not, so it was measured and left alone.
+- `Observation.releaseDate` is still never populated. FRED's `realtime_start` looks like the
+  missing release date and is not one — under default parameters FRED returns the vintage as of
+  today, so a 1990 observation arrives stamped with today's date. Mapping it would fill a
+  provenance column with a confident, checkable, wrong answer. See `docs/REVIEW_DEBT.md`'s M08.
+
 ### Current verification state (2026-08-17)
 
-233/233 tests against a real local PostgreSQL 16.10, `npm run e2e` 17/17 in a real browser,
-55/55 live EDGAR contract checks, lint/typecheck/format/production build clean. Nothing in this
-packet is self-declared APPROVE, and no provider other than SEC EDGAR is claimed live-verified.
+264/264 tests against a real local PostgreSQL 16.10, `npm run e2e` 24/24 in a real browser,
+59/59 live EDGAR contract checks, all 13 migrations applied cleanly to a genuinely fresh
+database, lint/typecheck/format/production build clean. Nothing in this packet is self-declared
+APPROVE, and no provider other than SEC EDGAR is claimed live-verified.
+
+**The single most useful thing a reviewer can do with this packet**: note that R1, R5, R7 and R9
+are four instances of one mistake — a read-then-write, or a read-and-pick, treated as atomic or
+as ordered when the ordering key cannot bear the weight. Three were found only after the first
+one was fixed and its shape was known. If a fifth exists, it is likely in code none of R1-R11
+touched.
 
 ### B1 (was P0/HIGH) — Auth migration upgrade safety
 

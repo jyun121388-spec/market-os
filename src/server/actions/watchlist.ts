@@ -90,6 +90,16 @@ export async function addWatchlistItemAction(
   return {};
 }
 
+/**
+ * Best-effort, and deliberately so — it is a count followed by an insert, which is the same
+ * read-then-write shape corrected elsewhere in this codebase. A user submitting many adds
+ * concurrently could land a few rows past 500.
+ *
+ * Left as-is rather than enforced with a trigger or a counter column, because the cap is an
+ * abuse guard rather than an invariant: nothing depends on the number being exactly 500, and
+ * overshooting by a handful has no consequence. Recorded here so the looseness is a decision
+ * rather than an oversight — an exact-sounding limit that is not exact is worth saying out loud.
+ */
 async function isAtItemCap(
   userId: string,
   itemType: WatchlistItemType,

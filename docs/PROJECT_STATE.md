@@ -6,7 +6,11 @@ M00, M01, M02, M03, M04, M05, M06, M07 (partial), M08, M09 (partial), M10, M11, 
 M13 (partial), M14 (partial), M15 (partial), M16 (partial), M17 (partial), M18 (partial), M19,
 M20, M22, M23, M24, M25 (partial), M26 (partial), M27 (partial), M28 (honest status: BLOCKED,
 not a forced completion — see below). Post-M28: closed the 2 non-blocking REVIEW_DEBT items
-(timezone/KST test coverage + a real UTC-display bug fix; user-facing stale-data marking).
+(timezone/KST test coverage + a real UTC-display bug fix; user-facing stale-data marking); ran
+the `security-review` skill (independent finder + verifier sub-agents) against the full branch
+diff — zero high-confidence findings, one candidate verified as a false positive. This is real
+additional security coverage but explicitly does NOT close the Codex-review REVIEW_DEBT item —
+see DECISIONS.md for why a different tool isn't treated as satisfying that specific requirement.
 
 CURRENT
 M28 — BLOCKED_HUMAN_GATE (2 named blockers remain; every other criterion, including the two
@@ -56,6 +60,8 @@ and let M27's E2E coverage extend to a real deployed environment.
 Absent any of these, do not force a "complete" status — see the M28 DECISIONS.md entry for why.
 The remaining REVIEW_DEBT.md PENDING items (M26's distributed rate limiting; the various
 data-source live-verification rows) are additional optional non-blocking work if more
-independent tasks are wanted, but they're each smaller/lower-value than the two just closed. If
-new instructions or new environment capabilities arrive in a future session, re-read this file,
+independent tasks are wanted, but they're each smaller/lower-value than the two just closed, and
+most (data-source verification) are themselves gated on Human Gates (real API keys). No further
+independent, non-Human-Gate-blocked work has been identified as of this pass. If new instructions
+or new environment capabilities arrive in a future session, re-read this file,
 docs/REVIEW_DEBT.md, and docs/RELEASE_CHECKLIST.md before resuming.

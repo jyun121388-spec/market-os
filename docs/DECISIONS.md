@@ -695,3 +695,30 @@ genuinely-stale and a genuinely-fresh series through `buildMorningBrief`. Also v
 against a live `npm run dev` server: seeded a real stale series into the dev database, confirmed
 the "STALE" badge rendered on `/today` via a real HTTP request, then cleaned up the seeded rows.
 173/173 tests pass, full verify chain green.
+
+## 2026-08-16 — Ran the `security-review` skill against the full branch diff (not a Codex review)
+
+**Decision**: With M21 and the Codex critical review still blocked, and no more scoped
+non-blocking product work identified, ran the `security-review` skill — an independent
+find-then-verify sub-agent pipeline — against the full diff of this branch vs. `main` (the
+entire codebase, since this branch started from an empty repo). Result: zero high-confidence
+findings. One candidate (`/admin` has no admin-role check, only a valid-session check) was
+raised by the finder pass and eliminated by the independent verifier pass at confidence 2/10 —
+the page exposes only operational metadata (source names, ingest timestamps, conflict counts),
+no PII/secrets, and the access model is `docs/DECISIONS.md`'s own documented M24 decision, not
+an oversight.
+**Areas the finder pass specifically checked and found sound**: `auth.ts`/`actions/auth.ts`
+(scrypt + salt, `timingSafeEqual`, `crypto.randomBytes(32)` tokens, generic error messages,
+httpOnly/secure/sameSite cookies, DB-backed revocation, lockout); every adapter client
+(hardcoded HTTPS hosts, no SSRF surface); `scripts/run-ingest-jobs.ts` (fixed-argument-array
+`spawnSync`, no shell injection); all Prisma usage (parameterized throughout, no raw SQL
+concatenation); no secrets/PII logging anywhere in `src`/`scripts`.
+**Why this does NOT close the Codex-review REVIEW_DEBT row**: This skill runs Claude sub-agents,
+not Codex — a different model/tool, and CLAUDE.md's Definition of Done specifically names Codex
+review as the required check for this project (see docs/AGENTS.md, docs/TEST_STRATEGY.md). Using
+a different tool and declaring the requirement satisfied would be exactly the kind of "technically
+did something, call it done" move this project's own honesty principles exist to prevent. Logged
+as real, valuable, additional coverage — not a substitute — in the M01-M22 REVIEW_DEBT.md row.
+**Why this doesn't change the M28 BLOCKED status**: `docs/RELEASE_CHECKLIST.md`'s "Security
+review complete" and "Codex critical review complete" items still require an actual Codex
+session — this pass adds confidence but doesn't change either checkbox.

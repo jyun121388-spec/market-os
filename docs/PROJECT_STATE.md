@@ -179,12 +179,19 @@ The sharpest lesson of the night is #19: every fixture had one figure per period
 passed, and the defect was invisible until a real provider response was in the database. Fixture
 coverage says nothing about shapes the fixture author did not know existed.
 
+Also shipped: **Company X-Ray finally has a view** (`/company`, `/company/[corpCode]`). M15 built
+the adapter and the store, M16 built the diff, and nothing ever assembled them — the same
+built-but-unreachable gap the Watchlist had. With 2240 filings and 1428 facts now correct, the
+only way to see any of it was a keyword search. The read model carries no field capable of
+holding a score, rating, valuation or target, and a test asserts that structurally.
+
 TESTS
-276 / 276 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
-`npm run e2e` 24/24 checks in a real browser (up from 12) — the walkthrough now drives the Ask
-Market guardrail through the real page, not just the domain function. `npm run verify:live:edgar`
-59/59 against real data.sec.gov. All 13 migrations apply cleanly to a genuinely fresh database.
-Lint / typecheck / format / production build all clean. Full suite runs in ~22s.
+280 / 280 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+`npm run e2e` 28/28 checks in a real browser (up from 12) — the walkthrough now drives the Ask
+Market guardrail and the Company X-Ray page through real rendered HTML, not just the domain
+functions. `npm run verify:live:edgar` 59/59 against real data.sec.gov. All 15 migrations apply
+cleanly to a genuinely fresh database. Lint / typecheck / format / production build all clean.
+Full suite runs in ~27s.
 
 Note on the suite runtime: it briefly reached ~137s when pagination was first tested by pushing
 14,000 synthetic rows through the real ingest. That was moved to client-level tests, which is

@@ -108,6 +108,7 @@ async function verifyFactClaim(claim: {
 
 async function verifyCalculationClaim(claim: {
   claimText: string;
+  sourceId: string | null;
   evidence: unknown;
 }): Promise<VerificationResult> {
   const evidence = claim.evidence as {
@@ -159,6 +160,19 @@ async function verifyCalculationClaim(claim: {
     return {
       status: "VALUE_MISMATCH",
       detail: "evidenced current/previous observations belong to different sources",
+    };
+  }
+  // The claim's OWN source attribution must match its evidence. verifyFactClaim has always
+  // checked this; the CALCULATION path did not, which was an asymmetry rather than a decision —
+  // nothing documented it. It mattered because `buildChangeClaimText` does not mention the
+  // source, so a claim whose `sourceId` had been repointed at a different provider reconstructed
+  // to byte-identical text and verified as VERIFIED. For a product whose central promise is that
+  // every displayed figure traces to a stored source, a verifier that skips the claimed source
+  // on half its claim types is not verifying provenance.
+  if (claim.sourceId !== current.sourceId) {
+    return {
+      status: "VALUE_MISMATCH",
+      detail: "claim.sourceId does not match the evidenced observations' sourceId",
     };
   }
 

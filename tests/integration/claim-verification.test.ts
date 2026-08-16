@@ -243,6 +243,42 @@ describeIfDb("claim verification (integration)", () => {
       expect(verification.status).toBe("VERIFIED");
     });
 
+    it("rejects a CALCULATION claim whose sourceId was repointed at a different source", async () => {
+      // Found on 2026-08-17. verifyFactClaim has always compared `claim.sourceId` against the
+      // evidenced observation; the CALCULATION path did not. That mattered specifically because
+      // `buildChangeClaimText` does not mention the source, so a claim attributing a real change
+      // to the WRONG provider reconstructed to byte-identical text and verified as VERIFIED.
+      // Provenance is the product's central promise, so a verifier that skips the claimed source
+      // on half its claim types is not verifying it.
+      const otherSource = await prisma.source.upsert({
+        where: { code: "TEST_VERIFY_OTHER_SOURCE" },
+        update: {},
+        create: { code: "TEST_VERIFY_OTHER_SOURCE", name: "Some other provider", tier: "TIER_S" },
+      });
+
+      const changeSeries = await prisma.series.findFirstOrThrow({
+        where: { externalId: "TESTVERIFY_CHANGE" },
+      });
+      const genuine = await computeSeriesChange(changeSeries.id);
+      expect(genuine.status).toBe("COMPUTED");
+      // Sanity: it verifies before tampering, so the assertion below is about the source alone.
+      expect((await verifyClaim(genuine.claimId!)).status).toBe("VERIFIED");
+
+      await prisma.claim.update({
+        where: { id: genuine.claimId! },
+        data: { sourceId: otherSource.id },
+      });
+
+      const result = await verifyClaim(genuine.claimId!);
+      expect(result.status).toBe("VALUE_MISMATCH");
+      expect(result.detail).toMatch(/sourceId/i);
+
+      // Only the claim is cleaned up. The throwaway source is left in place: it is upserted by
+      // code, so re-running is idempotent, and deleting it would fail once anything else in the
+      // suite has attached a row to it.
+      await prisma.claim.deleteMany({ where: { sourceId: otherSource.id } });
+    });
+
     it("rejects a CALCULATION claim referencing observations from different series", async () => {
       const claim = await prisma.claim.create({
         data: {

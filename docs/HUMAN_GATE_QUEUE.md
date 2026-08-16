@@ -59,6 +59,12 @@ ingest failure), and whether the default response is one vintage per date. Separ
 silent pagination truncation in the FRED client was found by code reading and fixed, with
 regression coverage.
 
+**Partial verification already done (2026-08-17)**: a request with a deliberately invalid key
+reached the real API and returned `400 Bad Request`, surfaced as a clean `FredApiError` with no
+key in the message. URL construction, parameter names and the error path are therefore confirmed
+against the real endpoint. The success-response shape — the part that hid drift for EDGAR — is
+what still needs a key.
+
 **What remains after approval**: run the verification, fix whatever drift it finds, add
 regression tests for it, then a small real ingest and a re-ingest for idempotency, then
 provenance checks — and only then may FRED be classified `LIVE_VERIFIED`.
@@ -83,6 +89,11 @@ so explicitly when a window contains no gaps at all — an absence of evidence i
 such rather than as confirmation. The `[startIdx, endIdx]` window truncation was found and
 fixed independently.
 
+**Partial verification already done (2026-08-17)**: an invalid key produced the real
+`RESULT.CODE`/`RESULT.MESSAGE` error envelope, correctly detected by `isEcosErrorResponse` and
+surfaced without leaking the key — worth noting because ECOS carries the key in the URL path, so
+this also exercises the redaction. Path construction and the error envelope are confirmed.
+
 **What remains after approval**: the same eight-step sequence as HG-002 before `LIVE_VERIFIED`.
 
 ---
@@ -102,6 +113,11 @@ placed in `.env` as `DART_API_KEY`.
 `npm run verify:live:dart`, including an explicit check of the `013` mapping against a range in
 which Samsung certainly filed nothing. The single-page truncation and a missing impossible-date
 guard on `rcept_dt` were both found and fixed independently.
+
+**Partial verification already done (2026-08-17)**: an invalid key produced a real non-"000"
+`status` with a Korean message, correctly detected by `isDartError` and surfaced without leaking
+the key. The `status`-string branching the client depends on is therefore confirmed for the error
+case; "000" and the "013" no-data mapping still need a key.
 
 **What remains after approval**: the same eight-step sequence as HG-002 before `LIVE_VERIFIED`.
 

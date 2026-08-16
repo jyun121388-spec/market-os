@@ -1,87 +1,91 @@
 LAST COMPLETED
-A human ran the local-Codex review path (docs/CODEX_REVIEW_PACKET.md §12, prepared in a prior
-session) and relayed a real verdict: REVISE, with 3 P0/HIGH blockers (auth migration upgrade
-safety, claim verification substring collision, concurrent observation ingestion race) and 3
-recommended P1/MEDIUM items. Per explicit instruction, Claude implemented every fix directly
-(Codex quota reserved, not spent on implementation), each with a dedicated real-Postgres
-regression test — see docs/DECISIONS.md's 2026-08-16 "Fixed all 3 P0 blockers from the first
-real Codex REVISE verdict" entry for exact BEFORE/AFTER/regression-test/changed-files per
-blocker, and docs/CODEX_REVIEW_PACKET.md §0 for the same information restructured for a
-re-reviewer. Full verification chain re-run and green: 209/209 tests (up from 184), npm run e2e
-12/12, lint/typecheck/build clean. Explicitly did NOT self-declare APPROVE — stopped at
-[CODEX RE-REVIEW READY] per instruction.
+Moved development from the Claude Code Web sandbox to a local Windows/VS Code machine and ran
+everything the sandbox could not. Four commits on top of `6cb74fc`:
+
+- `5ea3b9b` — three defects found by running the suite on real infrastructure: the
+  revision-chain race in `observationIngest.ts` (see below), `run-ingest-jobs.ts` spawning
+  `npm` (ENOENT on Windows, and `spawnSync` reports it as a normal FAILED job rather than
+  throwing), and the H1 migration-upgrade test spawning `npx` (ENOENT/EINVAL on Windows, so
+  that regression had never actually executed on this platform).
+- `de49452` — M19 Watchlist's real request path: `src/server/actions/watchlist.ts` +
+  `/watchlist`, 8 new integration tests through the session boundary, real-browser e2e
+  coverage, and `PLAYWRIGHT_CHROMIUM_PATH` replacing the hardcoded `/opt/pw-browsers/chromium`.
+- `49f1483` — `scripts/verify-edgar-live.ts`, a live contract check for both EDGAR adapters.
+- `4d33f6d` — the schema drift that check found, fixed end to end.
+
+The revision-chain one is worth reading carefully, because it means the H3 fix from the Codex
+REVISE round was itself wrong. It found the chain's "latest" row with
+`orderBy: { retrievedAt: "desc" }`. Prisma maps DateTime to `timestamp(3)`, so an original and
+its revision written in the same millisecond get identical timestamps and Postgres may return
+either first. On the wrong ordering the code compared the incoming value against the ORIGINAL,
+decided a revision was needed, tried to attach a second child to a parent that already had one,
+and threw a raw P2002 after burning all 20 retries. Not concurrency-only — a plain sequential
+re-ingest of already-revised data hit it. The tail is now found structurally: the row nothing
+else points at via `revisionOf`, which the existing 4-column unique constraint makes
+unambiguous no matter how coarse the timestamps are.
+
+The EDGAR drift: SEC returns `fy: null, fp: null` on some companyfacts rows (facts republished
+for a `frame` under a later restating filing). Types and DB columns were non-nullable, so a real
+ingest would have failed on the first one — Apple alone has 20 across the six tracked concepts.
+Widened rather than dropped, because the fact is fully sourced and only the label is missing;
+deriving a fiscal year from `periodEnd` would store an inference as reported data.
 
 CURRENT TASK
-None — this is the terminal state for this fix round. The next action is a Codex RE-REVIEW
-(not further autonomous code changes) against fix-round HEAD
-8f4f76ca74e01f1b9541a7f7295521f3eda08803, using docs/CODEX_REVIEW_PACKET.md §12 (updated for
-this round, scoped to §0's fix-round diff first). If that re-review returns REVISE again, resume
-the same fix-loop discipline this round used. If APPROVE, follow §15's status-update procedure.
+None in progress. Next work is gated on the three free API keys — see docs/CURRENT_TASK.md.
 
 CURRENT FAILURE
-none — this is a genuine stopping point (awaiting external Codex re-review), not a failure state.
-
-CHANGED FILES (this pass)
-Code/tests (commit 8f4f76ca74e01f1b9541a7f7295521f3eda08803, parent 9b34f8bb6be120dacd381fe22577870f40d6e5fa):
-prisma/schema.prisma, prisma/migrations/20260816001500_auth/migration.sql (rewritten in place —
-never applied to any real external deployment), prisma/migrations/20260816090000_original_observation_unique/
-(new), src/server/domain/auth.ts, src/server/domain/claimStore.ts,
-src/server/domain/claimVerification.ts, src/server/domain/whatChanged.ts,
-src/server/domain/observationIngest.ts, src/server/domain/askMarket.ts,
-src/server/adapters/httpTimeout.ts (new), src/server/adapters/dateValidation.ts (new),
-src/server/adapters/{fred,ecos,dart,edgar,edgar-xbrl}/client.ts, src/server/adapters/{fred,ecos}/normalize.ts,
-scripts/run-ingest-jobs.ts, plus matching test files (see commit for full list) — 28 files
-changed total.
-Docs (this commit, separate per project convention — code commits and doc commits stay
-distinct): docs/DECISIONS.md, docs/REVIEW_DEBT.md, docs/RELEASE_READINESS.md,
-docs/CODEX_REVIEW_PACKET.md, docs/PROJECT_STATE.md, docs/SESSION_HANDOFF.md (this file).
+none.
 
 TEST STATUS
-209/209 tests pass (up from 184 — 25 new regression tests this round), npm run e2e 12/12,
-lint clean, typecheck clean, production build succeeds. All re-run at fix-round HEAD after every
-individual fix and again as a full chain at the end, per the exact verification order specified
-by the user (targeted test -> related integration test -> full suite -> migration-upgrade
-regression -> concurrency regression -> claim adversarial regression -> e2e -> lint -> typecheck
--> full release verification). The stale "184 tests" count was NOT used as the success
-criterion — each of Codex's 3 named failure modes was reproduced against the pre-fix code path
-(by reading it) and confirmed closed by its new dedicated regression test.
+218/218 against a real local PostgreSQL 16.10 (was 209 in the cloud env). `npm run e2e` 17/17
+in a real browser (was 12). Lint, typecheck, format, production build all clean. Live EDGAR
+contract check 55/55 against real data.sec.gov.
 
 NEXT EXACT ACTION
-Wait for a human to run the Codex re-review (docs/CODEX_REVIEW_PACKET.md §12) and produce
-reviews/market-os-final-review.json. Do not self-declare APPROVE. Do not resume PR-status
-polling (still stopped per the 2026-08-16 instruction) — only act on a real inbound GitHub
-webhook event, an explicit user follow-up, or a produced review result. If asked to "continue"
-with no new information, report this exact status rather than inventing new scope.
+See docs/CURRENT_TASK.md. Short version: if a FRED/ECOS/OpenDART key has arrived, live-verify
+that adapter using `scripts/verify-edgar-live.ts` as the template and expect to find drift. If
+not, there is no further live-verification work — say so rather than inventing scope.
 
-IMPORTANT CONTEXT
-Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
-role/db: market_os/market_os_dev, DATABASE_URL in .env (gitignored) — bare `vitest run`/`prisma`
-commands via a non-interactive Bash tool call do NOT inherit `.env` automatically; `export
-DATABASE_URL=...` first. Remember `npx prisma generate` after every schema.prisma change (this
-round required it after adding `isLegacyAccount`, or Prisma Client validation errors on the new
-field). `prisma migrate reset --force` is hard-blocked by Prisma's own AI-agent safety guard and
-requires fresh, explicit human consent every time — before ever running it, check whether a
-non-destructive alternative exists first (this round's H1 fix used a plain `ALTER TABLE ADD
-COLUMN` + a manual `_prisma_migrations` checksum reconciliation instead, since the local dev DB's
-actual column state already matched everything except the one new column). For schema changes
-needing hand-written SQL, `prisma migrate diff --from-config-datasource --to-schema
-prisma/schema.prisma --script` gets the SQL; apply with `prisma migrate deploy`.
-vitest.config.mts has fileParallelism: false, every integration test file must scope cleanup to
-rows it owns. A real-Postgres migration-upgrade test (new this round,
-tests/integration/auth-migration-upgrade.test.ts) creates/drops its own throwaway database
-(`market_os_migration_upgrade_test`) via the `pg` package directly and runs `prisma migrate
-deploy --config <generated temp config>` as a subprocess — the generated temp
-`prisma.config.ts` must live under the repo's own node_modules resolution chain (a
-`.tmp-test-artifacts/` dir under the repo root, gitignored), not a bare OS tmpdir, or Prisma's
-config loader can't resolve `require("prisma/config")`. `playwright` is a devDependency, browser
-at `/opt/pw-browsers/chromium` — `npm run e2e` (scripts/e2e-full-walkthrough.ts) requires `npm
-run dev` running first in another process/shell. Standing user instruction (2026-08-16, Korean,
-this round): accept Codex REVISE as authoritative, never self-declare APPROVE/merge/production
-deployment, Claude implements fixes directly (Codex quota limited, don't delegate back to it),
-fix all P0s completely with the specific regression scenarios named, fix P1s if reasonably sized
-without weakening P0 verification, record LOW items as debt rather than force-implementing every
-limitation, verify in the specified order without trusting the stale test count, update the
-Codex review packet to prioritize the fix diff so a re-reviewer doesn't need to re-read the whole
-repo, and stop at exactly "[CODEX RE-REVIEW READY]" reporting the exact HEAD SHA and re-review
-scope. PR-status polling remains stopped (separate, still-standing 2026-08-16 instruction) — do
-not re-arm it as part of resuming work on this fix round.
+IMPORTANT CONTEXT — LOCAL WINDOWS ENVIRONMENT (this supersedes the old Linux-sandbox notes)
+
+Postgres is a portable install, not a service. It lives in `.local/pgsql` (gitignored, ~322MB,
+downloaded from EnterpriseDB's binaries-only zip — no installer, no admin rights, no Docker).
+Start it each session with:
+
+    .local\pgsql\bin\pg_ctl.exe -D .local\pgdata -l .local\pg.log -o "-p 55432 -c listen_addresses=127.0.0.1" -w start
+
+Port 55432 deliberately, to avoid colliding with any system Postgres. Superuser `postgres` /
+`devpassword`, database `market_os_dev`. `DATABASE_URL` is in `.env` (gitignored). Deleting
+`.local/` reverses the whole thing. Stop with the same `pg_ctl` and `stop`.
+
+Bare `vitest`/`prisma` invocations do NOT inherit `.env` — set `$env:DATABASE_URL` first in the
+PowerShell session. Run `npx prisma generate` after every schema.prisma change.
+
+Do NOT use `npx prettier --write .` without checking `.prettierignore` first — `.local` holds
+322MB of Postgres files and prettier will try to walk all of it. `.local/` and
+`.tmp-test-artifacts/` are now excluded from both prettier and eslint.
+
+`core.autocrlf=true` on this machine, so `git status` lists nearly every file as modified. This
+is line-ending noise only — `git diff --stat` shows the real content changes, and git normalizes
+to LF on the index side, so commits are clean. Check `git diff --stat`, not `git status`, before
+committing. Repo-local git identity is set to `Claude <noreply@anthropic.com>` to match history.
+
+PowerShell here-strings mangle git commit messages containing double quotes. Write the message
+to a scratchpad file and use `git commit -F <file>`.
+
+Playwright: browsers installed via `npx playwright install chromium` to the standard
+`%LOCALAPPDATA%\ms-playwright` cache. `scripts/e2e-full-walkthrough.ts` no longer hardcodes a
+path — set `PLAYWRIGHT_CHROMIUM_PATH` only if you need to override it. `npm run e2e` requires
+`npm run dev` already running in another shell.
+
+Network egress works from here. data.sec.gov, api.stlouisfed.org, ecos.bok.or.kr and
+opendart.fss.or.kr are all reachable — the `LIVE_VERIFICATION_REQUIRED` labels were about the
+old sandbox, not the adapters. SEC returns 403 for a User-Agent that is not roughly
+"<name> <contact email>"; a bare product name or repo URL is rejected. `EDGAR_USER_AGENT` is set
+in `.env` to the user's own contact address, with their explicit approval on 2026-08-17.
+
+Standing user instructions still in force: continue autonomously through the roadmap, do not
+stop at milestone/phase transitions or ask for routine approval, never self-declare Codex
+APPROVE, never activate paid APIs or services, and stop only for genuine Human Gates. The user
+approved obtaining free FRED/ECOS/OpenDART keys themselves (2026-08-17) — those are pending
+their action, not blocked on anything here. PR-status polling remains stopped.

@@ -909,3 +909,114 @@ Changed files: `prisma/schema.prisma` (clarifying comment), new migration
 lint clean, typecheck clean, production build succeeds. Per explicit instruction, this round ends
 at Codex re-review, not at self-declared APPROVE — see `docs/CODEX_REVIEW_PACKET.md`'s updated
 fix-round section for the exact re-review scope and this commit's HEAD SHA.
+
+---
+
+## 2026-08-17 — Local-environment verification round: four green results falsified
+
+Development moved from the Claude Code Web sandbox to a local Windows/VS Code machine. The
+sandbox had no real PostgreSQL, no browser, and no outbound network; the local machine has all
+three. Everything below was found by running existing, already-"passing" work on real
+infrastructure — no new features were speculated into existence to justify the move.
+
+The headline lesson is recorded deliberately: **209/209 green was accurate about the environment
+that produced it and wrong about the product.** Two of those tests failed against a real
+PostgreSQL on a fast machine, and a third had never executed on Windows at all.
+
+### H3's fix was itself defective (re-fixed)
+
+`upsertRevisionAwareObservation()` located the revision chain's "latest" row with
+`orderBy: { retrievedAt: "desc" }`. Prisma maps `DateTime` to Postgres `timestamp(3)`, so an
+original and its revision written within the same millisecond carry identical timestamps and
+Postgres may return them in either order. On the unlucky ordering the function compared the
+incoming value against the ORIGINAL rather than the newest revision, concluded a revision was
+needed, and attempted to attach a second child to a parent that already had one — violating
+`(seriesId, observationDate, isRevision, revisionOf)`. The retry loop then re-read the same
+ambiguous ordering, so it exhausted all 20 attempts and surfaced a raw P2002.
+
+This is not a concurrency-only bug, which is why the H3 concurrency tests alone did not catch
+it: a plain sequential re-ingest of already-revised data reproduced it
+(`fred-ingest` "is idempotent"). Both that test and concurrency case B failed on first run here.
+
+Fix: find the tail structurally — the row no other row points at via `revisionOf`. The 4-column
+unique constraint guarantees at most one child per parent, making the chain a linked list with
+exactly one tail, so the answer no longer depends on timestamp resolution. A chain with no tail
+(a cycle, which the constraints should make unreachable) throws explicitly rather than looping.
+
+### The H1 regression test had never run on Windows
+
+`tests/integration/auth-migration-upgrade.test.ts` spawned `npx`: ENOENT under the bare name,
+and EINVAL as `npx.cmd` because modern Node refuses to spawn a `.cmd` without a shell
+(CVE-2024-27980 mitigation). The suite failed in `beforeAll`, before its first assertion, so the
+migration upgrade-safety guarantee was unverified on this platform. Now invokes Prisma's CLI
+entry point directly through `process.execPath` — portable, and one process shorter.
+
+`scripts/run-ingest-jobs.ts` had the same class of bug spawning `npm`, with a worse failure
+mode: `spawnSync` returns `status: null` rather than throwing, so every job would have been
+reported as a normal FAILED job instead of never having started.
+
+### Real EDGAR schema drift
+
+`scripts/verify-edgar-live.ts` (new) checks both EDGAR adapters against live data.sec.gov —
+field presence and types, the parallel-array alignment `filings.recent` depends on, date
+formats, and each tracked XBRL concept's internal shape. It asserts the contract, not values,
+so it catches drift without breaking every time Apple reports earnings.
+
+First run found that SEC returns `fy: null, fp: null` on some companyfacts rows — facts
+republished for a `frame` under a later restating filing. Both adapter types and both
+`financial_facts` columns were non-nullable, so a real ingest would have failed on the first
+such row. Apple alone has 20 across the six tracked concepts.
+
+Three options were considered:
+
+1. Drop those rows. Rejected: silent loss of real, fully-sourced history.
+2. Derive a fiscal year from `periodEnd`. Rejected outright — that stores an inference in a
+   column readers will treat as reported source data, which is precisely what
+   `docs/DATA_POLICY.md` forbids.
+3. Widen the columns to nullable. Chosen. The fact is fully sourced — value, period, form and
+   accession number are all real — and only the label is absent. Nullability is threaded through
+   `XbrlFactValue` → `NormalizedFinancialFact` → the Prisma model → `askMarket`, and `/ask`
+   renders "fiscal period not reported" rather than a blank or a guess. The migration only
+   relaxes NOT NULL, so it cannot invalidate an existing row.
+
+Verified beyond the contract check: a real ingest of 1000 Apple filings and 1099 financial
+facts, then a re-ingest returning 0 inserted / all unchanged. Both EDGAR rows in
+`docs/RELEASE_READINESS.md` move to `VERIFIED`.
+
+A related hygiene fix: the XBRL ingest test was leaving fabricated $400B Apple financials in the
+dev database, which can now also hold real ingested facts. Invented numbers sitting next to
+sourced ones is the exact confusion the data policy exists to prevent, so the test cleans up on
+the way out as well as on the way in.
+
+### M19 Watchlist got a real request path
+
+`docs/RELEASE_READINESS.md` had named this precisely: the domain module was built and tested,
+but nothing in `src/app` or `src/server/actions` called it, so cross-user isolation was verified
+only at the function-signature level — there was no HTTP path to attack. Added
+`src/server/actions/watchlist.ts` and `/watchlist`. `userId` always comes from the validated
+session cookie and never from the form; accepting a form-supplied one would reduce every
+per-user scope check in the domain module to decoration.
+
+The page deliberately shows no score, rating or suggested action. Tracking is an information
+filter, not a judgment about the item (`docs/LEGAL_GUARDRAILS.md`).
+
+`tests/integration/watchlist-actions.test.ts` (8 tests) covers what the existing watchlist tests
+structurally could not: no-session and expired-session rejection, a `userId` smuggled through
+the form being ignored in favour of the session user, and one user failing to remove another
+user's identically-keyed `(itemType, itemRef)` row. `npm run e2e` adds a real-browser
+add/list/remove pass, and its Chromium path is now opt-in via `PLAYWRIGHT_CHROMIUM_PATH` instead
+of hardcoding the cloud sandbox's `/opt/pw-browsers/chromium`, which made the script unrunnable
+anywhere else.
+
+### Human Gate resolved
+
+The user approved sending their own contact address in the SEC `User-Agent` header (2026-08-17),
+which is what SEC's fair-access policy asks for and what unblocked live EDGAR verification. SEC
+returns 403 for a User-Agent that is not roughly "<name> <contact email>" — a bare product name
+or repository URL is rejected. The user also committed to obtaining free FRED, ECOS and OpenDART
+API keys; those adapters stay unverified-live until the keys arrive, which is a pending user
+action rather than a defect.
+
+**Verification**: 218/218 tests against a real local PostgreSQL 16.10 (up from 209 — 8 watchlist
+server-action tests, 1 null-fiscal-label regression), `npm run e2e` 17/17 in a real browser (up
+from 12), 55/55 live EDGAR contract checks, lint/typecheck/format/production build all clean.

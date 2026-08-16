@@ -1,29 +1,33 @@
 # Current Task
 
-MILESTONE: M28 — Release Candidate (DONE as far as this session can take it)
+MILESTONE: Post-M28 local-environment verification round — DONE.
 
-STATUS: Closed with an honest BLOCKED status, not a forced completion. See
-`docs/RELEASE_CHECKLIST.md` for the full per-item audit and `docs/DECISIONS.md`'s M28 entry for
-the reasoning. Every checklist criterion achievable without a human decision or a Codex session
-has been built, tested, and verified this session (157/157 unit/integration tests, a real-browser
-E2E walkthrough via `npm run e2e`, a real cross-feature Claim Ledger provenance audit). Two
-genuine blockers remain, both outside this session's ability to resolve unilaterally:
+STATUS: Development moved from the Claude Code Web sandbox to a local Windows/VS Code machine
+(2026-08-17). The point of the move was to run the things the sandbox could not: a real
+PostgreSQL, a real browser, and real outbound network. Doing so falsified four green results
+from the cloud runs; all four are fixed and committed with regression coverage. See
+`docs/PROJECT_STATE.md` STATUS for the itemized list and `docs/DECISIONS.md` for the reasoning
+behind each fix.
 
-1. M21 Ask Market — `BLOCKED_HUMAN_GATE`. Needs a human decision on which LLM provider to use
-   for product-runtime inference, how its cost is funded, and the real credential (itself a
-   separate Human Gate). See the M21 DECISIONS.md entry.
-2. Codex critical security review — `PENDING`. No Codex session has been available in this
-   environment at any point across the entire session, despite being flagged as required since
-   M22. M26 shipped a self-review pass in the meantime (session-token randomness, login lockout)
-   but that does not substitute for the real review.
+Also shipped this round: M19 Watchlist's user-facing request path (`/watchlist` +
+`src/server/actions/watchlist.ts`), and live verification of both SEC EDGAR adapters against
+real data.sec.gov endpoints — 55/55 contract checks, a real ingest of 1000 filings and 1099
+financial facts, and a re-ingest proving idempotency on real data.
 
-NEXT EXACT ACTION FOR A FUTURE SESSION: Check whether either blocker has been resolved (a human
-decision on M21 has been communicated, or a Codex session is available). If (1) is resolved,
-resume at M21 per its DECISIONS.md entry ("verifyClaim should be extended to support INFERENCE
-claims in the same milestone, and dedicated legal-guardrail tests... must ship with the first
-real Ask Market implementation, not after it"). If (2) is resolved, run the Codex review against
-the full Auth/Admin/session pipeline flagged in REVIEW_DEBT.md's M01-M22 row. If neither is
-resolved, there is no further autonomous work available on the core roadmap — check
-`docs/REVIEW_DEBT.md` for the smaller PENDING items (timezone/KST tests, stale-data marking,
-distributed rate limiting) as optional, non-blocking, genuinely useful work that doesn't require
-either gate.
+NEXT EXACT ACTION FOR A FUTURE SESSION, in order:
+
+1. Check whether any of the three free API keys (FRED, ECOS, OpenDART) has arrived. The user
+   committed to obtaining all three on 2026-08-17. For each key present in `.env`, live-verify
+   that adapter the way EDGAR was verified — real endpoint, real response shape against the
+   declared TypeScript types, then a real ingest followed by a re-ingest for idempotency.
+   `scripts/verify-edgar-live.ts` is the template to copy. Expect to find schema drift: the
+   EDGAR check found real drift on its first run, and these three adapter shapes were written
+   the same way, from documentation rather than a real response.
+2. FRED first if more than one key is available — it unblocks the 5 Macro Regime axes currently
+   reporting `NOT_TRACKED`, which is the largest visible product gap.
+3. If no key has arrived, there is no further live-verification work available. Do not
+   substitute speculative engineering for it.
+
+The Codex re-review remains the one non-Product gate and is not something to poll for. Its
+scope has grown — see `docs/PROJECT_STATE.md` NEXT item 1 for the corrected base..head range and
+why a re-reviewer must be told the H3 fix was itself defective and has been re-fixed.

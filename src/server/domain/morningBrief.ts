@@ -2,6 +2,7 @@ import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
 import { computeRegimeSnapshot, type RegimeSnapshot } from "./macroRegime";
 import { computeCalendar, type CalendarEntry } from "./economicCalendar";
+import { evaluateStaleness, type StalenessStatus } from "./staleness";
 
 /**
  * Today / Morning Intelligence (docs/PRODUCT_SPEC.md). Composes existing domain modules into
@@ -35,6 +36,11 @@ export interface SeriesChangeSummary {
   value: number;
   absoluteChange: number;
   percentChange: number | null;
+  /**
+   * Whether this value is stale relative to the series' own historical update cadence. UNKNOWN
+   * (not FRESH) when there isn't enough history to project a cadence — see staleness.ts.
+   */
+  staleness: StalenessStatus;
 }
 
 export interface MorningBrief {
@@ -69,11 +75,25 @@ export async function buildMorningBrief(
     computeCalendar(),
   ]);
 
+  const calendarBySeriesId = new Map(calendar.map((c) => [c.seriesId, c]));
+
   const whatChanged: SeriesChangeSummary[] = [];
   for (const s of series) {
     const pair = await getRecentObservationPair(s.id);
     if (!pair) continue;
     const change = computeChange(pair, s.unit);
+
+    const calendarEntry = calendarBySeriesId.get(s.id);
+    const staleness: StalenessStatus =
+      calendarEntry?.status === "PROJECTED" &&
+      calendarEntry.lastObservedDate !== undefined &&
+      calendarEntry.medianIntervalDays !== undefined
+        ? evaluateStaleness({
+            lastObservedDate: calendarEntry.lastObservedDate,
+            medianIntervalDays: calendarEntry.medianIntervalDays,
+          }).status
+        : "UNKNOWN";
+
     whatChanged.push({
       seriesId: s.id,
       seriesName: s.name,
@@ -82,6 +102,7 @@ export async function buildMorningBrief(
       value: Number(pair.current.value.toString()),
       absoluteChange: change.absoluteChange,
       percentChange: change.percentChange,
+      staleness,
     });
   }
 

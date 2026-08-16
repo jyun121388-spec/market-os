@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/server/actions/auth";
 import { computeSystemHealth } from "@/server/domain/systemHealth";
+import { formatTimestampUtc } from "@/lib/formatDate";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function AdminPage() {
                 </td>
                 <td className="py-2 pr-4">{s.tier}</td>
                 <td className="py-2 text-zinc-500">
-                  {s.lastIngestAt ? new Date(s.lastIngestAt).toLocaleString() : "never"}
+                  {s.lastIngestAt ? formatTimestampUtc(s.lastIngestAt) : "never"}
                 </td>
               </tr>
             ))}

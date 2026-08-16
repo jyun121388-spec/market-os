@@ -2,8 +2,8 @@
 
 Not required per milestone; required before declaring a Release Candidate.
 
-Status as of M28 (Release Candidate pass, 2026-08-16) — updated honestly against actual current
-state, not aspirationally:
+Status as of the post-M28 non-blocking follow-up pass (2026-08-16) — updated honestly against
+actual current state, not aspirationally:
 
 - [x] Critical user flows implemented, with one explicit gap: Today Brief (M20), What Changed
       (M10, surfaced in the Today Brief), Watchlist (M19), and both Company X-Ray (M15, EDGAR
@@ -13,7 +13,7 @@ state, not aspirationally:
       against "critical user flows," not a formality — it cannot be checked off without either
       that human decision or a scope change to this checklist.
 - [x] P0 = 0, P1 = 0 (per `PROJECT_STATE.md`, verified this session).
-- [x] Core unit/integration tests pass — 157/157 (71 unit, 86 integration against a real
+- [x] Core unit/integration tests pass — 173/173 (87 unit, 86 integration against a real
       Postgres instance). **E2E**: one persistent walkthrough now exists
       (`scripts/e2e-full-walkthrough.ts`, `npm run e2e`) covering signup → login → /today →
       /admin → logout → wrong-password → M26 lockout → expired-session-redirect, run for real
@@ -41,17 +41,19 @@ state, not aspirationally:
       accurately, not overstated as "wired into production."
 - [x] Financial-unit correctness verified (see `DATA_POLICY.md` checklist) with test cases —
       per-adapter/domain-module test coverage exists throughout (M03-M18).
-- [ ] Timezone handling verified (UTC/KST) with test cases — no dedicated UTC/KST test suite
-      exists; dates are stored/compared as UTC `DateTime` throughout, but no milestone
-      specifically tested KST-boundary edge cases (e.g. a KST-midnight observation date vs. its
-      UTC storage). Explicitly logged as open `REVIEW_DEBT` (M28 row) rather than built under
-      time pressure at the tail of this session without a concrete failing case motivating it —
-      a real gap for a product covering Korean markets, worth a dedicated pass, not a rushed one.
-- [ ] Stale-data detection verified (no stale value shown as current) — `/admin`'s "last ingest"
-      display (M24) surfaces staleness for an operator; every user-facing value already shows its
-      own `asOfDate`/observation date so staleness is inferable, but nothing flags a value as
-      stale relative to its series' expected cadence. Explicitly logged as open `REVIEW_DEBT`
-      (M28 row), same reasoning as the timezone item above.
+- [x] Timezone handling verified (UTC/KST) with test cases — audited every date-only parser
+      (ECOS/DART); both were already timezone-independent (`Date.UTC`), now locked in with
+      dedicated boundary tests (Korean New Year's Eve/Day, leap day, year/quarter boundaries).
+      Also found and fixed a real bug the audit surfaced: `/today`/`/admin` rendered timestamps
+      with `.toLocaleString()`, which resolves in the SERVER's local timezone inside a Next.js
+      Server Component, not the viewer's — replaced with an explicit UTC formatter. See
+      `DECISIONS.md`'s post-M28 entry.
+- [x] Stale-data detection verified (no stale value shown as current) — added
+      `src/server/domain/staleness.ts` (reuses the existing cadence-projection logic from
+      Economic Calendar, M12) and wired a visible "STALE" badge into `/today`'s What Changed
+      section. Verified with unit tests, an integration test seeding real stale/fresh series
+      through `buildMorningBrief`, and a live check against `npm run dev` (seeded a real stale
+      series, confirmed the badge rendered via HTTP, cleaned up). See `DECISIONS.md`.
 - [x] Legal guardrail tests pass (`LEGAL_GUARDRAILS.md`) — `tests/etfSchemaGuardrail.test.ts`
       (no score/rating field can exist on ETF output) and `CausalEdge.counterexamples` being a
       required field (M13) are the concrete enforced guardrails that exist; the "삼성전자 지금
@@ -67,17 +69,15 @@ state, not aspirationally:
 - [x] `PROJECT_STATE.md`, `ROADMAP.md`, `DECISIONS.md` up to date — maintained every milestone
       this session, verified current as of M27.
 
-**Honest overall read (M28)**: not RC-ready, and this milestone is the honest acknowledgment of
-that rather than a workaround. Two items are blocked on things this session cannot unilaterally
-resolve: M21 Ask Market (a genuine Human Gate — needs a human decision on LLM provider/funding/
+**Honest overall read**: still not RC-ready, but now for exactly two reasons instead of four.
+M21 Ask Market (a genuine Human Gate — needs a human decision on LLM provider/funding/
 credentials) and a real Codex security review (no Codex session has been available at any point
-across this entire session, despite it being flagged as required since M22). Two smaller items
-(timezone/KST tests, stale-data marking) are real, scoped, buildable gaps — logged rather than
-rushed. Every other criterion that was achievable without a human decision or external tooling
-has been built, tested, and verified this session, including a full M27 real-browser E2E
-walkthrough and this M28 Claim Ledger cross-feature audit. M28 is best read as "Release Candidate
-status: BLOCKED pending two named Human Gates" — an accurate terminal state for this
-development phase, not a failure to reach M28.
+across this entire session, despite it being flagged as required since M22) are the only two
+remaining blockers, and both require something outside this session's ability to resolve
+unilaterally. Every other criterion — including the two smaller items (timezone/KST tests,
+stale-data marking) originally logged as open at M28 — has since been closed. Current status:
+"Release Candidate: BLOCKED pending two named Human Gates" — an accurate terminal state for this
+development phase, not a failure to reach it.
 
 Actual production deployment and actual paid-plan activation remain Human Gates regardless of
 checklist completion.

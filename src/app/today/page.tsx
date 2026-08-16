@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { buildMorningBrief } from "@/server/domain/morningBrief";
 import { getCurrentUser, signOutAction } from "@/server/actions/auth";
+import { formatTimestampUtc } from "@/lib/formatDate";
 
 export const dynamic = "force-dynamic"; // always reflects current data, never statically cached
 
@@ -12,9 +13,7 @@ export default async function TodayPage() {
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
-          <p className="text-sm text-zinc-500">
-            Generated {new Date(brief.generatedAt).toLocaleString()}
-          </p>
+          <p className="text-sm text-zinc-500">Generated {formatTimestampUtc(brief.generatedAt)}</p>
         </div>
         {user ? (
           <form action={signOutAction} className="flex items-center gap-3 text-sm text-zinc-500">
@@ -40,7 +39,14 @@ export default async function TodayPage() {
                 key={c.seriesId}
                 className="rounded border border-zinc-200 p-3 dark:border-zinc-800"
               >
-                <div className="font-medium">{c.seriesName}</div>
+                <div className="flex items-center gap-2 font-medium">
+                  {c.seriesName}
+                  {c.staleness === "STALE" && (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                      STALE
+                    </span>
+                  )}
+                </div>
                 <div className="text-sm text-zinc-600 dark:text-zinc-400">
                   {c.value} {c.unit} as of {c.asOfDate} ({c.absoluteChange >= 0 ? "+" : ""}
                   {c.absoluteChange}

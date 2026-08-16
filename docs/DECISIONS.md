@@ -659,3 +659,39 @@ credentials — see the M21 DECISIONS.md entry for exactly what's needed. (2) A 
 becoming available in this environment, to run the security-critical review flagged since M22.
 Both are named, tracked (`docs/REVIEW_DEBT.md`), and ready to act on the moment either becomes
 available — this is a stopping point for genuine Human Gates, not an abandoned task.
+
+## 2026-08-16 — Post-M28: closed the two non-blocking REVIEW_DEBT items (timezone/KST, stale-data marking)
+
+**Decision**: With M21 and the Codex review still genuinely blocked, picked up the two smaller
+items M28 had logged as open (per CLAUDE.md's "switch to the next independent task" rule) rather
+than idling. Both are now closed.
+**Timezone/KST**: Audited every date-only parser (`ecos/normalize.ts`, `dart/normalize.ts`) —
+both were already correctly timezone-independent (`Date.UTC(...)`, with an existing comment
+explaining why), so no parsing bug existed. Added dedicated boundary tests (Korean New Year's
+Eve/Day, a leap day, year/quarter boundaries) so a future refactor that swapped in a
+local-timezone `Date` constructor would fail loudly. Separately, auditing the actual rendered
+output (not just parsing) surfaced a real bug: `/today` and `/admin` called `.toLocaleString()`
+on a `Date` inside a Next.js **Server Component** — this resolves using the server process's own
+local timezone/locale, not the viewing user's browser, meaning the same data would render a
+different clock time depending on where the app happens to be deployed. Fixed with an explicit
+`formatTimestampUtc()` helper (`src/lib/formatDate.ts`) that always renders UTC with an explicit
+"UTC" suffix — deterministic regardless of deployment region. Whether end users should eventually
+see KST instead of UTC (this product's primary market) is a real product decision, not made here
+— logged as a note in the helper's own docstring, not silently decided.
+**Stale-data marking**: Added `src/server/domain/staleness.ts` — `evaluateStaleness()` compares a
+series' days-since-last-observation against 3x its own historical median update interval
+(reusing `economicCalendar.ts`'s existing cadence projection, M12, rather than a second
+calculation). A series with fewer than 2 historical observations can't project a cadence and is
+marked `UNKNOWN`, never `FRESH` — the module never claims freshness it can't support. Wired into
+`buildMorningBrief`'s `whatChanged` entries and a visible "STALE" badge on `/today`.
+**Why 3x median interval, not a fixed day count**: A fixed threshold (e.g. "7 days") would
+misclassify a quarterly series as permanently stale and a sub-daily series as never stale. Scaling
+to each series' own cadence means a daily series is flagged after ~3 days without an update and a
+quarterly series after ~9 months — proportional to what "on schedule" actually means for that
+series, without needing a fixed table.
+**Verification**: New unit tests (`tests/formatDate.test.ts`, `tests/staleness.test.ts`,
+boundary-date additions to the ECOS/DART normalize tests) plus a real integration test seeding a
+genuinely-stale and a genuinely-fresh series through `buildMorningBrief`. Also verified by hand
+against a live `npm run dev` server: seeded a real stale series into the dev database, confirmed
+the "STALE" badge rendered on `/today` via a real HTTP request, then cleaned up the seeded rows.
+173/173 tests pass, full verify chain green.

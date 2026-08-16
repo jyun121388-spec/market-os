@@ -1,4 +1,5 @@
 import { prisma } from "@/server/db/client";
+import { insertIfAbsent } from "@/server/domain/idempotentInsert";
 import { fetchAllDartDisclosures } from "./client";
 import { normalizeDartRows } from "./normalize";
 import type { DartCompanyDefinition } from "./types";
@@ -50,20 +51,23 @@ export async function ingestDartFilings(
       continue;
     }
 
-    await prisma.filing.create({
-      data: {
-        sourceId: source.id,
-        corpCode: filing.corpCode,
-        corpName: filing.corpName,
-        stockCode: filing.stockCode,
-        reportName: filing.reportName,
-        receiptNo: filing.receiptNo,
-        receiptDate: filing.receiptDate,
-        remark: filing.remark,
-        raw: filing.raw,
-      },
-    });
-    inserted++;
+    const didInsert = await insertIfAbsent(() =>
+      prisma.filing.create({
+        data: {
+          sourceId: source.id,
+          corpCode: filing.corpCode,
+          corpName: filing.corpName,
+          stockCode: filing.stockCode,
+          reportName: filing.reportName,
+          receiptNo: filing.receiptNo,
+          receiptDate: filing.receiptDate,
+          remark: filing.remark,
+          raw: filing.raw,
+        },
+      }),
+    );
+    if (didInsert) inserted++;
+    else unchanged++;
   }
 
   if (page.truncated) {

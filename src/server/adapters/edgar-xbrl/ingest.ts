@@ -1,4 +1,5 @@
 import { prisma } from "@/server/db/client";
+import { insertIfAbsent } from "@/server/domain/idempotentInsert";
 import { fetchCompanyFacts } from "./client";
 import { normalizeCompanyFacts } from "./normalize";
 import type { XbrlCompanyDefinition } from "./types";
@@ -70,25 +71,28 @@ export async function ingestCompanyFacts(company: XbrlCompanyDefinition): Promis
       continue;
     }
 
-    await prisma.financialFact.create({
-      data: {
-        sourceId: source.id,
-        corpCode: fact.corpCode,
-        taxonomy: fact.taxonomy,
-        concept: fact.concept,
-        unit: fact.unit,
-        periodStart: fact.periodStart,
-        periodEnd: fact.periodEnd,
-        fiscalYear: fact.fiscalYear,
-        fiscalPeriod: fact.fiscalPeriod,
-        form: fact.form,
-        accessionNumber: fact.accessionNumber,
-        filedDate: fact.filedDate,
-        value: fact.value,
-        raw: fact.raw,
-      },
-    });
-    inserted++;
+    const didInsert = await insertIfAbsent(() =>
+      prisma.financialFact.create({
+        data: {
+          sourceId: source.id,
+          corpCode: fact.corpCode,
+          taxonomy: fact.taxonomy,
+          concept: fact.concept,
+          unit: fact.unit,
+          periodStart: fact.periodStart,
+          periodEnd: fact.periodEnd,
+          fiscalYear: fact.fiscalYear,
+          fiscalPeriod: fact.fiscalPeriod,
+          form: fact.form,
+          accessionNumber: fact.accessionNumber,
+          filedDate: fact.filedDate,
+          value: fact.value,
+          raw: fact.raw,
+        },
+      }),
+    );
+    if (didInsert) inserted++;
+    else unchanged++;
   }
 
   return {

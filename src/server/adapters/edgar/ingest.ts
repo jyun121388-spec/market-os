@@ -1,4 +1,5 @@
 import { prisma } from "@/server/db/client";
+import { insertIfAbsent } from "@/server/domain/idempotentInsert";
 import { fetchEdgarFilingHistory, fetchEdgarSubmissions } from "./client";
 import { normalizeEdgarFilingHistory } from "./normalize";
 import type { EdgarCompanyDefinition } from "./types";
@@ -51,20 +52,23 @@ export async function ingestEdgarFilings(company: EdgarCompanyDefinition): Promi
       continue;
     }
 
-    await prisma.filing.create({
-      data: {
-        sourceId: source.id,
-        corpCode: filing.corpCode,
-        corpName: filing.corpName,
-        stockCode: filing.stockCode,
-        reportName: filing.reportName,
-        receiptNo: filing.receiptNo,
-        receiptDate: filing.receiptDate,
-        remark: filing.remark,
-        raw: filing.raw,
-      },
-    });
-    inserted++;
+    const didInsert = await insertIfAbsent(() =>
+      prisma.filing.create({
+        data: {
+          sourceId: source.id,
+          corpCode: filing.corpCode,
+          corpName: filing.corpName,
+          stockCode: filing.stockCode,
+          reportName: filing.reportName,
+          receiptNo: filing.receiptNo,
+          receiptDate: filing.receiptDate,
+          remark: filing.remark,
+          raw: filing.raw,
+        },
+      }),
+    );
+    if (didInsert) inserted++;
+    else unchanged++;
   }
 
   if (history.truncated) {

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+﻿import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { prisma as PrismaClientInstance } from "@/server/db/client";
 import fixture from "@/server/adapters/edgar-xbrl/__fixtures__/apple-companyfacts.json";
 import { TRACKED_XBRL_COMPANIES } from "@/server/adapters/edgar-xbrl/types";
@@ -66,9 +66,9 @@ describeIfDb("EDGAR XBRL adapter ingest (integration)", () => {
       cik: APPLE.cik,
       inserted: 4,
       unchanged: 0,
-      // The fixture tracks 6 concepts but only defines 3 — those 3 are now reported as
-      // skipped rather than silently absent from the output.
-      skippedConcepts: 3,
+      // Eight concepts are tracked and this fixture defines three of them; the other five are
+      // reported as skipped rather than being silently absent from the output.
+      skippedConcepts: 5,
       skippedNonNumeric: 0,
     });
 
@@ -97,7 +97,7 @@ describeIfDb("EDGAR XBRL adapter ingest (integration)", () => {
       cik: APPLE.cik,
       inserted: 0,
       unchanged: 4,
-      skippedConcepts: 3,
+      skippedConcepts: 5,
       skippedNonNumeric: 0,
     });
 

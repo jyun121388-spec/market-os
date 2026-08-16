@@ -55,9 +55,33 @@ export interface XbrlCompanyDefinition {
   corpName: string;
 }
 
-/** Core concepts this adapter extracts — deliberately a small, well-known starter set. */
+/**
+ * Core concepts this adapter extracts — deliberately a small, well-known starter set.
+ *
+ * Each entry is the literal us-gaap tag, stored verbatim in `FinancialFact.concept`. No tag is
+ * renamed or merged into another on the way in: mapping one tag's values under a different
+ * tag's name would be an interpretation, and it would destroy the ability to tell which tag a
+ * number actually came from. Any unification belongs at the presentation layer, where it can be
+ * shown and questioned (docs/DATA_POLICY.md).
+ *
+ * Revenue needs three tags, which is not redundancy. US GAAP changed how revenue is reported
+ * with ASC 606, and a filer's history therefore spans several tags with no overlap:
+ *
+ *   SalesRevenueNet                                      pre-ASC 606 (Apple: through 2018)
+ *   Revenues                                             sparse, mostly legacy
+ *   RevenueFromContractWithCustomerExcludingAssessedTax  post-ASC 606 (Apple: current)
+ *
+ * Tracking only `Revenues` was the original state, and against Apple it yielded 11 rows ending
+ * in 2018 — so Company X-Ray had no revenue at all for the most recent eight years, which is a
+ * strange thing for a financial product to be missing and nothing said so. Verified against
+ * live companyfacts on 2026-08-17: 210 rows under SalesRevenueNet, 117 under
+ * RevenueFromContractWithCustomerExcludingAssessedTax (latest $364.4B for the period ending
+ * 2026-06-27), 11 under Revenues.
+ */
 export const TRACKED_XBRL_CONCEPTS = [
   "Revenues",
+  "RevenueFromContractWithCustomerExcludingAssessedTax",
+  "SalesRevenueNet",
   "NetIncomeLoss",
   "OperatingIncomeLoss",
   "Assets",

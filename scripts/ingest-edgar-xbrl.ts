@@ -6,14 +6,26 @@
  */
 import { ingestCompanyFacts } from "../src/server/adapters/edgar-xbrl/ingest";
 import { TRACKED_XBRL_COMPANIES } from "../src/server/adapters/edgar-xbrl/types";
+import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
 
 async function main() {
   for (const company of TRACKED_XBRL_COMPANIES) {
-    const result = await ingestCompanyFacts(company);
+    const result = await recordIngestRun(
+      { sourceCode: "SEC_EDGAR", target: `xbrl:${company.cik}` },
+      async () => {
+        const r = await ingestCompanyFacts(company);
+        return {
+          ...r,
+          skipped: r.skippedNonNumeric,
+          fetched: r.inserted + r.unchanged,
+        };
+      },
+    );
     console.log(
       `[EDGAR XBRL] ${company.corpName} (CIK ${result.cik}): +${result.inserted} inserted, ` +
-        `${result.unchanged} unchanged`,
+        `${result.unchanged} unchanged, ${result.skippedConcepts} concept(s) unavailable, ` +
+        `${result.skippedNonNumeric} non-numeric skipped`,
     );
   }
 }

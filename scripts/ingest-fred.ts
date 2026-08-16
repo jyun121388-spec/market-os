@@ -6,14 +6,27 @@
  */
 import { ingestFredSeries } from "../src/server/adapters/fred/ingest";
 import { TRACKED_FRED_SERIES } from "../src/server/adapters/fred/types";
+import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
 
 async function main() {
   for (const series of TRACKED_FRED_SERIES) {
-    const result = await ingestFredSeries(series);
+    const result = await recordIngestRun(
+      { sourceCode: "FRED", target: series.seriesId },
+      async () => {
+        const r = await ingestFredSeries(series);
+        return {
+          ...r,
+          skipped: r.skippedMissing,
+          providerTotal: r.count,
+          fetched: r.inserted + r.revised + r.unchanged + r.skippedMissing,
+        };
+      },
+    );
     console.log(
       `[FRED] ${result.seriesId}: +${result.inserted} inserted, ${result.revised} revised, ` +
-        `${result.unchanged} unchanged, ${result.skippedMissing} missing skipped`,
+        `${result.unchanged} unchanged, ${result.skippedMissing} missing skipped` +
+        `${result.truncated ? " (TRUNCATED — incomplete)" : ""}`,
     );
   }
 }

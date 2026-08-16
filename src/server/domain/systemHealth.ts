@@ -19,9 +19,34 @@ export interface SourceHealth {
   lastIngestAt: string | null; // ISO timestamp, or null if this source has never ingested anything
 }
 
+/**
+ * The most recent recorded run per (source, target), so an operator can answer the question
+ * that actually matters: is the stored data complete?
+ *
+ * Every adapter returns a `truncated` flag now, because each was at some point silently storing
+ * a partial result. A flag nothing surfaces is barely better than no flag — so it ends up here.
+ */
+export interface IngestRunHealth {
+  sourceCode: string;
+  target: string;
+  status: string;
+  finishedAt: string | null;
+  inserted: number;
+  unchanged: number;
+  skipped: number;
+  fetched: number | null;
+  /** What the provider said exists. A gap against `fetched` is the signal. */
+  providerTotal: number | null;
+  truncated: boolean;
+  error: string | null;
+}
+
 export interface SystemHealth {
   sources: SourceHealth[];
   unresolvedDataConflicts: number;
+  recentRuns: IngestRunHealth[];
+  /** Runs that ended knowably incomplete or failed outright — the ones worth acting on. */
+  incompleteRuns: number;
 }
 
 async function lastIngestForSource(sourceId: string): Promise<Date | null> {
@@ -48,10 +73,18 @@ async function lastIngestForSource(sourceId: string): Promise<Date | null> {
 const SYSTEM_HEALTH_TTL_MS = 30_000;
 const systemHealthCache = new TtlCache<SystemHealth>(SYSTEM_HEALTH_TTL_MS);
 
+/** How many recent runs to show. Enough to spot a pattern, few enough to stay readable. */
+const RECENT_RUN_LIMIT = 25;
+
 async function computeSystemHealthUncached(): Promise<SystemHealth> {
-  const [sources, unresolvedDataConflicts] = await Promise.all([
+  const [sources, unresolvedDataConflicts, runs] = await Promise.all([
     prisma.source.findMany({ orderBy: { code: "asc" } }),
     prisma.dataConflict.count({ where: { resolved: false } }),
+    prisma.ingestRun.findMany({
+      orderBy: { startedAt: "desc" },
+      take: RECENT_RUN_LIMIT,
+      include: { source: { select: { code: true } } },
+    }),
   ]);
 
   const sourceHealth = await Promise.all(
@@ -63,7 +96,34 @@ async function computeSystemHealthUncached(): Promise<SystemHealth> {
     })),
   );
 
-  return { sources: sourceHealth, unresolvedDataConflicts };
+  // Only the newest run per (source, target) — older ones are history, not current state.
+  const seen = new Set<string>();
+  const recentRuns: IngestRunHealth[] = [];
+  for (const run of runs) {
+    const key = `${run.source.code}::${run.target}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recentRuns.push({
+      sourceCode: run.source.code,
+      target: run.target,
+      status: run.status,
+      finishedAt: run.finishedAt?.toISOString() ?? null,
+      inserted: run.inserted,
+      unchanged: run.unchanged,
+      skipped: run.skipped,
+      fetched: run.fetched,
+      providerTotal: run.providerTotal,
+      truncated: run.truncated,
+      error: run.error,
+    });
+  }
+
+  return {
+    sources: sourceHealth,
+    unresolvedDataConflicts,
+    recentRuns,
+    incompleteRuns: recentRuns.filter((r) => r.truncated || r.status === "FAILED").length,
+  };
 }
 
 export async function computeSystemHealth(): Promise<SystemHealth> {

@@ -6,6 +6,7 @@
  */
 import { ingestDartFilings } from "../src/server/adapters/dart/ingest";
 import { TRACKED_DART_COMPANIES } from "../src/server/adapters/dart/types";
+import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
 
 async function main() {
@@ -13,10 +14,22 @@ async function main() {
   const range = { beginDate: beginDate ?? "20260101", endDate: endDate ?? "20261231" };
 
   for (const company of TRACKED_DART_COMPANIES) {
-    const result = await ingestDartFilings(company, range);
+    const result = await recordIngestRun(
+      { sourceCode: "DART", target: company.corpCode },
+      async () => {
+        const r = await ingestDartFilings(company, range);
+        return {
+          ...r,
+          providerTotal: r.totalCount,
+          fetched: r.inserted + r.unchanged,
+          requestsMade: r.pagesFetched,
+        };
+      },
+    );
     console.log(
       `[DART] ${company.corpName} (${result.corpCode}): +${result.inserted} inserted, ` +
-        `${result.unchanged} unchanged`,
+        `${result.unchanged} unchanged, ${result.pagesFetched} page(s) of ${result.totalCount}` +
+        `${result.truncated ? " (TRUNCATED — incomplete)" : ""}`,
     );
   }
 }

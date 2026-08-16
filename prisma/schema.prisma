@@ -43,8 +43,55 @@ model Source {
   financialFacts         FinancialFact[]
   etfs                   Etf[]
   realEstateTransactions RealEstateTransaction[]
+  ingestRuns             IngestRun[]
 
   @@map("sources")
+}
+
+enum IngestRunStatus {
+  SUCCESS // completed, and as complete as the provider says it can be
+  PARTIAL // completed, but knowably incomplete — see `truncated`
+  FAILED // threw before completing
+}
+
+// A record of one real ingestion run, so completeness is auditable after the fact rather than
+// a console line nobody reads.
+//
+// Every adapter now returns a `truncated` flag and the provider's own claimed total, because
+// each of them was at some point silently storing a partial result (docs/DECISIONS.md,
+// 2026-08-17). A returned flag that nothing persists is barely better than no flag at all: the
+// question an operator actually asks is "is the data I am looking at complete?", and answering
+// it requires knowing what the last run fetched versus what the provider said existed.
+//
+// Written only by the `scripts/ingest-*.ts` entry points — the real run boundary. Direct calls
+// to an ingest function (tests, ad-hoc scripts) deliberately do not record a run.
+model IngestRun {
+  id       String @id @default(cuid())
+  sourceId String
+  source   Source @relation(fields: [sourceId], references: [id])
+  target   String // series id, corp code, or CIK — whatever this run was scoped to
+
+  startedAt  DateTime        @default(now())
+  finishedAt DateTime?
+  status     IngestRunStatus
+
+  inserted  Int @default(0)
+  revised   Int @default(0)
+  unchanged Int @default(0)
+  skipped   Int @default(0) // missing values / concepts the adapter could not use
+
+  /// What the provider itself said the full result contains, when it says so at all.
+  providerTotal Int?
+  /// What this run actually retrieved. A gap against providerTotal is the signal that matters.
+  fetched       Int?
+  requestsMade  Int?
+  truncated     Boolean @default(false)
+
+  /// Error message when status is FAILED. Never a stack trace — no paths or secrets.
+  error String?
+
+  @@index([sourceId, startedAt])
+  @@map("ingest_runs")
 }
 
 // A tracked economic/market variable (e.g. "US 10Y Treasury Yield", "UST10Y").

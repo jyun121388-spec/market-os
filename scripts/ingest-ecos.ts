@@ -6,6 +6,7 @@
  */
 import { ingestEcosSeries } from "../src/server/adapters/ecos/ingest";
 import { TRACKED_ECOS_SERIES } from "../src/server/adapters/ecos/types";
+import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
 
 async function main() {
@@ -13,10 +14,22 @@ async function main() {
   const range = { start: start ?? "202401", end: end ?? "202612" };
 
   for (const series of TRACKED_ECOS_SERIES) {
-    const result = await ingestEcosSeries(series, range);
+    const result = await recordIngestRun(
+      { sourceCode: "ECOS", target: `${series.statCode}:${series.itemCode1}` },
+      async () => {
+        const r = await ingestEcosSeries(series, range);
+        return {
+          ...r,
+          skipped: r.skippedMissing,
+          providerTotal: r.totalCount,
+          fetched: r.inserted + r.revised + r.unchanged + r.skippedMissing,
+        };
+      },
+    );
     console.log(
       `[ECOS] ${result.seriesId}: +${result.inserted} inserted, ${result.revised} revised, ` +
-        `${result.unchanged} unchanged, ${result.skippedMissing} missing skipped`,
+        `${result.unchanged} unchanged, ${result.skippedMissing} missing skipped` +
+        `${result.truncated ? " (TRUNCATED — incomplete)" : ""}`,
     );
   }
 }

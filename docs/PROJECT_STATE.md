@@ -15,6 +15,16 @@ real PostgreSQL 16.10, a real browser, and real network egress, none of which th
 had. Standing the project up there immediately falsified four things the cloud runs had
 reported as green. All four are fixed and committed; details below.
 
+**NOT `RELEASE_CANDIDATE_READY`.** That status requires all of: local commits pushed; FRED, ECOS
+and OpenDART each live-verified or explicitly recorded as externally blocked; Codex independent
+re-review complete; P0 = 0; P1 = 0; full verification green. Four of those are open — see
+`docs/HUMAN_GATE_QUEUE.md`. Do not promote the status because the engineering looks finished.
+
+**`PUSH_PENDING_AUTH`** — commits after `9b20f01` are local-only. GitHub authentication is not
+configured on this machine and the environment cannot prompt for it (HG-001). All work is
+committed on `claude/market-os-development-7vnicg`; nothing is at risk, nothing was rewritten,
+and push is not being retried in a loop.
+
 STATUS
 Local environment is fully operational and reproducible:
 
@@ -55,25 +65,46 @@ What running on real infrastructure found (all fixed, each with regression cover
 Also completed this pass: **M19 Watchlist now has a real user-facing request path**
 (`src/server/actions/watchlist.ts` + `/watchlist`), closing the gap
 docs/RELEASE_READINESS.md named precisely — the domain module had zero callers, so cross-user
-isolation had never been exercised through an actual request.
+isolation had never been exercised through an actual request. A follow-up targeted security
+audit of that path fixed three findings: an unused exported server action (a "use server"
+export is a reachable endpoint whether or not a page calls it), an unbounded per-user row
+count, and an upsert that could surface a raw P2002 under concurrent submission.
+
+**Silent pagination truncation in all three keyed adapters** (found by reading them against
+their own documented response shapes, 2026-08-17). FRED, ECOS and OpenDART each fetched the
+first page and treated it as the whole answer, while the field that says otherwise (`count`,
+`list_total_count`, `total_page`) was received and ignored. DART is the clearest: one request
+capped at 100 rows, and Samsung Electronics files well over 100 disclosures a year. Nothing
+failed and nothing warned — the database held a partial series that read as complete, feeding
+every downstream What Changed / Macro Regime / Historical Analog calculation. Each client now
+pages to the provider's own total and reports `truncated` when a result is knowably incomplete.
+Also fixed: `rcept_dt` was missing the impossible-date guard FRED and ECOS received in the
+2026-08-16 pass, so `20260230` would have silently become Mar 2.
 
 Live provider verification (docs/RELEASE_READINESS.md "Data adapters"):
 
 - **SEC EDGAR submissions + XBRL: `VERIFIED`.** 55/55 live contract checks against real
-  data.sec.gov (`npx tsx scripts/verify-edgar-live.ts`), then a real ingest of 1000 filings and
-  1099 financial facts, then a re-ingest confirming 0 inserted / all unchanged.
-- FRED / ECOS / OpenDART remain unverified live: all three are reachable, but each needs a free
-  API key the user registers for. The user has said they will obtain all three (2026-08-17);
-  until the keys arrive this stays a Human Gate, not a defect.
+  data.sec.gov (`npm run verify:live:edgar`), then a real ingest of 1000 filings and 1099
+  financial facts, then a re-ingest confirming 0 inserted / all unchanged.
+- **FRED / ECOS / OpenDART: `LIVE_KEY_PENDING`** (HG-002/003/004). All three hosts are
+  reachable; each needs a free API key the user registers for. `scripts/verify-{fred,ecos,dart}
+-live.ts` are written and wired to `npm run verify:live:*`, built on the same harness as the
+  EDGAR check. **The existence of a verification script is not verification** — none of the
+  three may be classified `LIVE_VERIFIED` until the full sequence has actually run against a
+  real endpoint. EDGAR found real drift on its first attempt; assume these will too.
 
-Codex re-review status is unchanged and is still the one non-Product gate. Note that the
-re-review scope has grown since the fix-round HEAD — see NEXT.
+Codex re-review is still the one non-Product gate, and its scope has grown materially — see
+NEXT and `docs/CODEX_REVIEW_PACKET.md` §0.1.
 
 TESTS
-218 / 218 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment:
-+8 watchlist server-action tests, +1 null-fiscal-label regression). `npm run e2e` 17/17 checks
-in a real browser (up from 12 — the watchlist add/list/remove pass is new).
-Lint / typecheck / format / production build all clean.
+233 / 233 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+`npm run e2e` 17/17 checks in a real browser (up from 12). Lint / typecheck / format /
+production build all clean. Full suite runs in ~36s.
+
+Note on the suite runtime: it briefly reached ~137s when pagination was first tested by pushing
+14,000 synthetic rows through the real ingest. That was moved to client-level tests, which is
+where the behaviour actually lives — the assertion is about how many requests an adapter makes
+and when it stops, and the database round trip proved nothing extra.
 
 Note on the old "209 pass" figure: it was accurate for the environment that produced it, and
 still wrong about the product. Two of those tests failed the moment they met a real Postgres on
@@ -92,6 +123,11 @@ classification.
 
 NEXT
 
+All open items are tracked with owner and unblock steps in `docs/HUMAN_GATE_QUEUE.md`
+(HG-001..HG-008). Summary:
+
+0. **Push the local commits** (HG-001, `PUSH_PENDING_AUTH`). One `git push` once GitHub auth
+   exists on this machine. Blocks the `RELEASE_CANDIDATE_READY` promotion and CI.
 1. **Codex re-review** — still the one non-Product gate. Run docs/CODEX_REVIEW_PACKET.md §12
    from a machine with `codex login` done, and drop the result at
    `reviews/market-os-final-review.json`. **The scope is no longer just the fix-round diff:**
@@ -99,10 +135,14 @@ NEXT
    examined) to current HEAD, which adds the local-verification round on top of the H1/H2/H3
    fixes. The H3 fix in particular was itself defective and has been re-fixed — a re-reviewer
    should be told that rather than left to rediscover it.
-2. **FRED / ECOS / OpenDART API keys** — user is obtaining all three. When each key lands, put
-   it in `.env` and live-verify that adapter the same way EDGAR was: real endpoint, real
-   response shape, then a real ingest and a re-ingest for idempotency. FRED specifically would
-   unblock the 5 Macro Regime axes currently reporting `NOT_TRACKED`.
+2. **FRED / ECOS / OpenDART API keys** (HG-002/003/004, `LIVE_KEY_PENDING`) — user is obtaining
+   all three. When each key lands, run `npm run verify:live:<provider>`, then the full sequence
+   before classifying it `LIVE_VERIFIED`: compare the real schema against types/parser/DB, test
+   nullability, missing fields, revisions, units, dates, timestamps and pagination, fix any
+   drift, add regression tests, do a small real ingest, re-ingest for idempotency, verify
+   provenance. FRED specifically would unblock the 5 Macro Regime axes currently reporting
+   `NOT_TRACKED`. Do not treat provider documentation as equivalent to the real API — EDGAR's
+   documentation was wrong about nullability, and that was the first provider actually checked.
 3. Three named Product/Human Gates remain, unaffected by the above:
    (a) Full free-text LLM-based Ask Market — needs a funded LLM provider/credential decision.
    (b) Production deployment approval.

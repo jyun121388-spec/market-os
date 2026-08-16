@@ -24,10 +24,139 @@ exist before. This section is a scoped index so a re-reviewer doesn't need to re
 repository — go straight to the 3 files/tests below, confirm each BEFORE failure mode is actually
 closed, then decide whether anything else in the diff needs a look.
 
-**Diff to review**: `git diff 9b34f8bb6be120dacd381fe22577870f40d6e5fa..8f4f76ca74e01f1b9541a7f7295521f3eda08803`
-(the fix-round commit only — `9b34f8b` was the exact head the first REVIEW ran against).
+**Diff to review**: `git diff 9b34f8bb6be120dacd381fe22577870f40d6e5fa..HEAD`
+(`9b34f8b` was the exact head the first review ran against; HEAD is currently
+`3fd6533192ab6e76d994d9484633d53b3b87248d`).
+
+**⚠ The scope is wider than it was, and one item below has already proved to be wrong once.**
+Earlier versions of this packet pointed at the fix-round commit `8f4f76c` alone. Do not use that
+range. A subsequent local-verification round (2026-08-17) found that the B3 fix **was itself
+defective**, and found four further defects that the cloud test environment had reported as
+green. Read §0.1 before §0's B1-B3.
+
 Full packet still applies for anything not covered here (§1-11 below are unchanged architecture
-context); only §2's SHAs and §9's test count are updated for this round.
+context); §2's SHAs and §9's test count are updated for this round.
+
+## 0.1 ROUND 2 — what changed after the first fix round, and why you should be sceptical of it
+
+Between the first fix round and now, development moved from a cloud sandbox to a local machine
+with a real PostgreSQL 16.10, a real browser, and real outbound network — none of which the
+sandbox had. Running the existing, already-"passing" work on real infrastructure falsified four
+green results. The relevant fact for a reviewer: **a 209/209 green suite was accurate about the
+environment that produced it and wrong about the product.** Weight the test evidence in this
+packet accordingly, and prefer reading the code over trusting a passing test name.
+
+### R1 — B3's fix was defective and has been re-fixed (highest-priority item in this review)
+
+The B3 fix below is correct about the partial unique index and the ON CONFLICT insert. It was
+wrong about how it found the revision chain's "latest" row: `orderBy: { retrievedAt: "desc" }`.
+Prisma maps `DateTime` to Postgres `timestamp(3)`, so an original and its revision written in
+the same millisecond carry identical timestamps and Postgres may return either first. On the
+unlucky ordering the code compared the incoming value against the ORIGINAL, decided a revision
+was needed, attempted to attach a second child to a parent that already had one, and — after
+exhausting all 20 retries against the same ambiguous read — surfaced a raw P2002.
+
+Note what this means for the B3 evidence below: the three concurrency tests all passed, and the
+bug was **not concurrency-only**. A plain sequential re-ingest of already-revised data
+reproduced it (`fred-ingest` "is idempotent"). The concurrency tests were aimed at the wrong
+axis of the problem.
+
+Now fixed structurally: the tail is the row no other row points at via `revisionOf`. The
+4-column unique constraint guarantees at most one child per parent, making the chain a linked
+list with exactly one tail, so the answer no longer depends on timestamp resolution. A chain
+with no tail (a cycle) throws explicitly rather than looping.
+
+- **Where**: `src/server/domain/observationIngest.ts`, `findRevisionChainTail()`.
+- **Try to break it**: is there any path that writes an `Observation` with `isRevision = true`
+  without going through this function, which could fork the chain and produce two tails? The
+  code takes the deterministically-newest tail in that case rather than throwing — is that the
+  right call, or should a forked chain be a hard error?
+
+### R2 — Two Windows process-spawn defects, one of which hid a regression test
+
+- `tests/integration/auth-migration-upgrade.test.ts` — the B1 regression test — spawned `npx`.
+  That is ENOENT under the bare name on Windows and EINVAL as `npx.cmd` (Node's CVE-2024-27980
+  mitigation refuses to spawn a `.cmd` without a shell). The suite died in `beforeAll`, before
+  its first assertion. **The B1 migration upgrade-safety guarantee was therefore unverified on
+  that platform while reporting as a passing file.** Now invokes Prisma's CLI entry point
+  directly via `process.execPath`.
+- `scripts/run-ingest-jobs.ts` spawned `npm` (`npm.cmd` on Windows). Worse failure mode:
+  `spawnSync` returns `status: null` rather than throwing, so every job would have been reported
+  as an ordinary FAILED job instead of never having started.
+- **Try to break it**: are there other `spawn`/`execFile` call sites assuming a POSIX binary
+  name? Are there other tests whose `beforeAll` can fail in a way that reads as skipped?
+
+### R3 — Real SEC schema drift (both EDGAR adapters were unverified against live data)
+
+`scripts/verify-edgar-live.ts` (new) checks both EDGAR adapters against real data.sec.gov. First
+run found SEC returns `fy: null, fp: null` on some companyfacts rows — facts republished for a
+`frame` under a later restating filing. Both adapter types and both `financial_facts` columns
+were non-nullable, so a real ingest would have failed on the first such row. Apple alone has 20
+across the six tracked concepts.
+
+Widened rather than dropped, because the fact is fully sourced — value, period, form and
+accession number are all real — and only the label is absent. Deriving a fiscal year from
+`periodEnd` was rejected outright: that stores an inference in a column readers treat as
+reported data.
+
+- **Where**: `prisma/migrations/20260817120000_financial_fact_nullable_fiscal_label/`,
+  `src/server/adapters/edgar-xbrl/{types,normalize}.ts`, `src/server/domain/askMarket.ts`.
+- **Evidence**: 55/55 live contract checks, real ingest of 1000 filings and 1099 facts, then a
+  re-ingest returning 0 inserted / all unchanged.
+- **Try to break it**: is there any consumer that still assumes a non-null `fiscalYear`? Does
+  `/ask` render the null case in a way that could be mistaken for a reported value?
+
+### R4 — Silent pagination truncation in all three keyed adapters
+
+FRED, ECOS and OpenDART each fetched the first page and treated it as the whole answer, while
+the field that says otherwise (`count`, `list_total_count`, `total_page`) was received and
+ignored. DART is the clearest: one request with `page_count=100`, and Samsung Electronics files
+well over 100 disclosures a year. Nothing failed and nothing warned — the database held a
+partial series that read as complete, feeding every downstream What Changed / Macro Regime /
+Historical Analog calculation.
+
+Each client now has a paginating variant, walks until the provider's own total is satisfied, and
+returns `truncated` plus that total so an incomplete result announces itself. Loops are bounded.
+
+- **Where**: `src/server/adapters/{fred,ecos,dart}/{client,ingest}.ts`,
+  `tests/adapters/pagination.test.ts`.
+- **Note**: this was found by reading the adapters against their own documented response shapes,
+  not by a live run. FRED/ECOS/OpenDART remain **LIVE_KEY_PENDING** — the free keys do not exist
+  yet, and `scripts/verify-{fred,ecos,dart}-live.ts` are written and waiting. Treat the
+  pagination fix as correct-by-construction, not as live-verified.
+- **Try to break it**: the page-cap constants are arbitrary. Under what real query does a bounded
+  loop still silently under-fetch? Is `truncated` actually consumed anywhere that matters, or is
+  it a field nobody reads?
+
+### R5 — Watchlist now has a real request path (new attack surface since your last review)
+
+M19's Watchlist domain module had zero callers, so its per-user scoping had never been exercised
+through an HTTP request. It now has one: `src/server/actions/watchlist.ts` and `/watchlist`.
+This is genuinely new surface and deserves review attention rather than a skim.
+
+Design decisions worth challenging: `userId` comes only from the validated session cookie, never
+the form. No action accepts a `WatchlistItem.id` — removal is addressed by `(itemType, itemRef)`
+resolved together with the session user's id, so there is no direct object reference to tamper
+with. A self-audit found and fixed an unused exported server action (a "use server" export is a
+reachable endpoint whether or not a page calls it), an unbounded per-user row count, and an
+upsert that could surface a raw P2002 under concurrent submission.
+
+- **Try to break it**: can any input reach the domain layer without passing `parseItemType`? Does
+  the 500-item cap have a bypass via concurrent submissions racing the count check? Is
+  `revalidatePath` enough, or can a stale render leak another user's rows?
+
+### R6 — DART date validation was missing the impossible-date guard
+
+`rcept_dt` was validated with `\d{8}` only, which proves the shape and not the date: `20260230`
+passes and `Date.UTC` silently rolls it to Mar 2, storing a filing under a date DART never
+reported. FRED and ECOS received `assertValidCalendarDate` in the 2026-08-16 P1 pass; DART was
+missed. Now covered.
+
+### Current verification state (2026-08-17)
+
+233/233 tests against a real local PostgreSQL 16.10, `npm run e2e` 17/17 in a real browser,
+55/55 live EDGAR contract checks, lint/typecheck/format/production build clean. Nothing in this
+packet is self-declared APPROVE, and no provider other than SEC EDGAR is claimed live-verified.
 
 ### B1 (was P0/HIGH) — Auth migration upgrade safety
 
@@ -69,7 +198,12 @@ context); only §2's SHAs and §9's test count are updated for this round.
   truly-correct claim, causing a false `VALUE_MISMATCH`? Is there any claim shape that skips the
   final `claim.claimText !== expectedText` check entirely?
 
-### B3 (was P0/HIGH) — Concurrent observation ingestion race
+### B3 (was P0/HIGH) — Concurrent observation ingestion race — ⚠ SEE R1: THIS FIX WAS DEFECTIVE
+
+**Read §0.1's R1 before this section.** What follows describes the first fix round as it was
+written. The partial-unique-index and ON CONFLICT parts are still accurate; the "latest row"
+lookup described here was wrong and has since been replaced. The three regression tests cited
+below all passed against the defective version.
 
 - **BEFORE**: `upsertRevisionAwareObservation()` did `findFirst` then `create` — the old
   `@@unique([seriesId, observationDate, isRevision, revisionOf])` constraint does not block two

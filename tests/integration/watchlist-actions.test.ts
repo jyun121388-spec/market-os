@@ -136,15 +136,13 @@ describeIfDb("watchlist server actions (integration)", () => {
     expect(aItems.map((i) => i.itemRef).sort()).toEqual(["AAPL", "SPY"]);
   });
 
-  it("reads back only the session user's own list", async () => {
-    activeSessionToken = tokenB;
-    expect(await actions.listCurrentUserWatchlist()).toHaveLength(0);
-
-    activeSessionToken = tokenA;
-    expect(await actions.listCurrentUserWatchlist()).toHaveLength(2);
-
-    activeSessionToken = undefined;
-    expect(await actions.listCurrentUserWatchlist()).toHaveLength(0);
+  it("exposes exactly two server actions and nothing else", async () => {
+    // Every exported async function in a "use server" module is a network-reachable endpoint,
+    // reachable by anyone who knows its action id — whether or not a page calls it. An export
+    // added here "just as a helper" is therefore new attack surface, not dead code. This
+    // originally caught a `listCurrentUserWatchlist` read endpoint that no page ever used.
+    const exported = Object.keys(actions).sort();
+    expect(exported).toEqual(["addWatchlistItemAction", "removeWatchlistItemAction"]);
   });
 
   it("rejects an unknown itemType rather than coercing it", async () => {
@@ -206,5 +204,73 @@ describeIfDb("watchlist server actions (integration)", () => {
     );
     expect(state.error).toMatch(/logged in/i);
     expect(await prisma.watchlistItem.count({ where: { userId: userAId } })).toBe(2);
+  });
+
+  it("concurrent submissions of the same item settle as one row, not a raw constraint error", async () => {
+    // Same failure shape as the observation revision-chain race: a read-then-write that looks
+    // atomic. `upsert` with an empty `update` can fall back to read-then-write, and the loser
+    // of the race would surface a raw P2002 for what the domain module documents as a no-op.
+    activeSessionToken = tokenA;
+    const submissions = Array.from({ length: 6 }, () =>
+      actions.addWatchlistItemAction(
+        {},
+        form({ itemType: "INDUSTRY", itemRef: "semiconductors", label: "Semiconductors" }),
+      ),
+    );
+
+    const results = await Promise.all(submissions);
+    for (const r of results) {
+      expect(r.error).toBeUndefined();
+    }
+
+    const rows = await prisma.watchlistItem.findMany({
+      where: { userId: userAId, itemType: "INDUSTRY", itemRef: "semiconductors" },
+    });
+    expect(rows).toHaveLength(1);
+
+    await prisma.watchlistItem.deleteMany({
+      where: { userId: userAId, itemType: "INDUSTRY", itemRef: "semiconductors" },
+    });
+  });
+
+  it("caps how many items one account can accumulate, while still allowing re-adds at the cap", async () => {
+    // Nothing else bounds per-user growth; an authenticated account could otherwise enlarge the
+    // table without limit. Seeded directly rather than through 500 action calls — the action is
+    // what is under test at the boundary, not the 498 uneventful inserts before it.
+    activeSessionToken = tokenA;
+    const existing = await prisma.watchlistItem.count({ where: { userId: userAId } });
+    await prisma.watchlistItem.createMany({
+      data: Array.from({ length: 500 - existing }, (_, i) => ({
+        userId: userAId,
+        itemType: "THEME" as const,
+        itemRef: `filler-${i}`,
+        label: `Filler ${i}`,
+      })),
+    });
+    expect(await prisma.watchlistItem.count({ where: { userId: userAId } })).toBe(500);
+
+    const blocked = await actions.addWatchlistItemAction(
+      {},
+      form({ itemType: "THEME", itemRef: "one-too-many", label: "One too many" }),
+    );
+    expect(blocked.error).toMatch(/limited to 500 items/i);
+    expect(await prisma.watchlistItem.count({ where: { userId: userAId } })).toBe(500);
+
+    // Re-adding something already tracked is a no-op, not growth — it must still succeed.
+    const reAdd = await actions.addWatchlistItemAction(
+      {},
+      form({ itemType: "THEME", itemRef: "filler-0", label: "Filler 0" }),
+    );
+    expect(reAdd.error).toBeUndefined();
+    expect(await prisma.watchlistItem.count({ where: { userId: userAId } })).toBe(500);
+
+    // The cap is per user, so B is unaffected by A being full.
+    activeSessionToken = tokenB;
+    const forB = await actions.addWatchlistItemAction(
+      {},
+      form({ itemType: "THEME", itemRef: "b-is-fine", label: "B is fine" }),
+    );
+    expect(forB.error).toBeUndefined();
+    expect(await prisma.watchlistItem.count({ where: { userId: userBId } })).toBe(1);
   });
 });

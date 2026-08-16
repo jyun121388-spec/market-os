@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db/client";
-import type { WatchlistItemType } from "@/generated/prisma/client";
+import { Prisma, type WatchlistItemType } from "@/generated/prisma/client";
 
 /**
  * Watchlist (docs/PRODUCT_SPEC.md "Watchlist"). Personalization is limited to information
@@ -15,18 +15,55 @@ export interface AddWatchlistItemInput {
   label: string;
 }
 
-/** Idempotent: adding the same (user, itemType, itemRef) twice returns the existing row. */
+/**
+ * Idempotent: adding the same (user, itemType, itemRef) twice returns the existing row.
+ *
+ * The P2002 catch is not defensive padding. `upsert` is only atomic when Prisma can compile it
+ * to a single `INSERT ... ON CONFLICT`; with an empty `update` it may fall back to a
+ * read-then-write, and two concurrent submissions of the same item then race — one inserts, the
+ * other violates `@@unique([userId, itemType, itemRef])` and surfaces a raw P2002 to the user
+ * for what the contract above calls a no-op. This is the same shape of bug as the observation
+ * revision-chain race (docs/DECISIONS.md, 2026-08-17): a read-then-write treated as atomic.
+ * Here the unique constraint already guarantees the invariant, so losing the race IS the
+ * correct outcome — return the row the winner created.
+ */
 export async function addWatchlistItem(input: AddWatchlistItemInput) {
-  return prisma.watchlistItem.upsert({
-    where: {
-      userId_itemType_itemRef: {
-        userId: input.userId,
-        itemType: input.itemType,
-        itemRef: input.itemRef,
-      },
+  const where = {
+    userId_itemType_itemRef: {
+      userId: input.userId,
+      itemType: input.itemType,
+      itemRef: input.itemRef,
     },
-    update: {}, // already present — no-op, does not refresh the label or addedAt
-    create: input,
+  };
+
+  try {
+    return await prisma.watchlistItem.upsert({
+      where,
+      update: {}, // already present — no-op, does not refresh the label or addedAt
+      create: input,
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002" // unique constraint — a concurrent caller inserted the same item
+    ) {
+      return prisma.watchlistItem.findUniqueOrThrow({ where });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Counts a user's tracked items, optionally narrowed to one exact (itemType, itemRef). Scoped
+ * by userId like every other function here — a count that leaked across users would be a slow
+ * enumeration oracle, not just a wrong number.
+ */
+export async function countWatchlistItems(
+  userId: string,
+  narrow?: { itemType: WatchlistItemType; itemRef: string },
+): Promise<number> {
+  return prisma.watchlistItem.count({
+    where: { userId, ...(narrow ?? {}) },
   });
 }
 

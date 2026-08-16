@@ -96,10 +96,36 @@ async function verifySeries(seriesId: string) {
     unexpected.join(", "),
   );
 
-  // Revision/vintage semantics: the adapter ignores realtime_* and stores the default vintage.
-  // Confirm that default really is "latest known", i.e. one row per date, not a vintage history.
-  const openEnded = obs.filter((o) => o.realtime_end === "9999-12-31").length;
-  c.info(`rows with an open-ended realtime_end: ${openEnded}/${obs.length}`);
+  // Revision/vintage semantics, and the reason Observation.releaseDate is still null for every
+  // FRED row (docs/REVIEW_DEBT.md's M08 entry).
+  //
+  // `realtime_start` reads like a release date and is NOT one under default parameters: FRED
+  // answers with the vintage as of today, so every row — including a 1990 observation — comes
+  // back stamped with today's date. Mapping it to `releaseDate` would fill a provenance column
+  // with a confident, checkable, wrong answer, which is worse than leaving it null. Real
+  // publication dates need an explicit realtime range (1776-07-04..9999-12-31), which returns
+  // multiple vintage rows per observation date and is a different ingest shape entirely.
+  //
+  // This reports what the field actually contains so the decision rests on evidence.
+  const distinctStarts = [...new Set(obs.map((o) => o.realtime_start))];
+  const distinctEnds = [...new Set(obs.map((o) => o.realtime_end))];
+  c.info(
+    `distinct realtime_start values: ${distinctStarts.slice(0, 5).join(", ")}` +
+      `${distinctStarts.length > 5 ? ` (+${distinctStarts.length - 5} more)` : ""}`,
+  );
+  c.info(`distinct realtime_end values: ${distinctEnds.slice(0, 5).join(", ")}`);
+  if (distinctStarts.length === 1) {
+    c.note(
+      `every row shares realtime_start=${distinctStarts[0]} — a single "as of today" vintage ` +
+        "stamp, NOT a per-observation publication date. Do not map it to Observation.releaseDate.",
+    );
+  } else {
+    c.note(
+      `realtime_start varies across ${distinctStarts.length} values, so it may carry real ` +
+        "per-observation vintage information. Worth re-examining the M08 releaseDate decision.",
+    );
+  }
+
   c.check(
     "the default response is a single vintage, not a revision history",
     new Set(obs.map((o) => o.date)).size === obs.length,

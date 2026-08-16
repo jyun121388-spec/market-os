@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../httpTimeout";
 import {
   isEcosErrorResponse,
   type EcosSeriesDefinition,
@@ -52,7 +53,7 @@ export async function fetchEcosObservations(
     def.itemCode1,
   ].join("/");
 
-  const response = await fetch(path);
+  const response = await fetchWithTimeout(path);
   if (!response.ok) {
     throw new EcosApiError(
       `ECOS API request failed for ${def.statCode}/${def.itemCode1}: ${response.status} ${response.statusText}`,

@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../httpTimeout";
 import { padCik, type EdgarSubmissionsResponse } from "./types";
 
 export class EdgarUserAgentMissingError extends Error {
@@ -33,7 +34,7 @@ export async function fetchEdgarSubmissions(cik: string): Promise<EdgarSubmissio
   }
 
   const url = `https://data.sec.gov/submissions/CIK${padCik(cik)}.json`;
-  const response = await fetch(url, { headers: { "User-Agent": userAgent } });
+  const response = await fetchWithTimeout(url, { headers: { "User-Agent": userAgent } });
   if (!response.ok) {
     throw new EdgarApiError(
       `SEC EDGAR request failed for CIK ${cik}: ${response.status} ${response.statusText}`,

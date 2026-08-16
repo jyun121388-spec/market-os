@@ -39,4 +39,18 @@ describe("normalizeFredObservations", () => {
     };
     expect(() => normalizeFredObservations(malformed)).toThrow();
   });
+
+  it("P1: throws on an impossible calendar date instead of silently rolling it over", () => {
+    const impossibleDay: FredObservationsResponse = {
+      ...response,
+      observations: [{ date: "2026-02-30", realtime_start: "x", realtime_end: "y", value: "1.23" }],
+    };
+    expect(() => normalizeFredObservations(impossibleDay)).toThrow(/does not exist/);
+
+    const impossibleMonth: FredObservationsResponse = {
+      ...response,
+      observations: [{ date: "2026-13-01", realtime_start: "x", realtime_end: "y", value: "1.23" }],
+    };
+    expect(() => normalizeFredObservations(impossibleMonth)).toThrow(/does not exist/);
+  });
 });

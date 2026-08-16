@@ -137,4 +137,34 @@ describeIfDb("auth (integration)", () => {
     const validated = await validateSession(expired.id);
     expect(validated).toBeNull();
   });
+
+  it("H1: rejects sign-in for a legacy account (no real credentials) without attempting password verification, even with the sentinel value as the 'password'", async () => {
+    const legacyEmail = "legacy+test-h1-legacy-user@market-os.invalid";
+    const existing = await prisma.user.findUnique({ where: { email: legacyEmail } });
+    if (existing) {
+      await prisma.session.deleteMany({ where: { userId: existing.id } });
+      await prisma.user.delete({ where: { id: existing.id } });
+    }
+    const legacyUser = await prisma.user.create({
+      data: {
+        email: legacyEmail,
+        passwordHash: "LEGACY_ACCOUNT_NO_CREDENTIALS",
+        isLegacyAccount: true,
+      },
+    });
+
+    // A real password never validates against the sentinel...
+    await expect(signIn(legacyEmail, "any-password-at-all")).rejects.toThrow(
+      "Invalid email or password",
+    );
+    // ...and critically, passing the sentinel string ITSELF as the "password" must not somehow
+    // be treated as valid — the isLegacyAccount check must short-circuit before verifyPassword
+    // ever runs, since the sentinel is not a parseable scrypt record and must never be evaluated
+    // as a real credential.
+    await expect(signIn(legacyEmail, "LEGACY_ACCOUNT_NO_CREDENTIALS")).rejects.toThrow(
+      "Invalid email or password",
+    );
+
+    await prisma.user.delete({ where: { id: legacyUser.id } });
+  });
 });

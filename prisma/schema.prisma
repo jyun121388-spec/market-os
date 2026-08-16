@@ -84,10 +84,24 @@ model Observation {
 
   conflicts DataConflict[]
 
+  // Revision-chain uniqueness: two distinct revisions of the SAME prior row on the SAME date
+  // (same seriesId/observationDate/revisionOf) are rejected here — revisionOf is non-null for
+  // every real revision, so NULL-not-equal-self semantics don't undermine this one.
   @@unique([seriesId, observationDate, isRevision, revisionOf])
   @@index([seriesId, observationDate])
   @@map("observations")
 }
+
+// NOTE (H3, see docs/DECISIONS.md): a second, PARTIAL unique index —
+// `observations_series_date_original_unique` on (seriesId, observationDate) WHERE
+// isRevision = false — exists at the database level but cannot be expressed in Prisma's schema
+// DSL (no WHERE-clause support for @@unique). It is created by hand-written SQL in
+// prisma/migrations/20260816090000_original_observation_unique/migration.sql, following this
+// project's established workaround for anything `prisma migrate dev` can't express (see
+// docs/DECISIONS.md's earlier "non-interactive migrate" entries). THIS is the constraint that
+// actually guarantees "at most one original observation per series/date" — the @@unique above,
+// while still correct for revision-chain integrity, cannot enforce that on its own because every
+// original row has revisionOf = NULL, and Postgres never considers NULL equal to NULL.
 
 // Recorded when two sources disagree on a value instead of silently picking one.
 // See docs/ARCHITECTURE.md "Data conflict handling".
@@ -268,8 +282,16 @@ model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String // "<N>:<r>:<p>:<saltHex>:<hashHex>" — see src/server/domain/auth.ts
-  plan         Plan     @default(FREE)
-  createdAt    DateTime @default(now())
+  // H1 (see docs/DECISIONS.md): true only for rows that existed BEFORE the auth migration ran
+  // and were backfilled with a synthetic, unguessable email + a passwordHash sentinel that can
+  // never match a real scrypt hash. signIn() rejects these unconditionally — a legacy row is
+  // never treated as having real, usable credentials. New signups always get false (the
+  // default). This lets pre-auth User rows (and anything FK-referencing them, e.g.
+  // WatchlistItem) survive the upgrade with their data intact, without ever pretending a
+  // fabricated credential is a real one.
+  isLegacyAccount Boolean  @default(false)
+  plan            Plan     @default(FREE)
+  createdAt       DateTime @default(now())
 
   watchlistItems WatchlistItem[]
   sessions       Session[]

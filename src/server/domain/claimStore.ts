@@ -33,6 +33,26 @@ export async function createClaim(input: CreateClaimInput) {
   });
 }
 
+interface FactClaimObservation {
+  value: { toString(): string };
+  observationDate: Date;
+  series: { name: string; unit: string };
+  source: { name: string };
+}
+
+/**
+ * Deterministically builds the exact FACT claim text for an observation. Exported so
+ * `claimVerification.ts` can reconstruct the same text from the (re-fetched) evidenced
+ * observation and compare by exact equality — the structural replacement for the old
+ * substring-containment check (see docs/DECISIONS.md's H2 entry). Any drift between this
+ * template and the one actually used at claim-creation time would make every FACT claim
+ * unverifiable, which is exactly the kind of drift a shared function prevents.
+ */
+export function buildFactClaimText(observation: FactClaimObservation): string {
+  const dateStr = observation.observationDate.toISOString().slice(0, 10);
+  return `${observation.series.name} was ${observation.value.toString()} ${observation.series.unit} on ${dateStr} (${observation.source.name})`;
+}
+
 /**
  * Builds and persists a FACT claim directly from a stored Observation, so the Claim Ledger's
  * "every FACT must trace to a stored source" invariant is enforced by construction rather than
@@ -45,8 +65,7 @@ export async function createFactClaimFromObservation(observationId: string) {
     include: { series: true, source: true },
   });
 
-  const dateStr = observation.observationDate.toISOString().slice(0, 10);
-  const claimText = `${observation.series.name} was ${observation.value.toString()} ${observation.series.unit} on ${dateStr} (${observation.source.name})`;
+  const claimText = buildFactClaimText(observation);
 
   return createClaim({
     claimText,

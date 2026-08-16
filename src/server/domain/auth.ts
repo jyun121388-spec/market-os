@@ -121,6 +121,15 @@ export async function signIn(email: string, password: string) {
     recordFailedLogin(normalized);
     throw new AuthError("Invalid email or password");
   }
+  // H1 (docs/DECISIONS.md): legacy accounts (pre-auth rows preserved by the staged auth
+  // migration) carry a sentinel passwordHash ("LEGACY_ACCOUNT_NO_CREDENTIALS") that is not a
+  // real "<N>:<r>:<p>:<saltHex>:<hashHex>" scrypt record. It must never be passed to
+  // verifyPassword — that would either throw on the malformed format or, worse, risk being
+  // treated as a checkable credential. Reject immediately, before any password verification.
+  if (user.isLegacyAccount) {
+    recordFailedLogin(normalized);
+    throw new AuthError("Invalid email or password");
+  }
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
     recordFailedLogin(normalized);

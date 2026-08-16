@@ -1,3 +1,4 @@
+import { assertValidCalendarDate } from "../dateValidation";
 import type { EcosCycle, EcosStatisticSearchRow, EcosStatisticSearchSuccess } from "./types";
 
 export interface NormalizedEcosObservation {
@@ -50,23 +51,34 @@ export function parseEcosTimeAsUtc(time: string, cycle: EcosCycle): Date {
   switch (cycle) {
     case "A": {
       const year = Number(time);
+      assertValidCalendarDate(year, 1, 1, time);
       return new Date(Date.UTC(year, 0, 1));
     }
     case "Q": {
       const [yearPart, quarterPart] = time.split("Q");
       const year = Number(yearPart);
       const quarter = Number(quarterPart);
-      return new Date(Date.UTC(year, (quarter - 1) * 3, 1));
+      // A quarter outside 1-4 wouldn't roll over via Date.UTC the way month/day do (quarter is
+      // converted to a month first), so it's checked explicitly rather than relying on
+      // assertValidCalendarDate to catch it downstream.
+      if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4) {
+        throw new Error(`Invalid ECOS quarter in TIME "${time}": quarter must be 1-4`);
+      }
+      const month = (quarter - 1) * 3 + 1;
+      assertValidCalendarDate(year, month, 1, time);
+      return new Date(Date.UTC(year, month - 1, 1));
     }
     case "M": {
       const year = Number(time.slice(0, 4));
       const month = Number(time.slice(4, 6));
+      assertValidCalendarDate(year, month, 1, time);
       return new Date(Date.UTC(year, month - 1, 1));
     }
     case "D": {
       const year = Number(time.slice(0, 4));
       const month = Number(time.slice(4, 6));
       const day = Number(time.slice(6, 8));
+      assertValidCalendarDate(year, month, day, time);
       return new Date(Date.UTC(year, month - 1, day));
     }
   }

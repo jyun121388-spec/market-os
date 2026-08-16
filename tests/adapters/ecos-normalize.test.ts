@@ -56,5 +56,20 @@ describe("normalizeEcosObservations", () => {
         expect(parseEcosTimeAsUtc("2025Q4", "Q").toISOString()).toBe("2025-10-01T00:00:00.000Z");
       });
     });
+
+    describe("P1: rejects impossible calendar dates instead of silently rolling them over", () => {
+      it("a non-leap-year Feb 29 (day cycle)", () => {
+        expect(() => parseEcosTimeAsUtc("20270229", "D")).toThrow(/does not exist/);
+      });
+      it("a Feb 30 (day cycle)", () => {
+        expect(() => parseEcosTimeAsUtc("20260230", "D")).toThrow(/does not exist/);
+      });
+      it("month 13 (month cycle)", () => {
+        expect(() => parseEcosTimeAsUtc("202613", "M")).toThrow(/does not exist/);
+      });
+      it("quarter 5 (quarter cycle)", () => {
+        expect(() => parseEcosTimeAsUtc("2026Q5", "Q")).toThrow(/quarter must be 1-4/);
+      });
+    });
   });
 });

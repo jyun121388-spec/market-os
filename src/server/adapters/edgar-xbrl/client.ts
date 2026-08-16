@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../httpTimeout";
 import { padCik } from "../edgar/types";
 import type { XbrlCompanyFacts } from "./types";
 
@@ -33,7 +34,7 @@ export async function fetchCompanyFacts(cik: string): Promise<XbrlCompanyFacts> 
   }
 
   const url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${padCik(cik)}.json`;
-  const response = await fetch(url, { headers: { "User-Agent": userAgent } });
+  const response = await fetchWithTimeout(url, { headers: { "User-Agent": userAgent } });
   if (!response.ok) {
     throw new XbrlApiError(
       `SEC EDGAR XBRL request failed for CIK ${cik}: ${response.status} ${response.statusText}`,

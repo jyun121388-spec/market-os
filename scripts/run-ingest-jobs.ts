@@ -14,20 +14,36 @@ import { spawnSync } from "node:child_process";
 
 const JOBS = ["ingest:fred", "ingest:ecos", "ingest:dart", "ingest:edgar", "ingest:edgar-xbrl"];
 
+// P1 hardening (docs/DECISIONS.md): each job is its own subprocess specifically so one job
+// hanging can't take the others down with it — but spawnSync with no timeout defeats that: a
+// stuck subprocess (network stall, a hung child process, etc.) would block this runner, and
+// everything after it, forever. SIGTERM first for a clean shutdown; spawnSync's own
+// `killSignal` fallback to SIGKILL only kicks in if the child ignores that.
+const JOB_TIMEOUT_MS = 10 * 60 * 1000;
+
 interface JobResult {
   job: string;
   ok: boolean;
   durationMs: number;
+  timedOut: boolean;
 }
 
 function runJob(job: string): JobResult {
   const startedAt = Date.now();
   console.log(`[jobs] starting ${job}`);
-  const result = spawnSync("npm", ["run", job], { stdio: "inherit" });
+  const result = spawnSync("npm", ["run", job], {
+    stdio: "inherit",
+    timeout: JOB_TIMEOUT_MS,
+    killSignal: "SIGTERM",
+  });
   const durationMs = Date.now() - startedAt;
-  const ok = result.status === 0;
+  const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+  const ok = result.status === 0 && !timedOut;
+  if (timedOut) {
+    console.log(`[jobs] TIMED OUT ${job} after ${JOB_TIMEOUT_MS}ms — killed`);
+  }
   console.log(`[jobs] ${ok ? "OK" : "FAILED"} ${job} (${durationMs}ms)`);
-  return { job, ok, durationMs };
+  return { job, ok, durationMs, timedOut };
 }
 
 function main() {

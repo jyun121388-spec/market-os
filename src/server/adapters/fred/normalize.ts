@@ -1,3 +1,4 @@
+import { assertValidCalendarDate } from "../dateValidation";
 import type { FredObservationRaw, FredObservationsResponse } from "./types";
 
 export interface NormalizedFredObservation {
@@ -45,5 +46,6 @@ export function normalizeFredObservations(response: FredObservationsResponse): N
 
 function parseFredDateAsUtc(date: string): Date {
   const [year, month, day] = date.split("-").map(Number);
+  assertValidCalendarDate(year, month, day, date);
   return new Date(Date.UTC(year, month - 1, day));
 }

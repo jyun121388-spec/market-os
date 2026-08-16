@@ -73,16 +73,28 @@ export interface AskMarketResult {
  * hard-prohibitions list.
  */
 const ADVICE_REQUEST_PATTERNS: RegExp[] = [
-  /\bshould i (buy|sell)\b/i,
-  /\b(buy|sell) (it|this|that|now|today)\b/i,
-  /\bis (it|this|that) a good (buy|time to buy|time to sell)\b/i,
-  /\bwhat should i (buy|sell|invest in|allocate)\b/i,
+  /\bshould i (buy|sell|purchase|invest in|allocate to)\b/i,
+  /\b(buy|sell|purchase) (it|this|that|now|today)\b/i,
+  // Same intent as the pattern above, but tolerating words between the verb and the timing word
+  // ("Buy Tesla now" / "Sell my ETF right now") — a bypass the strict-adjacency version above
+  // misses. Bounded lookahead (20 chars) keeps this from matching across unrelated sentences.
+  /\b(buy|sell|purchase)\b[\s\S]{0,40}\b(now|today|right now|immediately|asap)\b/i,
+  /\bbuy or sell\b/i,
+  /\bis (it|this|that) a good (buy|time to buy|time to sell|sell)\b/i,
+  /\bworth (buying|selling)\b/i,
+  /\bwhat should i (buy|sell|invest in|allocate|purchase)\b/i,
   /\bhow much should i (invest|allocate|put)\b/i,
   /\b(guaranteed|guarantee) (return|profit|gain)s?\b/i,
   /\btarget (price|return)\b/i,
   /\bwill .* (hit|reach|go to) [\d,.]+\b/i,
+  /\b(recommend|suggest|pick) (a stock|an etf|which stock|me a stock|me a pick)\b/i,
   /지금\s*(살까|사야|팔까|팔아야)/, // "buy/sell now?" — the LEGAL_GUARDRAILS.md example
-  /(매수|매도)\s*(할까|해야|타이밍)/,
+  // Same "buy/sell now?" intent without requiring "지금" immediately before it (e.g. "삼성전자
+  // 살까요?" with the timing implied rather than stated).
+  /(살까요?|사야\s*(할까요|하나요|하나)|팔까요?|팔아야\s*(할까요|하나요|하나))/,
+  /(사도|팔아도)\s*(될까요|되나요|되나|될까)/,
+  /(매수|매도)\s*(할까|해야|타이밍|추천)/,
+  /추천\s*(종목|주식)/, // "recommend a stock/ticker"
   /얼마.*투자/, // "how much should I invest"
   /수익\s*(보장|확정)/, // guaranteed returns
 ];

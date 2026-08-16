@@ -1,6 +1,11 @@
 import { prisma } from "@/server/db/client";
 import { createClaim } from "./claimStore";
-import { computeChange, getRecentObservationPair } from "./seriesReadings";
+import {
+  computeChange,
+  getRecentObservationPair,
+  type DeterministicChange,
+  type ObservationPair,
+} from "./seriesReadings";
 
 export type ChangeStatus = "COMPUTED" | "INSUFFICIENT_DATA";
 
@@ -10,6 +15,33 @@ export interface ChangeResult {
   absoluteChange?: number;
   percentChange?: number | null; // null when previous value is 0 (percent change undefined)
   bpsChange?: number | null; // only set when the series unit is "percent"
+}
+
+/**
+ * Deterministically builds the exact CALCULATION claim text for a series/unit + observation
+ * pair + recomputed change. Exported so `claimVerification.ts` can reconstruct the same text
+ * from independently re-fetched observations and an independently recomputed change, then
+ * compare by exact equality — see docs/DECISIONS.md's H2 entry. Any drift between this template
+ * and the one used at claim-creation time would make every CALCULATION claim unverifiable.
+ */
+export function buildChangeClaimText(
+  seriesName: string,
+  unit: string,
+  pair: ObservationPair,
+  change: DeterministicChange,
+): string {
+  const currentValue = Number(pair.current.value.toString());
+  const previousValue = Number(pair.previous.value.toString());
+  const currentDateStr = pair.current.observationDate.toISOString().slice(0, 10);
+  const previousDateStr = pair.previous.observationDate.toISOString().slice(0, 10);
+  const sign = change.absoluteChange >= 0 ? "+" : "";
+
+  return (
+    `${seriesName} changed ${sign}${change.absoluteChange} ${unit} from ${previousDateStr} ` +
+    `(${previousValue}) to ${currentDateStr} (${currentValue})` +
+    (change.percentChange !== null ? ` — ${sign}${change.percentChange}%` : "") +
+    (change.bpsChange !== null ? ` (${sign}${change.bpsChange} bps)` : "")
+  );
 }
 
 /**
@@ -26,21 +58,9 @@ export async function computeSeriesChange(seriesId: string): Promise<ChangeResul
   if (!pair) {
     return { status: "INSUFFICIENT_DATA" };
   }
-  const { current, previous } = pair;
 
-  const { absoluteChange, percentChange, bpsChange } = computeChange(pair, series.unit);
-
-  const currentValue = Number(current.value.toString());
-  const previousValue = Number(previous.value.toString());
-  const currentDateStr = current.observationDate.toISOString().slice(0, 10);
-  const previousDateStr = previous.observationDate.toISOString().slice(0, 10);
-  const sign = absoluteChange >= 0 ? "+" : "";
-
-  const claimText =
-    `${series.name} changed ${sign}${absoluteChange} ${series.unit} from ${previousDateStr} ` +
-    `(${previousValue}) to ${currentDateStr} (${currentValue})` +
-    (percentChange !== null ? ` — ${sign}${percentChange}%` : "") +
-    (bpsChange !== null ? ` (${sign}${bpsChange} bps)` : "");
+  const change = computeChange(pair, series.unit);
+  const claimText = buildChangeClaimText(series.name, series.unit, pair, change);
 
   const claim = await createClaim({
     claimText,
@@ -48,13 +68,19 @@ export async function computeSeriesChange(seriesId: string): Promise<ChangeResul
     sourceId: series.sourceId,
     evidence: {
       seriesId: series.id,
-      currentObservationId: current.id,
-      previousObservationId: previous.id,
-      absoluteChange,
-      percentChange,
-      bpsChange,
+      currentObservationId: pair.current.id,
+      previousObservationId: pair.previous.id,
+      absoluteChange: change.absoluteChange,
+      percentChange: change.percentChange,
+      bpsChange: change.bpsChange,
     },
   });
 
-  return { status: "COMPUTED", claimId: claim.id, absoluteChange, percentChange, bpsChange };
+  return {
+    status: "COMPUTED",
+    claimId: claim.id,
+    absoluteChange: change.absoluteChange,
+    percentChange: change.percentChange,
+    bpsChange: change.bpsChange,
+  };
 }

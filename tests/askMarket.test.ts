@@ -36,4 +36,24 @@ describe("detectPersonalizedAdviceRequest", () => {
       detectPersonalizedAdviceRequest("How does the Fed's bond buying program affect yields?"),
     ).toBe(false);
   });
+
+  it("P1: catches bypass phrasings not adjacent to the verb", () => {
+    expect(detectPersonalizedAdviceRequest("Buy Tesla now, seriously")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Sell my whole ETF position right now")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should I purchase more Nvidia?")).toBe(true);
+  });
+
+  it("P1: catches buy-or-sell / worth-buying / recommendation phrasings", () => {
+    expect(detectPersonalizedAdviceRequest("Samsung Electronics — buy or sell?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Is this ETF worth buying?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Can you recommend a stock to buy this week?")).toBe(
+      true,
+    );
+  });
+
+  it("P1: catches Korean bypass phrasings without an explicit '지금'", () => {
+    expect(detectPersonalizedAdviceRequest("삼성전자 살까요?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("이 ETF 사도 될까요?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("추천 종목 하나만 알려주세요")).toBe(true);
+  });
 });

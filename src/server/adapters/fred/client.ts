@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../httpTimeout";
 import type { FredObservationsResponse } from "./types";
 
 export class FredApiKeyMissingError extends Error {
@@ -45,7 +46,7 @@ export async function fetchFredObservations(
     url.searchParams.set("observation_end", options.observationEnd);
   }
 
-  const response = await fetch(url.toString());
+  const response = await fetchWithTimeout(url.toString());
   if (!response.ok) {
     throw new FredApiError(
       `FRED API request failed for series ${seriesId}: ${response.status} ${response.statusText}`,

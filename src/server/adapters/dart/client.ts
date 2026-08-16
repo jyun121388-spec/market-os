@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../httpTimeout";
 import { isDartError, type DartListResponse } from "./types";
 
 export class DartApiKeyMissingError extends Error {
@@ -43,7 +44,7 @@ export async function fetchDartDisclosures(
   url.searchParams.set("page_no", String(options.pageNo ?? 1));
   url.searchParams.set("page_count", String(options.pageCount ?? 100));
 
-  const response = await fetch(url.toString());
+  const response = await fetchWithTimeout(url.toString());
   if (!response.ok) {
     throw new DartApiError(
       `OpenDART API request failed for ${corpCode}: ${response.status} ${response.statusText}`,

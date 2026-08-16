@@ -38,3 +38,24 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+
+      # The e2e walkthrough is the only check that exercises the legal guardrail through a real
+      # rendered page rather than through a domain function, and it is the product's highest-risk
+      # surface. Everything above can pass while the guardrail is not actually wired to /ask.
+      - run: npx playwright install --with-deps chromium
+      - name: Start the app and run the end-to-end walkthrough
+        run: |
+          npm run start &
+          # Plain poll rather than a wait-for-port package — one less dependency for one loop.
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:3000/login && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://localhost:3000/login || {
+            echo "app did not become ready within 60s"; exit 1;
+          }
+          npm run e2e
+        env:
+          # `npm run start` serves the production build produced above, so this exercises the
+          # same output that would be deployed rather than a dev-mode render.
+          NODE_ENV: production

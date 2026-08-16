@@ -1148,3 +1148,117 @@ real browser, `npm run verify:live:edgar` 59/59 against real data.sec.gov, all 1
 applied cleanly to a genuinely fresh database, lint/typecheck/format/production build clean.
 Nothing here is self-declared APPROVE, and no provider other than SEC EDGAR is claimed
 live-verified.
+
+---
+
+## 2026-08-17 (late night) — What real data revealed
+
+The hardening round above was found by reading code and running the suite on real infrastructure.
+This round was found a different way, and the method is the most transferable thing in this file:
+**look at the real numbers and ask whether they are plausible.**
+
+Each of these was a number sitting in a passing system:
+
+| The number                                   | Why it was implausible                    |
+| -------------------------------------------- | ----------------------------------------- |
+| 1000 filings for Apple                       | Too round. It was SEC's cap, not a count. |
+| "933 inserted, 168 unchanged" on an empty DB | Nothing can be unchanged against nothing. |
+| 2240 filings, 933 facts, 0 joinable rows     | Not a coincidence.                        |
+| 244 rows of net income, 13 of revenue        | Not how a company reports.                |
+| Revenue +232.9985% quarter over quarter      | Not what Apple did.                       |
+
+None had a failing test. Several had passing ones. No amount of additional fixture-based testing
+would have surfaced any of them, because every fixture was written by someone who did not know
+the shape that breaks the code.
+
+### Filing Diff reported a fabricated +233% revenue increase
+
+The most serious defect found. It took "the two most recent rows ordered by periodEnd, then
+filedDate", which against real SEC data selects two figures from the SAME filing: one Apple 10-Q
+reports revenue for the nine months ending 2026-06-27 ($364.357B) and for the three months ending
+on the same date ($109.417B), same accession number. Subtracting them gave +232.9985% for revenue
+and +242.9948% for operating income — confident, plausible, entirely invented, and displayed as a
+computed financial change. Precisely what `docs/DATA_POLICY.md` exists to prevent. Post-fix those
+concepts read -1.5893% and -0.5295%.
+
+A period-over-period comparison requires the same period LENGTH and a different period. Both are
+enforced now, and a concept with no comparable pair reports INSUFFICIENT_DATA rather than
+inventing one — saying "not enough data" is the feature. Length is bucketed to whole months
+because fiscal quarters are not a fixed number of days (Apple's run 89-98); exact matching would
+refuse to compare two genuine quarters. Which figure is "current" is decided by an explicit
+tie-break on the shortest period, since several lengths share both a period end and a filed date.
+
+### A financial fact's identity includes the period start
+
+The unique key omitted `periodStart`, so the year-to-date and quarterly figures above were treated
+as one row and one was dropped — 168 per ingest, chosen by array order. Enforced as two partial
+unique indexes rather than by adding the column to the key: `periodStart` is NULL for instant
+concepts, and Postgres treats NULL as distinct from NULL in a unique index, so the naive fix would
+have silently stopped enforcing uniqueness for exactly those rows. Same trap as H3.
+
+The migration's first version dropped the old index by guessed name and silently no-opped, because
+Prisma truncates generated names to 63 characters. It drops by shape now. `DROP INDEX IF EXISTS`
+against a misspelled name reports success.
+
+### The two EDGAR adapters identified companies differently
+
+Filings stored SEC's padded `cik`, XBRL stored the unpadded tracked constant. Zero joinable rows,
+and Ask Market's "Company facts" section silently empty for every EDGAR company. Neither adapter
+was canonicalising; they simply differed, and a unit test on either alone would have passed. Both
+pad explicitly now, and the regression test ingests through both and joins the results.
+
+### Revenue was missing for eight years
+
+US GAAP's ASC 606 transition moved revenue to a new tag. Tracking only `Revenues` gave 11 rows
+ending 2018. Added the pre- and post-transition tags; coverage now runs 2007 to 2026.
+
+Each tag is stored verbatim rather than merged into a canonical "Revenues". Renaming one tag's
+values under another's would be an interpretation, and the ASC 606 boundary is exactly where a
+reader would want to know which tag a number came from. Unification belongs at presentation.
+
+### CALCULATION claims never verified their own source
+
+`verifyFactClaim` always compared `claim.sourceId` against its evidence; `verifyCalculationClaim`
+did not, and `buildChangeClaimText` does not mention the source — so a change attributed to the
+wrong provider reconstructed to byte-identical text and verified as VERIFIED. Found by looking at
+the neighbours of the Codex-reported H2 rather than at H2 alone, which generalises: a reported
+finding is often one instance of a local habit.
+
+### Secrets, and a small SSRF surface
+
+`HttpTimeoutError` embeds the request URL and providers put credentials in those URLs — ECOS in a
+path segment. Persisting ingest-run errors would have written a live key into `ingest_runs.error`
+and rendered it on /admin. `redactSecrets` redacts the actual configured values wherever they
+appear, which covers path segments and any provider added later that nobody wrote a pattern for.
+Separately, `filings.files[].name` came from SEC's response and was interpolated into a request
+URL; it is now constrained to the documented filename shape.
+
+### Company X-Ray finally has a view
+
+M15 built the adapter and store, M16 the diff, and nothing assembled them — the same
+built-but-unreachable gap the Watchlist had. `/company` and `/company/[corpCode]` show reported
+figures, the change against the previous comparable period, and recent filings. No type in the
+read model can carry a score, rating, valuation or target, asserted by serialising the whole
+result in a test. Watchlist entries link through, but only where the reference resolves to a
+company with stored filings — a dead link implies coverage that does not exist.
+
+### Two things deliberately measured and left alone
+
+Re-ingesting 2240 filings takes 2.7s despite a per-row `findUnique`, and the Observation-based
+computations run in ~100ms over 16,000 synthetic observations. Both are real N+1-ish shapes and
+neither is a real workload, so neither was optimised.
+
+### Test-suite honesty
+
+`DATABASE_URL` unset silently skipped all 25 integration files while reporting green; a guard now
+fails loudly in CI. The e2e walkthrough runs in CI against the production build, because
+everything else in the gate can pass while the legal guardrail is not wired to `/ask`. Tests
+redirect to `TEST_DATABASE_URL` when set, so a run stops erasing ingested data — that bit three
+times in one session. And an encoding guard catches the PowerShell ANSI round-trip that twice
+corrupted Korean fixtures and em dashes, once silently.
+
+**Verification**: 281/281 tests against real local PostgreSQL 16.10, `npm run e2e` 30/30 in a real
+browser against the production build, 67/67 live EDGAR contract checks, all 15 migrations applied
+to both a fresh and a populated database, real ingest of 2240 filings and 1428 facts with an
+idempotent re-ingest, lint/typecheck/format/build clean. Nothing here is self-declared APPROVE,
+and no provider other than SEC EDGAR is claimed live-verified.

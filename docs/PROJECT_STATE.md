@@ -152,6 +152,17 @@ SECOND ROUND (night autonomous run, 2026-08-17) — further defects found, all f
     facts under `320193`. 2240 filings, 933 facts, zero joinable rows, and Ask Market's "Company
     facts" section silently empty for every EDGAR company.
 
+19. **Filing Diff reported a fabricated +233% revenue increase** — the most serious defect found,
+    and invisible until real financial data existed. It compared the nine-month and three-month
+    figures from the SAME filing (same period end, same accession) and called the difference
+    growth. A period-over-period comparison now requires the same period length and a different
+    period, or reports INSUFFICIENT_DATA. Post-fix the same concepts read −1.59% and −0.53%
+    quarter-over-quarter, which is what Apple actually did.
+20. **Company X-Ray had no revenue after 2018** — US GAAP's ASC 606 transition moved revenue to
+    a different tag and the adapter tracked only the legacy one. Coverage now runs 2007→2026.
+21. **Two figures sharing a fiscal label were indistinguishable on screen** — `/ask` showed
+    $122.4B and $35.7B both as "Q3 2026". The page now renders the period covered.
+
 Two patterns account for most of what was found, and both are worth carrying forward.
 
 _Identity and ordering keys that cannot bear the weight put on them_ — H3, the watchlist upsert,
@@ -164,8 +175,12 @@ they were plausible: 1000 filings is a suspiciously round total; 168 rows "uncha
 empty table is impossible; 2240 filings and 933 facts with zero joinable rows is not a
 coincidence. None had a failing test, and several had passing ones.
 
+The sharpest lesson of the night is #19: every fixture had one figure per period, so every test
+passed, and the defect was invisible until a real provider response was in the database. Fixture
+coverage says nothing about shapes the fixture author did not know existed.
+
 TESTS
-272 / 272 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+276 / 276 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 24/24 checks in a real browser (up from 12) — the walkthrough now drives the Ask
 Market guardrail through the real page, not just the domain function. `npm run verify:live:edgar`
 59/59 against real data.sec.gov. All 13 migrations apply cleanly to a genuinely fresh database.

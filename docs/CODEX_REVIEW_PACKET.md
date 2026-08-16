@@ -270,9 +270,61 @@ either adapter alone would have passed, which is why the new test
   that scoping correct? Are there other cross-adapter identifiers that could diverge the same
   way (`Series.externalId`, for instance)?
 
+### R14 — Filing Diff reported a fabricated +233% revenue increase (highest-severity finding)
+
+Only visible once real financial data was in the database. Filing Diff took "the two most recent
+rows ordered by periodEnd, then filedDate". Against real SEC data that picks two figures from
+the SAME filing: one Apple 10-Q reports revenue for the nine months ending 2026-06-27
+($364.357B) and for the three months ending on the same date ($109.417B), under the same
+accession number.
+
+    RevenueFromContractWithCustomerExcludingAssessedTax   +232.9985%
+    OperatingIncomeLoss                                   +242.9948%
+
+Both pure artefacts of comparing a nine-month figure against a quarterly one. No error, no
+missing data, no warning — a confident, plausible, entirely fabricated financial change, which
+is precisely the outcome `docs/DATA_POLICY.md` exists to prevent. After the fix the same
+concepts report -1.5893% and -0.5295% quarter-over-quarter, which is what Apple actually did.
+
+A period-over-period comparison now requires the same period LENGTH and a different period, with
+INSUFFICIENT_DATA when no comparable pair exists. Length is bucketed to whole months rather than
+matched on exact days, because fiscal quarters are not a fixed length (Apple's run 89-98 days).
+"Current" is chosen by an explicit tie-break on the shortest period, since several lengths share
+both a period end and a filed date — the same ambiguous-ordering trap as R1/R7.
+
+- **Where**: `src/server/domain/filingDiff.ts`,
+  `tests/integration/filing-diff.test.ts`.
+- **Try to break it**: is month-bucketing right, or should a 52/53-week fiscal year ever compare
+  against a 12-month one? Should a restatement of the SAME period (same length, same end,
+  different accession) be comparable — it currently is not, since the ends must differ. Is that
+  the right call, or is restatement-vs-original a diff a user would want?
+
+### R15 — Company X-Ray had no revenue data after 2018
+
+Apple's stored facts showed 244 rows of NetIncomeLoss and 13 of Revenues, which is not plausible
+for a company reporting both every quarter. US GAAP moved revenue reporting to ASC 606, so a
+filer's history spans several tags with no overlap: `SalesRevenueNet` (210 rows, through 2018),
+`Revenues` (11, sparse legacy), `RevenueFromContractWithCustomerExcludingAssessedTax` (117, 2017
+onward). The adapter tracked only `Revenues`.
+
+Each tag is stored verbatim rather than merged into a canonical "Revenues" — renaming one tag's
+values under another's would be an interpretation, and the ASC 606 boundary is exactly where a
+reader would want to know which tag a number came from. Unification belongs at presentation.
+
+- **Try to break it**: are the analogous tag transitions covered for the other five concepts?
+  `OperatingIncomeLoss` and `Liabilities` may have their own pre/post-standard variants.
+
+### R16 — two figures sharing a fiscal label were indistinguishable on screen
+
+A direct consequence of correctly storing both. `/ask` rendered
+"OperatingIncomeLoss 122,432,000,000 (Q3 2026)" directly above
+"OperatingIncomeLoss 35,695,000,000 (Q3 2026)". Both correct; the fiscal label cannot separate
+nine months from three. `CompanyFactFactor` now carries `periodStart`/`periodEnd` and the page
+renders the span. Storing the truth was necessary but not sufficient.
+
 ### Current verification state (2026-08-17)
 
-272/272 tests against a real local PostgreSQL 16.10, `npm run e2e` 24/24 in a real browser,
+276/276 tests against a real local PostgreSQL 16.10, `npm run e2e` 24/24 in a real browser,
 59/59 live EDGAR contract checks, all 15 migrations applied cleanly to a genuinely fresh
 database, lint/typecheck/format/production build clean. Nothing in this packet is self-declared
 APPROVE, and no provider other than SEC EDGAR is claimed live-verified.
@@ -291,8 +343,13 @@ is a suspiciously round total; 168 rows "unchanged" against an empty table is im
 filings and 933 facts with zero joinable rows is not a coincidence. None of these had a failing
 test, and several had passing ones.
 
-If a further instance of either pattern exists, it is most likely somewhere none of R1-R13
-touched.
+R14 is the sharpest example of both patterns at once, and the most important single finding in
+this packet: an ordering key that could not distinguish a nine-month figure from a quarterly one,
+producing a fabricated +233% financial change that nothing flagged. It was invisible until real
+data existed — every fixture had one figure per period, so every test passed.
+
+If a further instance of either pattern exists, it is most likely somewhere none of R1-R16
+touched, and most likely in code that has never met a real provider response.
 
 ### B1 (was P0/HIGH) — Auth migration upgrade safety
 

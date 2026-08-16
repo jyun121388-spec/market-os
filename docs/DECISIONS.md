@@ -434,6 +434,56 @@ in the same milestone, and dedicated legal-guardrail tests (the "삼성전자 �
 requirement) must ship with the first real Ask Market implementation, not after it.
 **Meanwhile**: Continuing to M22 (Auth / User System), which has no LLM dependency.
 
+## 2026-08-16 — M21 partially unblocked: a deterministic, zero-LLM-cost "Ask Market" safe mode ships; free-text conversational Ask Market stays BLOCKED_HUMAN_GATE
+
+**Decision**: Shipped `src/server/domain/askMarket.ts` and `/ask` (auth-gated, like `/today` and
+`/admin`). It is a topic search, not natural-language Q&A: given a query string, it (1)
+deterministically detects personalized buy/sell/allocation/guaranteed-return/price-target
+phrasing (English + Korean, patterns taken directly from `docs/LEGAL_GUARDRAILS.md`'s hard-
+prohibitions list) and shows a fixed redirect message when detected, and (2) looks up and
+renders already-verified FACT/CALCULATION data (matching `Series`, `CausalEdge`, and
+`FinancialFact`/`Filing` rows) as structured "factors" — no prose is synthesized, nothing is an
+INFERENCE claim. The redirect and the factors are not mutually exclusive: a detected advice
+request still shows whatever factors matched, exactly matching `LEGAL_GUARDRAILS.md`'s "Required
+behavior" section ("must be answered by redirecting to analysis... never a direct buy/sell
+answer").
+**Reason this is safe to ship without further human input**: `docs/PRODUCT_SPEC.md`'s full Ask
+Market vision ("natural-language Q&A... segmented into FACT/CALCULATION/INFERENCE") requires a
+live LLM call per user question at product runtime — a real per-token cost against whatever
+provider serves it, which is exactly the Human Gate the original M21 entry (above) identifies and
+which still has no human decision on provider/funding/credentials. This safe-mode MVP makes zero
+LLM/paid-API calls of any kind, at build time or runtime — it is pure deterministic pattern
+matching and direct reads of the Claim Ledger / FinancialFact / CausalEdge tables, the same
+architecture pattern used by `morningBrief.ts` (M20) and `staleness.ts` (M28 follow-up). It does
+not "route around" the Human Gate; it is simply outside its scope, because it never needs an LLM.
+**What remains genuinely blocked**: Free-text natural-language questions ("what's going to happen
+to tech stocks this year", "explain this filing in plain English") cannot be answered without an
+LLM interpreting arbitrary text — no deterministic pattern set can do that. `docs/REVIEW_DEBT.md`
+keeps M21 listed as `BLOCKED_HUMAN_GATE` for that reason, now scoped precisely: the safe-mode
+topic-search MVP is DONE; free-text conversational Q&A is what's still pending a provider/
+funding/credential decision.
+**Topic matching**: `mentionsEachOther()` reuses `eventClustering.ts`'s `extractKeywords`
+tokenizer (same stopword/Unicode handling, avoiding a second implementation) with a containment-
+ratio match (overlap ÷ smaller-token-set-size ≥ 0.6) layered on top of a plain substring check —
+handles a query embedded in a sentence ("Should I buy Demo Semiconductor now?") matching a
+shorter or differently-suffixed stored name ("Demo Semiconductor Inc") in either direction. A
+symmetric Jaccard similarity (as used for event clustering) was deliberately NOT reused here: the
+two strings being compared are usually very different lengths (a short entity name vs. a full
+sentence), and a symmetric measure would unfairly penalize that difference — a containment ratio
+is the right shape for this specific asymmetry.
+**Verification**: `tests/askMarket.test.ts` (11 pattern-detection cases, including the exact
+LEGAL_GUARDRAILS.md example and known false-positive traps like "bond buying program"),
+`tests/integration/ask-market.test.ts` (factor lookup, redirect-with-factors, NOT_FOUND-never-
+fabricates), and a live Playwright check against `npm run dev`: unauthenticated `/ask` redirects
+to `/login`; a factual query shows company facts with no redirect banner; a buy-request query
+shows the redirect banner AND the same factors; an unmatched query shows an explicit "no data"
+message rather than fabricating anything. 184/184 tests pass, full verify chain green.
+**Alternatives considered**: A rules-engine "template response generator" that composes short
+sentences from the factor data (closer to feeling like an answer) — rejected as scope creep for
+this pass; the current structured-list rendering is honest about being data, not a written
+answer, and adding sentence templates doesn't change the underlying LLM-free architecture, so it
+can be added later without revisiting this decision.
+
 ## 2026-08-16 — M22 Auth: from-scratch email+password, opaque server-side sessions
 
 **Decision**: Built `src/server/domain/auth.ts` from scratch (Node's built-in `crypto.scryptSync`

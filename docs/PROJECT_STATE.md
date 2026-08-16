@@ -36,14 +36,14 @@ CODEX_REVIEW_PENDING / HUMAN_GATE / BLOCKED) — read it before assuming anythin
 NEXT
 Nothing further is available to build autonomously without one of:
 (a) A Codex session becoming available — docs/CODEX_REVIEW_PACKET.md is ready to hand off
-    immediately, no re-derivation needed.
+immediately, no re-derivation needed.
 (b) A human decision on M21's full free-text Ask Market (LLM provider/funding/credentials) — see
-    docs/DECISIONS.md's two M21 entries for the precise boundary between what's done (topic
-    search + guardrail) and what's blocked (arbitrary natural language).
+docs/DECISIONS.md's two M21 entries for the precise boundary between what's done (topic
+search + guardrail) and what's blocked (arbitrary natural language).
 (c) Real API keys/reachable network for any `LIVE_VERIFICATION_REQUIRED` row in
-    docs/RELEASE_READINESS.md.
+docs/RELEASE_READINESS.md.
 (d) Production-deployment approval (unblocks the real job scheduler and live E2E against a
-    deployed environment).
+deployed environment).
 Do not force a "complete" status in the absence of these — see docs/RELEASE_READINESS.md's
 verdict section for why `RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES` is the accurate terminal
 state, not a failure to reach `RELEASE_CANDIDATE_READY`.

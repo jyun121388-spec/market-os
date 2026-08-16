@@ -99,6 +99,13 @@ async function main() {
     check("added item shows its type and ref", (body ?? "").includes("INDICATOR · DGS10"));
     check("tracked count reflects the new item", (body ?? "").includes("Tracked items (1)"));
 
+    // An INDICATOR ref is not a company, so it must NOT be rendered as a company link — a dead
+    // link would imply coverage the system does not have.
+    check(
+      "a non-company watchlist entry is not linked to a company page",
+      (await page.locator('a[href^="/company/"]').count()) === 0,
+    );
+
     await page.getByRole("button", { name: "Remove" }).click();
     await page.waitForSelector("text=Nothing tracked yet", { timeout: 10000 });
     body = await page.textContent("body");

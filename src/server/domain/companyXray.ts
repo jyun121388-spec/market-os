@@ -101,6 +101,24 @@ export async function listCompanies(): Promise<CompanySummary[]> {
 }
 
 /**
+ * Of the given references, the ones that identify a company with stored filings.
+ *
+ * Used by the watchlist to link only the entries that actually resolve. A watchlist `itemRef` is
+ * free text — a user may type "AAPL", a padded CIK, or something that matches nothing — so
+ * linking every entry unconditionally would produce dead links for most of them, which is worse
+ * than plain text.
+ */
+export async function findKnownCorpCodes(refs: string[]): Promise<Set<string>> {
+  if (refs.length === 0) return new Set();
+  const rows = await prisma.filing.findMany({
+    where: { corpCode: { in: refs } },
+    distinct: ["corpCode"],
+    select: { corpCode: true },
+  });
+  return new Set(rows.map((r) => r.corpCode));
+}
+
+/**
  * Assembles one company's X-Ray, or null when nothing is stored for that corpCode.
  *
  * `latestFigures` keeps one row per (concept, period length) rather than per concept. A filing

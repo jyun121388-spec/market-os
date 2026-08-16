@@ -355,10 +355,26 @@ recommendation), but is a gap in the "always redirect" requirement. A 2026-08-16
 through — see `docs/DECISIONS.md`'s P1 entry — but this is still not exhaustive. Recommended
 specific test inputs for a reviewer, in addition to `tests/askMarket.test.ts`'s existing 14 cases:
 
-- Indirect phrasing: "would now be a wise time to add to my position"
-- Third-person framing: "is Samsung Electronics a buy right now"
-- Non-English languages other than Korean (not currently handled at all — a real, acknowledged
-  gap, not hidden: the pattern list is English + Korean only).
+- ~~Indirect phrasing: "would now be a wise time to add to my position"~~ — **closed 2026-08-17.**
+  Anchoring on the action plus a possessive object (`add to … my position`) rather than on the
+  `should i …` question form.
+- ~~Third-person framing: "is Samsung Electronics a buy right now"~~ — **closed 2026-08-17.**
+  Only the "…right now" variant had been caught, incidentally, by the proximity rule; the bare
+  "is X a buy" form needed its own pattern.
+- Also closed in the same pass, each a phrasing a real user would plausibly type: "price target"
+  (the reverse word order of the already-covered "target price", and an explicitly prohibited
+  output), 목표가/목표주가, bare "Should I invest?" with no object, "Should I take profits / cut
+  my losses", "Hold or sell?", entry/exit timing ("is now a good time to get in"), position
+  sizing ("how much of my portfolio"), "best stocks to buy", and Korean 익절/손절/들어가도
+  될까요/비중 조절. See `tests/askMarket.test.ts`.
+- Non-English languages other than Korean remain **not handled at all** — a real, acknowledged
+  gap, not hidden: the pattern list is English + Korean only. Note this is the honest limit of a
+  deterministic pattern approach, and it is one of the arguments for the M21 LLM decision rather
+  than something to keep patching.
+- **Try to break it**: the detector is deliberately biased toward false positives, so the more
+  interesting attack is the other direction — find an analytical question it now wrongly
+  redirects. `tests/askMarket.test.ts` holds seven such controls sharing vocabulary with the
+  patterns ("target", "hold", "exit", "position", "buying"); more would be welcome.
 - Numeric price targets without "will": "1400 KRW/USD by Q2" (currently NOT caught — the pattern
   requires the word "will"; this is a real gap worth flagging).
 

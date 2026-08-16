@@ -86,8 +86,30 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   /\bhow much should i (invest|allocate|put)\b/i,
   /\b(guaranteed|guarantee) (return|profit|gain)s?\b/i,
   /\btarget (price|return)\b/i,
+  // "price target" — the same prohibited concept with the words the other way round, which the
+  // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
+  // hard-prohibitions list, so having only one word order covered was a real hole.
+  /\bprice target\b/i,
   /\bwill .* (hit|reach|go to) [\d,.]+\b/i,
   /\b(recommend|suggest|pick) (a stock|an etf|which stock|me a stock|me a pick)\b/i,
+  // "Should I invest?" with no object. The `should i (…|invest in|…)` pattern above requires
+  // "invest IN something", so the bare form slipped through.
+  /\bshould i (invest|get in|get out|hold|sell out|take profits?|cut (my )?losses)\b/i,
+  /\b(good|right|bad) time to (get in|get out|enter|exit|buy in)\b/i,
+  // Position-sizing intent regardless of how it is framed. `should i …` was too narrow: the
+  // Codex packet itself listed "would now be a wise time to add to my position" as a known
+  // bypass, and "thinking about adding to my position" reads the same way to a user. Anchoring
+  // on the ACTION plus the possessive object catches the intent without needing the question
+  // form.
+  /\b(add to|adding to|increase|increasing|reduce|reducing|trim|trimming|exit|exiting|double down on)\b[\s\S]{0,20}\b(my|the)\s+(position|holding|stake|allocation)\b/i,
+  // Third-person "is X a buy/sell" framing, which sidesteps every first-person pattern. The
+  // packet listed this too; only the "…right now" variant happened to be caught, by the
+  // proximity rule.
+  /\bis\b[\s\S]{0,40}\ba (buy|sell|strong buy|strong sell)\b/i,
+  /\bhow much of my (portfolio|money|savings)\b/i,
+  /\b(best|top) (stock|stocks|etf|etfs|pick|picks) to (buy|invest)/i,
+  /\bwhat would you (buy|sell|invest in)\b/i,
+  /\b(hold|keep) or sell\b/i,
   /지금\s*(살까|사야|팔까|팔아야)/, // "buy/sell now?" — the LEGAL_GUARDRAILS.md example
   // Same "buy/sell now?" intent without requiring "지금" immediately before it (e.g. "삼성전자
   // 살까요?" with the timing implied rather than stated).
@@ -97,6 +119,17 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   /추천\s*(종목|주식)/, // "recommend a stock/ticker"
   /얼마.*투자/, // "how much should I invest"
   /수익\s*(보장|확정)/, // guaranteed returns
+  // 목표가 / 목표주가 — "price target". The direct Korean counterpart of the English pattern
+  // added above, and an explicitly prohibited output.
+  /목표\s*(가|주가|수익률)/,
+  // 익절 / 손절 — take-profit and stop-loss. Extremely common Korean retail-investing verbs and
+  // unambiguously requests for a trading instruction, not for analysis.
+  /(익절|손절)\s*(할까|해야|타이밍|하나요|할까요)?/,
+  // "지금 들어가도 될까요?" / "지금 나와도" — enter/exit a position, the positional equivalent
+  // of 사도/팔아도 which was already covered.
+  /(들어가도|나와도|들어갈까|나올까)\s*(될까요|되나요|되나|될까|요)?/,
+  /비중\s*(조절|늘려|줄여|확대|축소)/, // adjust position weighting
+  /(사기|팔기)\s*좋은\s*(때|시점|타이밍)/, // "a good time to buy/sell"
 ];
 
 export function detectPersonalizedAdviceRequest(query: string): boolean {

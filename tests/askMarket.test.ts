@@ -56,4 +56,82 @@ describe("detectPersonalizedAdviceRequest", () => {
     expect(detectPersonalizedAdviceRequest("이 ETF 사도 될까요?")).toBe(true);
     expect(detectPersonalizedAdviceRequest("추천 종목 하나만 알려주세요")).toBe(true);
   });
+
+  // 2026-08-17 guardrail audit. Each case below is a phrasing a real user would plausibly type
+  // that the detector previously let through. "Price target" is the most serious of them: price
+  // targets are named explicitly in LEGAL_GUARDRAILS.md's hard-prohibitions list, and only the
+  // "target price" word order was covered.
+  it("catches price-target requests in either word order and in Korean", () => {
+    expect(detectPersonalizedAdviceRequest("What's your price target for AAPL?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Apple target price?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("삼성전자 목표가 알려줘")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("목표 주가가 얼마인가요?")).toBe(true);
+  });
+
+  it("catches 'should I invest' with no object, and hold/exit phrasings", () => {
+    // `should i (…|invest in|…)` required an object, so the bare form slipped through.
+    expect(detectPersonalizedAdviceRequest("Should I invest?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should I hold?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should I take profits here?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should I cut my losses on this one?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Hold or sell?")).toBe(true);
+  });
+
+  it("catches entry/exit-timing and position-sizing phrasings", () => {
+    expect(detectPersonalizedAdviceRequest("Is now a good time to get in?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should I add to my position?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should I trim my holding?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("How much of my portfolio should be in tech?")).toBe(
+      true,
+    );
+    expect(detectPersonalizedAdviceRequest("Best stocks to buy this year?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("What would you buy right now?")).toBe(true);
+  });
+
+  it("catches Korean take-profit / stop-loss / entry / weighting phrasings", () => {
+    expect(detectPersonalizedAdviceRequest("지금 익절할까요?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("손절해야 하나요?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("지금 들어가도 될까요?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("반도체 비중 조절해야 할까요?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("지금이 사기 좋은 때인가요?")).toBe(true);
+  });
+
+  // These two were named as known open bypasses in docs/CODEX_REVIEW_PACKET.md's guardrail
+  // section — written down as suggested reviewer inputs rather than fixed. Closing them here
+  // means a re-reviewer finds them already handled instead of confirming a documented hole.
+  it("catches the bypasses the Codex packet named as still-open", () => {
+    expect(detectPersonalizedAdviceRequest("would now be a wise time to add to my position")).toBe(
+      true,
+    );
+    expect(detectPersonalizedAdviceRequest("is Samsung Electronics a buy right now")).toBe(true);
+    // The proximity rule happened to catch the "right now" variant; the bare third-person
+    // framing needed its own pattern.
+    expect(detectPersonalizedAdviceRequest("is Samsung Electronics a buy")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Is TSLA a sell?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("thinking about adding to my position in AAPL")).toBe(
+      true,
+    );
+    expect(detectPersonalizedAdviceRequest("any thoughts on whether to increase my stake")).toBe(
+      true,
+    );
+  });
+
+  // The detector deliberately favours false positives, but it still has to leave real analytical
+  // questions alone — a guardrail that redirects everything is indistinguishable from a broken
+  // product, and would push users toward tools with no guardrail at all. Each case below shares
+  // vocabulary with a pattern above ("target", "hold", "exit", "position", "buying") and must
+  // still pass through.
+  it("still does NOT flag analytical questions that use nearby vocabulary", () => {
+    expect(detectPersonalizedAdviceRequest("What is the Fed's inflation target?")).toBe(false);
+    expect(detectPersonalizedAdviceRequest("How did Apple's revenue trend last year?")).toBe(false);
+    expect(detectPersonalizedAdviceRequest("Which sectors hold the most debt?")).toBe(false);
+    expect(detectPersonalizedAdviceRequest("Is the exit of foreign capital continuing?")).toBe(
+      false,
+    );
+    expect(
+      detectPersonalizedAdviceRequest("How large is the position of foreign investors in KOSPI?"),
+    ).toBe(false);
+    expect(detectPersonalizedAdviceRequest("반도체 업종 실적 추이")).toBe(false);
+    expect(detectPersonalizedAdviceRequest("한국은행 기준금리 인상 배경")).toBe(false);
+  });
 });

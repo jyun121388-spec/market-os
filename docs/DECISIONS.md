@@ -483,3 +483,27 @@ and it avoids a later migration that has to backfill a plan value onto every exi
 **Follow-up**: Wire `canUseFeature` into an actual feature once the human decides which one
 should be paid-gated first — until then, `FEATURE_PLAN_REQUIREMENTS` stays empty by design,
 not by oversight.
+
+## 2026-08-16 — M24 Admin/Monitoring scoped to an internal pipeline-health view, no external service
+
+**Decision**: `src/server/domain/systemHealth.ts`'s `computeSystemHealth()` reads exclusively
+from data already in the DB — per-source last-ingest timestamp (max `retrievedAt` across
+Observation/Filing/FinancialFact/Etf/EventMention) and the unresolved `DataConflict` count — and
+`src/app/admin/page.tsx` renders it, gated by `getCurrentUser()` (redirect to `/login` if
+unauthenticated). No error-tracking/uptime/APM service is integrated.
+**Reason**: "Monitoring" typically implies an external service (Sentry, Datadog, uptime
+pingers), which is a Human Gate the moment it's paid — even "free tier requires a card" counts
+per CLAUDE.md. What's honestly buildable without one is exactly this: an internal view of
+pipeline health derived from data the app already owns. Gating is "any authenticated user," not
+a role system — a role/permission model would be speculative for a single-operator product with
+no admin/non-admin user distinction defined anywhere else in the schema.
+**Verification**: Confirmed with Playwright against a real `npm run dev` session — unauthenticated
+`/admin` redirects to `/login`; a signed-up user sees the "Pipeline Health" heading, their email,
+a FRED source row, and either "never" or a formatted last-ingest date. 147/147 tests pass (61
+unit, 86 integration), full verify chain (format/lint/typecheck/test/build) green.
+**Alternatives**: A scheduled health-check background job feeding this view — deferred to M25
+(Performance/Cache/Background Jobs), which is the milestone that actually owns background job
+infrastructure; this milestone's view computes on-demand at page-load, which is correct for
+current traffic and data volume.
+**Follow-up**: Add real alerting (email/SMS/push on ingest failure) only once a concrete delivery
+mechanism is chosen — bulk email/SMS is itself a Human Gate per CLAUDE.md.

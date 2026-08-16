@@ -1,21 +1,26 @@
 # Current Task
 
-MILESTONE: M24 — Admin / Monitoring
+MILESTONE: M25 — Performance / Cache / Background Jobs
 
-TASK: No admin surface exists yet. Real scoping decision: "monitoring" often implies external
-paid services (error tracking, uptime, APM) — those are Human Gates per docs/DATA_POLICY.md
-cost policy if paid. What's buildable now without any new service: an internal admin view of
-data-pipeline health using data already in the DB — last successful ingest per Source
-(`MAX(Observation.retrievedAt)` / `MAX(Filing.retrievedAt)` / etc.), counts, and any
-`DataConflict` rows still unresolved. Gate the page to authenticated users (reuse M22's auth) —
-for V1 with no role system, "any signed-in user" is an acceptable placeholder; do not build a
-speculative admin-role system for a single-operator product without being asked.
+TASK: No caching layer or scheduled-job runner exists yet — every domain read computes on
+demand and every ingestion adapter runs manually via `npm run ingest:*`. Real scoping decision:
+a production-grade unattended scheduler (Vercel Cron, a queue worker, etc.) implies deploying
+something, and any production deployment is a Human Gate per CLAUDE.md until a human approves
+it. What's genuinely buildable now without deploying anything: (a) a dev/CI-invocable job
+runner script that sequences the existing `ingest:*` commands with structured logging (a real,
+testable increment toward "scheduled jobs" that doesn't require any new infrastructure), and
+(b) an in-process cache with a short TTL for the more expensive on-demand reads (e.g.
+`computeSystemHealth`, `computeRegimeSnapshot`) with tests proving cache hit/miss/expiry
+behavior and that cached data never silently goes stale past its TTL without being labeled.
+Real cron/queue infrastructure stays deferred pending the production-deployment Human Gate —
+log it in docs/REVIEW_DEBT.md, don't silently skip the milestone.
 
-STATUS: Not started — M23 (Subscription-ready architecture) complete and verified.
+STATUS: Not started — M24 (Admin / Monitoring) complete and verified.
 
-NEXT EXACT ACTION: Design `src/server/domain/systemHealth.ts` computing per-source health
-(sourceCode, lastIngestAt across whichever tables that source writes to, unresolved
-DataConflict count) purely by reading existing tables — no new ingestion, no new external
-service. Build `/admin` page gated by `getCurrentUser()` (redirect to `/login` if not signed
-in). Verify with the same discipline as M20/M22: real Playwright browser check against
-`npm run dev`, not just unit tests.
+NEXT EXACT ACTION: Design a small `src/server/domain/cache.ts` (or similar) — a generic
+TTL-based in-memory cache helper with unit tests (hit, miss, expiry). Apply it to one real
+expensive read path (`computeSystemHealth` is a reasonable first target since M24 just built
+it). Then write `scripts/run-ingest-jobs.ts` (or an npm script) that sequences the existing
+`ingest:*` commands in order with per-job success/failure logging, runnable via
+`npm run jobs:ingest-all`. Verify both with real tests + an actual invocation (not just unit
+tests) — same discipline as every prior milestone.

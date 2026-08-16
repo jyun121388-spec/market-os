@@ -19,7 +19,10 @@
  * SEC rejects User-Agent strings that do not look like a name plus a contact address with
  * HTTP 403 (verified live 2026-08-16) — a bare product/URL string is not accepted.
  */
-import { fetchEdgarSubmissions } from "../src/server/adapters/edgar/client";
+import {
+  fetchEdgarFilingHistory,
+  fetchEdgarSubmissions,
+} from "../src/server/adapters/edgar/client";
 import { TRACKED_EDGAR_COMPANIES } from "../src/server/adapters/edgar/types";
 import { fetchCompanyFacts } from "../src/server/adapters/edgar-xbrl/client";
 import {
@@ -121,6 +124,51 @@ async function verifySubmissions() {
 
   console.log(
     `  info  ${res.name} · ${n} recent filings · forms present: ${[...new Set(recent.form)].slice(0, 8).join(", ")}`,
+  );
+
+  // Completeness, not just shape. The first version of this script reported "1000 recent
+  // filings" as an informational line and moved on; that round number was SEC's cap, not
+  // Apple's filing count, and the ingest was silently storing 45% of the history. Shape
+  // verification is not completeness verification — so completeness is now asserted.
+  const overflow = res.filings.files ?? [];
+  const overflowTotal = overflow.reduce((sum, f) => sum + (f.filingCount ?? 0), 0);
+  if (overflow.length > 0) {
+    console.log(
+      `  info  ${overflow.length} overflow file(s) holding a further ${overflowTotal} filings ` +
+        `(${overflow[0].filingFrom} to ${overflow[overflow.length - 1].filingTo})`,
+    );
+  }
+
+  const history = await fetchEdgarFilingHistory(cik);
+  check(
+    "the filing history fetch includes the overflow files, not just filings.recent",
+    history.filings.form.length === n + overflowTotal,
+    `history=${history.filings.form.length}, recent=${n}, overflow=${overflowTotal}`,
+  );
+  check("nothing was truncated", history.truncated === false);
+  check(
+    "merged parallel arrays stay aligned across the recent/overflow boundary",
+    new Set([
+      "accessionNumber",
+      "filingDate",
+      "form",
+      "primaryDocDescription",
+      "items",
+      "size",
+    ] as const).size > 0 &&
+      ["accessionNumber", "filingDate", "form", "primaryDocDescription", "items", "size"].every(
+        (f) =>
+          (history.filings[f as keyof typeof history.filings] as unknown[]).length ===
+          history.filings.form.length,
+      ),
+  );
+  check(
+    "no duplicate accession numbers across the recent/overflow boundary",
+    new Set(history.filings.accessionNumber).size === history.filings.accessionNumber.length,
+  );
+  console.log(
+    `  info  complete history: ${history.filings.form.length} filings, oldest ` +
+      `${[...history.filings.filingDate].sort()[0]}`,
   );
 }
 

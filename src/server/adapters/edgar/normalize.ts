@@ -1,3 +1,5 @@
+import { assertValidCalendarDate } from "../dateValidation";
+import type { EdgarFilingHistory } from "./client";
 import type { EdgarRecentFilings, EdgarSubmissionsResponse } from "./types";
 
 export interface NormalizedEdgarFiling {
@@ -20,10 +22,40 @@ export interface NormalizedEdgarFiling {
 export function normalizeEdgarSubmissions(
   response: EdgarSubmissionsResponse,
 ): NormalizedEdgarFiling[] {
-  const recent = response.filings.recent;
+  return normalizeEdgarFilingArrays(response.filings.recent, {
+    cik: response.cik,
+    name: response.name,
+    stockCode: response.tickers?.[0] ?? null,
+  });
+}
+
+/**
+ * Normalizes a COMPLETE filing history (recent plus every overflow file) — see
+ * `fetchEdgarFilingHistory`. `normalizeEdgarSubmissions` above covers only `filings.recent`,
+ * which SEC caps at 1000 and which is therefore not a company's filing history for any filer
+ * old enough to matter.
+ *
+ * The overflow documents carry no company metadata of their own, so ticker/name come from the
+ * primary submissions document that listed them.
+ */
+export function normalizeEdgarFilingHistory(
+  history: EdgarFilingHistory,
+  tickers: string[] | undefined,
+): NormalizedEdgarFiling[] {
+  return normalizeEdgarFilingArrays(history.filings, {
+    cik: history.cik,
+    name: history.name,
+    stockCode: tickers?.[0] ?? null,
+  });
+}
+
+function normalizeEdgarFilingArrays(
+  recent: EdgarRecentFilings,
+  company: { cik: string; name: string; stockCode: string | null },
+): NormalizedEdgarFiling[] {
   assertParallelArraysAligned(recent);
 
-  const stockCode = response.tickers?.[0] ?? null;
+  const stockCode = company.stockCode;
   const count = recent.accessionNumber.length;
   const filings: NormalizedEdgarFiling[] = [];
 
@@ -34,8 +66,8 @@ export function normalizeEdgarSubmissions(
     }
 
     filings.push({
-      corpCode: response.cik,
-      corpName: response.name,
+      corpCode: company.cik,
+      corpName: company.name,
       stockCode,
       reportName: recent.primaryDocDescription[i]?.trim()
         ? `${recent.form[i]} — ${recent.primaryDocDescription[i]}`
@@ -68,5 +100,9 @@ function parseEdgarDateAsUtc(date: string): Date {
     throw new Error(`Unrecognized EDGAR filingDate format: "${date}"`);
   }
   const [year, month, day] = date.split("-").map(Number);
+  // The regex proves the shape, not the date: "2026-02-30" passes it and Date.UTC would roll it
+  // silently to Mar 2, storing a filing under a date SEC never reported. Same guard FRED and
+  // ECOS received in the 2026-08-16 impossible-date pass; EDGAR and DART were both missed then.
+  assertValidCalendarDate(year, month, day, date);
   return new Date(Date.UTC(year, month - 1, day));
 }

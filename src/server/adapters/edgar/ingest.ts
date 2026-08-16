@@ -1,12 +1,19 @@
 import { prisma } from "@/server/db/client";
-import { fetchEdgarSubmissions } from "./client";
-import { normalizeEdgarSubmissions } from "./normalize";
+import { fetchEdgarFilingHistory, fetchEdgarSubmissions } from "./client";
+import { normalizeEdgarFilingHistory } from "./normalize";
 import type { EdgarCompanyDefinition } from "./types";
 
 export interface IngestResult {
   cik: string;
   inserted: number;
   unchanged: number;
+  /** Filings in `filings.recent` — SEC caps this at 1000, so it is not the history. */
+  recentCount: number;
+  /** Total across recent plus every overflow file that was fetched. */
+  totalFetched: number;
+  overflowFilesFetched: number;
+  /** True when SEC listed more overflow files than this run was willing to fetch. */
+  truncated: boolean;
 }
 
 /**
@@ -22,8 +29,14 @@ export async function ingestEdgarFilings(company: EdgarCompanyDefinition): Promi
     create: { code: "SEC_EDGAR", name: "SEC EDGAR", tier: "TIER_S" },
   });
 
-  const raw = await fetchEdgarSubmissions(company.cik);
-  const filings = normalizeEdgarSubmissions(raw);
+  // The tickers live only on the primary submissions document, and fetchEdgarFilingHistory
+  // already retrieves it; ask for it once here so the normalizer has a stock code for the
+  // overflow filings too, which carry no company metadata of their own.
+  const [submissions, history] = await Promise.all([
+    fetchEdgarSubmissions(company.cik),
+    fetchEdgarFilingHistory(company.cik),
+  ]);
+  const filings = normalizeEdgarFilingHistory(history, submissions.tickers);
 
   let inserted = 0;
   let unchanged = 0;
@@ -54,5 +67,21 @@ export async function ingestEdgarFilings(company: EdgarCompanyDefinition): Promi
     inserted++;
   }
 
-  return { cik: company.cik, inserted, unchanged };
+  if (history.truncated) {
+    console.warn(
+      `[EDGAR] ${company.cik}: SEC listed ${history.overflowFilesAvailable} overflow files but ` +
+        `this run fetched ${history.overflowFilesFetched}. The stored filing history is ` +
+        "knowably incomplete.",
+    );
+  }
+
+  return {
+    cik: company.cik,
+    inserted,
+    unchanged,
+    recentCount: history.recentCount,
+    totalFetched: filings.length,
+    overflowFilesFetched: history.overflowFilesFetched,
+    truncated: history.truncated,
+  };
 }

@@ -1,5 +1,10 @@
 import { fetchWithTimeout } from "../httpTimeout";
-import { padCik, type EdgarSubmissionsResponse } from "./types";
+import {
+  padCik,
+  type EdgarRecentFilings,
+  type EdgarSubmissionsOverflow,
+  type EdgarSubmissionsResponse,
+} from "./types";
 
 export class EdgarUserAgentMissingError extends Error {
   constructor() {
@@ -43,4 +48,111 @@ export async function fetchEdgarSubmissions(cik: string): Promise<EdgarSubmissio
   }
 
   return (await response.json()) as EdgarSubmissionsResponse;
+}
+
+/** Hard stop on overflow fetching, so a filer with an absurd history cannot run unbounded. */
+const MAX_OVERFLOW_FILES = 20;
+
+export interface EdgarFilingHistory {
+  /** Company metadata, taken from the primary submissions document. */
+  cik: string;
+  name: string;
+  /** Every filing across `filings.recent` AND every overflow file, in one parallel-array set. */
+  filings: EdgarRecentFilings;
+  recentCount: number;
+  overflowFilesAvailable: number;
+  overflowFilesFetched: number;
+  /** True when SEC listed more overflow files than this run was willing to fetch. */
+  truncated: boolean;
+}
+
+/**
+ * Fetches a company's COMPLETE filing history, not just the most recent 1000.
+ *
+ * `filings.recent` is hard-capped by SEC at 1000 entries; everything older spills into
+ * `filings.files[]`, each naming another JSON document under the same /submissions/ path. The
+ * ingest previously read `recent` alone and treated it as the company's filing history. For
+ * Apple that meant storing exactly 1000 filings back to 2015 and silently dropping 1240 more
+ * covering 1994-2015 — 55% of the history, absent without a word.
+ *
+ * That the stored count was exactly 1000 is the tell, and it is worth stating plainly: the live
+ * contract check that ran the day before verified the SHAPE of the response and reported
+ * "1000 recent filings" as an informational line. Shape verification is not completeness
+ * verification, and a round number should have been read as a cap rather than a total.
+ *
+ * Overflow documents use the same parallel-array layout as `recent` but at the top level, with
+ * no enclosing `filings` wrapper (verified live 2026-08-17).
+ */
+export async function fetchEdgarFilingHistory(cik: string): Promise<EdgarFilingHistory> {
+  const userAgent = process.env.EDGAR_USER_AGENT;
+  if (!userAgent) {
+    throw new EdgarUserAgentMissingError();
+  }
+
+  const submissions = await fetchEdgarSubmissions(cik);
+  const recent = submissions.filings.recent;
+  const merged: EdgarRecentFilings = cloneFilings(recent);
+
+  const overflowFiles = submissions.filings.files ?? [];
+  const toFetch = overflowFiles.slice(0, MAX_OVERFLOW_FILES);
+
+  for (const file of toFetch) {
+    const url = `https://data.sec.gov/submissions/${file.name}`;
+    const response = await fetchWithTimeout(url, { headers: { "User-Agent": userAgent } });
+    if (!response.ok) {
+      throw new EdgarApiError(
+        `SEC EDGAR overflow request failed for ${file.name}: ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+    appendFilings(merged, (await response.json()) as EdgarSubmissionsOverflow);
+  }
+
+  return {
+    cik: submissions.cik,
+    name: submissions.name,
+    filings: merged,
+    recentCount: recent.form?.length ?? 0,
+    overflowFilesAvailable: overflowFiles.length,
+    overflowFilesFetched: toFetch.length,
+    truncated: overflowFiles.length > MAX_OVERFLOW_FILES,
+  };
+}
+
+/**
+ * The parallel-array field list, in one place. Every field must be copied and appended in
+ * lockstep — dropping one here would misalign the arrays, which is the single failure mode this
+ * layout is vulnerable to and the reason the live contract check asserts equal lengths.
+ */
+const FILING_ARRAY_FIELDS = [
+  "accessionNumber",
+  "filingDate",
+  "reportDate",
+  "acceptanceDateTime",
+  "act",
+  "form",
+  "fileNumber",
+  "filmNumber",
+  "items",
+  "size",
+  "isXBRL",
+  "isInlineXBRL",
+  "primaryDocument",
+  "primaryDocDescription",
+] as const satisfies readonly (keyof EdgarRecentFilings)[];
+
+function cloneFilings(source: EdgarRecentFilings): EdgarRecentFilings {
+  const out = {} as EdgarRecentFilings;
+  for (const field of FILING_ARRAY_FIELDS) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (out as any)[field] = [...((source[field] ?? []) as unknown[])];
+  }
+  return out;
+}
+
+function appendFilings(target: EdgarRecentFilings, extra: EdgarSubmissionsOverflow): void {
+  for (const field of FILING_ARRAY_FIELDS) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (target as any)[field].push(...((extra[field] ?? []) as unknown[]));
+  }
 }

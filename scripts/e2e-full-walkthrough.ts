@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M27 Production QA — a single persistent, version-controlled end-to-end walkthrough of the
  * real user path, run with a real browser against a real running `npm run dev` server. Every
  * prior milestone verified its own slice individually (M20 Today, M22 Auth, M24 Admin, M26
@@ -96,20 +96,50 @@ async function main() {
     body = await page.textContent("body");
     check("removed item is gone", !(body ?? "").includes("US 10Y Treasury Yield"));
 
-    console.log("[6] Log out (logout control lives on /today)");
+    console.log("[6] Ask Market refuses a buy/sell question through the real request path");
+    // The single highest legal-risk surface in the product (docs/LEGAL_GUARDRAILS.md). The
+    // detector is unit-tested, but until now nothing proved it was actually wired into the page
+    // a user reaches — a guardrail that exists only in a domain function protects nobody.
+    // The canonical example from the legal docs, plus an English equivalent.
+    for (const query of ["삼성전자 지금 살까?", "Should I buy Apple stock now?"]) {
+      await page.goto(`${BASE_URL}/ask?q=${encodeURIComponent(query)}`);
+      body = await page.textContent("body");
+      check(
+        `"${query}" is redirected, not answered`,
+        (body ?? "").includes("doesn't give personalized buy/sell recommendations"),
+      );
+      // The redirect must not be accompanied by an actual recommendation anywhere on the page.
+      const lowered = (body ?? "").toLowerCase();
+      check(
+        `"${query}" response contains no buy/sell verdict`,
+        !/\b(you should buy|you should sell|we recommend buying|strong buy|price target)\b/.test(
+          lowered,
+        ),
+      );
+    }
+
+    console.log("[7] Ask Market answers a factual topic query normally");
+    await page.goto(`${BASE_URL}/ask?q=${encodeURIComponent("inflation")}`);
+    body = await page.textContent("body");
+    check(
+      "a neutral factual query is not caught by the guardrail",
+      !(body ?? "").includes("doesn't give personalized buy/sell recommendations"),
+    );
+
+    console.log("[8] Log out (logout control lives on /today)");
     await page.goto(`${BASE_URL}/today`);
     await page.getByRole("button", { name: /log ?out/i }).click();
     await page.waitForURL("**/login", { timeout: 10000 });
     check("redirected to /login after logout", page.url() === `${BASE_URL}/login`);
 
-    console.log("[7] Wrong password is rejected without revealing which part was wrong");
+    console.log("[9] Wrong password is rejected without revealing which part was wrong");
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', "totally-wrong-password");
     await page.click('button[type="submit"]');
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("wrong password rejected", page.url() === `${BASE_URL}/login`);
 
-    console.log("[8] Login lockout after 5 total failed attempts (1 already made above)");
+    console.log("[10] Login lockout after 5 total failed attempts (1 already made above)");
     for (let i = 0; i < 4; i += 1) {
       await page.fill('input[name="email"]', TEST_EMAIL);
       await page.fill('input[name="password"]', "totally-wrong-password");
@@ -122,7 +152,7 @@ async function main() {
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("locked out even with correct password", page.url() === `${BASE_URL}/login`);
 
-    console.log("[9] Expired session redirects to /login instead of showing stale auth state");
+    console.log("[11] Expired session redirects to /login instead of showing stale auth state");
     const user = await prisma.user.findUniqueOrThrow({ where: { email: TEST_EMAIL } });
     const expiredSession = await prisma.session.create({
       data: {

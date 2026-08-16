@@ -185,13 +185,23 @@ built-but-unreachable gap the Watchlist had. With 2240 filings and 1428 facts no
 only way to see any of it was a keyword search. The read model carries no field capable of
 holding a score, rating, valuation or target, and a test asserts that structurally.
 
+22. **CALCULATION claims never verified their own source attribution.** `verifyFactClaim` always
+    compared `claim.sourceId` against its evidence; `verifyCalculationClaim` did not, and the
+    claim text does not mention the source — so a change attributed to the wrong provider
+    verified as VERIFIED. Found by examining the neighbours of the Codex-reported H2 rather than
+    only H2 itself.
+
 TESTS
-280 / 280 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+281 / 281 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 28/28 checks in a real browser (up from 12) — the walkthrough now drives the Ask
 Market guardrail and the Company X-Ray page through real rendered HTML, not just the domain
-functions. `npm run verify:live:edgar` 59/59 against real data.sec.gov. All 15 migrations apply
-cleanly to a genuinely fresh database. Lint / typecheck / format / production build all clean.
-Full suite runs in ~27s.
+functions. `npm run verify:live:edgar` **67/67** against real data.sec.gov. Lint / typecheck /
+format / production build all clean. Full suite runs in ~24s.
+
+Final end-to-end verification on a genuinely fresh database (2026-08-17): all 15 migrations
+applied, real ingest of 2240 filings and 1428 financial facts, re-ingest returning 0 inserted /
+all unchanged, and 67/67 live contract checks. The three migrations added this round were also
+applied to a POPULATED database, not just an empty one — the H1 discipline.
 
 Note on the suite runtime: it briefly reached ~137s when pagination was first tested by pushing
 14,000 synthetic rows through the real ingest. That was moved to client-level tests, which is

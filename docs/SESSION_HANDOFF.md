@@ -54,10 +54,38 @@ None in progress. Everything unblocked has been done; remaining work is gated �
 CURRENT FAILURE
 none.
 
+SECOND HALF OF THE NIGHT RUN — the defects that only real data could reveal:
+
+- **Filing Diff reported a fabricated +233% revenue increase.** It compared a nine-month figure
+  against a quarterly one from the SAME filing (same period end, same accession). Now requires
+  the same period length and a different period, or reports INSUFFICIENT_DATA.
+- **168 financial facts silently discarded per ingest** — a fact's identity includes the period
+  START, and the unique key omitted it. Enforced as two partial indexes, since `periodStart` is
+  NULL for instant concepts and a NULL in a unique key stops enforcing anything.
+- **The two EDGAR adapters identified companies differently** (`0000320193` vs `320193`), so
+  2240 filings and 933 facts had zero joinable rows and Ask Market's "Company facts" section was
+  silently empty for every EDGAR company.
+- **Company X-Ray had no revenue after 2018** — the ASC 606 tag transition.
+- **CALCULATION claims never verified their own source attribution.**
+- **Provider API keys were reaching logs, and then `ingest_runs.error` and /admin.**
+- Company X-Ray finally has a view (`/company`, `/company/[corpCode]`), M15/M16's missing UI.
+- Ingest runs are persisted and surfaced on /admin, so `truncated` is no longer a field nobody
+  reads.
+
 TEST STATUS
-247/247 against a real local PostgreSQL 16.10. `npm run e2e` 22/22 in a real browser.
-`npm run verify:live:edgar` 59/59 against real data.sec.gov. Lint, typecheck, format and
-production build all clean. Full suite ~25s.
+281/281 against a real local PostgreSQL 16.10. `npm run e2e` 28/28 in a real browser.
+`npm run verify:live:edgar` 67/67 against real data.sec.gov. Lint, typecheck, format and
+production build all clean. Full suite ~24s.
+
+Final fresh-database verification: 15 migrations applied, real ingest of 2240 filings and 1428
+facts, re-ingest fully idempotent, 67/67 live contract checks.
+
+**The most useful thing to carry forward**: almost everything above was found by looking at real
+numbers and asking whether they were plausible, not by reading code. 1000 filings is a
+suspiciously round total. 168 rows "unchanged" against an empty table is impossible. 2240 filings
+and 933 facts with zero joinable rows is not a coincidence. 244 rows of net income and 13 of
+revenue is not how a company reports. A +233% revenue increase is not what Apple did. None of
+these had a failing test; several had passing ones.
 
 NEXT EXACT ACTION
 

@@ -322,11 +322,43 @@ A direct consequence of correctly storing both. `/ask` rendered
 nine months from three. `CompanyFactFactor` now carries `periodStart`/`periodEnd` and the page
 renders the span. Storing the truth was necessary but not sufficient.
 
+### R17 — CALCULATION claims never verified their own source attribution
+
+Found by looking at the neighbours of B2/H2 rather than only at B2 itself, which is the general
+suggestion here: a reported finding is often one instance of a local habit.
+
+`verifyFactClaim` has always compared `claim.sourceId` against the evidenced observation.
+`verifyCalculationClaim` did not, and nothing documented that as a decision. It mattered because
+`buildChangeClaimText` does not mention the source: a CALCULATION claim whose `sourceId` had been
+repointed at a different provider reconstructed to byte-identical text, passed every other check
+— series identity, chronological order, full recomputation of the change — and verified as
+VERIFIED. A real change, attributed to the wrong source, certified correct.
+
+Provenance is the product's central promise (`CLAUDE.md`: every FACT shown to a user must trace
+to a stored source), so a verifier that skips the claimed source on half its claim types is not
+verifying provenance whatever else it checks.
+
+- **Where**: `src/server/domain/claimVerification.ts`,
+  `tests/integration/claim-verification.test.ts`.
+- **Try to break it**: what else does `verifyFactClaim` check that `verifyCalculationClaim` does
+  not, or vice versa? The two paths were written separately and this was not the only asymmetry
+  worth looking for. And when INFERENCE gets a producer (M21), which of these checks apply?
+
+### Migration upgrade safety for this round's migrations
+
+Three migrations were added (`ingest_runs`, `canonical_edgar_cik`,
+`financial_fact_period_start_identity`). All three were applied to a POPULATED database, not only
+a fresh one — the H1 discipline. `ingest_runs` is purely additive. `canonical_edgar_cik` rewrites
+an identifier and was run against 2240 filings and 933 facts. The identity migration replaces one
+unique index with a looser pair, so no already-stored row can violate it; it also drops the old
+index by SHAPE rather than by name, after a first version that guessed Prisma's 63-character
+truncation wrong and silently no-opped.
+
 ### Current verification state (2026-08-17)
 
-276/276 tests against a real local PostgreSQL 16.10, `npm run e2e` 24/24 in a real browser,
-59/59 live EDGAR contract checks, all 15 migrations applied cleanly to a genuinely fresh
-database, lint/typecheck/format/production build clean. Nothing in this packet is self-declared
+281/281 tests against a real local PostgreSQL 16.10, `npm run e2e` 28/28 in a real browser,
+59/59 live EDGAR contract checks, all 15 migrations applied cleanly to both a genuinely fresh
+database and a populated one, lint/typecheck/format/production build clean. Nothing in this packet is self-declared
 APPROVE, and no provider other than SEC EDGAR is claimed live-verified.
 
 **Two patterns are worth more to a reviewer than the individual findings.**

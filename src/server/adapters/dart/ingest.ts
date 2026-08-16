@@ -1,12 +1,17 @@
 import { prisma } from "@/server/db/client";
-import { fetchDartDisclosures } from "./client";
-import { normalizeDartDisclosures } from "./normalize";
-import type { DartCompanyDefinition, DartListSuccess } from "./types";
+import { fetchAllDartDisclosures } from "./client";
+import { normalizeDartRows } from "./normalize";
+import type { DartCompanyDefinition } from "./types";
 
 export interface IngestResult {
   corpCode: string;
   inserted: number;
   unchanged: number;
+  /** DART's own count for the range — compare against inserted+unchanged for completeness. */
+  totalCount: number;
+  pagesFetched: number;
+  /** True when DART reported more pages than this run was willing to fetch. */
+  truncated: boolean;
 }
 
 /**
@@ -26,11 +31,11 @@ export async function ingestDartFilings(
     create: { code: "DART", name: "OpenDART 전자공시시스템", tier: "TIER_S" },
   });
 
-  const raw = await fetchDartDisclosures(company.corpCode, {
+  const page = await fetchAllDartDisclosures(company.corpCode, {
     beginDate: range.beginDate,
     endDate: range.endDate,
   });
-  const filings = normalizeDartDisclosures(raw as DartListSuccess);
+  const filings = normalizeDartRows(page.rows);
 
   let inserted = 0;
   let unchanged = 0;
@@ -61,5 +66,26 @@ export async function ingestDartFilings(
     inserted++;
   }
 
-  return { corpCode: company.corpCode, inserted, unchanged };
+  if (page.truncated) {
+    console.warn(
+      `[DART] ${company.corpCode}: DART reported more pages than this run fetches — stored ` +
+        `${filings.length} of ${page.totalCount} disclosures. The result is knowably incomplete; ` +
+        `narrow the date range and re-run.`,
+    );
+  } else if (page.totalCount > 0 && filings.length !== page.totalCount) {
+    console.warn(
+      `[DART] ${company.corpCode}: fetched ${filings.length} rows but DART reported ` +
+        `total_count=${page.totalCount}. Not necessarily wrong (the range can shift between ` +
+        `pages), but worth knowing rather than assuming completeness.`,
+    );
+  }
+
+  return {
+    corpCode: company.corpCode,
+    inserted,
+    unchanged,
+    totalCount: page.totalCount,
+    pagesFetched: page.pagesFetched,
+    truncated: page.truncated,
+  };
 }

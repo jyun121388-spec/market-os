@@ -45,6 +45,9 @@ describeIfDb("FRED adapter ingest (integration)", () => {
       revised: 0,
       unchanged: 0,
       skippedMissing: 1,
+      count: 5,
+      requestsMade: 1,
+      truncated: false,
     });
 
     const series = await prisma.series.findFirstOrThrow({ where: { externalId: "DGS10" } });
@@ -104,4 +107,8 @@ describeIfDb("FRED adapter ingest (integration)", () => {
     const after = await prisma.observation.count({ where: { seriesId: series.id } });
     expect(after).toBe(before);
   });
+
+  // Request-level pagination behaviour lives in tests/adapters/pagination.test.ts — it is a
+  // property of the client, and asserting it here meant pushing 12,000 synthetic rows through
+  // the DB to learn nothing the client-level test doesn't already prove.
 });

@@ -1,3 +1,4 @@
+import { assertValidCalendarDate } from "../dateValidation";
 import type { DartDisclosureRow, DartListSuccess } from "./types";
 
 export interface NormalizedDartFiling {
@@ -18,7 +19,12 @@ export interface NormalizedDartFiling {
  * silently dropped or defaulted to "now".
  */
 export function normalizeDartDisclosures(response: DartListSuccess): NormalizedDartFiling[] {
-  return response.list.map((row) => ({
+  return normalizeDartRows(response.list);
+}
+
+/** Row-level entry point, used by the paginating fetch which has no single response object. */
+export function normalizeDartRows(rows: DartDisclosureRow[]): NormalizedDartFiling[] {
+  return rows.map((row) => ({
     corpCode: row.corp_code,
     corpName: row.corp_name,
     stockCode: row.stock_code?.trim() ? row.stock_code.trim() : null,
@@ -37,5 +43,10 @@ function parseDartDateAsUtc(date: string): Date {
   const year = Number(date.slice(0, 4));
   const month = Number(date.slice(4, 6));
   const day = Number(date.slice(6, 8));
+  // The \d{8} check above proves the shape, not the date: "20260230" and "20261301" both pass
+  // it, and Date.UTC would silently roll them over to Mar 2 and Jan 2027 respectively — storing
+  // a filing under a date the source never reported. FRED and ECOS got this guard in the
+  // impossible-date hardening pass (docs/DECISIONS.md, 2026-08-16); DART was missed.
+  assertValidCalendarDate(year, month, day, date);
   return new Date(Date.UTC(year, month - 1, day));
 }

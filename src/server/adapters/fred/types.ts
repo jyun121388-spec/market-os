@@ -22,7 +22,17 @@ export interface FredObservationsResponse {
   observation_start: string;
   observation_end: string;
   units: string;
+  /** Total observations matching the query — NOT necessarily how many are in `observations`. */
   count: number;
+  /**
+   * Page size and offset. Optional here because their presence has not been confirmed against a
+   * real response yet (no FRED_API_KEY — `scripts/verify-fred-live.ts` checks this the moment
+   * one exists). The adapter no longer depends on guessing: it sends an explicit `limit`/
+   * `offset` and pages until it has `count` rows, so a documented-but-absent field cannot
+   * silently truncate a series.
+   */
+  limit?: number;
+  offset?: number;
   observations: FredObservationRaw[];
 }
 

@@ -46,6 +46,11 @@ describeIfDb("ECOS adapter ingest (integration)", () => {
       revised: 0,
       unchanged: 0,
       skippedMissing: 1,
+      // Request-level window walking is covered in tests/adapters/pagination.test.ts — it is a
+      // property of the client, and proving it here meant writing thousands of synthetic rows.
+      totalCount: 4,
+      requestsMade: 1,
+      truncated: false,
     });
 
     const series = await prisma.series.findFirstOrThrow({ where: { externalId: EXTERNAL_ID } });

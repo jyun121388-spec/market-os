@@ -1,5 +1,5 @@
 import { fetchWithTimeout } from "../httpTimeout";
-import { isDartError, type DartListResponse } from "./types";
+import { isDartError, type DartDisclosureRow, type DartListResponse } from "./types";
 
 export class DartApiKeyMissingError extends Error {
   constructor() {
@@ -70,4 +70,70 @@ export async function fetchDartDisclosures(
     throw new DartApiError(body.message, body.status);
   }
   return body;
+}
+
+/** Hard stop on the pagination loop, so a bad `total_page` cannot spin forever. */
+const MAX_DART_PAGES = 100;
+const DART_PAGE_SIZE = 100;
+
+export interface DartDisclosurePage {
+  rows: DartDisclosureRow[];
+  /** DART's own count for the query — what a complete result should contain. */
+  totalCount: number;
+  pagesFetched: number;
+  /**
+   * True when the page cap was hit before DART said it was done, i.e. `rows` is knowably
+   * incomplete. Never silently swallowed: the ingest logs it and the caller can act on it.
+   */
+  truncated: boolean;
+}
+
+/**
+ * Fetches EVERY disclosure page for one company/date range, not just the first.
+ *
+ * The single-page `fetchDartDisclosures` above is the honest wire primitive — it returns
+ * exactly what DART sent, page fields included. It is not, however, a complete answer, and the
+ * ingest used to treat it as one: one request with `page_no=1, page_count=100`, with
+ * `total_page` and `total_count` fetched and then ignored. Samsung Electronics alone files well
+ * over 100 disclosures a year, so any range wide enough to matter was silently cut off at 100
+ * rows. Nothing failed and nothing warned — the database just quietly held a partial filing
+ * history that read as complete, which is precisely the failure docs/DATA_POLICY.md is about.
+ *
+ * The completeness signal is returned rather than asserted, because "DART has more pages than
+ * we are willing to fetch in one run" is a real operational condition, not a crash — but it
+ * must be visible, so it is a field the caller has to look at rather than a silent shortfall.
+ */
+export async function fetchAllDartDisclosures(
+  corpCode: string,
+  options: { beginDate: string; endDate: string },
+): Promise<DartDisclosurePage> {
+  const rows: DartDisclosureRow[] = [];
+  let pagesFetched = 0;
+  let totalCount = 0;
+  let totalPage = 1;
+
+  for (let pageNo = 1; pageNo <= totalPage && pageNo <= MAX_DART_PAGES; pageNo++) {
+    const body = (await fetchDartDisclosures(corpCode, {
+      beginDate: options.beginDate,
+      endDate: options.endDate,
+      pageNo,
+      pageCount: DART_PAGE_SIZE,
+    })) as Extract<DartListResponse, { list: DartDisclosureRow[] }>;
+
+    pagesFetched++;
+    totalCount = body.total_count ?? 0;
+    totalPage = body.total_page ?? 1;
+    rows.push(...(body.list ?? []));
+
+    // An empty page before the declared end means DART disagrees with its own total_page.
+    // Stop rather than loop against a moving target.
+    if ((body.list ?? []).length === 0) break;
+  }
+
+  return {
+    rows,
+    totalCount,
+    pagesFetched,
+    truncated: totalPage > MAX_DART_PAGES,
+  };
 }

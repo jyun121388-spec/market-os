@@ -100,7 +100,11 @@ export default defineConfig({
       path.join(preAuthDir, "migration_lock.toml"),
     );
     runMigrateDeploy(preAuthDir);
-  }, 60_000);
+    // This hook creates a throwaway database and shells out to `prisma migrate deploy`, which
+    // takes ~20s on its own and considerably longer when the rest of the suite is competing for
+    // the same Postgres instance. 60s was enough in isolation and timed out in a full run — a
+    // budget problem, not a logic one, so the budget is what changes.
+  }, 240_000);
 
   afterAll(async () => {
     await withAdminClient(async (client) => {

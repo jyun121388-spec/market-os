@@ -1,6 +1,6 @@
 import { prisma } from "@/server/db/client";
 import { upsertRevisionAwareObservation } from "@/server/domain/observationIngest";
-import { fetchFredObservations } from "./client";
+import { fetchAllFredObservations } from "./client";
 import { normalizeFredObservations } from "./normalize";
 import type { FredSeriesDefinition } from "./types";
 
@@ -10,6 +10,11 @@ export interface IngestResult {
   revised: number;
   unchanged: number;
   skippedMissing: number;
+  /** FRED's own observation count for the query — compare against what was processed. */
+  count: number;
+  requestsMade: number;
+  /** True when FRED reported more observations than this run was willing to fetch. */
+  truncated: boolean;
 }
 
 /**
@@ -36,8 +41,14 @@ export async function ingestFredSeries(def: FredSeriesDefinition): Promise<Inges
     },
   });
 
-  const raw = await fetchFredObservations(def.seriesId);
-  const { observations, skippedMissing } = normalizeFredObservations(raw);
+  const page = await fetchAllFredObservations(def.seriesId);
+  const { observations, skippedMissing } = normalizeFredObservations({
+    observation_start: page.observationStart,
+    observation_end: page.observationEnd,
+    units: page.units,
+    count: page.count,
+    observations: page.observations,
+  });
 
   const counts = { inserted: 0, revised: 0, unchanged: 0 };
   for (const obs of observations) {
@@ -51,9 +62,19 @@ export async function ingestFredSeries(def: FredSeriesDefinition): Promise<Inges
     counts[status]++;
   }
 
+  if (page.truncated) {
+    console.warn(
+      `[FRED] ${def.seriesId}: FRED reported ${page.count} observations but this run fetched ` +
+        `${page.observations.length}. The series is knowably incomplete — narrow the range.`,
+    );
+  }
+
   return {
     seriesId: def.seriesId,
     ...counts,
     skippedMissing: skippedMissing.length,
+    count: page.count,
+    requestsMade: page.requestsMade,
+    truncated: page.truncated,
   };
 }

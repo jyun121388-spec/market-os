@@ -1,46 +1,43 @@
 LAST COMPLETED
-M26: Security Hardening, a self-review pass (no Codex session available in this environment for
-the whole session so far — see docs/REVIEW_DEBT.md) against `src/server/domain/auth.ts` and
-`src/server/actions/auth.ts`. Two concrete fixes: (1) session tokens (`Session.id`, which doubles
-as the bearer token) are now generated explicitly via `crypto.randomBytes(32).toString("hex")`
-instead of relying on Prisma's `@default(cuid())`, which is designed for collision-resistance
-not unpredictability; (2) `signIn` now locks out an email after 5 failed attempts within 15
-minutes (in-memory, process-local — no new hosted service, matching M25's pattern), returning
-the identical "Invalid email or password" message whether wrong-password or locked-out so the
-lockout itself can't be used to enumerate accounts. Cookie flags (httpOnly/secure-in-production/
-sameSite:lax) and scrypt parameters (N=16384/r=8/p=1) were reviewed and found already correct —
-no change needed there. CSRF was reviewed and confirmed to be handled by Next.js Server Actions'
-built-in same-origin enforcement, not something this project needs to implement itself.
-Distributed/IP-level rate limiting is explicitly out of scope (would need shared infra) — logged
-as a new REVIEW_DEBT row, not silently skipped. Verified with new integration tests (session
-token format, lockout-then-reset) AND a real Playwright browser session against `npm run dev`
-(64-char hex cookie confirmed, 5 wrong attempts then a 6th CORRECT-password attempt still
-rejected). 157/157 tests pass, full verify chain green.
+M27: Production QA. Shipped `scripts/e2e-full-walkthrough.ts` (`npm run e2e`) — a persistent,
+committed, real-browser Playwright script covering the full user path in one continuous session
+(unauthenticated `/admin` redirect → signup → session-cookie shape check → authenticated
+`/admin` → logout → wrong-password rejection → M26's five-attempt lockout → expired-session
+redirect), replacing this session's prior pattern of writing and deleting throwaway verification
+scripts each milestone. Run for real against `npm run dev` this session: all 12 checks passed.
+Also did an honest, item-by-item audit of `docs/RELEASE_CHECKLIST.md` against actual current
+state (it had never been touched before) — surfaced two genuine Release-Candidate blockers (M21
+Ask Market BLOCKED_HUMAN_GATE; no Codex security review has happened, no Codex session available
+this entire session) plus two smaller open items (timezone/KST-boundary test coverage; user-
+facing stale-data marking — distinct from M24's operator-facing pipeline health view). 157/157
+unit/integration tests pass, full verify chain green.
 
 CURRENT TASK
-M27: Production QA — see docs/CURRENT_TASK.md. Scoped to one persistent, version-controlled
-Playwright test file covering the full real user walkthrough (signup → login → /today → /admin
-→ logout → wrong-password → lockout → session expiry), plus an honest pass over
-docs/RELEASE_CHECKLIST.md comparing its criteria to actual current state.
+M28: Release Candidate — see docs/CURRENT_TASK.md. Cannot be honestly declared DONE while M21
+and the Codex review remain blocked; scoped to closing what IS achievable (Claim Ledger
+cross-feature provenance audit, timezone/KST tests, stale-data marking) and writing an accurate
+final status rather than papering over the two genuine blockers.
 
 CURRENT FAILURE
 none
 
-CHANGED FILES (since M25 commit)
-src/server/domain/auth.ts (+explicit session-token generation, +login-lockout tracking,
-+resetLoginAttemptTracking test hook), tests/integration/auth.test.ts (+2 new test cases),
-docs/DECISIONS.md (+M26 entry), docs/REVIEW_DEBT.md (+M26 row, updated M01-M22 row),
+CHANGED FILES (since M26 commit)
+scripts/e2e-full-walkthrough.ts (new), package.json (+e2e script), docs/RELEASE_CHECKLIST.md
+(full honest audit, previously untouched template), docs/DECISIONS.md (+M27 entry),
 docs/PROJECT_STATE.md, docs/CURRENT_TASK.md, docs/SESSION_HANDOFF.md (this update).
 
 TEST STATUS
-157/157 pass with DATABASE_URL set, verified stable. Integration suite skips gracefully without
-a DB.
+157/157 unit/integration tests pass with DATABASE_URL set. `npm run e2e` (12/12 checks) run for
+real against a live `npm run dev` server this session — not part of `npm run verify`/CI since it
+needs a running dev server as a precondition; run manually when verifying auth/admin flows.
 
 NEXT EXACT ACTION
-Start M27: read docs/RELEASE_CHECKLIST.md (if present) for its actual criteria, then write a
-persistent `tests/e2e/full-walkthrough.spec.ts` (or similar path) exercising the complete real
-user flow end-to-end with Playwright, run it for real against `npm run dev`, then update
-RELEASE_CHECKLIST.md honestly against current state.
+Start M28: do a Claim Ledger cross-feature provenance audit (trace one real Today-Brief claim
+and one Macro-Regime reading back to their stored Observation/Source, confirm `verifyClaim`
+accepts them) — pure verification, no new code needed if it passes. Then decide concretely on
+timezone/KST test coverage and user-facing stale-data marking (build or explicitly log as
+scoped-out, record either way in DECISIONS.md). Finish with an honest M28 status entry stating
+the two remaining Human-Gate blockers plainly.
 
 IMPORTANT CONTEXT
 Local Postgres 16 must be started manually each session: `service postgresql start`. Dev
@@ -51,18 +48,15 @@ schema changes that add a unique constraint (or anything else ambiguous), `prism
 fails non-interactively — use `prisma migrate diff --from-config-datasource --to-schema
 prisma/schema.prisma --script` to get the SQL, hand-write it into
 `prisma/migrations/<timestamp>_<name>/migration.sql`, apply with `prisma migrate deploy`.
-vitest.config.mts has fileParallelism: false, and every integration test file must scope cleanup
-to rows it owns. `playwright` is a devDependency, browser at `/opt/pw-browsers/chromium` — ad hoc
-verification scripts so far have been written to a temp file INSIDE the repo root (not /tmp,
-since /tmp is outside the module resolution the script doesn't need but node require() there
-failed for the `playwright` package — resolved by writing the throwaway script into the repo
-root, which has node_modules, then deleting it after) and deleted immediately after use; M27
-should instead make one of these persistent as a real committed test file rather than continuing
-to write-and-delete throwaway scripts every milestone. Twenty-five commits pushed so far (M00-
-M25) to origin/claude/market-os-development-7vnicg; M26 is about to be committed and pushed. No
-PR opened yet (none requested). M21 remains BLOCKED_HUMAN_GATE — do not attempt to unblock it
-without explicit human direction on LLM provider/funding/credentials. Standing user instruction
-(2026-08-16, Korean): resume from last completed point, do not stop at milestone/phase
-transitions, auto-fix test failures and Codex REVISE findings, continue through the entire
-roadmap autonomously, only stop for genuine high-risk Human Gates requiring real user
-intervention.
+vitest.config.mts has fileParallelism: false, every integration test file must scope cleanup to
+rows it owns. `playwright` is a devDependency, browser at `/opt/pw-browsers/chromium` — `npm run
+e2e` (scripts/e2e-full-walkthrough.ts) is now the persistent real-browser check; prefer extending
+it over writing new throwaway scripts. Twenty-six commits pushed so far (M00-M26) to
+origin/claude/market-os-development-7vnicg; M27 is about to be committed and pushed. No PR opened
+yet (none requested). M21 remains BLOCKED_HUMAN_GATE — do not attempt to unblock it without
+explicit human direction on LLM provider/funding/credentials. No Codex session has been available
+at any point this session — the security-review and Codex-critical-review checklist items stay
+open until one is. Standing user instruction (2026-08-16, Korean): resume from last completed
+point, do not stop at milestone/phase transitions, auto-fix test failures and Codex REVISE
+findings, continue through the entire roadmap autonomously, only stop for genuine high-risk
+Human Gates requiring real user intervention.

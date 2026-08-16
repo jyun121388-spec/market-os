@@ -23,7 +23,8 @@
     "analog:print": "tsx scripts/print-analog.ts",
     "ingest:edgar-xbrl": "tsx scripts/ingest-edgar-xbrl.ts",
     "filing-diff:print": "tsx scripts/print-filing-diff.ts",
-    "jobs:ingest-all": "tsx scripts/run-ingest-jobs.ts"
+    "jobs:ingest-all": "tsx scripts/run-ingest-jobs.ts",
+    "e2e": "tsx scripts/e2e-full-walkthrough.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

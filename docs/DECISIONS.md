@@ -596,3 +596,34 @@ clears the lockout. Verified live with Playwright against `npm run dev`: signup 
 64-char hex session cookie with `httpOnly: true, sameSite: Lax`; 5 wrong-password attempts then
 a 6th attempt with the CORRECT password is still rejected with "Invalid email or password".
 157/157 tests pass, full verify chain green.
+
+## 2026-08-16 — M27 Production QA: one persistent E2E walkthrough, honest RELEASE_CHECKLIST audit
+
+**Decision**: `scripts/e2e-full-walkthrough.ts` (`npm run e2e`) is a committed, real-browser
+Playwright script exercising the full real user path in one continuous session — unauthenticated
+`/admin` redirect, signup, session-cookie shape, authenticated `/admin`, logout, wrong-password
+rejection, the M26 five-attempt lockout, and an expired-session redirect — replacing this
+session's prior pattern of writing throwaway verification scripts and deleting them after each
+milestone. `docs/RELEASE_CHECKLIST.md` was updated with an honest per-item audit against actual
+current state rather than left as an aspirational template.
+**Reason (persistent E2E)**: Every milestone from M20 onward re-verified real user flows with a
+one-off script, written and discarded each time — real coverage that left no trace for the next
+session to re-run or extend. M27 (Production QA) is exactly the milestone whose job is to make
+that a durable asset instead of repeated throwaway work.
+**Reason (honest checklist audit)**: `docs/RELEASE_CHECKLIST.md` had never been touched since
+its creation — an unchecked checklist is not evidence of anything. Auditing it item-by-item
+against real state surfaced two genuine blockers to RC status: M21 Ask Market doesn't exist
+(BLOCKED_HUMAN_GATE, not a scoping choice), and no Codex security review has happened (no Codex
+session available this entire session). Two items were also newly identified as simply not
+started (timezone/KST-boundary tests, user-facing stale-data marking) rather than silently
+left unchecked with no explanation.
+**Verification**: `npm run e2e` run for real against `npm run dev` this session — all 12
+assertions passed (redirect, signup, cookie shape, admin content, logout, wrong-password,
+lockout, expired-session redirect). Test user and its sessions cleaned up after the run
+(the script's own `cleanupTestUser()`, called in both a success and failure path via `finally`).
+157/157 unit/integration tests still pass, full verify chain green.
+**Alternatives**: Migrate to `@playwright/test` as a proper test runner with its own config —
+considered, but rejected as unnecessary infrastructure for this pass; the existing `playwright`
+library + a plain `tsx` script matches every other real-invocation script in this project
+(`scripts/print-*.ts`, `scripts/ingest-*.ts`) and needed no new devDependency or config file.
+Revisit if E2E coverage grows enough that assertion/retry ergonomics become a real pain point.

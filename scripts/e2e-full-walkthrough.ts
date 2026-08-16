@@ -1,0 +1,137 @@
+/**
+ * M27 Production QA — a single persistent, version-controlled end-to-end walkthrough of the
+ * real user path, run with a real browser against a real running `npm run dev` server. Every
+ * prior milestone verified its own slice individually (M20 Today, M22 Auth, M24 Admin, M26
+ * lockout); this exercises them together in one continuous session, the way an actual user
+ * would move through the app, asserting on real rendered content at each step.
+ *
+ * Prerequisites: `npm run dev` running on http://localhost:3000, DATABASE_URL set.
+ * Usage: DATABASE_URL=... npx tsx scripts/e2e-full-walkthrough.ts
+ */
+import { chromium } from "playwright";
+import { prisma } from "../src/server/db/client";
+
+const BASE_URL = "http://localhost:3000";
+const TEST_EMAIL = "e2e-walkthrough@example.com";
+const PASSWORD = "correct-horse-battery-staple";
+
+let failures = 0;
+
+function check(label: string, condition: boolean) {
+  if (condition) {
+    console.log(`  PASS  ${label}`);
+  } else {
+    console.error(`  FAIL  ${label}`);
+    failures += 1;
+  }
+}
+
+async function cleanupTestUser() {
+  const existing = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
+  if (existing) {
+    await prisma.session.deleteMany({ where: { userId: existing.id } });
+    await prisma.watchlistItem.deleteMany({ where: { userId: existing.id } });
+    await prisma.user.delete({ where: { id: existing.id } });
+  }
+}
+
+async function main() {
+  await cleanupTestUser();
+
+  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  const page = await browser.newPage();
+
+  try {
+    console.log("[1] Unauthenticated /admin redirects to /login");
+    await page.goto(`${BASE_URL}/admin`);
+    await page.waitForURL("**/login", { timeout: 10000 });
+    check("redirected to /login", page.url() === `${BASE_URL}/login`);
+
+    console.log("[2] Sign up a new user");
+    await page.goto(`${BASE_URL}/signup`);
+    await page.fill('input[name="email"]', TEST_EMAIL);
+    await page.fill('input[name="password"]', PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForURL("**/today", { timeout: 10000 });
+    let body = await page.textContent("body");
+    check("on /today after signup", page.url() === `${BASE_URL}/today`);
+    check("shows signed-in email", (body ?? "").includes(TEST_EMAIL));
+
+    console.log("[3] Session cookie is a random 64-char hex token with correct flags");
+    const cookies = await page.context().cookies();
+    const sessionCookie = cookies.find((c) => c.name === "market_os_session");
+    check("session cookie exists", Boolean(sessionCookie));
+    check("session cookie is httpOnly", sessionCookie?.httpOnly === true);
+    check("session cookie sameSite is Lax", sessionCookie?.sameSite === "Lax");
+    check("session token is 64-char hex", /^[0-9a-f]{64}$/.test(sessionCookie?.value ?? ""));
+
+    console.log("[4] Authenticated /admin shows pipeline health");
+    await page.goto(`${BASE_URL}/admin`);
+    body = await page.textContent("body");
+    check("shows Pipeline Health heading", (body ?? "").includes("Pipeline Health"));
+    check("shows signed-in email on /admin", (body ?? "").includes(TEST_EMAIL));
+
+    console.log("[5] Log out (logout control lives on /today)");
+    await page.goto(`${BASE_URL}/today`);
+    await page.getByRole("button", { name: /log ?out/i }).click();
+    await page.waitForURL("**/login", { timeout: 10000 });
+    check("redirected to /login after logout", page.url() === `${BASE_URL}/login`);
+
+    console.log("[6] Wrong password is rejected without revealing which part was wrong");
+    await page.fill('input[name="email"]', TEST_EMAIL);
+    await page.fill('input[name="password"]', "totally-wrong-password");
+    await page.click('button[type="submit"]');
+    await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
+    check("wrong password rejected", page.url() === `${BASE_URL}/login`);
+
+    console.log("[7] Login lockout after 5 total failed attempts (1 already made above)");
+    for (let i = 0; i < 4; i += 1) {
+      await page.fill('input[name="email"]', TEST_EMAIL);
+      await page.fill('input[name="password"]', "totally-wrong-password");
+      await page.click('button[type="submit"]');
+      await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
+    }
+    await page.fill('input[name="email"]', TEST_EMAIL);
+    await page.fill('input[name="password"]', PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
+    check("locked out even with correct password", page.url() === `${BASE_URL}/login`);
+
+    console.log("[8] Expired session redirects to /login instead of showing stale auth state");
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: TEST_EMAIL } });
+    const expiredSession = await prisma.session.create({
+      data: {
+        id: "e2e-expired-session-token-".padEnd(64, "0"),
+        userId: user.id,
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+    await page.context().addCookies([
+      {
+        name: "market_os_session",
+        value: expiredSession.id,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto(`${BASE_URL}/admin`);
+    await page.waitForURL("**/login", { timeout: 10000 });
+    check("expired session redirected to /login", page.url() === `${BASE_URL}/login`);
+  } finally {
+    await browser.close();
+    await cleanupTestUser();
+    await prisma.$disconnect();
+  }
+
+  console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
+  if (failures > 0) {
+    process.exitCode = 1;
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

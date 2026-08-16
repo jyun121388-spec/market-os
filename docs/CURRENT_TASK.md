@@ -1,26 +1,26 @@
 # Current Task
 
-MILESTONE: M27 — Production QA
+MILESTONE: M28 — Release Candidate
 
-TASK: Every milestone through M26 was verified individually (its own Playwright script, its own
-`npm run *:print`, its own integration tests) but the app has never had one continuous
-cross-feature walkthrough exercising every real page and flow together in sequence, the way a
-real user session would. Real scoping: full "production QA" (load testing, real traffic,
-multi-environment) needs an actual deployment, which is gated behind the same
-production-deployment Human Gate as M25's scheduler — not attempted here. What's genuinely
-buildable now: (1) one comprehensive Playwright script/test exercising the full real user path
-in this dev environment — signup, login, /today, /admin (both as unauthenticated redirect-check
-and as a real logged-in view), logout, wrong-password rejection, the M26 lockout, and session
-expiry — asserting on real rendered content at each step, not just HTTP status; (2) a pass over
-`docs/RELEASE_CHECKLIST.md` comparing its criteria against actual current state, updating it
-honestly (some criteria will still be open — that's expected, not a failure, given multiple
-BLOCKED_HUMAN_GATE items).
+TASK: Per the M27 `docs/RELEASE_CHECKLIST.md` audit, an honest Release Candidate cannot be
+declared yet — two items are blocked on things outside this session's unilateral control: (1)
+M21 Ask Market needs a human decision on LLM provider/funding/credentials (a genuine Human Gate,
+not a scoping choice this session can route around); (2) a Codex critical security review needs
+an actual Codex session, which has not been available at any point this session. What IS
+achievable without either blocker, still open per the M27 audit: a cross-feature Claim Ledger
+provenance audit (pull one real sample output from each feature area — Today Brief, Macro
+Regime, Historical Analog, Company X-Ray — and verify its claim traces to a stored source, not
+just per-milestone in isolation as already tested), timezone/KST-boundary test coverage (no
+dedicated UTC/KST edge-case tests exist despite UTC `DateTime` being used throughout), and
+user-facing stale-data marking (no feature currently marks an individual displayed value as
+stale vs. current — `/admin`'s pipeline-health view is operator-facing only, not user-facing).
 
-STATUS: Not started — M26 (Security Hardening) complete and verified.
+STATUS: Not started — M27 (Production QA) complete and verified.
 
-NEXT EXACT ACTION: Read `docs/RELEASE_CHECKLIST.md` in full first (if it exists) to know its
-actual criteria, then write a single Playwright test file (not an ad hoc throwaway script this
-time — a real `tests/e2e/*.spec.ts` or similar under version control, since this is exactly the
-kind of full-flow regression coverage that should persist across sessions, not be re-typed each
-time) covering the full walkthrough above. Run it for real against `npm run dev`. Update
-RELEASE_CHECKLIST.md with an honest done/open status per item.
+NEXT EXACT ACTION: Start with the Claim Ledger cross-feature audit since it's pure verification
+(no new feature code) — trace one real claim from Today Brief's What Changed section back to its
+Observation and Source, confirm `verifyClaim` accepts it, and do the same for a Macro Regime
+reading. Then decide concretely whether timezone/KST tests and stale-data marking are real gaps
+worth closing now or reasonable to log as scoped-out for V1 (record whichever in DECISIONS.md
+either way, not silently). Finally write the honest M28 status: still blocked on M21 + Codex
+review, with everything else either closed or explicitly logged.

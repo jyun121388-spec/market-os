@@ -4,17 +4,18 @@ CURRENT RELEASE
 COMPLETED
 M00, M01, M02, M03, M04, M05, M06, M07 (partial), M08, M09 (partial), M10, M11, M12 (partial),
 M13 (partial), M14 (partial), M15 (partial), M16 (partial), M17 (partial), M18 (partial), M19,
-M20, M22, M23, M24, M25 (partial), M26 (partial — self-review, real Codex security review still
-owed)
+M20, M22, M23, M24, M25 (partial), M26 (partial), M27 (partial — E2E walkthrough + honest
+checklist audit; not a full production-scale QA pass, which needs an actual deployment)
 
 CURRENT
-M27
+M28
 
 STATUS
 READY
 
 TESTS
-157 / 157 PASS (71 unit, 86 integration against a real Postgres instance)
+157 / 157 PASS (71 unit, 86 integration against a real Postgres instance) + npm run e2e (12/12
+checks, real browser, run this session)
 
 OPEN P0
 0
@@ -23,21 +24,19 @@ OPEN P1
 0
 
 REVIEW DEBT
-See docs/REVIEW_DEBT.md (22 entries). M21 remains BLOCKED_HUMAN_GATE pending a human decision on
-product-runtime LLM provider/funding/credentials. M25 remains BLOCKED_HUMAN_GATE pending
-production-deployment approval for a real scheduler. M26 added a self-review-only caveat (no
-Codex session available all session) and a new row: login lockout is per-email/process-local
-only, no distributed rate limiting.
+See docs/REVIEW_DEBT.md (22 entries). Two genuine RC blockers per the M27 RELEASE_CHECKLIST
+audit: M21 Ask Market (BLOCKED_HUMAN_GATE) and no Codex security review (no Codex session
+available this entire session). Full detail in docs/RELEASE_CHECKLIST.md's per-item audit.
 
 NEXT
-M27: Production QA. No end-to-end QA pass across the full app (all pages, all flows) has run
-together as one exercise — each milestone was verified individually (Playwright for
-signup/login/admin, npm run *:print for domain logic, integration tests against real Postgres)
-but never as a single cross-feature walkthrough. Real scoping: a genuine "production QA" pass
-(load testing, multi-region, real user traffic patterns) needs an actual deployed environment,
-which is gated on the production-deployment Human Gate the same way M25's scheduler is. What's
-buildable now: a comprehensive Playwright walkthrough exercising every real page/flow in
-sequence in this dev environment (signup → login → /today → /admin → logout → wrong-password
-rejection → lockout → session expiry), plus a review of docs/RELEASE_CHECKLIST.md against
-current state to see what's genuinely done vs. still open before any real release. No new paid
-QA/monitoring tooling.
+M28: Release Candidate. Per the M27 RELEASE_CHECKLIST.md audit, this milestone cannot honestly
+be marked DONE yet: two items are blocked on things outside this session's control (M21 needs a
+human LLM-provider/funding decision; the security review needs a Codex session, unavailable this
+entire session). Real scoping for what remains: close every checklist item that IS achievable
+without those two blockers (Claim Ledger cross-feature provenance audit, timezone/KST-boundary
+test coverage, user-facing stale-data marking), then write an honest M28 status — either
+"Release Candidate blocked on N named Human Gates" (not a failure state, an accurate one) or,
+if the user provides the M21 decision or a Codex session becomes available mid-session, complete
+those and reassess. Do not mark M28/the roadmap "complete" while genuine blockers remain
+un-surfaced — CLAUDE.md's Definition of Done requires Codex review done or logged as Review Debt,
+which is exactly the state to document, not paper over.

@@ -23,7 +23,10 @@ import {
 describe("Governance — replay of decisions a human actually made", () => {
   // Each row is a real entry in docs/HUMAN_GATE_QUEUE.md, with the outcome that was recorded.
   const recorded: { gate: string; kind: ActionKind; expected: PolicyDecision }[] = [
-    { gate: "HG-001 GitHub push", kind: "GIT_PUSH", expected: "AUTO_ALLOWED_WITH_VERIFY" },
+    // HG-001 is recorded as blocked on the USER authenticating this machine, so a faithful
+    // replay must supply that context. Asserting a bare auto-allow and calling it "HG-001" was
+    // not a replay of the recorded decision at all (independent review, `gpt-5.6-terra`).
+    { gate: "git push, policy only", kind: "GIT_PUSH", expected: "AUTO_ALLOWED_WITH_VERIFY" },
     {
       gate: "HG-007 production deployment",
       kind: "DEPLOY_PRODUCTION",
@@ -34,9 +37,13 @@ describe("Governance — replay of decisions a human actually made", () => {
       kind: "ACTIVATE_PAYMENTS",
       expected: "DEFERRED_HUMAN_GATE",
     },
-    { gate: "zero-cost rule — paid provider", kind: "CALL_PAID_PROVIDER", expected: "DENIED" },
-    { gate: "zero-cost rule — buy credits", kind: "PURCHASE_AI_CREDITS", expected: "DENIED" },
-    { gate: "git safety — force push", kind: "GIT_HISTORY_REWRITE", expected: "DENIED" },
+    { gate: "HG-006 paid provider", kind: "CALL_PAID_PROVIDER", expected: "DEFERRED_HUMAN_GATE" },
+    { gate: "buy AI credits", kind: "PURCHASE_AI_CREDITS", expected: "DEFERRED_HUMAN_GATE" },
+    {
+      gate: "git safety — force push",
+      kind: "GIT_HISTORY_REWRITE",
+      expected: "DEFERRED_HUMAN_GATE",
+    },
     { gate: "legal guardrail", kind: "PERSONALIZED_ADVICE_OUTPUT", expected: "DENIED" },
     { gate: "local AI calibration", kind: "LOCAL_MODEL_AS_VERIFIER", expected: "DENIED" },
   ];
@@ -59,15 +66,12 @@ describe("Governance — replay of decisions a human actually made", () => {
 describe("Governance — must not defer ordinary engineering", () => {
   // The failure mode that would make this layer worse than useless. Autonomy is the goal;
   // safety is the constraint, not the objective.
-  it.each<ActionKind>([
-    "ADD_TEST",
-    "EDIT_DOCS",
-    "GIT_COMMIT",
-    "CALL_FREE_PROVIDER",
-    "LOCAL_MODEL_HYPOTHESIS",
-  ])("%s is allowed outright", (kind) => {
-    expect(evaluateAction({ kind }).decision).toBe("AUTO_ALLOWED");
-  });
+  it.each<ActionKind>(["ADD_TEST", "EDIT_DOCS", "GIT_COMMIT", "LOCAL_MODEL_HYPOTHESIS"])(
+    "%s is allowed outright",
+    (kind) => {
+      expect(evaluateAction({ kind }).decision).toBe("AUTO_ALLOWED");
+    },
+  );
 
   it.each<ActionKind>(["FIX_REPRODUCED_DEFECT", "REFACTOR", "ADDITIVE_SCHEMA_MIGRATION"])(
     "%s is allowed subject to verification, not deferred",
@@ -90,10 +94,14 @@ describe("Governance — DENIED and DEFERRED are different things", () => {
   it("does not treat settled policy as a pending question", () => {
     // A gate is a question awaiting an answer. A denial is already answered. Conflating them is
     // how a standing rule quietly degrades into "ask again later".
+    // Only rules that NO human approval could open. Paid services, credits and history rewrite
+    // were wrongly listed here: each is a decision the user is entitled to make, and encoding a
+    // gate as a denial quietly removes it from them.
     for (const kind of [
-      "PURCHASE_AI_CREDITS",
-      "GIT_HISTORY_REWRITE",
       "COMMIT_CREDENTIAL",
+      "PERSONALIZED_ADVICE_OUTPUT",
+      "UNSOURCED_FACT_OUTPUT",
+      "LOCAL_MODEL_AS_VERIFIER",
     ] as ActionKind[]) {
       const evaluation = evaluateAction({ kind });
       expect(evaluation.decision).toBe("DENIED");
@@ -148,17 +156,80 @@ describe("Governance — context tightens, never loosens", () => {
     ).toBe("DENIED");
   });
 
-  it("holds a verify-gated action when verification is known to be failing", () => {
-    const evaluation = evaluateAction({
-      kind: "GIT_PUSH",
-      context: { verificationGreen: false },
-    });
-    expect(evaluation.decision).toBe("DEFERRED_HUMAN_GATE");
-    expect(evaluation.gate?.id).toBe("HG-VERIFY-RED");
+  it("refuses a verify-gated action when verification is known to be failing", () => {
+    // Superseded assertion: this used to expect DEFERRED_HUMAN_GATE, which framed a red suite as
+    // something a human could authorise past. It is a failed precondition — see the correction
+    // block at the end of this file.
+    expect(
+      evaluateAction({ kind: "GIT_PUSH", context: { verificationGreen: false } }).decision,
+    ).toBe("DENIED");
   });
 
   it("does not claim verification passed merely because nobody said it failed", () => {
     // Silence must leave the action gated on verification, not promote it to allowed.
     expect(evaluateAction({ kind: "GIT_PUSH" }).decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
   });
+});
+
+/**
+ * Findings from independent review (`gpt-5.6-terra`), 2026-08-18. Several were fidelity errors -
+ * rules that cited a document saying something different, always in the stricter direction.
+ * Being stricter than the source is not automatically safe: encoding a Human Gate as a denial
+ * removes a decision the user is entitled to make, while looking responsible.
+ */
+describe("Governance — corrections from independent review", () => {
+  it("does not let an agent weaken a governing document on its own authority", () => {
+    // "Docs affect no runtime behaviour" is false for the documents that DEFINE the rules.
+    const evaluation = evaluateAction({
+      kind: "EDIT_GOVERNING_DOCUMENT",
+      detail: "remove the personalized-advice prohibition from LEGAL_GUARDRAILS.md",
+    });
+    expect(evaluation.decision).toBe("DEFERRED_HUMAN_GATE");
+  });
+
+  it("still allows ordinary documentation edits", () => {
+    // The negative control. If every doc edit needed approval, the layer would block the most
+    // routine work there is.
+    expect(evaluateAction({ kind: "EDIT_DOCS" }).decision).toBe("AUTO_ALLOWED");
+  });
+
+  it("does not assume a free provider call is within its rate limit", () => {
+    // The policy authorises this only WITHIN the documented limit, and missing context must not
+    // produce the more permissive answer.
+    expect(evaluateAction({ kind: "CALL_FREE_PROVIDER" }).decision).toBe(
+      "AUTO_ALLOWED_WITH_VERIFY",
+    );
+    expect(
+      evaluateAction({
+        kind: "CALL_FREE_PROVIDER",
+        context: { withinDocumentedRateLimit: true },
+      }).decision,
+    ).toBe("AUTO_ALLOWED");
+  });
+
+  it("defers the push when no credential exists, without calling the action itself forbidden", () => {
+    const evaluation = evaluateAction({
+      kind: "GIT_PUSH",
+      context: { credentialsAvailable: false },
+    });
+    expect(evaluation.decision).toBe("DEFERRED_HUMAN_GATE");
+    expect(evaluation.gate?.id).toBe("HG-001");
+  });
+
+  it("denies rather than merely defers when verification is red", () => {
+    // AUTO_ALLOWED_WITH_VERIFY means the verification MUST pass. A red suite is a failed
+    // precondition, not something a human waves through.
+    const evaluation = evaluateAction({ kind: "GIT_PUSH", context: { verificationGreen: false } });
+    expect(evaluation.decision).toBe("DENIED");
+    expect(evaluation.gate).toBeUndefined();
+  });
+
+  it.each<ActionKind>(["CREDENTIAL_CHANGE", "BULK_MESSAGING"])(
+    "%s is representable and deferred",
+    (kind) => {
+      // Both appear in CLAUDE.md's Human Gate list and in the contract, and both were missing
+      // from the table - so the engine could not have decided them at all.
+      expect(evaluateAction({ kind }).decision).toBe("DEFERRED_HUMAN_GATE");
+    },
+  );
 });

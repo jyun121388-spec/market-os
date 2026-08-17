@@ -25,6 +25,7 @@ export type ActionKind =
   | "FIX_SUSPECTED_DEFECT"
   | "REFACTOR"
   | "EDIT_DOCS"
+  | "EDIT_GOVERNING_DOCUMENT"
   | "ADDITIVE_SCHEMA_MIGRATION"
   | "DESTRUCTIVE_DB_OP"
   | "RUN_DESTRUCTIVE_TESTS"
@@ -40,6 +41,8 @@ export type ActionKind =
   | "DEPLOY_PRODUCTION"
   | "ACTIVATE_PAYMENTS"
   | "PUBLISH_REPO"
+  | "CREDENTIAL_CHANGE"
+  | "BULK_MESSAGING"
   | "COMMIT_CREDENTIAL"
   | "PERSONALIZED_ADVICE_OUTPUT"
   | "UNSOURCED_FACT_OUTPUT"
@@ -59,6 +62,10 @@ export interface ActionDescriptor {
     releaseGatesClosed?: boolean;
     /** Whether a validated disposable TEST_DATABASE_URL is set. */
     disposableTestDbConfigured?: boolean;
+    /** Whether the call is provably within the provider's documented rate limit. */
+    withinDocumentedRateLimit?: boolean;
+    /** Whether a usable GitHub credential exists on this machine. */
+    credentialsAvailable?: boolean;
   };
 }
 
@@ -100,7 +107,21 @@ const RULES: Record<ActionKind, Rule> = {
   EDIT_DOCS: {
     decision: "AUTO_ALLOWED",
     citations: ["CLAUDE.md — development loop"],
-    rationale: "Documentation changes are reversible and affect no runtime behaviour.",
+    rationale: "Ordinary documentation is reversible and affects no runtime behaviour.",
+  },
+  EDIT_GOVERNING_DOCUMENT: {
+    decision: "DEFERRED_HUMAN_GATE",
+    citations: ["docs/LEGAL_GUARDRAILS.md", "CLAUDE.md — absolute rules"],
+    rationale:
+      "Editing a document that DEFINES the rules is not a documentation change. " +
+      "'Docs affect no runtime behaviour' is false for LEGAL_GUARDRAILS.md, CLAUDE.md and the " +
+      "policy sources — weakening a prohibition there weakens every decision derived from it, " +
+      "which an agent must not be able to do to itself (independent review, `gpt-5.6-terra`).",
+    gate: {
+      id: "HG-GOVERNING-DOC",
+      question: "Change a rule in a governing document?",
+      recommendedDefault: "No. Record the proposed change and leave the rule in force.",
+    },
   },
   FIX_REPRODUCED_DEFECT: {
     decision: "AUTO_ALLOWED_WITH_VERIFY",
@@ -169,13 +190,64 @@ const RULES: Record<ActionKind, Rule> = {
     citations: ["CLAUDE.md — git policy", "docs/HUMAN_GATE_QUEUE.md HG-001"],
     rationale: "Publishing the branch is safe with a clean tree and a green suite.",
     requiredVerification: ["clean working tree", ...DONE],
+    // The ACTION is permitted; the CREDENTIAL is the gate. Conflating those made the earlier
+    // calibration dishonest — it claimed to replay HG-001, whose recorded outcome is "blocked on
+    // the user authenticating this machine", while asserting an auto-allow.
+    refine: (action, base) =>
+      action.context?.credentialsAvailable === false
+        ? {
+            ...base,
+            decision: "DEFERRED_HUMAN_GATE",
+            rationale:
+              "Pushing is permitted by policy, but no GitHub credential exists on this machine " +
+              "and the environment cannot prompt for one. The block is environmental, not a " +
+              "policy refusal.",
+            gate: {
+              id: "HG-001",
+              question: "Authenticate this machine to GitHub?",
+              recommendedDefault:
+                "Sign in via Git Credential Manager, `gh auth login`, or configure an SSH remote.",
+            },
+          }
+        : base,
   },
   GIT_HISTORY_REWRITE: {
-    decision: "DENIED",
-    citations: ["CLAUDE.md — absolute rules"],
+    // Corrected after independent review. CLAUDE.md forbids this "without explicit human
+    // approval", which makes it a gate rather than settled policy; the earlier DENIED cited a
+    // document that does not say that. The recommended default is still an unambiguous no, and
+    // unattended behaviour is unchanged.
+    decision: "DEFERRED_HUMAN_GATE",
+    citations: ["CLAUDE.md — 'without explicit human approval'"],
     rationale:
-      "Force push, reset across hardening history, and history rewriting are forbidden outright. " +
-      "This is not a gate awaiting an answer; the answer is recorded.",
+      "Force push and history rewriting destroy work that cannot be recovered from this machine.",
+    gate: {
+      id: "HG-HISTORY-REWRITE",
+      question: "Authorise a force push or history rewrite?",
+      recommendedDefault:
+        "No. There are 69 local-only commits; a rewrite risks the entire hardening history.",
+    },
+  },
+  CREDENTIAL_CHANGE: {
+    decision: "DEFERRED_HUMAN_GATE",
+    citations: ["CLAUDE.md — real credentials are a HUMAN GATE"],
+    rationale:
+      "Obtaining or installing a credential is a user action. The agent may state what is needed " +
+      "and where it goes, and must never invent, guess or substitute one.",
+    gate: {
+      id: "HG-CREDENTIAL",
+      question: "Provide or install the credential?",
+      recommendedDefault: "Place it in `.env` from the provider's own free registration flow.",
+    },
+  },
+  BULK_MESSAGING: {
+    decision: "DEFERRED_HUMAN_GATE",
+    citations: ["CLAUDE.md — Human Gate list"],
+    rationale: "Outward-facing and not retractable once sent.",
+    gate: {
+      id: "HG-BULK-MESSAGING",
+      question: "Send bulk email or SMS?",
+      recommendedDefault: "No. Nothing in the current milestone requires it.",
+    },
   },
   MERGE_MAIN: {
     decision: "DEFERRED_HUMAN_GATE",
@@ -188,21 +260,45 @@ const RULES: Record<ActionKind, Rule> = {
     },
   },
   CALL_FREE_PROVIDER: {
-    decision: "AUTO_ALLOWED",
+    decision: "AUTO_ALLOWED_WITH_VERIFY",
     citations: ["docs/DATA_POLICY.md"],
-    rationale: "Reading a free provider within its documented rate limit costs nothing.",
+    rationale:
+      "Free to call, but the policy authorises it only WITHIN the provider's documented rate " +
+      "limit — so an unproven rate limit is a precondition, not a detail.",
+    requiredVerification: ["call is within the provider's documented rate limit"],
+    refine: (action, base) =>
+      action.context?.withinDocumentedRateLimit === true
+        ? { ...base, decision: "AUTO_ALLOWED", requiredVerification: [] }
+        : base,
   },
   CALL_PAID_PROVIDER: {
-    decision: "DENIED",
-    citations: ["CLAUDE.md — zero additional cost", "docs/AI_RESOURCE_POLICY.md"],
-    rationale: "Spending is settled policy, not a pending question.",
+    // Corrected after independent review (`gpt-5.6-terra`). This was DENIED, which was stricter
+    // than its own citation: CLAUDE.md says paid external services need "explicit human
+    // approval — treat as HUMAN GATE". A gate is a question a human can answer; a denial claims
+    // it is already settled. Encoding a gate as a denial is not the safe error it looks like, it
+    // silently removes a decision the user is entitled to make. Behaviour while unattended is
+    // identical — do not act, record it, continue — so nothing is loosened by being accurate.
+    decision: "DEFERRED_HUMAN_GATE",
+    citations: ["CLAUDE.md — absolute rules (HUMAN GATE)", "docs/DATA_POLICY.md"],
+    rationale: "Paid external services require explicit human approval.",
+    gate: {
+      id: "HG-PAID-SERVICE",
+      question: "Approve spending on a paid external service?",
+      recommendedDefault: "No. Use a free source or defer the capability.",
+    },
   },
   PURCHASE_AI_CREDITS: {
-    decision: "DENIED",
-    citations: ["docs/AI_RESOURCE_POLICY.md"],
+    decision: "DEFERRED_HUMAN_GATE",
+    citations: ["docs/AI_RESOURCE_POLICY.md", "CLAUDE.md — absolute rules (HUMAN GATE)"],
     rationale:
-      "An exhausted quota is a routing event, not a purchasing event. Route to another included " +
-      "model or to deterministic verification.",
+      "An exhausted quota is a routing event, not a purchasing event — route to another included " +
+      "model or to deterministic verification. Purchasing remains the user's decision to make, " +
+      "not the agent's to foreclose.",
+    gate: {
+      id: "HG-AI-CREDITS",
+      question: "Purchase additional AI usage?",
+      recommendedDefault: "No. Route to an included model or to deterministic verification.",
+    },
   },
   LOCAL_MODEL_HYPOTHESIS: {
     decision: "AUTO_ALLOWED",
@@ -306,21 +402,22 @@ export function evaluateAction(action: ActionDescriptor): PolicyEvaluation {
   // A verify-gated action whose verification is known to be red is not allowed yet. Silence about
   // verification stays AUTO_ALLOWED_WITH_VERIFY — the caller is being told what to run, not
   // promised it already passed.
+  // DENIED, not a gate. `AUTO_ALLOWED_WITH_VERIFY` means the verification MUST pass first, so a
+  // red suite is a failed precondition rather than a question a human gets to wave through. The
+  // earlier version asked "proceed while verification is failing?", which turned a settled
+  // requirement into a request for permission — the opposite of the DENIED/DEFERRED distinction
+  // this engine is supposed to keep straight (independent review, `gpt-5.6-terra`).
   if (
     refined.decision === "AUTO_ALLOWED_WITH_VERIFY" &&
     action.context?.verificationGreen === false
   ) {
     return {
       ...refined,
-      decision: "DEFERRED_HUMAN_GATE",
+      decision: "DENIED",
+      gate: undefined,
       rationale:
         `${refined.rationale} Verification is currently failing, so the precondition this ` +
-        "decision depends on is not met.",
-      gate: {
-        id: "HG-VERIFY-RED",
-        question: "Proceed while verification is failing?",
-        recommendedDefault: "No. Fix the failure first; a red suite invalidates the evidence.",
-      },
+        "decision depends on is not met. Repair it; the action becomes available again on its own.",
     };
   }
 

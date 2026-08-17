@@ -1,0 +1,317 @@
+/**
+ * Evolution Engine — ledger data (docs/EVOLUTION_LEDGERS.md).
+ *
+ * The Engine's memory. Without recorded history there is nothing to cluster, and the loop
+ * degenerates into a model inventing plausible-sounding improvements — the failure mode
+ * `docs/LOCAL_AI_CALIBRATION.md` documents in detail.
+ *
+ * These entries are BACKFILLED FROM THIS PROJECT'S REAL HISTORY, drawn from `docs/DECISIONS.md`,
+ * `docs/INTERIM_REVIEW_FINDINGS.md` and `docs/REVIEW_DEBT.md`. Nothing here is invented; a
+ * fabricated incident would corrupt exactly the signal the Engine exists to read.
+ *
+ * The `lesson` field is the point of the whole structure. A ledger of fixes is a changelog and git
+ * already provides one. A ledger of LESSONS is the only thing that can predict the next defect.
+ */
+
+export type LedgerKind =
+  | "INCIDENT"
+  | "FALSE_GREEN"
+  | "REVIEW_FINDING"
+  | "REGRESSION"
+  | "PROVIDER_DRIFT"
+  | "PREDICTION_ERROR"
+  | "USER_CORRECTION"
+  | "SECURITY_FINDING"
+  | "PERFORMANCE"
+  | "COST";
+
+export type WeaknessCategory =
+  | "FIXTURE_REALISM"
+  | "IDENTITY_MODELLING"
+  | "SILENT_DEGRADATION"
+  | "PROVIDER_ASSUMPTION"
+  | "CONCURRENCY"
+  | "PROVENANCE"
+  | "GUARDRAIL_COVERAGE"
+  | "ENVIRONMENT_DRIFT";
+
+export interface LedgerEntry {
+  id: string;
+  ledger: LedgerKind;
+  subsystem: string;
+  severity: "P0" | "P1" | "P2" | "P3";
+  summary: string;
+  /**
+   * The systemic lesson, NOT the fix. "Fixed the diff" is worthless here; "fixtures could not
+   * express two durations" is the entry. This is the field the detector reads.
+   */
+  lesson: string;
+  /**
+   * The recurring cause this instance belongs to. Assigned when the entry is written, by the
+   * person who understood the defect — NOT inferred later by string-matching a summary, which
+   * would make the clustering a property of prose style rather than of the defects.
+   */
+  category: WeaknessCategory;
+}
+
+/**
+ * Real history. Each entry traces to a documented defect in this repository.
+ *
+ * Kept deliberately as data rather than prose so the detector can be tested against it, and so
+ * adding an entry is a small, reviewable diff at the moment a defect is understood.
+ */
+export const BACKFILLED_LEDGER: LedgerEntry[] = [
+  {
+    id: "FG-01",
+    ledger: "FALSE_GREEN",
+    subsystem: "filingDiff",
+    severity: "P1",
+    summary: "Reported a +232.9985% Apple revenue increase.",
+    lesson:
+      "No fixture contained two facts sharing one periodEnd with different durations, so no test " +
+      "could exhibit a nine-month-versus-quarter comparison.",
+    category: "FIXTURE_REALISM",
+  },
+  {
+    id: "FG-02",
+    ledger: "FALSE_GREEN",
+    subsystem: "edgar/client",
+    severity: "P1",
+    summary: "Stored 1000 of Apple's 2240 filings and reported success.",
+    lesson:
+      "No fixture exceeded the provider's row cap, so the cap could not be reached in a test.",
+    category: "FIXTURE_REALISM",
+  },
+  {
+    id: "FG-03",
+    ledger: "FALSE_GREEN",
+    subsystem: "edgar-xbrl/ingest",
+    severity: "P1",
+    summary: "168 financial facts silently discarded on every ingest.",
+    lesson:
+      "No fixture had two facts differing only by periodStart, so a uniqueness key that omitted " +
+      "it looked sufficient.",
+    category: "FIXTURE_REALISM",
+  },
+  {
+    id: "FG-04",
+    ledger: "FALSE_GREEN",
+    subsystem: "edgar identity",
+    severity: "P1",
+    summary: "2240 filings and 933 facts shared zero joinable rows.",
+    lesson:
+      "Fixtures used one CIK representation throughout, so padded and unpadded forms never met.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "FG-05",
+    ledger: "FALSE_GREEN",
+    subsystem: "askMarket / companyXray",
+    severity: "P2",
+    summary: "Financial facts pooled across providers sharing a corp code.",
+    lesson: "Every fixture had exactly one source, so cross-provider collision was unreachable.",
+    category: "FIXTURE_REALISM",
+  },
+  {
+    id: "FG-06",
+    ledger: "FALSE_GREEN",
+    subsystem: "askMarket / morningBrief",
+    severity: "P2",
+    summary: "Figures rendered to users with no source attribution.",
+    lesson: "No test asserted that displayed output carries the provider it came from.",
+    category: "PROVENANCE",
+  },
+  {
+    id: "RF-01",
+    ledger: "REVIEW_FINDING",
+    subsystem: "observationIngest",
+    severity: "P0",
+    summary: "Revision chain ordered by a millisecond-resolution timestamp.",
+    lesson:
+      "An identity or ordering key was asked to carry more precision than its storage type has.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "RF-02",
+    ledger: "REVIEW_FINDING",
+    subsystem: "ingestRun",
+    severity: "P2",
+    summary: "IngestRun.target stored an unpadded CIK while the data it describes is padded.",
+    lesson: "A join key was written in display form on one side and storage form on the other.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "RF-03",
+    ledger: "REVIEW_FINDING",
+    subsystem: "filingDiff",
+    severity: "P1",
+    summary: "A 13-week and a 14-week quarter both bucket to three months.",
+    lesson:
+      "A rounding bucket used for comparability was treated as though it preserved the exact " +
+      "quantity it had rounded away.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "PD-01",
+    ledger: "PROVIDER_DRIFT",
+    subsystem: "edgar-xbrl",
+    severity: "P1",
+    summary: "Real companyfacts rows arrive with fy and fp null against non-nullable columns.",
+    lesson: "The provider's documented shape was believed over its observed responses.",
+    category: "PROVIDER_ASSUMPTION",
+  },
+  {
+    id: "PD-02",
+    ledger: "PROVIDER_DRIFT",
+    subsystem: "ecos / dart clients",
+    severity: "P1",
+    summary: "Both return HTTP 200 for an authentication failure.",
+    lesson:
+      "response.ok was treated as success without inspecting the body the provider actually sent.",
+    category: "PROVIDER_ASSUMPTION",
+  },
+  {
+    id: "PD-03",
+    ledger: "PROVIDER_DRIFT",
+    subsystem: "edgar/client",
+    severity: "P1",
+    summary: "filings.recent is capped at 1000 with the remainder in filings.files[].",
+    lesson: "A documented response shape omitted the pagination the live endpoint actually uses.",
+    category: "PROVIDER_ASSUMPTION",
+  },
+  {
+    id: "PD-04",
+    ledger: "PROVIDER_DRIFT",
+    subsystem: "edgar-xbrl",
+    severity: "P2",
+    summary: "Revenue moved across three us-gaap tags at the ASC 606 transition.",
+    lesson: "One economic quantity was assumed to keep one identifier across time.",
+    category: "PROVIDER_ASSUMPTION",
+  },
+  {
+    id: "SF-01",
+    ledger: "SECURITY_FINDING",
+    subsystem: "askMarket guardrail",
+    severity: "P1",
+    summary: "49 phrasings requesting personalized advice passed the guardrail.",
+    lesson:
+      "A rule was expressed in one language, word order or format and not mirrored in the others.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+  {
+    id: "SF-02",
+    ledger: "SECURITY_FINDING",
+    subsystem: "auth",
+    severity: "P1",
+    summary: "validateSession returned the whole User row including passwordHash.",
+    lesson:
+      "A query selected everything by default, so a sensitive column crossed a trust boundary " +
+      "nobody had reviewed.",
+    category: "PROVENANCE",
+  },
+  {
+    id: "SF-03",
+    ledger: "SECURITY_FINDING",
+    subsystem: "admin",
+    severity: "P2",
+    summary: "/admin required only that a user be signed in.",
+    lesson: "Authentication was accepted as authorization.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+  {
+    id: "SF-04",
+    ledger: "SECURITY_FINDING",
+    subsystem: "watchlist",
+    severity: "P1",
+    summary: "The domain module had zero callers, so isolation was never exercised.",
+    lesson: "A helper was tested while the request path that would actually use it did not exist.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+  {
+    id: "FG-07",
+    ledger: "FALSE_GREEN",
+    subsystem: "adapters",
+    severity: "P1",
+    summary: "FRED, ECOS and DART each treated page one as the whole answer.",
+    lesson:
+      "A partial result was returned as success, with the field stating otherwise received and " +
+      "ignored.",
+    category: "SILENT_DEGRADATION",
+  },
+  {
+    id: "FG-08",
+    ledger: "FALSE_GREEN",
+    subsystem: "seriesReadings",
+    severity: "P2",
+    summary: "unit === 'percent' is case sensitive, so a 'Percent' typo disables basis points.",
+    lesson: "A capability degraded to silence instead of failing when its precondition was unmet.",
+    category: "SILENT_DEGRADATION",
+  },
+  {
+    id: "FG-09",
+    ledger: "FALSE_GREEN",
+    subsystem: "companyXray",
+    severity: "P2",
+    summary: "Reported COMPLETE although the provider had stated no total to compare against.",
+    lesson: "An absence of contradicting evidence was reported as positive confirmation.",
+    category: "SILENT_DEGRADATION",
+  },
+  {
+    id: "EN-01",
+    ledger: "INCIDENT",
+    subsystem: "test harness",
+    severity: "P2",
+    summary: "The H1 migration regression test never ran on Windows.",
+    lesson: "A test failed to start in one environment and reported nothing in the other.",
+    category: "ENVIRONMENT_DRIFT",
+  },
+  {
+    id: "EN-02",
+    ledger: "INCIDENT",
+    subsystem: "scripts",
+    severity: "P2",
+    summary: "run-ingest-jobs spawned `npm`, which is npm.cmd on Windows.",
+    lesson:
+      "A cross-platform assumption held on the development machine and failed silently elsewhere.",
+    category: "ENVIRONMENT_DRIFT",
+  },
+  {
+    id: "CC-01",
+    ledger: "REVIEW_FINDING",
+    subsystem: "eventIngest",
+    severity: "P1",
+    summary: "Four concurrent ingests of one URL rejected three with a raw P2002.",
+    lesson: "A read-then-write sequence was treated as atomic.",
+    category: "CONCURRENCY",
+  },
+  {
+    id: "CC-02",
+    ledger: "REVIEW_FINDING",
+    subsystem: "eventIngest",
+    severity: "P1",
+    summary: "Event and its first EventMention were written non-atomically.",
+    lesson: "A parent and its required child were written outside one transaction.",
+    category: "CONCURRENCY",
+  },
+  {
+    id: "CC-03",
+    ledger: "SECURITY_FINDING",
+    subsystem: "watchlist",
+    severity: "P2",
+    summary: "An upsert could surface a raw P2002 under concurrent submission.",
+    lesson:
+      "A uniqueness violation reached the caller as a database error rather than a handled " +
+      "outcome, because the write assumed it was the only one in flight.",
+    category: "CONCURRENCY",
+  },
+  {
+    id: "CC-04",
+    ledger: "REVIEW_FINDING",
+    subsystem: "observationIngest",
+    severity: "P1",
+    summary: "Attaching a revision retried 20 times then threw a raw P2002.",
+    lesson:
+      "A retry loop was used to paper over a read-then-write race instead of removing the race.",
+    category: "CONCURRENCY",
+  },
+];

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchFredObservations, FredApiError } from "@/server/adapters/fred/client";
 import { fetchEcosObservations, EcosApiError } from "@/server/adapters/ecos/client";
-import { fetchDartDisclosures, DartApiError } from "@/server/adapters/dart/client";
+import { fetchDartDisclosures } from "@/server/adapters/dart/client";
 import { TRACKED_ECOS_SERIES } from "@/server/adapters/ecos/types";
 
 /**

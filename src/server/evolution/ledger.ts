@@ -314,4 +314,52 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
       "A retry loop was used to paper over a read-then-write race instead of removing the race.",
     category: "CONCURRENCY",
   },
+
+  // Added after an independent audit of this ledger (`gpt-5.6-luna`) found documented defects
+  // that had no entry. A ledger with gaps under-counts exactly the clusters it exists to find,
+  // so completeness of the RECORD matters as much as accuracy of each row.
+  {
+    id: "SF-05",
+    ledger: "SECURITY_FINDING",
+    subsystem: "auth",
+    severity: "P2",
+    summary: "Login lockout is keyed on email and checked before the password is verified.",
+    lesson:
+      "A control aimed at one threat created a second one, because the key it locks on is " +
+      "attacker-supplied.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+  {
+    id: "SF-06",
+    ledger: "SECURITY_FINDING",
+    subsystem: "ingestRun / redactSecrets",
+    severity: "P1",
+    summary: "Provider API keys could reach ingest_runs.error, which /admin renders.",
+    lesson:
+      "A secret was redacted at the point of display but not at the point of persistence, so it " +
+      "was written down before anything tried to hide it.",
+    category: "PROVENANCE",
+  },
+  {
+    id: "EN-03",
+    ledger: "REVIEW_FINDING",
+    subsystem: "testDatabaseGuard",
+    severity: "P2",
+    summary:
+      "localhost and 127.0.0.1 compared as different hosts, defeating the same-target check.",
+    lesson:
+      "A safety comparison was made on surface text rather than on what the text resolves to.",
+    category: "ENVIRONMENT_DRIFT",
+  },
+  {
+    id: "PD-05",
+    ledger: "PROVIDER_DRIFT",
+    subsystem: "dart / edgar normalize",
+    severity: "P2",
+    summary: "An impossible date such as 20260230 would silently roll forward to 2 March.",
+    lesson:
+      "A format check was mistaken for a validity check, so a well-shaped but non-existent value " +
+      "was accepted and quietly changed.",
+    category: "PROVIDER_ASSUMPTION",
+  },
 ];

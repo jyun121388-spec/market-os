@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BACKFILLED_LEDGER } from "@/server/evolution/ledger";
+import { BACKFILLED_LEDGER, type LedgerEntry } from "@/server/evolution/ledger";
 import {
   detectWeaknesses,
   isolatedIncidents,
@@ -120,5 +120,76 @@ describe("Evolution — the ledger itself", () => {
         /^(fixed|added|removed|changed|updated)\b/,
       );
     }
+  });
+});
+
+/**
+ * Cases identified as untested by an independent audit of this module (`gpt-5.6-luna`).
+ * Constructed inputs rather than the backfilled ledger, because each one needs a shape the real
+ * history does not happen to contain - which is precisely why they were missing.
+ */
+describe("Evolution — detector mechanics", () => {
+  const entry = (over: Partial<LedgerEntry> & Pick<LedgerEntry, "id">): LedgerEntry => ({
+    ledger: "REVIEW_FINDING",
+    subsystem: "alpha",
+    severity: "P3",
+    summary: "synthetic",
+    lesson: "A synthetic lesson long enough to satisfy the ledger's own content requirement.",
+    category: "CONCURRENCY",
+    ...over,
+  });
+
+  it("reports the WORST severity in a cluster, not the first or last", () => {
+    // Ordering the input P3, P1, P0 and then P0, P1, P3 catches a reducer that simply keeps
+    // whichever it saw first.
+    const ascending = [
+      entry({ id: "a", severity: "P3" }),
+      entry({ id: "b", severity: "P1" }),
+      entry({ id: "c", severity: "P0" }),
+    ];
+    expect(detectWeaknesses(ascending)[0].worstSeverity).toBe("P0");
+    expect(detectWeaknesses([...ascending].reverse())[0].worstSeverity).toBe("P0");
+  });
+
+  it("deduplicates subsystems", () => {
+    const found = detectWeaknesses([
+      entry({ id: "a", subsystem: "alpha" }),
+      entry({ id: "b", subsystem: "alpha" }),
+      entry({ id: "c", subsystem: "beta" }),
+    ]);
+    expect(found[0].subsystems.sort()).toEqual(["alpha", "beta"]);
+  });
+
+  it("labels a deliberately single-subsystem cluster LOCALISED", () => {
+    const found = detectWeaknesses([
+      entry({ id: "a", subsystem: "alpha" }),
+      entry({ id: "b", subsystem: "alpha" }),
+    ]);
+    expect(found[0].scope).toBe("LOCALISED");
+  });
+
+  it("breaks a tie on instance count by category name, so output is stable", () => {
+    // Two clusters of equal size must not swap places between runs; an unstable order would make
+    // any diff of this output unreadable.
+    const input = [
+      entry({ id: "a", category: "CONCURRENCY" }),
+      entry({ id: "b", category: "CONCURRENCY" }),
+      entry({ id: "c", category: "PROVENANCE" }),
+      entry({ id: "d", category: "PROVENANCE" }),
+    ];
+    const first = detectWeaknesses(input).map((w) => w.category);
+    const second = detectWeaknesses([...input].reverse()).map((w) => w.category);
+    expect(first).toEqual(["CONCURRENCY", "PROVENANCE"]);
+    expect(second).toEqual(first);
+  });
+
+  it("separates clustered from isolated when both are present in one input", () => {
+    const input = [
+      entry({ id: "a", category: "CONCURRENCY" }),
+      entry({ id: "b", category: "CONCURRENCY" }),
+      entry({ id: "lonely", category: "PROVENANCE" }),
+    ];
+    expect(detectWeaknesses(input).flatMap((w) => w.instances)).toEqual(["a", "b"]);
+    expect(isolatedIncidents(input).map((e) => e.id)).toEqual(["lonely"]);
   });
 });

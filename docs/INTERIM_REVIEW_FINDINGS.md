@@ -503,6 +503,74 @@ The UNSCOPED-RISK is `findKnownCorpCodes` (`companyXray.ts:131`) — the watchli
 already recorded as a known limitation under IR-002. Unchanged: fixing it means routing
 `/company/[corpCode]` by source, which is not a minimal change during freeze.
 
+---
+
+# Independent review of the v2 shadow layers — 2026-08-18
+
+These layers are **shadow-only**: no v1 code imports any of them, verified by search, and no v1
+source file changed to accommodate them. Findings are recorded here because the reviews were real
+and the corrections were substantive, not because v1 behaviour moved.
+
+## Verify — `gpt-5.6-sol` (financial correctness tier)
+
+**Two P0s and four P1s, all reproduced before any change.**
+
+- **P0** — a `CALCULATION` carrying no calculation returned **VERIFIED**. Every
+  calculation-shaped dimension went NOT_APPLICABLE, nothing failed, so the verdict came back
+  clean. My own controls had only ever supplied a well-formed calculation, so the empty case was
+  never exercised. A verifier that attaches a green label to nothing is worse than no verifier.
+- **P0** — `CalculationInput` had **no entity identifier**, so Apple revenue compared against
+  Microsoft revenue was not merely undetected, it was _unrepresentable_. The IR-001 class one
+  level up: a field that does not exist cannot be checked.
+- **P1** — verdict precedence put completeness ahead of correctness, so the +232.9985%
+  fabrication computed over a truncated ingest returned `TRUNCATED` — readable as "we are missing
+  rows" rather than "this number is wrong", and it would have been filed as a coverage task.
+- **P1** — optional `concept` meant two unnamed quantities passed the concept check by skipping
+  it. Now `INSUFFICIENT_EVIDENCE`: absence of a concept is not agreement between concepts.
+- **P1** — a purely relative percent epsilon undershot the 4dp rounding applied at storage,
+  rejecting a correct +0.0000049% change. Absolute floor of 0.00005 added.
+- **P1** — refusing every concept change made a legitimate ASC 606 reconciliation
+  unrepresentable. It can now be _declared_, surfacing as a disclosed limitation, with a negative
+  control proving an undeclared change still fails.
+
+## Governance — `gpt-5.6-terra`
+
+**Seven findings, and the instructive ones all ran the same direction: rules STRICTER than the
+document they cited.** Being stricter than the source is not automatically the safe error.
+
+- **P1** — `CALL_PAID_PROVIDER` was `DENIED`, but `CLAUDE.md` says paid external services need
+  "explicit human approval — treat as HUMAN GATE". Encoding a gate as a denial looks responsible
+  and silently removes a decision the user is entitled to make. Unattended behaviour is identical
+  either way, so accuracy costs nothing. Same correction for `PURCHASE_AI_CREDITS` and
+  `GIT_HISTORY_REWRITE`.
+- **P1** — `EDIT_DOCS` was `AUTO_ALLOWED` on the reasoning that docs affect no runtime behaviour.
+  False for the documents that _define_ the rules: an agent able to edit `LEGAL_GUARDRAILS.md`
+  can weaken its own constraints. Split out `EDIT_GOVERNING_DOCUMENT`.
+- **P1** — `CALL_FREE_PROVIDER` failed **open** on its own rate-limit precondition, so missing
+  context produced the _more_ permissive answer.
+- **P1** — the `GIT_PUSH` calibration was not a faithful replay. It asserted auto-allow while
+  labelling the row HG-001, whose recorded outcome is "blocked on the user authenticating this
+  machine". Policy permission and credential availability are now separate.
+- **P1** — a red suite produced `DEFERRED_HUMAN_GATE` asking "proceed while verification is
+  failing?". `AUTO_ALLOWED_WITH_VERIFY` means it must pass; that is a failed precondition, not
+  something a human waves through. Now `DENIED`.
+- **P2** — `CREDENTIAL_CHANGE` and `BULK_MESSAGING` were in the contract and in CLAUDE.md's gate
+  list but absent from the table, so the engine could not decide them at all.
+
+## Evolution — `gpt-5.6-luna`
+
+**28 ledger entries checked, 28 accurate, zero fidelity errors** — the backfill is honest, which
+matters more than anything else here because fabricated history would corrupt the signal the layer
+reads. Fourteen documented defects were missing; four were added (`SF-05`, `SF-06`, `EN-03`,
+`PD-05`). Five untested detector behaviours were named and are now covered — `worstSeverity`
+ordering, subsystem deduplication, a deliberately LOCALISED pair, tie-break stability, and mixed
+clustered/isolated input.
+
+**Known limitation, recorded rather than half-fixed:** an entry can genuinely belong to two
+categories (Luna identified five), and single-category clustering will split or merge those
+wrongly. Supporting secondary categories changes what "instance count" means, so it is a design
+decision rather than a patch.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

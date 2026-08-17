@@ -5,6 +5,7 @@
  * Usage: FRED_API_KEY=... DATABASE_URL=... npx tsx scripts/ingest-fred.ts
  */
 import { ingestFredSeries } from "../src/server/adapters/fred/ingest";
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import { TRACKED_FRED_SERIES } from "../src/server/adapters/fred/types";
 import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
@@ -33,7 +34,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error(err);
+    console.error(sanitiseErrorForStorage(err));
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -26,6 +26,37 @@
 /** Env vars holding a provider credential. Add new providers here. */
 const CREDENTIAL_ENV_VARS = ["FRED_API_KEY", "ECOS_API_KEY", "DART_API_KEY"] as const;
 
+/**
+ * Shortest password worth redacting.
+ *
+ * The database password is redacted by exact value like any other credential, but a very short
+ * one ("test", "admin") would match ordinary prose and turn a useful diagnostic into
+ * `[REDACTED]` soup. Eight characters is the point where a value is specific enough that a match
+ * is almost certainly the password rather than a coincidence.
+ */
+const MIN_REDACTABLE_PASSWORD_LENGTH = 8;
+
+/**
+ * The password component of `DATABASE_URL`, when there is one worth redacting.
+ *
+ * An audit (`gpt-5.6-luna`, 2026-08-18) noted that this value was excluded from redaction. The
+ * exclusion was reasoned rather than accidental — the password does NOT appear in Prisma
+ * connection errors, verified against a real failure — but "this particular error shape does not
+ * contain it" is a weaker guarantee than "it is redacted wherever it appears", and the cost of
+ * the stronger one is four lines. A stored database password is not a defect anyone gets to
+ * discover twice.
+ */
+function databasePassword(): string | null {
+  const url = process.env.DATABASE_URL;
+  if (!url) return null;
+  try {
+    const password = decodeURIComponent(new URL(url).password ?? "");
+    return password.length >= MIN_REDACTABLE_PASSWORD_LENGTH ? password : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Query parameters known to carry a credential, matched case-insensitively. */
 const CREDENTIAL_QUERY_PARAMS = ["api_key", "apikey", "crtfc_key", "key", "token", "secret"];
 
@@ -46,7 +77,12 @@ export const REDACTED = "[REDACTED]";
  * assumed — but `redactSecrets` still runs first, because any layer can produce the error that
  * ends up here.
  */
-export function sanitiseErrorForStorage(text: string): string {
+export function sanitiseErrorForStorage(input: unknown): string {
+  // Accepts `unknown`, not `string`. Every caller is an error path, and `catch (err)` gives
+  // `any` — so a signature demanding a string type-checks fine and then throws at runtime, in
+  // the one code path whose entire job is to still work when something has gone wrong. Found
+  // immediately after wiring this into the ingest scripts, by running it rather than compiling it.
+  const text = typeof input === "string" ? input : errorToString(input);
   const withoutSecrets = redactSecrets(text);
 
   const kept = withoutSecrets
@@ -67,6 +103,26 @@ export function sanitiseErrorForStorage(text: string): string {
   return kept.join("\n").trim();
 }
 
+/**
+ * Best-effort string form of anything thrown.
+ *
+ * `stack` is preferred where present because it carries the message plus the frames an operator
+ * needs; the code-frame stripping below removes the parts that leak filesystem layout. A thrown
+ * non-Error still has to produce something readable rather than "[object Object]".
+ */
+function errorToString(input: unknown): string {
+  if (input instanceof Error) return input.stack ?? `${input.name}: ${input.message}`;
+  if (input === null || input === undefined) return String(input);
+  if (typeof input === "object") {
+    try {
+      return JSON.stringify(input);
+    } catch {
+      return Object.prototype.toString.call(input);
+    }
+  }
+  return String(input);
+}
+
 export function redactSecrets(text: string): string {
   let out = text;
 
@@ -77,6 +133,12 @@ export function redactSecrets(text: string): string {
     if (value && value.length >= 8) {
       out = out.split(value).join(REDACTED);
     }
+  }
+
+  // The database password, by exact value, on the same terms as any provider credential.
+  const dbPassword = databasePassword();
+  if (dbPassword) {
+    out = out.split(dbPassword).join(REDACTED);
   }
 
   for (const param of CREDENTIAL_QUERY_PARAMS) {

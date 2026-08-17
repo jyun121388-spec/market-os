@@ -14,6 +14,7 @@
  * Free key: https://ecos.bok.or.kr/api/
  */
 import { ContractCheck, requireCredential, summariseNonNumericMarkers } from "./lib/contract-check";
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import {
   fetchEcosObservations,
   fetchAllEcosObservations,
@@ -146,6 +147,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(sanitiseErrorForStorage(err));
   process.exitCode = 1;
 });

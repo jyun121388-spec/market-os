@@ -557,3 +557,72 @@ describe("Verify — findings from adversarial review", () => {
     expect(result.failed).toContain("semantic_consistency");
   });
 });
+
+/**
+ * NOT_APPLICABLE audit. A dimension may only claim inapplicability from something true about the
+ * INPUT - never merely because the evidence it needs is absent. "We did not check" and "this does
+ * not apply" have different consequences, and collapsing them is a fail-open.
+ *
+ * The opposite error is just as real: an earlier pass made adversarial_resilience unconditionally
+ * INSUFFICIENT_EVIDENCE, which turned every verdict into INSUFFICIENT_EVIDENCE and told a reader
+ * nothing at all. Both directions are covered below.
+ */
+describe("Verify — no fail-open NOT_APPLICABLE", () => {
+  it("calls freshness inapplicable only when closed reporting periods make it moot", () => {
+    // Earned from the input: two figures with explicit, closed period ends are dated facts that
+    // do not go stale. Whether a NEWER period exists is data_completeness'' question, not this one.
+    const result = verify(base({ freshness: undefined }));
+    expect(result.dimensions.temporal_integrity.status).toBe("NOT_APPLICABLE");
+    expect(result.dimensions.temporal_integrity.rationale).toMatch(/closed reporting periods/i);
+  });
+
+  it("reports INSUFFICIENT_EVIDENCE when there is neither freshness evidence nor a closed period", () => {
+    // The fail-open guard. Without the closed-period grounding, absent evidence must read as
+    // unchecked rather than inapplicable.
+    const result = verify(
+      base({ freshness: undefined, claimType: "FACT", calculation: undefined }),
+    );
+    expect(result.dimensions.temporal_integrity.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("does not call completeness inapplicable merely because no completeness evidence was supplied", () => {
+    const result = verify(base({ completeness: undefined }));
+    expect(result.dimensions.data_completeness.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("calls cross-source inapplicable only when there is genuinely one source", () => {
+    const single = verify(base({ sourceCodes: ["SEC_EDGAR"] }));
+    expect(single.dimensions.cross_source_consistency.status).toBe("NOT_APPLICABLE");
+    expect(single.dimensions.cross_source_consistency.rationale).toMatch(/SEC_EDGAR/);
+  });
+
+  it("owes a reconciliation when two sources are involved, rather than waving it through", () => {
+    const two = verify(base({ sourceCodes: ["SEC_EDGAR", "OPENDART"] }));
+    expect(two.dimensions.cross_source_consistency.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("grounds the advice check in the output shape instead of deferring it", () => {
+    // NOT_APPLICABLE here is a claim about the input - a reported-figure comparison recommends
+    // nothing - not an excuse for having skipped it.
+    const result = verify(base());
+    expect(result.dimensions.adversarial_resilience.status).toBe("NOT_APPLICABLE");
+    expect(result.dimensions.adversarial_resilience.rationale).toMatch(/recommends nothing/i);
+  });
+
+  it("still reaches a usable verdict when every dimension is properly evidenced", () => {
+    // The control that stops the audit above from degenerating into "everything is unknown".
+    const result = verify(base());
+    expect(result.verdict).toBe("VERIFIED");
+  });
+
+  it("every NOT_APPLICABLE states why it does not apply", () => {
+    const result = verify(base());
+    for (const [name, d] of Object.entries(result.dimensions)) {
+      if (d.status !== "NOT_APPLICABLE") continue;
+      expect(
+        d.rationale.length,
+        `${name} claimed inapplicability without a reason`,
+      ).toBeGreaterThan(30);
+    }
+  });
+});

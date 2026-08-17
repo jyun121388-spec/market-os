@@ -19,6 +19,7 @@
  * SEC rejects User-Agent strings that do not look like a name plus a contact address with
  * HTTP 403 (verified live 2026-08-16) — a bare product/URL string is not accepted.
  */
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import {
   fetchEdgarFilingHistory,
   fetchEdgarSubmissions,
@@ -249,6 +250,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(sanitiseErrorForStorage(err));
   process.exitCode = 1;
 });

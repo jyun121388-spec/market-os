@@ -5,6 +5,7 @@
  * Usage: DART_API_KEY=... DATABASE_URL=... npx tsx scripts/ingest-dart.ts [beginYYYYMMDD] [endYYYYMMDD]
  */
 import { ingestDartFilings } from "../src/server/adapters/dart/ingest";
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import { TRACKED_DART_COMPANIES } from "../src/server/adapters/dart/types";
 import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
@@ -36,7 +37,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error(err);
+    console.error(sanitiseErrorForStorage(err));
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -11,6 +11,7 @@
  * Usage: FRED_API_KEY=... npx tsx scripts/verify-fred-live.ts
  * Free key: https://fred.stlouisfed.org/docs/api/api_key.html
  */
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import {
   ContractCheck,
   ISO_DATE,
@@ -183,6 +184,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(sanitiseErrorForStorage(err));
   process.exitCode = 1;
 });

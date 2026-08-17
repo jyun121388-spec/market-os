@@ -125,3 +125,80 @@ describe("redactSecrets", () => {
     expect(redactSecrets(text)).toBe(text);
   });
 });
+
+/**
+ * Hardening from an audit of secret routes (`gpt-5.6-luna`, 2026-08-18), plus a bug that audit's
+ * fix introduced and that only running the code revealed.
+ */
+describe("sanitiseErrorForStorage accepts whatever was actually thrown", () => {
+  const ORIGINAL_FRED = process.env.FRED_API_KEY;
+  const ORIGINAL_DB = process.env.DATABASE_URL;
+
+  beforeEach(() => {
+    process.env.FRED_API_KEY = "fredkey1234567890abcdef";
+    process.env.DATABASE_URL = "postgresql://user:supersecretpw123@127.0.0.1:5432/db";
+  });
+  afterEach(() => {
+    if (ORIGINAL_FRED === undefined) delete process.env.FRED_API_KEY;
+    else process.env.FRED_API_KEY = ORIGINAL_FRED;
+    if (ORIGINAL_DB === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = ORIGINAL_DB;
+  });
+
+  it("handles an Error object, not just a string", () => {
+    // The signature took `string`. Every caller is a catch block, where the binding is `any`, so
+    // it type-checked and would then have thrown INSIDE the error handler - the one path whose
+    // whole job is to keep working when something has already gone wrong.
+    const err = new Error("boom");
+    expect(typeof sanitiseErrorForStorage(err)).toBe("string");
+    expect(sanitiseErrorForStorage(err)).toContain("boom");
+  });
+
+  it("redacts a provider key carried in a thrown Error's message", () => {
+    const err = new Error(
+      "FRED failed: https://api.stlouisfed.org/fred/series?api_key=fredkey1234567890abcdef",
+    );
+    expect(sanitiseErrorForStorage(err)).not.toContain("fredkey1234567890abcdef");
+  });
+
+  it("handles a thrown non-Error without producing [object Object]", () => {
+    expect(sanitiseErrorForStorage({ code: "P2002" })).toContain("P2002");
+    expect(sanitiseErrorForStorage(null)).toBe("null");
+    expect(sanitiseErrorForStorage(42)).toBe("42");
+  });
+
+  it("still accepts a plain string", () => {
+    expect(sanitiseErrorForStorage("plain message")).toContain("plain message");
+  });
+});
+
+describe("the database password is redacted like any other credential", () => {
+  const ORIGINAL_DB = process.env.DATABASE_URL;
+  afterEach(() => {
+    if (ORIGINAL_DB === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = ORIGINAL_DB;
+  });
+
+  it("removes the password when it appears in text", () => {
+    // It does not appear in Prisma connection errors - that was verified. But "this error shape
+    // does not contain it" is weaker than "it is redacted wherever it appears", and a stored
+    // database password is not a thing anyone gets to discover twice.
+    process.env.DATABASE_URL = "postgresql://user:supersecretpw123@127.0.0.1:5432/db";
+    expect(redactSecrets("connection used supersecretpw123 here")).not.toContain(
+      "supersecretpw123",
+    );
+  });
+
+  it("leaves a short password alone, so ordinary prose is not shredded", () => {
+    // A four-character password would match everywhere and turn diagnostics into redaction soup.
+    process.env.DATABASE_URL = "postgresql://user:test@127.0.0.1:5432/db";
+    expect(redactSecrets("this is a test of the system")).toBe("this is a test of the system");
+  });
+
+  it("does nothing when DATABASE_URL is unset or unparseable", () => {
+    delete process.env.DATABASE_URL;
+    expect(redactSecrets("nothing to redact")).toBe("nothing to redact");
+    process.env.DATABASE_URL = "not-a-url";
+    expect(redactSecrets("nothing to redact")).toBe("nothing to redact");
+  });
+});

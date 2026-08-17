@@ -5,6 +5,7 @@
  * Usage: EDGAR_USER_AGENT="Market OS you@example.com" DATABASE_URL=... npx tsx scripts/ingest-edgar-xbrl.ts
  */
 import { ingestCompanyFacts } from "../src/server/adapters/edgar-xbrl/ingest";
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import { TRACKED_XBRL_COMPANIES } from "../src/server/adapters/edgar-xbrl/types";
 import { padCik } from "../src/server/adapters/edgar/types";
 import { recordIngestRun } from "../src/server/domain/ingestRun";
@@ -35,7 +36,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error(err);
+    console.error(sanitiseErrorForStorage(err));
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -5,6 +5,7 @@
  * Usage: EDGAR_USER_AGENT="Market OS you@example.com" DATABASE_URL=... npx tsx scripts/ingest-edgar.ts
  */
 import { ingestEdgarFilings } from "../src/server/adapters/edgar/ingest";
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import { TRACKED_EDGAR_COMPANIES, padCik } from "../src/server/adapters/edgar/types";
 import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
@@ -34,7 +35,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error(err);
+    console.error(sanitiseErrorForStorage(err));
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -288,7 +288,29 @@ function temporalIntegrity(input: VerificationInput): DimensionResult {
         "evidence is not evidence of currency.",
     );
   }
-  if (!calc && !f) return na("No periods and no freshness evidence to check.");
+
+  if (!f) {
+    // Inapplicability has to be earned from the input, not assumed because evidence is absent.
+    //
+    // It IS earned here: a comparison between two figures with explicit, closed period ends is a
+    // statement about what a company reported for two past periods. Those numbers do not become
+    // less true with time, so there is no currency question of the kind a live macro reading has.
+    // Whether a NEWER period exists that we have not ingested is a completeness question, and
+    // `data_completeness` already asks it.
+    //
+    // Anything else — a live reading, a claim with no bounded periods — genuinely was not checked,
+    // and says so.
+    const bothPeriodsClosed = Boolean(calc?.current.period.end && calc?.previous.period.end);
+    return bothPeriodsClosed
+      ? na(
+          "A comparison of two closed reporting periods does not go stale: both figures are " +
+            "dated facts, and whether a newer period exists is a completeness question.",
+        )
+      : unknown(
+          "No freshness evidence supplied and no closed reporting periods to make the question " +
+            "moot, so whether the underlying data is current was never established.",
+        );
+  }
   return pass("Period bounds ordered correctly and no staleness reported.");
 }
 
@@ -308,6 +330,53 @@ function provenanceIntegrity(input: VerificationInput): DimensionResult {
     );
   }
   return pass(`Claim type ${input.claimType} is consistent with the evidence supplied.`);
+}
+
+/**
+ * Whether a second source could corroborate this, and whether one did.
+ *
+ * Genuinely NOT_APPLICABLE only when exactly one source is involved — with one provider there is
+ * nothing to reconcile against, and saying so is a fact about the input rather than an assumption.
+ * With two or more, reconciliation is owed and has not been implemented, which is
+ * INSUFFICIENT_EVIDENCE.
+ */
+function crossSourceConsistency(input: VerificationInput): DimensionResult {
+  const distinct = new Set(input.sourceCodes.filter((c) => c && c.trim().length > 0));
+  if (distinct.size === 0) {
+    return unknown("No sources recorded, so cross-source agreement cannot be assessed.");
+  }
+  if (distinct.size === 1) {
+    return na(`Single source (${[...distinct][0]}); nothing to reconcile against.`);
+  }
+  return unknown(
+    `${distinct.size} sources are involved (${[...distinct].join(", ")}) but no reconciliation ` +
+      "was performed. Two providers covering one fact must be compared, not assumed to agree.",
+  );
+}
+
+/**
+ * Whether this output could constitute prohibited advice under `docs/LEGAL_GUARDRAILS.md`.
+ *
+ * Grounded in the output's shape rather than deferred to another module. A period-over-period
+ * change between two reported figures is a statement about what a company filed — it recommends
+ * nothing, names no price and suggests no action — so the dimension genuinely does not apply, and
+ * saying NOT_APPLICABLE is a claim about the input rather than an excuse.
+ *
+ * An earlier draft returned INSUFFICIENT_EVIDENCE unconditionally here, which made EVERY verdict
+ * INSUFFICIENT_EVIDENCE and reproduced the uniform-answer failure this layer exists to avoid.
+ * Fail-open and fail-useless are both failures; the fix for one must not create the other.
+ */
+function adversarialResilience(input: VerificationInput): DimensionResult {
+  if (input.claimType === "CALCULATION" && input.calculation) {
+    return na(
+      "A period-over-period change between two reported figures is not advice-shaped output: it " +
+        "recommends nothing, names no price and suggests no action.",
+    );
+  }
+  return unknown(
+    "This output is not a reported-figure comparison, so whether it could read as advice has not " +
+      "been established on this path.",
+  );
 }
 
 function structuralValidity(input: VerificationInput): DimensionResult {
@@ -400,10 +469,12 @@ export function verify(input: VerificationInput): VerificationResult {
     calculation_integrity: calculationIntegrity(input),
     provenance_integrity: provenanceIntegrity(input),
     temporal_integrity: temporalIntegrity(input),
-    // Not yet evaluated. Marked NOT_APPLICABLE rather than PASS, because claiming a check ran
-    // when it did not is the failure mode this whole layer exists to prevent.
-    cross_source_consistency: na("Single-source output; no second source to reconcile against."),
-    adversarial_resilience: na("Evaluated by the Ask Market guardrail, not by this path."),
+    // These two were blanket NOT_APPLICABLE, which is a fail-open: it asserts the check does not
+    // apply, without ever establishing that. The distinction §6 of the operating directive draws
+    // is exactly this — missing evidence must not become "not applicable" merely because it is
+    // missing. Both are now derived from the input rather than assumed.
+    cross_source_consistency: crossSourceConsistency(input),
+    adversarial_resilience: adversarialResilience(input),
   };
 
   const { verdict, failed, limitations } = decide(dimensions);

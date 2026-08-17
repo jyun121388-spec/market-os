@@ -13,6 +13,7 @@
  * Free key: https://opendart.fss.or.kr/
  */
 import { ContractCheck, COMPACT_DATE, requireCredential } from "./lib/contract-check";
+import { sanitiseErrorForStorage } from "../src/server/adapters/redactSecrets";
 import { fetchDartDisclosures, fetchAllDartDisclosures } from "../src/server/adapters/dart/client";
 import { TRACKED_DART_COMPANIES, isDartError } from "../src/server/adapters/dart/types";
 import type { DartListSuccess } from "../src/server/adapters/dart/types";
@@ -157,6 +158,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(sanitiseErrorForStorage(err));
   process.exitCode = 1;
 });

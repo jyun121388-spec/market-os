@@ -29,6 +29,16 @@ export type AskMarketResultStatus =
 export interface SeriesFactor {
   seriesId: string;
   seriesName: string;
+  /**
+   * The provider this figure came from.
+   *
+   * `Series` is unique on (sourceId, externalId) and never on name, so two providers publishing
+   * their own CPI or policy rate is ordinary rather than exotic. Both would match one topic and
+   * both would be listed, and without this field the reader sees two different numbers under
+   * near-identical labels with nothing to tell them apart. It is also the plain requirement in
+   * CLAUDE.md: every FACT shown to a user must trace to a stored source.
+   */
+  sourceCode: string;
   unit: string;
   asOfDate: string;
   value: number;
@@ -48,6 +58,8 @@ export interface CausalFactor {
 
 export interface CompanyFactFactor {
   concept: string;
+  /** The provider that reported this figure — same obligation as `SeriesFactor.sourceCode`. */
+  sourceCode: string;
   fiscalPeriod: string | null;
   fiscalYear: number | null;
   /**
@@ -289,7 +301,9 @@ function mentionsEachOther(a: string, b: string): boolean {
 
 async function findSeriesFactors(topic: string): Promise<SeriesFactor[]> {
   if (!topic) return [];
-  const allSeries = await prisma.series.findMany();
+  const allSeries = await prisma.series.findMany({
+    include: { source: { select: { code: true } } },
+  });
   const matches = allSeries.filter((s) => mentionsEachOther(s.name, topic)).slice(0, 5);
 
   const factors: SeriesFactor[] = [];
@@ -300,6 +314,7 @@ async function findSeriesFactors(topic: string): Promise<SeriesFactor[]> {
     factors.push({
       seriesId: series.id,
       seriesName: series.name,
+      sourceCode: series.source.code,
       unit: series.unit,
       asOfDate: pair.current.observationDate.toISOString().slice(0, 10),
       value: Number(pair.current.value.toString()),
@@ -334,7 +349,10 @@ async function findCompanyFacts(
   topic: string,
 ): Promise<{ matchedCorpName?: string; facts: CompanyFactFactor[] }> {
   if (!topic) return { facts: [] };
-  const allFilings = await prisma.filing.findMany({ orderBy: { receiptDate: "desc" } });
+  const allFilings = await prisma.filing.findMany({
+    orderBy: { receiptDate: "desc" },
+    include: { source: { select: { code: true } } },
+  });
   const filing = allFilings.find((f) => mentionsEachOther(f.corpName, topic));
   if (!filing) return { facts: [] };
 
@@ -354,6 +372,9 @@ async function findCompanyFacts(
     matchedCorpName: filing.corpName,
     facts: facts.map((f) => ({
       concept: f.concept,
+      // Safe to take from the filing: the query above is scoped to that filing's source, so
+      // every row here provably belongs to it.
+      sourceCode: filing.source.code,
       fiscalPeriod: f.fiscalPeriod,
       fiscalYear: f.fiscalYear,
       periodStart: f.periodStart?.toISOString().slice(0, 10) ?? null,

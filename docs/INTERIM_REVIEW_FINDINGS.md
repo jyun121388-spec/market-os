@@ -208,6 +208,58 @@ passive and asks where money already sits, 물가 and 수출 are macro series ra
 
 ---
 
+## IR-007 / IR-008 — Figures shown to users with no source attribution
+
+|                 |                                                                               |
+| --------------- | ----------------------------------------------------------------------------- |
+| Reviewer        | Claude (systematic sweep of the IR-001/IR-002 class)                          |
+| Subsystem       | `askMarket.ts` + `/ask`; `morningBrief.ts` + `/today`                         |
+| Severity        | **P2** — provenance; CLAUDE.md requires every FACT shown to trace to a source |
+| Status          | **VALID — fixed**                                                             |
+| Codex re-review | **YES**                                                                       |
+
+Found by walking all 86 Prisma call sites rather than by suspicion. The IR-001/IR-002 class was
+"queries keyed on an identifier unique only within a source"; the sweep turned up its mirror image
+— **queries correctly scoped but whose OUTPUT drops the source on the floor**.
+
+**IR-007.** `SeriesFactor` and `CompanyFactFactor` carried no source, and `/ask` rendered none.
+`Series` is unique on `(sourceId, externalId)` and never on name, so two providers publishing
+their own CPI or policy rate is ordinary. Both match one topic, both get listed, and the reader
+sees two different values under near-identical labels with nothing to separate them — or to
+indicate two organisations are being quoted at all.
+
+**IR-008.** The same gap in Morning Brief's `whatChanged`. Notable because `recentFilings` and
+`calendar` in the _same response object_ already carried `sourceCode`, and `/today` already
+rendered it for both. `whatChanged` is the section that shows actual numbers, and it was the one
+without attribution — the inconsistency is what makes it a defect rather than a design choice.
+
+**Reproduction.** Second provider with a series whose name also matches the topic; the answer
+returned both, at 102 and 530, indistinguishable. Test asserts every factor carries a source and
+that the two values map to the right providers.
+
+**Fix.** `sourceCode` added to `SeriesFactor`, `CompanyFactFactor` and `SeriesChangeSummary`,
+sourced via `include: { source: { select: { code: true } } }`, and rendered as a badge on both
+pages. For company facts it is taken from the matched filing, which is sound because IR-001
+already scoped that query to the filing's source.
+
+### What the sweep cleared
+
+Recorded because a sweep that only reports hits says nothing about coverage:
+
+| Area                                             | Verdict                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| `macroRegime` series resolution                  | Clean — resolves by `{ sourceCode, externalId }` explicitly   |
+| `economicCalendar` / `CalendarEntry`             | Clean — already carries `sourceCode`                          |
+| `systemHealth` aggregates                        | Clean — every aggregate is `where: { sourceId }`              |
+| `etfExposure`, `seriesReadings`, `claimStore`    | Clean — keyed on primary keys, scoped by construction         |
+| FRED / ECOS / DART / EDGAR ingest lookups        | Clean — compound `sourceId_externalId` / `sourceId_receiptNo` |
+| `filingDiff`, `companyXray`, `askMarket` facts   | Clean — scoped by IR-001/IR-002                               |
+| `CausalEdge`                                     | Clean by design — curated INFERENCE, has no provider relation |
+| `eventIngest` cross-source clustering            | Clean by design — `distinctTierCount` exists to pool sources  |
+| `findKnownCorpCodes` (watchlist link resolution) | Accepted — existence check only; residual noted in IR-002     |
+
+---
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

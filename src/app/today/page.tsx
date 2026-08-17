@@ -48,8 +48,11 @@ export default async function TodayPage() {
                 key={c.seriesId}
                 className="rounded border border-zinc-200 p-3 dark:border-zinc-800"
               >
-                <div className="flex items-center gap-2 font-medium">
+                <div className="flex flex-wrap items-center gap-2 font-medium">
                   {c.seriesName}
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-normal text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                    {c.sourceCode}
+                  </span>
                   {c.staleness === "STALE" && (
                     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                       STALE

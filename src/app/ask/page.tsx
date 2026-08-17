@@ -70,7 +70,18 @@ export default async function AskMarketPage({
                     key={f.seriesId}
                     className="rounded border border-zinc-200 p-3 dark:border-zinc-800"
                   >
-                    <div className="font-medium">{f.seriesName}</div>
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="font-medium">{f.seriesName}</span>
+                      {/*
+                        Two providers can publish a series under near-identical names — Series is
+                        unique on (sourceId, externalId), never on name — so both would be listed
+                        here with different values. Naming the provider is what keeps them apart,
+                        and every FACT shown to a user has to trace to a stored source anyway.
+                      */}
+                      <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                        {f.sourceCode}
+                      </span>
+                    </div>
                     <div className="text-sm text-zinc-600 dark:text-zinc-400">
                       {f.value} {f.unit} as of {f.asOfDate} ({f.absoluteChange >= 0 ? "+" : ""}
                       {f.absoluteChange}
@@ -96,7 +107,12 @@ export default async function AskMarketPage({
                     key={`${f.concept}-${i}`}
                     className="rounded border border-zinc-200 p-3 dark:border-zinc-800"
                   >
-                    <div className="font-medium">{f.concept}</div>
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="font-medium">{f.concept}</span>
+                      <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                        {f.sourceCode}
+                      </span>
+                    </div>
                     <div className="text-sm text-zinc-600 dark:text-zinc-400">
                       {f.value} {f.unit} —{" "}
                       {f.fiscalYear !== null

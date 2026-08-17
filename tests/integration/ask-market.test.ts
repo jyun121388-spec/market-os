@@ -141,6 +141,34 @@ describeIfDb("askMarket (integration)", () => {
     const otherSource = await prisma.source.create({
       data: { code: OTHER_SOURCE_CODE, name: "Test Ask Market Other Source", tier: "TIER_S" },
     });
+
+    // A second provider tracking a series whose name also matches the topic. `Series` is unique
+    // on (sourceId, externalId) — never on name — so this is a shape the schema explicitly
+    // permits, and two providers publishing their own CPI or policy rate is the norm rather
+    // than the exception.
+    const otherSeries = await prisma.series.create({
+      data: {
+        sourceId: otherSource.id,
+        externalId: "TEST_ASK_MARKET_SERIES_OTHER",
+        name: `${SERIES_NAME} (other provider)`,
+        unit: "index",
+        frequency: "daily",
+      },
+    });
+    for (const [date, value] of [
+      ["2026-08-14T00:00:00.000Z", "500.0"],
+      ["2026-08-15T00:00:00.000Z", "530.0"],
+    ] as const) {
+      await prisma.observation.create({
+        data: {
+          seriesId: otherSeries.id,
+          sourceId: otherSource.id,
+          observationDate: new Date(date),
+          value,
+          raw: {},
+        },
+      });
+    }
     await prisma.financialFact.create({
       data: {
         sourceId: otherSource.id,
@@ -181,10 +209,32 @@ describeIfDb("askMarket (integration)", () => {
   it("returns factors for a matched macro series and causal edges", async () => {
     const result = await askMarket("Widget Price Index");
     expect(result.status).toBe("FACTORS_FOUND");
-    expect(result.seriesFactors).toHaveLength(1);
-    expect(result.seriesFactors[0].seriesName).toBe(SERIES_NAME);
-    expect(result.seriesFactors[0].absoluteChange).toBe(2);
+    const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
+    expect(own.absoluteChange).toBe(2);
     expect(result.causalFactors.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("attributes every figure to the source it came from", async () => {
+    // CLAUDE.md: every FACT shown to a user must trace to a stored source. Two providers match
+    // this topic and the answer lists both, so without an attribution the reader sees 102 and
+    // 530 for what reads as the same indicator and has no way to tell which is which — or that
+    // two different organisations are being quoted at all.
+    const result = await askMarket("Widget Price Index");
+
+    expect(result.seriesFactors.length).toBeGreaterThanOrEqual(2);
+    for (const factor of result.seriesFactors) {
+      expect(factor.sourceCode, `no source on "${factor.seriesName}"`).toBeTruthy();
+    }
+    const bySource = new Map(result.seriesFactors.map((f) => [f.sourceCode, f.value]));
+    expect(bySource.get(SOURCE_CODE)).toBe(102);
+    expect(bySource.get(OTHER_SOURCE_CODE)).toBe(530);
+
+    // Company facts carry the same obligation.
+    const company = await askMarket("TEST Widget Corp");
+    expect(company.companyFacts.length).toBeGreaterThan(0);
+    for (const fact of company.companyFacts) {
+      expect(fact.sourceCode, `no source on ${fact.concept}`).toBe(SOURCE_CODE);
+    }
   });
 
   it("returns company facts for a matched company name", async () => {

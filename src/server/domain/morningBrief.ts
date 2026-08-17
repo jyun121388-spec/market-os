@@ -31,6 +31,13 @@ export interface RecentFilingSummary {
 export interface SeriesChangeSummary {
   seriesId: string;
   seriesName: string;
+  /**
+   * The provider this reading came from. `recentFilings` and `calendar` already carry one; this
+   * list did not, and it is the section that shows actual numbers. Series names are not unique
+   * across providers (the unique key is (sourceId, externalId)), so two providers tracking the
+   * same indicator would appear here as two near-identical rows with different values.
+   */
+  sourceCode: string;
   unit: string;
   asOfDate: string;
   value: number;
@@ -70,7 +77,7 @@ export async function buildMorningBrief(
       take: 10,
       include: { source: true },
     }),
-    prisma.series.findMany(),
+    prisma.series.findMany({ include: { source: { select: { code: true } } } }),
     computeRegimeSnapshot(),
     computeCalendar(),
   ]);
@@ -97,6 +104,7 @@ export async function buildMorningBrief(
     whatChanged.push({
       seriesId: s.id,
       seriesName: s.name,
+      sourceCode: s.source.code,
       unit: s.unit,
       asOfDate: pair.current.observationDate.toISOString().slice(0, 10),
       value: Number(pair.current.value.toString()),

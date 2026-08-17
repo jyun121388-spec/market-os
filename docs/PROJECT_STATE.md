@@ -237,8 +237,23 @@ independent-review packet rather than waiting for a reviewer:
     release directive: stop loss, entry/exit price, portfolio percentage, allocation, roleplay,
     "if you were me", quoted advisor, and mixed Korean/English forms.
 
+META ARCHITECTURE V2 — DESIGN ONLY, DOES NOT AFFECT V1
+Contracts drafted 2026-08-18 while v1 is frozen: `docs/META_ARCHITECTURE_V2.md` (start here),
+`WORLD_DATA_FABRIC.md`, `VERIFY_ARCHITECTURE.md`, `GOVERNANCE_OS.md`, `EVOLUTION_ENGINE.md`,
+`EVOLUTION_LEDGERS.md`. **No implementation exists and no v1 source file was touched.** Every
+layer is specified to start in shadow mode — computing and logging beside v1, never blocking or
+mutating — with a written promotion criterion each.
+
+The finding worth carrying: most of the Reality Fabric is already built, just scattered and
+unnamed. `Observation` already separates observedAt / releasedAt / retrievedAt; `IngestRun`
+already records `providerTotal` vs `fetched` and `truncated`; `DataConflict`, `SourceTier`,
+`staleness.ts` and the Claim Ledger already exist. What is missing is one vocabulary — three
+places currently decide what "stale" means with no shared type and no guarantee they agree. The
+first shadow deliverable is a read-only projection that runs all three and reports disagreements,
+because each disagreement is a v1 defect hypothesis.
+
 TESTS
-379 / 379 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+380 / 380 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 30/30 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real

@@ -1,8 +1,29 @@
 LAST COMPLETED
 
-Third hardening round, 2026-08-18. Twelve commits on top of the 43 from the previous rounds — 55
-total, all local (HG-001). Baseline moved 281 → 338 tests, e2e 28 → 30 checks against the
-production build.
+**Fourth round — interim, 2026-08-18.** 61 commits total, all local (HG-001). Baseline 338 → 379
+tests. Details in `docs/INTERIM_REVIEW_FINDINGS.md` and `docs/LOCAL_AI_CALIBRATION.md`.
+
+Codex usage is exhausted until 2026-08-22, so Ollama's `qwen3.5:4b` and `gemma3:4b` were
+calibrated as stand-in reviewers and **both failed**: they reported defects in correct code on
+every blind sample and never once returned `NO_SUPPORTED_DEFECT`. They are hypothesis generators
+only. **This range has had no independent review** — say so to Codex rather than implying the
+interim work was checked.
+
+Two things worth carrying forward from this round:
+
+- **Enumerate, don't probe.** Random adversarial probing found guardrail bypasses one at a time.
+  Walking the pattern list for English-only concepts with no Korean mirror found ten in one pass.
+  Standing rule now: a pattern added in one language must be added in the other, or recorded as
+  not applicable.
+- **The one safe use of a weak local model** is generating candidate inputs that a deterministic
+  oracle scores. It cannot be wrong in that role because it never judges. Anything else needs
+  re-calibration against a positive AND a negative control, recorded in LOCAL_AI_CALIBRATION.md.
+
+Do not run the test suite while a model is resident in Ollama: 2.9 GB at 100% CPU on this 16 GB
+machine pushed morning-brief past vitest's 5-second default timeout. `ollama stop <model>` first.
+
+**Third hardening round, 2026-08-18.** Twelve commits on top of the 43 from the previous rounds —
+55 total. Baseline moved 281 → 338 tests, e2e 28 → 30 checks against the production build.
 
 Every finding this round came from working through this project's own review packet
 (`docs/INDEPENDENT_REVIEW_PACKET.md`) rather than waiting for a reviewer. Two of them were in
@@ -44,12 +65,12 @@ none.
 TEST STATUS
 All figures below were re-verified end to end at the close of the round, not carried forward.
 
-338/338 (55 files) against a real local PostgreSQL 16.10, run against a disposable database.
+379/379 (56 files) against a real local PostgreSQL 16.10, run against a disposable database.
 `npm run e2e` 30/30 in a real browser against the production build.
 `npm run verify:live:edgar` 67/67 against real data.sec.gov.
 16 migrations apply cleanly to a genuinely fresh database, followed by a real ingest of 2240
 filings and 1428 facts and an idempotent re-ingest (0 inserted, all unchanged).
-With no database at all: 189 unit tests pass, 30 integration files skip cleanly.
+With no database at all: 228 unit tests pass, 30 integration files skip cleanly.
 Lint (0 problems, warnings included), typecheck, format and production build clean.
 
 The dev database survived the full suite — checked afterwards by re-ingesting, which reported
@@ -58,12 +79,15 @@ any future change to test setup.
 
 NEXT EXACT ACTION
 
-1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 55 commits are local-only;
+1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 61 commits are local-only;
    this machine has no GitHub credential and cannot prompt. Nothing was rewritten, no force
    operation used.
 2. **HG-005** — independent review. `codex-cli` IS installed and authenticated ("Logged in using
    ChatGPT"); the blocker is included-usage exhaustion resetting **2026-08-22**. Re-check once
-   after that date, then run against `docs/INDEPENDENT_REVIEW_PACKET.md`.
+   after that date, then run against `docs/INDEPENDENT_REVIEW_PACKET.md` **plus `a0eb92a..HEAD`**,
+   which the packet predates. Give Terra the cross-file sweep IR-001/IR-002 imply: queries keyed
+   on an identifier that is unique only within a source. Local AI is not a substitute — it was
+   tried and disqualified.
 3. **HG-002/003/004** — FRED/ECOS/OpenDART keys. All three hosts reachable and partially verified
    (request shape and error envelopes confirmed against the real APIs with deliberately invalid
    keys; no key leaked). The success shape — where EDGAR's drift hid — still needs a real key.

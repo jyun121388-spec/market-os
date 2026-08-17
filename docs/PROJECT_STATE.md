@@ -238,15 +238,30 @@ independent-review packet rather than waiting for a reviewer:
     "if you were me", quoted advisor, and mixed Korean/English forms.
 
 TESTS
-338 / 338 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+379 / 379 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 30/30 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real
 data.sec.gov. Lint / typecheck / format / production build all clean. Full suite ~25s.
 
-Tests run against a disposable database, enforced fail-closed. With no database at all, 189 unit
+Tests run against a disposable database, enforced fail-closed. With no database at all, 228 unit
 tests pass and the integration suite skips cleanly (30 files) — a path that is now actually
 verified rather than assumed.
+
+**2026-08-18 interim round** (`a0eb92a..HEAD`, `docs/INTERIM_REVIEW_FINDINGS.md`). Codex usage is
+exhausted until 2026-08-22, so a local model was calibrated as a stand-in reviewer and
+**disqualified** — both installed models reported defects in correct code on every sample and
+never once cleared a clean control (`docs/LOCAL_AI_CALIBRATION.md`). This range therefore has had
+no independent review at all. Three findings, all reproduced before being fixed:
+
+- **IR-001 / IR-002** — Ask Market and Company X-Ray keyed financial facts on `corpCode` alone,
+  although both unique indexes on `financial_facts` begin with `sourceId`. Latent today (one fact
+  source), but the X-Ray page named one provider in its header while pooling filings, ticker,
+  figures and filing list across all of them.
+- **IR-006** — 21 Ask Market guardrail bypasses. The last ten came from _enumerating_ the pattern
+  list for English-only concepts with no Korean mirror, rather than probing for them; 적정가,
+  당신이라면, 어디에 투자할까요 and the advisor proxy all had no counterpart. Over-blocking is
+  tracked as a failure too: 18 legitimate macro questions are pinned as must-not-flag.
 
 The fail-closed guard was itself verified the way that matters: after the full 338-test suite ran
 against `market_os_test`, a re-ingest against `market_os_dev` reported 0 inserted / 2240 unchanged

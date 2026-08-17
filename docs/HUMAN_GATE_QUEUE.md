@@ -149,6 +149,24 @@ commits, 110 files) with ten ranked attack targets, so a reviewer can start with
 scope. Bounded deliberately: the older `docs/CODEX_REVIEW_PACKET.md` review range is obsolete and
 says so.
 
+**2026-08-18 — a local model was tried as an interim reviewer and disqualified.** Ollama is
+installed and serving locally with `qwen3.5:4b` and `gemma3:4b`. Both were calibrated against a
+positive and a negative control; both reported defects in correct code, on every sample, in every
+round, and neither ever cleared a clean control. Full method and evidence in
+`docs/LOCAL_AI_CALIBRATION.md`. They are recorded as **hypothesis generators only** — a local
+model may not authorise a code change here.
+
+Consequences for this gate:
+
+- The interim period (`a0eb92a..HEAD`) has had **no independent review of any kind**. Treat it as
+  author-reviewed only.
+- Codex must review `a0eb92a..HEAD` in addition to the packet range — that window contains
+  IR-001, IR-002 and IR-006 (`docs/INTERIM_REVIEW_FINDINGS.md`).
+- IR-001 and IR-002 share a root cause worth a systematic sweep by a cross-file reviewer (Terra):
+  **queries keyed on a business identifier that is unique only within a source.** Two were found
+  and fixed by enumeration; the class deserves an independent pass.
+- `LOCAL_AI_PRE_REVIEW_COMPLETE` is **not** claimed. Nothing about this gate has moved.
+
 **Issue**: the first Codex review returned REVISE with three P0 blockers. All three were fixed —
 and one of those fixes (B3, the observation concurrency race) later proved defective and has been
 re-fixed. A re-review is the one non-product gate remaining before Release Candidate.

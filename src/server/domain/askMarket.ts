@@ -196,6 +196,28 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // "how far will it go / where will it reach" — a definitive price prediction in Korean.
   /(어디까지|얼마까지|어디에)\s*(도달|갈|갈까|오를|오를까|떨어질|떨어질까)/,
 
+  // --- 2026-08-18, fourth pass: a systematic sweep rather than more probing.
+  //
+  // The 가격 목표 / 보장된 수익률 misses above were not two unlucky phrasings, they were a class:
+  // a concept covered in English whose Korean mirror was never written. So every English-only
+  // pattern in this list was enumerated and checked against Korean equivalents. TEN had no
+  // counterpart. Probing finds these one at a time; enumerating the list finds them all at once.
+
+  /적정\s*(가|주가|가격|가치)/, // 적정가 — "fair value", the Korean term the English pattern missed
+  // "네가 나라면" / "당신이라면" — the Korean "if you were me". No \s* before 라면 on purpose:
+  // 라면 is also the word for instant noodles, and "저 라면 가격" ("that ramen's price") is a
+  // legitimate question. Requiring the pronoun to be attached keeps those apart.
+  /(나|너|저|당신|네)(이)?라면/,
+  /(인\s*척|역할극|롤플레이)/, // roleplay framing
+  // "어디에 투자할까요" — where to invest. Requires a volitional or interrogative ending, so the
+  // passive "가계 자산이 어디에 투자되어 있나요" (where household assets ARE invested — a real
+  // macro question) still gets answered.
+  /어디에?\s*투자(할|하는|하면|하시|해야|하죠|할까)/,
+  /(내|제|우리)\s*(애널리스트|증권사|상담사|자산관리사|투자자문|PB)/, // laundering through an advisor
+  // "이 주식 얼마나 오를까" — a definitive price prediction. Anchored to an ASSET word, because
+  // "물가가 얼마나 오를 것으로 전망되나요" is an inflation question and must keep working.
+  /(주가|종목|주식|코인|가격|환율)[\s\S]{0,20}얼마나\s*(오를|내릴|떨어질|상승할|하락할)/,
+
   /(진입|매수|매도)\s*(가격|시점|타이밍)/,
   // 투자 is deliberately excluded: "정부의 투자 계획" is a government capital-spending plan, a
   // legitimate macro topic, not a request for a trading plan.

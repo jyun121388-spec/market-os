@@ -145,7 +145,7 @@ user-facing output is now a provenance regression with an obvious signature. Not
 
 ---
 
-## IR-006 — Eleven Ask Market guardrail bypasses
+## IR-006 — Twenty-one Ask Market guardrail bypasses
 
 |                 |                                                                                                     |
 | --------------- | --------------------------------------------------------------------------------------------------- |
@@ -172,6 +172,17 @@ Plus definitive price prediction with no numeral in the sentence, which the exis
 `will … (hit|reach|go to) <number>` pattern structurally cannot match — "where this asset will
 land", "fair value", "upside to".
 
+**Batch 3 — stopped probing and enumerated instead.** The two word-order misses were not bad luck,
+they were the visible corner of a class: _a concept covered in English whose Korean mirror was
+never written_. So every English-only pattern in the list was walked and checked for a Korean
+counterpart. **Ten had none** — 적정가 (fair value), 네가 나라면 / 당신이라면 ("if you were me"),
+인 척 (roleplay), 어디에 투자할까요 (where to invest), 제 애널리스트 / 내 증권사 직원 (advisor
+proxy), and 얼마나 오를까 (definitive price prediction).
+
+That is the durable lesson of this finding. Probing surfaces these one accident at a time;
+enumerating the list surfaced all ten in a single pass. **Any future guardrail pattern added in one
+language must be added in the other, or explicitly recorded as not applicable.**
+
 **Over-blocking is tracked as a failure too.** Three patterns from the first draft were too broad
 and are recorded in the test file with the sentences that exposed them: `매도\s*가` flagged
 "외국인 매도가 증가했다" (foreign _selling_ rose — an observation, not a sell price), and
@@ -184,8 +195,10 @@ override, so "ignore your previous instructions" is an unmatched string and patt
 be theatre. This changes the moment the LLM interpretation layer in the module docstring is built;
 the note lives in `tests/askMarketAdversarial.test.ts` so whoever builds it sees it.
 
-**Verification.** `tests/askMarketAdversarial.test.ts`, 25 cases — 11 bypasses and 14 legitimate
-questions that must keep passing through.
+**Verification.** `tests/askMarketAdversarial.test.ts`, 39 cases — 21 bypasses and 18 legitimate
+questions that must keep passing through. Each over-block case is the specific sentence that
+forced a pattern to be narrowed: 라면 is instant noodles as well as "if it were", 투자되어 is
+passive and asks where money already sits, 물가 and 수출 are macro series rather than assets.
 
 ---
 

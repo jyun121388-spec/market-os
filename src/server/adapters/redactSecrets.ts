@@ -31,6 +31,42 @@ const CREDENTIAL_QUERY_PARAMS = ["api_key", "apikey", "crtfc_key", "key", "token
 
 export const REDACTED = "[REDACTED]";
 
+/**
+ * Prepares an error message for storage in `ingest_runs.error` and rendering on /admin.
+ *
+ * Redaction alone is not enough. Prisma's client errors embed a code frame: the absolute path of
+ * the failing file and several lines of its source. Verified against a real connection failure —
+ * the message opened with `Invalid \`client.source.findMany()\` invocation in
+ * C:\...\file.ts:15:25` followed by numbered source lines. Persisting that puts local filesystem
+ * layout and application source into a table rendered on an authenticated page, for no
+ * diagnostic gain: the part an operator needs ("Can't reach database server at ...") survives
+ * this stripping intact.
+ *
+ * The password itself does NOT appear in Prisma connection errors — checked, rather than
+ * assumed — but `redactSecrets` still runs first, because any layer can produce the error that
+ * ends up here.
+ */
+export function sanitiseErrorForStorage(text: string): string {
+  const withoutSecrets = redactSecrets(text);
+
+  const kept = withoutSecrets
+    .split("\n")
+    // Code-frame lines: "  12   const client = ..." and the "→ 15" pointer line.
+    .filter((line) => !/^\s*(→\s*)?\d+\s/.test(line))
+    // The "invocation in <path>:line:col" header, which exists only to locate source.
+    .filter((line) => !/invocation in\s+\S+:\d+:\d+/i.test(line))
+    .map((line) =>
+      line
+        // Absolute Windows and POSIX paths, wherever they appear in prose.
+        .replace(/[A-Za-z]:\\[^\s"']+/g, "[PATH]")
+        .replace(/(?:^|(?<=\s))\/(?:home|Users|var|opt|srv)\/[^\s"']+/g, "[PATH]"),
+    )
+    .map((line) => line.trimEnd())
+    .filter((line, index, all) => !(line === "" && all[index - 1] === ""));
+
+  return kept.join("\n").trim();
+}
+
 export function redactSecrets(text: string): string {
   let out = text;
 

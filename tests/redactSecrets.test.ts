@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { redactSecrets, REDACTED } from "@/server/adapters/redactSecrets";
+import { redactSecrets, sanitiseErrorForStorage, REDACTED } from "@/server/adapters/redactSecrets";
 
 /**
  * Credential redaction for anything that might be logged, stored, or rendered.
@@ -70,6 +70,51 @@ describe("redactSecrets", () => {
   it("leaves text alone when no credential is present", () => {
     const clean = "SEC EDGAR request failed for CIK 320193: 503 Service Unavailable";
     expect(redactSecrets(clean)).toBe(clean);
+  });
+
+  it("strips Prisma's code frame — paths and source — before storage", () => {
+    // Verbatim shape of a real Prisma client error, captured from an actual connection failure.
+    // The password is NOT in it (checked, not assumed), but the absolute path and several lines
+    // of application source are, and `recordIngestRun` persists this for /admin to render.
+    const prismaError = [
+      "",
+      "Invalid `client.source.findMany()` invocation in",
+      "C:\\AI-Projects\\market-os\\src\\server\\domain\\ingestRun.ts:15:25",
+      "",
+      "  12 async function main() {",
+      "  13   const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: URL }) });",
+      "  14   try {",
+      "→ 15     await client.source.findMany(",
+      "Can't reach database server at 127.0.0.1:59999",
+    ].join("\n");
+
+    const stored = sanitiseErrorForStorage(prismaError);
+
+    // The one line an operator actually needs survives.
+    expect(stored).toContain("Can't reach database server at 127.0.0.1:59999");
+    // Filesystem layout and application source do not.
+    expect(stored).not.toContain("C:\\AI-Projects");
+    expect(stored).not.toContain("new PrismaClient");
+    expect(stored).not.toContain("connectionString");
+    expect(stored).not.toMatch(/ingestRun\.ts:\d+:\d+/);
+  });
+
+  it("redacts credentials inside an error before storing it", () => {
+    const stored = sanitiseErrorForStorage(
+      "Request to https://api.stlouisfed.org/fred/series?api_key=fredsecretkey1234567890 timed out",
+    );
+    expect(stored).not.toContain("fredsecretkey1234567890");
+    expect(stored).toContain(REDACTED);
+  });
+
+  it("leaves an ordinary one-line error untouched apart from trimming", () => {
+    expect(sanitiseErrorForStorage("provider returned 503")).toBe("provider returned 503");
+  });
+
+  it("strips POSIX absolute paths too, not only Windows ones", () => {
+    const stored = sanitiseErrorForStorage("failed reading /home/runner/work/market-os/secret.ts");
+    expect(stored).not.toContain("/home/runner");
+    expect(stored).toContain("[PATH]");
   });
 
   it("does not turn every string into redaction soup when a key is implausibly short", () => {

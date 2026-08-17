@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db/client";
-import { redactSecrets } from "@/server/adapters/redactSecrets";
+import { sanitiseErrorForStorage } from "@/server/adapters/redactSecrets";
 import type { IngestRunStatus } from "@/generated/prisma/client";
 
 /**
@@ -88,9 +88,11 @@ async function writeRun(args: {
       fetched: outcome.fetched ?? null,
       requestsMade: outcome.requestsMade ?? null,
       truncated: outcome.truncated ?? false,
-      // Defence in depth: HttpTimeoutError already redacts, but any error from any layer can
-      // end up here, and this row is both persisted and rendered on an authenticated page.
-      error: args.error ? redactSecrets(args.error).slice(0, 500) : null,
+      // Defence in depth. HttpTimeoutError already redacts, but any layer can produce the error
+      // that lands here, and this row is both persisted and rendered on an authenticated page.
+      // Sanitising also strips Prisma's code frame — absolute paths and application source —
+      // which carries no diagnostic value once the actual failure line is kept.
+      error: args.error ? sanitiseErrorForStorage(args.error).slice(0, 500) : null,
     },
   });
 }

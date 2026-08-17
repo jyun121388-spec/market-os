@@ -123,9 +123,31 @@ case; "000" and the "013" no-data mapping still need a key.
 
 ---
 
-## HG-005 — Codex independent re-review
+## HG-005 — Independent re-review
 
-**Status**: `PENDING_EXTERNAL` · marker `CODEX_REVIEW_PENDING`
+**Status**: `PENDING_EXTERNAL` · marker `INDEPENDENT_REVIEW_PENDING_USAGE_RESET`
+
+**2026-08-17 update — the blocker changed, and is now a quota rather than a login.** The Codex
+CLI (`codex-cli` 0.147.0) IS present on this machine and IS authenticated: `codex login status`
+returns "Logged in using ChatGPT". So the environment limitation recorded in earlier rounds no
+longer applies.
+
+What blocks it now is included-usage exhaustion:
+
+```
+$ codex exec -m gpt-5.6-luna ...
+ERROR: You've hit your usage limit. ... try again at Aug 22nd, 2026 10:30 AM.
+```
+
+That is account-level, not model-level — `gpt-5.6-terra` did not return either. Per standing
+instruction no credits are purchased and no API key is configured, so the review waits for the
+included allowance to reset on **2026-08-22**. It is not polled in the meantime; re-check once
+after that date.
+
+`docs/INDEPENDENT_REVIEW_PACKET.md` is prepared against the current range (`9b34f8b..HEAD`, 47
+commits, 110 files) with ten ranked attack targets, so a reviewer can start without re-deriving
+scope. Bounded deliberately: the older `docs/CODEX_REVIEW_PACKET.md` review range is obsolete and
+says so.
 
 **Issue**: the first Codex review returned REVISE with three P0 blockers. All three were fixed —
 and one of those fixes (B3, the observation concurrency race) later proved defective and has been

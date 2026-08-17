@@ -1,5 +1,12 @@
 # Codex Review Packet
 
+> **⚠ SCOPE OBSOLETE — start from `docs/INDEPENDENT_REVIEW_PACKET.md` instead.**
+>
+> This document's review range predates ~47 commits of hardening. Its architecture context
+> (§1–§11) and the history of the first review round remain accurate and useful, and §0.1's
+> R1–R17 findings are still the record of what was fixed. But do not bound a review by anything
+> in here: the current range is `9b34f8b..HEAD`, and the newer packet ranks the attack surface.
+
 Prepared because no Codex session has been available in this development environment at any
 point across the M00-M28 build-out. This packet exists so that whenever a Codex session (or any
 independent reviewer) becomes available, review can start immediately without re-deriving

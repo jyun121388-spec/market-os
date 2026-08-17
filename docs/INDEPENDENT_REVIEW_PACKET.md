@@ -4,13 +4,23 @@ Supersedes the scope described in `docs/CODEX_REVIEW_PACKET.md` §0/§12. That d
 useful for architecture context (§1–§11) and for the history of the first review round, but its
 review range is obsolete and should not be used to bound a review.
 
-| Field           | Value                                                             |
-| --------------- | ----------------------------------------------------------------- |
-| Branch          | `claude/market-os-development-7vnicg`                             |
-| Review range    | `9b34f8b..HEAD` (HEAD = `394933d` at time of writing)             |
-| Scope           | 47 commits, 110 files, ~9,300 insertions                          |
-| Last reviewed   | `9b34f8b` — the only commit an independent reviewer has ever seen |
-| Reviewer status | `INDEPENDENT_REVIEW_PENDING_USAGE_RESET`                          |
+| Field           | Value                                                                   |
+| --------------- | ----------------------------------------------------------------------- |
+| Branch          | `claude/market-os-development-7vnicg`                                   |
+| Review range    | `9b34f8b..ec83e39`                                                      |
+| Scope           | **66 commits, 127 files, ~12,445 insertions / 611 deletions**           |
+| Last reviewed   | `9b34f8b` — still the only commit an independent reviewer has ever seen |
+| Reviewer status | **UNBLOCKED 2026-08-18** — see `docs/AI_REVIEW_RUNTIME_STATE.md`        |
+
+**Range updated 2026-08-18.** The previous header bounded the review at `394933d`; 19 further
+commits have landed since, including an entire interim hardening round and the v2 architecture
+contracts. Reviewing the old range would miss all of it.
+
+**Everything after `9b34f8b` is author-reviewed only.** A local model was calibrated as an interim
+stand-in and disqualified — it reported defects in correct code on every blind sample and never
+once cleared a clean control (`docs/LOCAL_AI_CALIBRATION.md`). Nothing in this range has had
+independent review of any kind. Do not treat the volume of testing as a substitute: several of the
+defects listed below had passing tests at the time they were wrong.
 
 ## Read this first
 
@@ -144,6 +154,66 @@ direct object reference to tamper with.
 a bypass via concurrent submissions racing the count check (known best-effort — documented)?
 
 ---
+
+### A11 — Multi-source identity and provenance (added 2026-08-18)
+
+**The dominant defect class in this range, and the least externally reviewed.** Four confirmed
+defects, all the same shape: a business identifier is unique only _within_ a provider, and code
+treated it as global.
+
+- `financial_facts` has two unique indexes, both beginning `sourceId`. `Series` is unique on
+  `(sourceId, externalId)` and never on `name`. The schema states the rule; four read paths ignored it.
+- IR-001 `askMarket.findCompanyFacts` and IR-002 `computeCompanyXray` queried on `corpCode` alone.
+  X-Ray displayed one `sourceCode` in its header while pooling filings, ticker, figures and filing
+  list across every provider sharing that corp code.
+- IR-007 / IR-008 are the mirror image: queries correctly scoped, but the **output** dropped the
+  source, so `/ask` and `/today` rendered figures with no attribution at all.
+
+Attack these specifically:
+
+1. Is any remaining query keyed on `corpCode`, `externalId`, `receiptNo` or `accessionNumber`
+   without `sourceId`? I found two intentional (`anyFiling` source selection, `findKnownCorpCodes`
+   existence check) — **argue with both**.
+2. `/company/[corpCode]` is routed on corp code alone, so with two providers sharing one the second
+   is unreachable. Recorded as a known limitation. Is that acceptable, or a latent data-integrity bug?
+3. Does any displayed `sourceCode` belong to a different provider than the values beside it?
+4. `computeFilingDiff` receives `anyFiling.sourceId`. Is that provably the right source for every
+   concept in `conceptUnits`?
+
+### A12 — Ask Market guardrail completeness (extends A9)
+
+49 bypasses closed across three passes; 21 in this range alone. The generalisable finding: **a
+pattern added in one language, word order or format, and not the other.** `목표가` was covered while
+`가격 목표` was not; `수익 보장` while `보장된 수익률` was not — the same word-order bug already fixed
+once for English.
+
+- `tests/askMarketAdversarial.test.ts` pins 21 bypasses and 18 legitimate questions.
+  **The over-block cases matter as much**: 라면 is instant noodles as well as "if it were";
+  `투자되어` is passive; 물가/수출 are macro series, not assets.
+- Injection patterns were deliberately **not** added — `askMarket` makes no model call, so there
+  is no instruction hierarchy to override. Challenge that reasoning if you disagree.
+- Find bypasses these 60+ patterns still miss, and over-blocks that would refuse a real macro question.
+
+### A13 — Test-database fail-closed guard and test realism
+
+- `tests/support/testDatabaseGuard.mts` is applied at **config load** so an unsafe configuration
+  throws before any connection opens. Rules run in a specific order — `sameTarget` before the
+  name checks. Attack the ordering.
+- `docs/EVOLUTION_LEDGERS.md` records the dominant test weakness: **fixtures containing one of
+  something the real world has many of** — one duration, one CIK representation, one provider.
+  Four separate defects trace to it. Which test families still have that shape?
+- Which tests prove a helper but never exercise the actual request path? The Watchlist domain
+  module once had zero callers, so cross-user isolation had never been tested through a request.
+
+### A14 — v2 architecture contracts (design only, no implementation)
+
+`docs/META_ARCHITECTURE_V2.md` and its five companions. **No code exists**; zero v1 source files
+were touched. Review as design:
+
+- Are the promotion criteria genuine negative controls, or do they only test for false negatives?
+- Does the Reality Fabric contract miss a reality state that this project has already encountered?
+- Is `EntityLink` (explicit cross-provider linking, never an implicit join) sufficient to prevent
+  a recurrence of IR-001/IR-002 at v2 scale?
 
 ## Exact commands
 

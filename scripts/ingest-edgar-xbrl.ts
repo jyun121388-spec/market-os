@@ -6,13 +6,16 @@
  */
 import { ingestCompanyFacts } from "../src/server/adapters/edgar-xbrl/ingest";
 import { TRACKED_XBRL_COMPANIES } from "../src/server/adapters/edgar-xbrl/types";
+import { padCik } from "../src/server/adapters/edgar/types";
 import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
 
 async function main() {
   for (const company of TRACKED_XBRL_COMPANIES) {
     const result = await recordIngestRun(
-      { sourceCode: "SEC_EDGAR", target: `xbrl:${company.cik}` },
+      // Canonical padded CIK, matching `FinancialFact.corpCode`. See the note in
+      // scripts/ingest-edgar.ts for why the unpadded form is not used here.
+      { sourceCode: "SEC_EDGAR", target: `xbrl:${padCik(company.cik)}` },
       async () => {
         const r = await ingestCompanyFacts(company);
         return {

@@ -29,7 +29,11 @@ export default async function CompanyXrayPage({
     notFound();
   }
 
-  const { company, latestFigures, changes, recentFilings } = xray;
+  const { company, latestFigures, changes, recentFilings, completeness } = xray;
+  const completenessTone =
+    completeness.status === "COMPLETE"
+      ? "border-zinc-200 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
+      : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200";
   const comparable = changes.filter((c) => c.status === "COMPUTED");
   const notComparable = changes.filter((c) => c.status !== "COMPUTED");
 
@@ -59,6 +63,16 @@ export default async function CompanyXrayPage({
       <p className="rounded border border-zinc-200 p-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
         These are figures the company reported, and arithmetic differences between them. Market OS
         does not score, rate or value companies, and nothing here is a recommendation.
+      </p>
+
+      {/*
+        Completeness belongs next to the numbers, not only on the admin dashboard. A page built
+        from a knowably partial ingest must say so — otherwise a subset of a filing history reads
+        exactly like the whole of one.
+      */}
+      <p className={`rounded border p-3 text-sm ${completenessTone}`}>
+        <span className="font-medium">Data completeness: {completeness.status}</span> —{" "}
+        {completeness.detail}
       </p>
 
       <section className="flex flex-col gap-3">

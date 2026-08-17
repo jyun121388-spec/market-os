@@ -5,14 +5,18 @@
  * Usage: EDGAR_USER_AGENT="Market OS you@example.com" DATABASE_URL=... npx tsx scripts/ingest-edgar.ts
  */
 import { ingestEdgarFilings } from "../src/server/adapters/edgar/ingest";
-import { TRACKED_EDGAR_COMPANIES } from "../src/server/adapters/edgar/types";
+import { TRACKED_EDGAR_COMPANIES, padCik } from "../src/server/adapters/edgar/types";
 import { recordIngestRun } from "../src/server/domain/ingestRun";
 import { prisma } from "../src/server/db/client";
 
 async function main() {
   for (const company of TRACKED_EDGAR_COMPANIES) {
     const result = await recordIngestRun(
-      { sourceCode: "SEC_EDGAR", target: company.cik },
+      // Canonical padded CIK, matching `Filing.corpCode`. Recording the unpadded tracked
+      // constant here would repeat the identity mismatch that left 2240 filings and 933 facts
+      // with zero joinable rows — and it would silently break any consumer trying to ask
+      // "was this company's data complete?".
+      { sourceCode: "SEC_EDGAR", target: padCik(company.cik) },
       async () => {
         const r = await ingestEdgarFilings(company);
         return { ...r, fetched: r.totalFetched, providerTotal: null };

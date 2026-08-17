@@ -48,6 +48,23 @@ export interface RecentFiling {
   receiptDate: string; // YYYY-MM-DD
 }
 
+/**
+ * Whether the stored data for this company is known to be incomplete.
+ *
+ * A truncation flag that only reaches an operator dashboard is not much use to the person
+ * reading the numbers. Every adapter reports `truncated` because each one silently stored a
+ * partial result at some point; if the last run for this company ended PARTIAL or FAILED, the
+ * page built from it must say so rather than presenting a subset as the whole history.
+ *
+ * `null` means no ingest run has been recorded for this company — the runs table only started
+ * being written recently, so absence is genuinely "unknown" rather than "complete", and it is
+ * reported as such.
+ */
+export interface CompletenessNote {
+  status: "COMPLETE" | "KNOWN_INCOMPLETE" | "LAST_RUN_FAILED" | "UNKNOWN";
+  detail: string;
+}
+
 export interface CompanyXray {
   company: CompanySummary;
   /** Most recent reported figure per (concept, period length). */
@@ -55,6 +72,7 @@ export interface CompanyXray {
   /** Period-over-period change per concept, or INSUFFICIENT_DATA where none is comparable. */
   changes: FilingDiffResult[];
   recentFilings: RecentFiling[];
+  completeness: CompletenessNote;
 }
 
 const DAYS_PER_MONTH = 30.436875;
@@ -188,6 +206,7 @@ export async function computeCompanyXray(corpCode: string): Promise<CompanyXray 
     return { concept, unit };
   });
   const changes = await computeFilingDiff(anyFiling.sourceId, corpCode, conceptUnits);
+  const completeness = await assessCompleteness(anyFiling.sourceId, corpCode);
 
   return {
     company: {
@@ -206,5 +225,66 @@ export async function computeCompanyXray(corpCode: string): Promise<CompanyXray 
       receiptNo: f.receiptNo,
       receiptDate: iso(f.receiptDate),
     })),
+    completeness,
+  };
+}
+
+/**
+ * Looks at the most recent ingest run per target for this company and reports whether the data
+ * on the page can be trusted as the whole history.
+ *
+ * Targets are the canonical padded CIK and its `xbrl:` counterpart — the same identifier the
+ * filings and facts are stored under. They were recorded unpadded until the
+ * `20260818090000_canonical_ingest_run_target` migration, which is why that migration exists:
+ * a lookup keyed on the wrong representation returns nothing and reports UNKNOWN forever, which
+ * looks like a missing feature rather than a broken join.
+ */
+async function assessCompleteness(sourceId: string, corpCode: string): Promise<CompletenessNote> {
+  const runs = await prisma.ingestRun.findMany({
+    where: { sourceId, target: { in: [corpCode, `xbrl:${corpCode}`] } },
+    orderBy: { startedAt: "desc" },
+  });
+
+  if (runs.length === 0) {
+    return {
+      status: "UNKNOWN",
+      detail:
+        "No ingest run has been recorded for this company, so whether the stored history is " +
+        "complete is not known. Absence of a record is not evidence of completeness.",
+    };
+  }
+
+  // Newest run per target — older ones are history, not current state.
+  const seen = new Set<string>();
+  const latest = runs.filter((r) => !seen.has(r.target) && seen.add(r.target));
+
+  const failed = latest.filter((r) => r.status === "FAILED");
+  if (failed.length > 0) {
+    return {
+      status: "LAST_RUN_FAILED",
+      detail:
+        `The most recent ingest for ${failed.map((r) => r.target).join(", ")} failed, so the ` +
+        "figures below may be missing anything that run would have added.",
+    };
+  }
+
+  const partial = latest.filter((r) => r.truncated || r.status === "PARTIAL");
+  if (partial.length > 0) {
+    const worst = partial[0];
+    const shortfall =
+      worst.providerTotal !== null && worst.fetched !== null
+        ? ` (${worst.fetched} of ${worst.providerTotal} records)`
+        : "";
+    return {
+      status: "KNOWN_INCOMPLETE",
+      detail:
+        `The most recent ingest stored less than the provider reported${shortfall}. This page ` +
+        "shows a subset of this company's history, not all of it.",
+    };
+  }
+
+  return {
+    status: "COMPLETE",
+    detail: "The most recent ingest retrieved everything the provider reported.",
   };
 }

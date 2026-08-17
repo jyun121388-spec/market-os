@@ -136,6 +136,63 @@ describeIfDb("computeCompanyXray (integration)", () => {
     expect(change.previousValue).not.toBe(364357000000);
   });
 
+  it("reports UNKNOWN completeness when no ingest run was ever recorded", async () => {
+    // Absence of a record is not evidence of completeness. The runs table only started being
+    // written recently, so a company with no run is genuinely unknown and must say so rather
+    // than defaulting to a reassuring answer.
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("UNKNOWN");
+    expect(xray.completeness.detail).toMatch(/not evidence of completeness/i);
+  });
+
+  it("surfaces a truncated ingest as KNOWN_INCOMPLETE, with the shortfall", async () => {
+    // A truncation flag reaching only the admin dashboard is little use to the person reading
+    // the numbers. If the last run stored less than the provider reported, the page built from
+    // it must say so — a subset of a filing history reads exactly like the whole of one.
+    const { recordIngestRun } = await import("@/server/domain/ingestRun");
+    await recordIngestRun({ sourceCode: SOURCE_CODE, target: CORP_CODE }, async () => ({
+      inserted: 100,
+      providerTotal: 5000,
+      fetched: 100,
+      truncated: true,
+    }));
+
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("KNOWN_INCOMPLETE");
+    expect(xray.completeness.detail).toContain("100 of 5000");
+
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
+
+  it("surfaces a failed ingest distinctly from a truncated one", async () => {
+    const { recordIngestRun } = await import("@/server/domain/ingestRun");
+    await expect(
+      recordIngestRun({ sourceCode: SOURCE_CODE, target: CORP_CODE }, async () => {
+        throw new Error("provider returned 503");
+      }),
+    ).rejects.toThrow();
+
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("LAST_RUN_FAILED");
+
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
+
+  it("reports COMPLETE only when the last run retrieved everything reported", async () => {
+    const { recordIngestRun } = await import("@/server/domain/ingestRun");
+    await recordIngestRun({ sourceCode: SOURCE_CODE, target: CORP_CODE }, async () => ({
+      inserted: 3,
+      providerTotal: 3,
+      fetched: 3,
+      truncated: false,
+    }));
+
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("COMPLETE");
+
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
+
   it("exposes no field that could carry a score, rating or recommendation", async () => {
     // Structural guardrail, the same approach tests/etfSchemaGuardrail.test.ts takes: the shape
     // itself must make a judgment unrepresentable, so one cannot be added by accident later.

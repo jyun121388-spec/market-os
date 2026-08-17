@@ -1,5 +1,8 @@
 import { defineConfig } from "vitest/config";
-import { resolveTestDatabase } from "./tests/support/testDatabaseGuard";
+// Explicit extension, and an .mts module: Vite's native config loader warns that an
+// extensionless TypeScript import and CommonJS-loaded ESM will both stop working in a future
+// major. A config that fails to load takes the entire safety guard down with it.
+import { resolveTestDatabase } from "./tests/support/testDatabaseGuard.mjs";
 
 /**
  * The integration tests are destructive. Which database they are allowed to touch is decided

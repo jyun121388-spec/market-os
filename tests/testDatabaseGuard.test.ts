@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { resolveTestDatabase } from "./support/testDatabaseGuard";
+﻿import { describe, expect, it } from "vitest";
+import { resolveTestDatabase } from "./support/testDatabaseGuard.mjs";
 
 /**
  * The guard that decides which database destructive tests may touch.

@@ -108,4 +108,54 @@ describeIfDb("event ingest (integration)", () => {
     const event = await prisma.event.findUniqueOrThrow({ where: { id: first.eventId } });
     expect(event.mentionCount).toBe(1); // unchanged by the duplicate
   });
+
+  it("survives concurrent ingests of the same URL without throwing", async () => {
+    // The fourth instance of read-then-write-treated-as-atomic found in this codebase, after
+    // the observation revision chain, the watchlist upsert and the filing ingests. The
+    // `findUnique` dedupe check is a hint, not a guarantee: concurrent callers all see nothing
+    // and all insert. Reproduced before fixing — four concurrent calls with one URL rejected
+    // three of four with a raw P2002, for what this function's own contract calls a duplicate.
+    const url = "https://test.example/concurrent-same-url";
+    const mention = {
+      title: "TEST: Central Bank Holds Policy Rate Steady",
+      url,
+      publishedAt: new Date("2026-08-15T15:00:00.000Z"),
+      sourceCode: TEST_SOURCE_A,
+      raw: {},
+    };
+
+    // Promise.all rejects if any call throws, which is half the assertion.
+    const results = await Promise.all([
+      ingestMention({ ...mention }),
+      ingestMention({ ...mention }),
+      ingestMention({ ...mention }),
+      ingestMention({ ...mention }),
+    ]);
+
+    // Exactly one row for the URL, and every caller agrees which event it belongs to.
+    const stored = await prisma.eventMention.findMany({ where: { url } });
+    expect(stored).toHaveLength(1);
+    const eventIds = new Set(results.map((r) => r.eventId));
+    expect(eventIds.size).toBe(1);
+    expect([...eventIds][0]).toBe(stored[0].eventId);
+  });
+
+  it("never leaves an Event claiming mentions that do not exist", async () => {
+    // An Event and its first EventMention used to be two separate statements, so a mention
+    // insert failing after the event insert succeeded would leave an Event with
+    // `mentionCount: 1` and nothing attached — a row that renders on /today as a real event
+    // with a count nothing backs. They are written in one transaction now, so a rollback takes
+    // the event with it.
+    const events = await prisma.event.findMany({
+      where: { topic: { startsWith: "TEST:" } },
+      include: { mentions: { select: { id: true } } },
+    });
+
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(event.mentions.length).toBeGreaterThan(0);
+      // And the stored counter agrees with the rows actually present.
+      expect(event.mentionCount).toBe(event.mentions.length);
+    }
+  });
 });

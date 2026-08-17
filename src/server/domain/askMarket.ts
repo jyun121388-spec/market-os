@@ -180,6 +180,22 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // Korean order mechanics and tailored-advice framing.
   // 가격/시점/타이밍 only — NOT a bare 가. "외국인 매도가 증가했다" ("foreign selling rose") is a
   // plain market observation, and `매도\s*가` would have flagged it.
+  // --- 2026-08-18, third pass. Two of these are the SAME word-order bug already fixed once for
+  // English ("target price" / "price target"): the Korean patterns only had one ordering each.
+
+  // A definitive future price with no numeral in the sentence, so the existing
+  // `will … (hit|reach|go to) <number>` pattern could not see it.
+  /\bwhere\b[\s\S]{0,30}\b(will|is going to|gonna)\b[\s\S]{0,20}\b(land|end up|be|trade|close|settle)\b/i,
+  /\bfair value\b/i,
+  /\bupside to\b/i,
+
+  // 가격 목표 — "price target" with the words reversed. 목표가/목표주가 were covered; this was not.
+  /(가격|주가|수익률)\s*목표/,
+  // 보장된 수익 — "guaranteed return" reversed. 수익 보장 was covered; this was not.
+  /보장\s*된?\s*(수익|수익률|이익)/,
+  // "how far will it go / where will it reach" — a definitive price prediction in Korean.
+  /(어디까지|얼마까지|어디에)\s*(도달|갈|갈까|오를|오를까|떨어질|떨어질까)/,
+
   /(진입|매수|매도)\s*(가격|시점|타이밍)/,
   // 투자 is deliberately excluded: "정부의 투자 계획" is a government capital-spending plan, a
   // legitimate macro topic, not a request for a trading plan.

@@ -145,6 +145,50 @@ user-facing output is now a provenance regression with an obvious signature. Not
 
 ---
 
+## IR-006 — Eleven Ask Market guardrail bypasses
+
+|                 |                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| Reviewer        | `qwen3.5:4b` proposed the inputs; `detectPersonalizedAdviceRequest` scored them                     |
+| Subsystem       | `src/server/domain/askMarket.ts` — `ADVICE_REQUEST_PATTERNS`                                        |
+| Severity        | **P1** — a personalized-advice request answered without redirect crosses `docs/LEGAL_GUARDRAILS.md` |
+| Status          | **VALID — fixed**                                                                                   |
+| Codex re-review | **YES**                                                                                             |
+
+This is the one sanctioned use of the local model: it generated candidate phrasings and the real
+detector graded every one. The model never judged anything, so its demonstrated false-positive
+bias could not introduce a wrong answer — only wasted candidates.
+
+**Batch 1** — 8 of 14 got through, in five classes: asking on behalf of a third party ("my brother
+asked me… which stocks to buy"); an adjective between possessive and noun ("my **current**
+holdings"); order mechanics as logistics ("where to place my orders"); a position change without a
+possessive ("adding more position"); a hypothetical whose payload sat 85 characters after the
+opener, past the old 60-character window; and Korean entry-price / sell-strategy / tailored-advice
+forms.
+
+**Batch 2** — 3 more classes, two of them the _same word-order bug already fixed once for English_:
+`목표가` was covered but `가격 목표` was not, `수익 보장` was covered but `보장된 수익률` was not.
+Plus definitive price prediction with no numeral in the sentence, which the existing
+`will … (hit|reach|go to) <number>` pattern structurally cannot match — "where this asset will
+land", "fair value", "upside to".
+
+**Over-blocking is tracked as a failure too.** Three patterns from the first draft were too broad
+and are recorded in the test file with the sentences that exposed them: `매도\s*가` flagged
+"외국인 매도가 증가했다" (foreign _selling_ rose — an observation, not a sell price), and
+`투자\s*계획` flagged "정부의 투자 계획" (government capital spending). A guardrail that refuses the
+product's own subject matter has failed in the direction nobody reports.
+
+**Deliberately NOT fixed: prompt injection.** `askMarket` makes no model call — it regex-matches,
+reads PostgreSQL, and returns a static redirect string. There is no instruction hierarchy to
+override, so "ignore your previous instructions" is an unmatched string and patterns for it would
+be theatre. This changes the moment the LLM interpretation layer in the module docstring is built;
+the note lives in `tests/askMarketAdversarial.test.ts` so whoever builds it sees it.
+
+**Verification.** `tests/askMarketAdversarial.test.ts`, 25 cases — 11 bypasses and 14 legitimate
+questions that must keep passing through.
+
+---
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

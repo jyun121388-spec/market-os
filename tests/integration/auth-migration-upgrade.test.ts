@@ -25,11 +25,12 @@ describeIfDb("auth migration upgrade safety (integration)", () => {
   const prismaCli = path.join(repoRoot, "node_modules", "prisma", "build", "index.js");
   const testDbName = "market_os_migration_upgrade_test";
 
-  const baseUrl = new URL(process.env.DATABASE_URL!);
-  const adminUrl = new URL(baseUrl.toString());
-  adminUrl.pathname = "/postgres";
-  const testDbUrl = new URL(baseUrl.toString());
-  testDbUrl.pathname = `/${testDbName}`;
+  // Derived inside `beforeAll`, not at describe-body scope. Vitest still evaluates the body of
+  // a skipped describe in order to collect it, so parsing `DATABASE_URL!` out here threw and
+  // failed the whole file whenever no database was configured — a suite that is supposed to
+  // skip itself instead taking the run down with it.
+  let adminUrl: URL;
+  let testDbUrl: URL;
 
   let stageDir: string;
 
@@ -67,6 +68,12 @@ export default defineConfig({
   }
 
   beforeAll(async () => {
+    const baseUrl = new URL(process.env.DATABASE_URL!);
+    adminUrl = new URL(baseUrl.toString());
+    adminUrl.pathname = "/postgres";
+    testDbUrl = new URL(baseUrl.toString());
+    testDbUrl.pathname = `/${testDbName}`;
+
     // The generated prisma.config.ts is executed by Prisma's config loader, which resolves
     // `require("prisma/config")` relative to the config file's own location — it must live
     // somewhere under the repo's node_modules resolution chain, not a bare OS tmpdir.

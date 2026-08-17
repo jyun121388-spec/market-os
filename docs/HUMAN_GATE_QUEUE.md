@@ -125,7 +125,19 @@ case; "000" and the "013" no-data mapping still need a key.
 
 ## HG-005 — Independent re-review
 
-**Status**: `PENDING_EXTERNAL` · marker `INDEPENDENT_REVIEW_PENDING_USAGE_RESET`
+**Status (2026-08-18): NO LONGER BLOCKED — in progress.** The account was upgraded and all three
+Codex models now probe AVAILABLE (`docs/AI_REVIEW_RUNTIME_STATE.md`). The first genuine
+independent review of this branch has run and produced six confirmed defects — IR-009 through
+IR-014 in `docs/INTERIM_REVIEW_FINDINGS.md`, five fixed and one deferred as HG-009.
+
+What remains is coverage, not access: the packet's A1–A14 have not all been reviewed, and **Sol
+has not been used at all** — reserve it for the final Release Candidate adversarial pass and for
+any P0/P1. Always invoke with `-s read-only`; `codex exec` otherwise defaults to `workspace-write`
+with `approval: never`, which lets a reviewer edit the tree.
+
+The historical account below is kept because it explains why the range went unreviewed for so long.
+
+**Superseded status**: `PENDING_EXTERNAL` · marker `INDEPENDENT_REVIEW_PENDING_USAGE_RESET`
 
 **2026-08-17 update — the blocker changed, and is now a quota rather than a login.** The Codex
 CLI (`codex-cli` 0.147.0) IS present on this machine and IS authenticated: `codex login status`
@@ -231,3 +243,35 @@ Recorded so they are not mistaken for blockers: choice of test strategy, file la
 reversible refactors, local dev tooling (the portable PostgreSQL in `.local/` is workspace-local
 and reversible by deleting the folder), adding regression tests, and documentation. These are
 decided autonomously and recorded in `docs/DECISIONS.md`.
+
+## HG-009 — Login lockout threat-model decision
+
+**Status**: `HUMAN_GATE_DEFERRED_UNTIL_USER_RETURN` · raised 2026-08-18 · severity P2
+
+**Decision required**: whether to keep the current account-targeted login lockout, and if not,
+which replacement to accept.
+
+**Reason**: failed sign-ins are counted per normalised email and the lock is checked _before_ the
+password is verified (`src/server/domain/auth.ts`, `isLoginLocked`). Anyone who knows an address
+can therefore lock that account for 15 minutes with five wrong guesses — no session, no victim
+interaction. Found by independent review (`gpt-5.6-terra`), reproduced by reading the
+implementation. Full analysis in `docs/INTERIM_REVIEW_FINDINGS.md` IR-014.
+
+**Why this was not decided autonomously**: every alternative trades one weakness for another, so
+there is no fix that is simply correct.
+
+| Option                                   | Cost                                                                                          |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Keep as-is                               | Targeted 15-minute DoS on any known address                                                   |
+| Remove the lockout                       | Brute-force protection disappears entirely                                                    |
+| Verify password before checking the lock | DoS gone, but unlimited guesses — worse than today for brute force                            |
+| Key on client IP                         | Needs request-IP plumbing behind an unknown proxy topology; a distributed attacker defeats it |
+| Exponential backoff per email            | Softens the DoS without removing it                                                           |
+
+**Recommended default**: keep the current behaviour. `auth.ts` already documents the chosen threat
+model — a targeted attacker guessing one account's password, explicitly not distributed
+credential stuffing — and for a pre-launch product with no traffic, a 15-minute targeted lockout
+is a smaller real risk than unlimited password guessing. Revisit alongside infrastructure-level
+rate limiting, which is where the IP-based answer properly belongs.
+
+**What continues without this**: everything. No other work depends on it.

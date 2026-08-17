@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M27 Production QA — a single persistent, version-controlled end-to-end walkthrough of the
  * real user path, run with a real browser against a real running `npm run dev` server. Every
  * prior milestone verified its own slice individually (M20 Today, M22 Auth, M24 Admin, M26
@@ -27,11 +27,15 @@ function check(label: string, condition: boolean) {
 }
 
 async function cleanupTestUser() {
-  const existing = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
-  if (existing) {
-    await prisma.session.deleteMany({ where: { userId: existing.id } });
-    await prisma.watchlistItem.deleteMany({ where: { userId: existing.id } });
-    await prisma.user.delete({ where: { id: existing.id } });
+  // Both accounts: the operator, and the ordinary user step [4b] creates to prove /admin keeps
+  // non-operators out. Leaving the second behind would make a re-run fail at signup.
+  for (const email of [TEST_EMAIL, "e2e-nonoperator@example.com"]) {
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      await prisma.session.deleteMany({ where: { userId: existing.id } });
+      await prisma.watchlistItem.deleteMany({ where: { userId: existing.id } });
+      await prisma.user.delete({ where: { id: existing.id } });
+    }
   }
 }
 
@@ -83,6 +87,40 @@ async function main() {
       "explains what fetched-vs-provider means rather than showing a bare number",
       (body ?? "").includes("what the provider itself said exists"),
     );
+
+    // The other half of the authorization check, and the half that actually protects anything.
+    // The walkthrough user is in ADMIN_EMAILS, so step [4] proves an operator gets in. This
+    // proves a second, ordinary account does NOT — the case that was open until 2026-08-18, when
+    // /admin required only that somebody be signed in. Testing `isOperatorEmail` alone would not
+    // have caught a page that forgot to call it.
+    console.log("[4b] A signed-in NON-operator is kept out of /admin");
+    const otherEmail = "e2e-nonoperator@example.com";
+    // Clear the session cookie directly rather than hitting a sign-out route, so this step does
+    // not depend on how sign-out happens to be routed.
+    await page.context().clearCookies();
+    await page.goto(`${BASE_URL}/signup`);
+    await page.fill('input[name="email"]', otherEmail);
+    await page.fill('input[name="password"]', PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForURL((u) => !u.pathname.includes("/signup"), { timeout: 15000 });
+
+    await page.goto(`${BASE_URL}/admin`);
+    await page.waitForURL((u) => !u.pathname.includes("/admin"), { timeout: 10000 });
+    check("non-operator is redirected away from /admin", !page.url().includes("/admin"));
+    body = await page.textContent("body");
+    check("non-operator sees no pipeline health", !(body ?? "").includes("Pipeline Health"));
+    check(
+      "non-operator sees no persisted ingest errors section",
+      !(body ?? "").includes("Ingest completeness"),
+    );
+
+    // Back to the operator account for the remaining steps.
+    await page.context().clearCookies();
+    await page.goto(`${BASE_URL}/login`);
+    await page.fill('input[name="email"]', TEST_EMAIL);
+    await page.fill('input[name="password"]', PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 15000 });
 
     console.log("[5] Watchlist: add, see it listed, remove it");
     await page.goto(`${BASE_URL}/watchlist`);

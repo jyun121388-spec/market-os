@@ -345,6 +345,85 @@ The same omission as IR-007/IR-008, in the one output type I missed when fixing 
 `sourceCode` added. Low severity because `/company/[corpCode]` names the source in its header and
 all its data is scoped to it — but the API returned an unattributed financial comparison.
 
+## IR-012 — Password hash crossed the server boundary (Terra, security pass)
+
+|                 |                                                 |
+| --------------- | ----------------------------------------------- |
+| Reviewer        | `gpt-5.6-terra` — reproduced                    |
+| Subsystem       | `src/server/domain/auth.ts` — `validateSession` |
+| Severity        | **P1**                                          |
+| Status          | **VALID — fixed**                               |
+| Codex re-review | **YES**                                         |
+
+`validateSession` used `include: { user: true }` and returned the whole Prisma `User` row.
+`getCurrentUser` — exported from a `"use server"` module, which makes it a reachable endpoint
+whether or not any page calls it — returned that verbatim. So `passwordHash` left the server.
+
+**Why P1 despite being self-only.** It requires a valid session and yields only that user's own
+hash, so it is not cross-user disclosure. It matters because it converts a _session_ compromise
+into a _credential_ compromise: a stolen cookie expires, an offline-crackable scrypt hash for a
+password the person reuses elsewhere does not.
+
+**Fix.** Explicit `select` returning `{ id, email }` — the only fields any caller reads (verified
+by grep across `src/app` and `src/server/actions`). The test pins the exact key set, so a future
+widened `include` fails rather than silently reintroducing the leak.
+
+## IR-013 — `/admin` required only that someone be signed in (Terra, security pass)
+
+|                 |                              |
+| --------------- | ---------------------------- |
+| Reviewer        | `gpt-5.6-terra` — reproduced |
+| Subsystem       | `src/app/admin/page.tsx`     |
+| Severity        | **P2**                       |
+| Status          | **VALID — fixed**            |
+| Codex re-review | **YES**                      |
+
+The page checked `if (!user) redirect("/login")` and nothing else. `Plan` is `FREE`/`PRO` — a
+billing tier, not an authorization boundary — and the schema has no role. On a product with open
+signup, any registered user could read source tiers, ingest targets, completeness shortfalls,
+unresolved conflict counts and persisted ingest error messages.
+
+**Fix — allowlist, not a schema role.** `isOperatorEmail()` against a comma-separated
+`ADMIN_EMAILS`, **failing closed** when unset. Adding `isOperator` to `User` is the better
+long-term model but needs a migration during a release freeze and creates a bootstrapping problem:
+every existing row defaults to false, so nobody reaches `/admin` until someone hand-edits the
+database. Recorded so the migration stays a deliberate later choice.
+
+**Verification, both directions.** Eight unit tests including the unconfigured case (a gate that
+opens when nobody configured it is the same defect wearing a hat), substring and prefix
+non-matching, and case-insensitivity. Plus a new **E2E step [4b]**: a second, ordinary account
+signs up and is turned away from `/admin`. Unit-testing `isOperatorEmail` alone would not have
+caught a page that forgot to call it — the exact "helper tested, wiring untested" trap this
+project already hit with Watchlist.
+
+## IR-014 — Account-targeted login lockout is a DoS vector — VALID, DEFERRED
+
+|           |                                                           |
+| --------- | --------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-terra` — confirmed by reading the implementation |
+| Subsystem | `src/server/domain/auth.ts` — `isLoginLocked`             |
+| Severity  | **P2**                                                    |
+| Status    | **VALID — deferred, HG-009**                              |
+
+Failed attempts are keyed solely by normalised email and checked _before_ password verification,
+so anyone who knows an address can lock that account for 15 minutes with five wrong guesses. No
+session and no victim interaction required.
+
+**Deliberately not fixed while unattended, because every option is a real trade-off, not a bug fix:**
+
+- Remove the lockout → brute-force protection disappears.
+- Verify the password before the lock check → the DoS goes away, but an attacker regains unlimited
+  guesses, which is strictly worse than the status quo for the threat the lockout exists to stop.
+- Key on IP instead of email → needs request-IP plumbing behind an unknown proxy topology, and is
+  trivially defeated by a distributed attacker.
+- Exponential backoff per email → softens the DoS without removing it.
+
+The current comment in `auth.ts` already states the chosen threat model: a targeted attacker
+guessing one account's password, explicitly not distributed credential stuffing. That is a
+defensible position, and reversing it is a security **design decision** with a real downside
+either way — the kind of call to put in front of a person rather than make silently at 3am.
+Recorded as HG-009 with a recommended default.
+
 ## Luna's matrix result
 
 **67 OK · 11 UNSCOPED-SAFE · 1 UNSCOPED-RISK · 1 OUTPUT-GAP** across every Prisma call site in

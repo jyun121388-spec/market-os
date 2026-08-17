@@ -82,3 +82,8 @@ jobs:
           # `npm run start` serves the production build produced above, so this exercises the
           # same output that would be deployed rather than a dev-mode render.
           NODE_ENV: production
+          # /admin is gated on an operator allowlist that FAILS CLOSED when unset. The walkthrough
+          # needs both sides: step [4] signs in as this address and must reach /admin, step [4b]
+          # signs up a second ordinary account and must be turned away. Listing only the first
+          # address is what makes [4b] meaningful.
+          ADMIN_EMAILS: e2e-walkthrough@example.com

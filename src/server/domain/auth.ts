@@ -156,11 +156,28 @@ export async function createSession(userId: string) {
   });
 }
 
-/** Returns the User for a valid, non-expired session token, or null. Never throws on a bad token. */
+/**
+ * Returns the signed-in user for a valid, non-expired session token, or null. Never throws on a
+ * bad token.
+ *
+ * Selects explicitly rather than `include: { user: true }`. The whole row used to come back, and
+ * `getCurrentUser` — exported from a `"use server"` module, which makes it a reachable endpoint
+ * whether or not any page calls it — returned it verbatim. `passwordHash` therefore crossed the
+ * server boundary, so a stolen session cookie also handed over an offline-crackable hash for a
+ * password the person has probably reused somewhere else. That turns session compromise into
+ * credential compromise, which is a much longer-lived problem than the session itself.
+ *
+ * Callers read `id` and `email` and nothing else, so that is what this returns. Adding a field
+ * here is a deliberate act: `tests/integration/auth.test.ts` pins the exact key set, and a widened
+ * select fails it. Found by independent review (`gpt-5.6-terra`), 2026-08-18.
+ */
 export async function validateSession(token: string) {
   const session = await prisma.session.findUnique({
     where: { id: token },
-    include: { user: true },
+    select: {
+      expiresAt: true,
+      user: { select: { id: true, email: true } },
+    },
   });
   if (!session || session.expiresAt < new Date()) {
     return null;

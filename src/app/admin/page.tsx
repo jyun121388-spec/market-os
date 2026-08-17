@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/server/actions/auth";
 import { computeSystemHealth } from "@/server/domain/systemHealth";
+import { isOperatorEmail } from "@/server/domain/operatorAccess";
 import { formatTimestampUtc } from "@/lib/formatDate";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,13 @@ export default async function AdminPage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
+  }
+  // Being signed in is not authorization. This page shows ingest errors, source tiers and
+  // completeness shortfalls, and `Plan` (FREE/PRO) is a billing tier, not a role — so without
+  // this check any self-registered user reads the operator view. Redirects rather than 403s so
+  // the page's existence is not confirmed to someone who should not have it.
+  if (!isOperatorEmail(user.email)) {
+    redirect("/today");
   }
 
   const health = await computeSystemHealth();

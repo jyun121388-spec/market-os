@@ -167,4 +167,26 @@ describeIfDb("auth (integration)", () => {
 
     await prisma.user.delete({ where: { id: legacyUser.id } });
   });
+
+  it("never returns the password hash across the server boundary", async () => {
+    // getCurrentUser is exported from a "use server" module, which makes it a reachable
+    // endpoint whether or not a page calls it, and it returned alidateSession's result
+    // verbatim - the full Prisma User row, passwordHash included. A stolen session cookie would
+    // therefore also hand over an offline-crackable hash for a password the person probably reuses
+    // elsewhere, turning session compromise into credential compromise.
+    //
+    // Callers only ever read user.id and user.email. Found by independent review
+    // (`gpt-5.6-terra`), 2026-08-18.
+    const signedIn = await signIn(TEST_EMAIL, "correct-horse-battery-staple");
+    const session = await createSession(signedIn.id);
+    const user = await validateSession(session.id);
+
+    expect(user).not.toBeNull();
+    expect(user!.id).toBe(signedIn.id);
+    expect(user!.email).toBe(TEST_EMAIL);
+    expect(user).not.toHaveProperty("passwordHash");
+    // Pinned exactly. A future `include` that quietly widens this would otherwise reintroduce the
+    // leak without any test noticing.
+    expect(Object.keys(user!).sort()).toEqual(["email", "id"]);
+  });
 });

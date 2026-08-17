@@ -253,13 +253,13 @@ first shadow deliverable is a read-only projection that runs all three and repor
 because each disagreement is a v1 defect hypothesis.
 
 TESTS
-486 / 486 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+522 / 522 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 30/30 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real
 data.sec.gov. Lint / typecheck / format / production build all clean. Full suite ~25s.
 
-Tests run against a disposable database, enforced fail-closed. With no database at all, 228 unit
+Tests run against a disposable database, enforced fail-closed. With no database at all, 350 unit
 tests pass and the integration suite skips cleanly (30 files) — a path that is now actually
 verified rather than assumed.
 

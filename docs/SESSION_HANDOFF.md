@@ -1,169 +1,136 @@
 LAST COMPLETED
 
-**Fifth round — first real independent review, 2026-08-18.** 66 commits total, all local
-(HG-001). Baseline 379 → 396 tests, 58 files.
+**Sixth round — live Verify integration, 2026-08-18.** 75 commits, all local (HG-001).
+Baseline 396 → 522 tests across 65 files.
 
-**Codex access was restored by a plan upgrade.** Luna, Terra and Sol all probe AVAILABLE
-(`docs/AI_REVIEW_RUNTIME_STATE.md`), so HG-005 is unblocked and this branch has finally had
-independent eyes. Reviews ran **read-only** (`-s read-only`) — `codex exec` otherwise defaults to
-`workspace-write` with `approval: never`, which would let a reviewer edit the tree.
+## Verified state at handoff
 
-Three defects came out of it, all reproduced before anything changed:
+|                                     |                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------- |
+| Branch                              | `claude/market-os-development-7vnicg`                                        |
+| Commits ahead of origin             | **75** — all local, nothing rewritten, no force operation                    |
+| Working tree                        | clean                                                                        |
+| Full suite                          | **522 / 522** across 65 files, real PostgreSQL 16.10, disposable test DB     |
+| No-database run                     | **350 pass / 172 skip**, 33 integration files skip cleanly                   |
+| E2E                                 | **33 / 33** in a real browser against a **freshly rebuilt** production build |
+| Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                        |
+| Migrations                          | 16 applied cleanly to a genuinely fresh database, re-verified this round     |
+| Lint / typecheck / prettier / build | clean                                                                        |
+| Real dev data                       | **2240 filings, 1428 facts** — re-ingest reports 0 inserted, all unchanged   |
 
-- **IR-009 (P1)** — `Math.round(days / 30.436875)` buckets a 13-week and a 14-week quarter both
-  to 3 months. Real Apple data holds 492 quarters of 90 days beside 28 of 97, so Filing Diff
-  reported **+54.29%** on a comparison where ~7.8% is just the extra week. Now discloses the day
-  spans rather than refusing the comparison.
-- **IR-010 (P2)** — `findRevisionChainTail` only threw when _every_ row was referenced, so a cycle
-  beside an intact original returned the superseded value. DB-prevented, fixed anyway.
-- **IR-011 (P3)** — `FilingDiffResult` was the output type missed when fixing IR-007/008.
+## Verify — proven against real v1 output, not just fixtures
 
-Luna's full scoping matrix: **67 OK, 11 unscoped-safe, 1 risk, 1 output-gap** — discriminating,
-not flag-everything, which is what made its two hits worth acting on.
+`npm run verify:shadow` runs the evaluators over what Market OS actually produces. It found two
+semantic errors in Verify itself within a minute, neither visible against fixtures:
 
-Ollama's `qwen3.5:4b` and `gemma3:4b` remain **disqualified as reviewers** — they reported defects
-in correct code on every blind sample and never once returned `NO_SUPPORTED_DEFECT`. Now that
-Codex is available, prefer it for all real review; the local models keep only the one job where a
-deterministic oracle grades them (Ask Market adversarial input generation).
+1. **All eight Apple outputs returned INSUFFICIENT_EVIDENCE** while every correctness dimension
+   passed, because SEC's companyfacts endpoint publishes no total — and never will. Verify could
+   only ever return one answer about the product's main output. An absent provider total is now a
+   **disclosed limitation**, not an unknown that erases the other dimensions.
+2. Fixing that, I then made `adversarial_resilience` unconditionally INSUFFICIENT_EVIDENCE and
+   **reproduced the same uniform-verdict failure from the opposite direction.** Fail-open and
+   fail-useless are both failures.
 
-**The first v2 implementation also landed**: the Reality Fabric read-only shadow projection
-(`npm run fabric:shadow`). Nothing imports it, it writes nothing, and a test asserts row counts
-are unchanged after a run. Against real dev data it immediately found the disagreement predicted
-in `WORLD_DATA_FABRIC.md` — three series that `staleness.ts` calls STALE while `/admin` shows the
-source healthy, one of them 220 days stale but retrieved yesterday. **Deliberately not "fixed":**
-`systemHealth` measures ingestion recency and `staleness.ts` measures data currency; both are
-accurate. The gap is that no operator view combines them, which is a Fabric concern rather than a
-v1 freeze change. Recording that adjudication is what shadow mode is for.
+Current live result: **8 VERIFIED_WITH_LIMITATION**, each naming its caveat.
 
-Two things worth carrying forward from this round:
+**All NOT_APPLICABLE branches were audited.** A dimension may now claim inapplicability only from
+something true about the input — one source, or two closed reporting periods — never because the
+evidence it needed was missing.
 
-- **Enumerate, don't probe.** Random adversarial probing found guardrail bypasses one at a time.
-  Walking the pattern list for English-only concepts with no Korean mirror found ten in one pass.
-  Standing rule now: a pattern added in one language must be added in the other, or recorded as
-  not applicable.
-- **The one safe use of a weak local model** is generating candidate inputs that a deterministic
-  oracle scores. It cannot be wrong in that role because it never judges. Anything else needs
-  re-calibration against a positive AND a negative control, recorded in LOCAL_AI_CALIBRATION.md.
+## Independent review — A1–A14 now covered
 
-Do not run the test suite while a model is resident in Ollama: 2.9 GB at 100% CPU on this 16 GB
-machine pushed morning-brief past vitest's 5-second default timeout. `ollama stop <model>` first.
+| Target                             | Model   | Outcome                                          |
+| ---------------------------------- | ------- | ------------------------------------------------ |
+| A1 restatements, A3 revision chain | Terra   | 3 findings, all fixed                            |
+| A2 unique keys, A6 test-DB guard   | Luna    | 0 TOO-NARROW of 16 models; 1 guard gap fixed     |
+| A4 completeness, A8 provenance     | Terra   | 6 findings; 2 fixed, 4 queued with reasons       |
+| A5 identity, A7 secret routes      | Luna    | 29 sites (25 consistent); 2 secret routes closed |
+| Verify layer                       | **Sol** | 2 P0s, 4 P1s — all fixed                         |
+| Governance layer                   | Terra   | 7 findings, all fixed                            |
+| Evolution ledger                   | Luna    | 28 entries, **28 accurate**; 4 gaps backfilled   |
 
-**Third hardening round, 2026-08-18.** Twelve commits on top of the 43 from the previous rounds —
-55 total. Baseline moved 281 → 338 tests, e2e 28 → 30 checks against the production build.
+**The most valuable single finding was a regression I introduced.** Making
+`findRevisionChainTail` throw was correct, but nothing caught the throw — so one corrupt
+observation aborted Morning Brief, Macro Regime and Ask Market entirely. Hardening one layer moved
+the failure somewhere with a far wider blast radius. It now degrades that series and logs it.
 
-Every finding this round came from working through this project's own review packet
-(`docs/INDEPENDENT_REVIEW_PACKET.md`) rather than waiting for a reviewer. Two of them were in
-code written the previous day.
+## v2 layers — implemented, shadow-only, provably inert
 
-- **Destructive-test DB selection now fails closed.** The old protection fell back to
-  `DATABASE_URL`, so it only helped people who already knew they needed it. Now refuses on: no
-  test DB named, same database as dev, a name not identifying itself as disposable, or a
-  production-looking name. All four paths exercised against the real config, not just the pure
-  function.
-- **Fourth read-then-write race, in event ingest.** Reproduced first: four concurrent ingests of
-  one URL rejected three of four with a raw P2002. `Event` and its first `EventMention` were also
-  written non-atomically, so a failure between them left an Event claiming a mention that did not
-  exist. Both now one transaction.
-- **The no-database run never actually worked.** The Prisma client was built at module scope, so
-  importing any module that touches the DB required `DATABASE_URL`; four unit files failed
-  outright. Client is lazy now. A skipped suite that parsed the URL at describe scope was the
-  fifth failure.
-- **Fifth identity-representation mismatch**: `IngestRun.target` recorded the unpadded CIK while
-  the data it describes is stored padded. Nothing joined them yet — and the completeness lookup
-  built minutes later would have reported UNKNOWN forever, which reads as an unfinished feature
-  rather than a broken join.
-- **Truncation now reaches the reader.** `/company/[corpCode]` shows COMPLETE /
-  KNOWN_INCOMPLETE (with shortfall) / LAST_RUN_FAILED / UNKNOWN.
-- **Persisted errors leaked paths and source.** The DB password is NOT in Prisma errors (checked,
-  not assumed) but the code frame is, and `ingest_runs.error` renders on /admin.
-- **14 more Ask Market bypasses** — stop loss, entry/exit price, portfolio percentage, allocation,
-  roleplay, "if you were me", quoted advisor, mixed Korean/English.
-- **Unit vocabulary guard** — `computeChange` matches `unit === "percent"` exactly, so a
-  "Percent" typo would silently disable basis points.
+`tests/architectureBoundary.test.ts` proves this structurally rather than by convention: no v1
+file imports a shadow layer, the layers do not import each other out of order, no shadow layer
+contains a write call, and the test asserts it actually scanned something.
 
-CURRENT TASK
-None in progress. Every independent, unblocked release-hardening task identified has been
-completed. What remains is gated — see `docs/HUMAN_GATE_QUEUE.md`.
+| Layer          | State                                                         |
+| -------------- | ------------------------------------------------------------- |
+| Reality Fabric | Read-only projection; `npm run fabric:shadow`                 |
+| Verify         | Nine dimensions; `npm run verify:shadow` over real data       |
+| Governance     | Policy table; replays 8 recorded gate decisions               |
+| Evolution      | OBSERVE → MEASURE → DETECT only; no proposals, no experiments |
 
-CURRENT FAILURE
-none.
+Governance separates **policy from executability**: a missing GitHub credential leaves the
+decision `AUTO_ALLOWED_WITH_VERIFY` and sets `execution: BLOCKED_MISSING_CREDENTIAL`. Recording an
+environmental blocker as a policy refusal would teach a reader that policy forbids something it
+permits.
 
-TEST STATUS
-All figures below were re-verified end to end at the close of the round, not carried forward.
+## Open items
 
-486/486 (62 files) against a real local PostgreSQL 16.10, run against a disposable database.
-`npm run e2e` 30/30 in a real browser against the production build.
-`npm run verify:live:edgar` 67/67 against real data.sec.gov.
-16 migrations apply cleanly to a genuinely fresh database, followed by a real ingest of 2240
-filings and 1428 facts and an idempotent re-ingest (0 inserted, all unchanged).
-With no database at all: 323 unit tests pass, 31 integration files skip cleanly.
-Lint (0 problems, warnings included), typecheck, format and production build clean.
+**Human Gates — none of these stop independent work.**
 
-The dev database survived the full suite — checked afterwards by re-ingesting, which reported
-everything unchanged. That is the guard working, and it is worth re-checking the same way after
-any future change to test setup.
+- **HG-001 PUSH_PENDING_AUTH** — 75 commits local-only. No `gh`, no credential, environment
+  cannot prompt. Attempted once per credential-state change, never in a loop.
+- **HG-002/003/004** — FRED / ECOS / OpenDART keys. Request shapes and error envelopes are
+  verified against the real APIs with deliberately invalid keys; the **success** shape, where
+  EDGAR's drift hid, still needs a real key. `npm run verify:live:<provider>` is written and
+  waiting.
+- **HG-005** — no longer blocked; A1–A14 are covered. Sol has been used once (Verify) and remains
+  the right tier for a final Release Candidate adversarial pass.
+- **HG-009 / IR-014** — email-keyed login lockout is a targeted DoS vector. Real, reproduced, and
+  deliberately unfixed: every alternative trades one weakness for another, so it is a security
+  **design decision**, not a bug with an obviously correct answer.
 
-NEXT EXACT ACTION
+**Queued Terra findings, classified rather than casually implemented:**
 
-1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 70 commits are local-only;
-   this machine has no GitHub credential and cannot prompt. Nothing was rewritten, no force
-   operation used.
-2. **HG-005 — no longer blocked; now just unfinished.** Codex is available and the first pass is
-   done (IR-009/010/011). What remains: the packet's A1–A14 have not all been covered. Sol has not
-   been used at all — reserve it for the final Release Candidate adversarial pass and for any
-   P0/P1. Always invoke with `-s read-only`.
-3. **HG-002/003/004** — FRED/ECOS/OpenDART keys. All three hosts reachable and partially verified
-   (request shape and error envelopes confirmed against the real APIs with deliberately invalid
-   keys; no key leaked). The success shape — where EDGAR's drift hid — still needs a real key.
-   `npm run verify:live:<provider>` is written and waiting for each.
+| Finding                                                 | Class                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------- |
+| `truncated` never consumed by series readers            | PROVIDER_KEY_REQUIRED — latent without FRED/ECOS data |
+| Later SUCCESS masks an earlier truncated run            | MIGRATION_REQUIRED — needs range/mode on `IngestRun`  |
+| Row writes and the `IngestRun` audit row are non-atomic | SHADOW_ONLY — changes ingest behaviour materially     |
+| EDGAR does not persist `requestsMade`                   | SAFE_NOW, low value                                   |
+| Restatement not disclosed on the company page           | SAFE_NOW — next task                                  |
 
-IMPORTANT CONTEXT — LOCAL WINDOWS ENVIRONMENT
+## NEXT HIGHEST-PRIORITY TASK
+
+Disclose restatement status on `/company/[corpCode]`. `filingDiff` already returns
+`currentAccession` and `previousAccession`; the page renders neither, so a figure restated by a
+10-K/A is shown without saying so. Same disclosure principle as the 14-week quarter.
+
+## Environment notes that have cost time before
 
 Start Postgres each session (it does not survive a reboot):
 
     .local\pgsql\bin\pg_ctl.exe -D .local\pgdata -l .local\pg.log -o "-p 55432 -c listen_addresses=127.0.0.1" -w start
 
-Port 55432 deliberately. Superuser `postgres` / `devpassword`. Databases: `market_os_dev` (holds
-real ingested SEC data — 2240 filings, 1428 facts) and `market_os_test` (disposable).
+Port 55432. `postgres` / `devpassword`. `market_os_dev` holds real SEC data; `market_os_test` is
+disposable. Tests REFUSE to run without `TEST_DATABASE_URL` — that is the point.
 
-**Tests now REFUSE to run without `TEST_DATABASE_URL`.** That is deliberate and is the whole
-point — set it and leave `DATABASE_URL` alone:
+- **`/admin` is gated on `ADMIN_EMAILS` and fails closed.** The E2E needs
+  `ADMIN_EMAILS=e2e-walkthrough@example.com` or step [4] fails; step [4b] proves a second account
+  is refused.
+- **Never report E2E from a stale server.** A run showed 32/33 against a server predating a
+  rebuild. Rebuild, restart, then run.
+- **Do not run the suite while a model is resident in Ollama** — 2.9 GB at 100% CPU pushed
+  morning-brief past vitest's 5s default timeout. `ollama stop <model>` first.
+- PowerShell 5.1: commit messages with quotes need `git commit -F <file>`; `Set-Content` corrupts
+  Korean text and em dashes without `-Encoding UTF8` on both ends; `-replace` takes no count
+  argument and will not insert an import safely.
+- `codex exec` defaults to `sandbox: workspace-write`. **Always pass `-s read-only`** for review.
 
-    $env:TEST_DATABASE_URL = 'postgresql://postgres:devpassword@127.0.0.1:55432/market_os_test?schema=public'
+## The thing most worth carrying forward
 
-Setting `DATABASE_URL` as well is fine; the guard only refuses if it resolves to the same
-database, an undisposable name, or nothing at all.
+Three separate times this round, a fix created a worse problem than the one it solved: throwing on
+a malformed chain took down three pages; widening `sanitiseErrorForStorage` to redact more made it
+throw inside the error handler; fixing one uniform-verdict bug reintroduced another from the
+opposite side.
 
-Run `npx prisma generate` after every schema change, and **restart `npm run dev`/`next start`
-afterwards** — a running server holds the previously generated client, and a page touching a new
-model fails at runtime while code, tests and build are all clean.
-
-Two PowerShell 5.1 traps, both of which have bitten:
-
-- Commit messages with double quotes get mangled by here-strings. Write to a scratchpad file and
-  use `git commit -F <file>`.
-- `Get-Content`/`Set-Content` round-trips **corrupt Korean text and em dashes** unless BOTH ends
-  pass `-Encoding UTF8`. `tests/encoding-guard.test.ts` now fails the build if it happens again.
-
-`core.autocrlf=true`, so `git status` lists nearly every file as modified. Line-ending noise
-only — check `git diff --stat` before committing.
-
-Do not run `npx prettier --write .` without checking `.prettierignore`: `.local` holds 322MB of
-Postgres binaries.
-
-Network egress works. SEC returns 403 for a User-Agent that is not roughly "<name> <email>";
-`EDGAR_USER_AGENT` is set in `.env` to the user's own contact address with their approval.
-
-Standing instructions: continue autonomously, never self-declare an independent review as passed,
-never activate paid APIs or purchase credits, record Human Gates and keep working around them.
-Status stays `RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES` until every condition in PROJECT_STATE is
-actually met.
-
-THE THING MOST WORTH CARRYING FORWARD
-
-Across three rounds, almost every real defect was found by looking at a number and asking whether
-it was plausible — not by reading code, and never by a failing test. A round 1000. 168 rows
-"unchanged" against an empty table. 2240 filings and 933 facts with zero joinable rows. 244
-net-income rows against 13 revenue rows. A +233% quarterly revenue increase. Three of four
-concurrent calls rejected. If you ingest something new, look at what landed before trusting that
-it landed correctly.
+Each was caught by **running** the code, not by compiling it or reasoning about it. `tsc` passed
+on the error-handler bug because a `catch` binding is `any`.

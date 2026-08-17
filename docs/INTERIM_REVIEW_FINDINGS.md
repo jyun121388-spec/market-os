@@ -8,7 +8,7 @@ been restored by a plan upgrade (`docs/AI_REVIEW_RUNTIME_STATE.md`) and the firs
 independent review of this branch has now run — IR-009 through IR-011 below came from it. The
 earlier entries still want independent eyes; they are marked `Codex re-review: YES`.
 
-Verification at the close of this round: **491/491** tests across 62 files against real
+Verification at the close of this round: **522/522** tests across 65 files against real
 PostgreSQL 16.10; **30/30** E2E in a real browser against the production build; **67/67** live
 EDGAR contract checks; lint, typecheck, format and build clean. The real dev database still holds
 2240 filings and 1428 facts, verified by re-ingest after every suite run.

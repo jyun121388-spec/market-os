@@ -64,6 +64,18 @@ export interface FilingDiffResult {
   currentPeriodDays?: number | null;
   previousPeriodDays?: number | null;
   periodLengthMismatch?: boolean;
+  /**
+   * True when the figure used supersedes an earlier one for the SAME period — a 10-K/A restating
+   * a number already reported in the 10-K.
+   *
+   * Taking the latest-filed row is the right numeric choice: a restatement is the company's own
+   * correction. But presenting a corrected figure identically to a first-time one withholds
+   * something a reader would want, and this project's standing answer to that is to disclose
+   * rather than to suppress — the same reasoning as the 14-week quarter note (independent
+   * review, `gpt-5.6-terra`, 2026-08-18).
+   */
+  currentIsRestatement?: boolean;
+  previousIsRestatement?: boolean;
 }
 
 /**
@@ -155,6 +167,19 @@ export async function computeFinancialFactDiff(
 
   const currentPeriodDays = periodLengthDays(current.periodStart, current.periodEnd);
   const previousPeriodDays = periodLengthDays(previous.periodStart, previous.periodEnd);
+
+  /**
+   * More than one row covering exactly this period means the company filed it twice, and the row
+   * chosen is the later one. Compared on period bounds rather than accession, because two
+   * accessions are what a restatement IS — the question is whether the same span was reported
+   * more than once.
+   */
+  const restatedCount = (row: (typeof rows)[number]) =>
+    rows.filter(
+      (f) =>
+        f.periodEnd.getTime() === row.periodEnd.getTime() &&
+        (f.periodStart?.getTime() ?? null) === (row.periodStart?.getTime() ?? null),
+    ).length;
   const periodLengthMismatch =
     currentPeriodDays !== null &&
     previousPeriodDays !== null &&
@@ -176,6 +201,8 @@ export async function computeFinancialFactDiff(
     currentPeriodDays,
     previousPeriodDays,
     periodLengthMismatch,
+    currentIsRestatement: restatedCount(current) > 1,
+    previousIsRestatement: restatedCount(previous) > 1,
   };
 }
 

@@ -169,6 +169,22 @@ export default async function CompanyXrayPage({
                   comparison is still the right one to show — those are consecutive reported
                   quarters — but the reader has to be told the periods were not the same length.
                 */}
+                {/*
+                  A restated figure is the company's own correction and is the right number to
+                  show — but showing it identically to a first-time report withholds something a
+                  reader would want to know. Same disclosure principle as the period-length note
+                  below: present the figure, and say what it is.
+                */}
+                {(c.currentIsRestatement || c.previousIsRestatement) && (
+                  <div className="mt-1 rounded bg-sky-50 px-2 py-1 text-xs text-sky-900 dark:bg-sky-950 dark:text-sky-200">
+                    {c.currentIsRestatement && c.previousIsRestatement
+                      ? "Both figures were restated by a later filing."
+                      : c.currentIsRestatement
+                        ? `The ${c.currentPeriodEnd} figure was restated by a later filing; the amended value is shown.`
+                        : `The ${c.previousPeriodEnd} figure was restated by a later filing; the amended value is shown.`}
+                    {c.currentAccession ? ` Accession ${c.currentAccession}.` : ""}
+                  </div>
+                )}
                 {c.periodLengthMismatch && (
                   <div className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                     These periods are not the same length: {c.previousPeriodDays} days vs{" "}

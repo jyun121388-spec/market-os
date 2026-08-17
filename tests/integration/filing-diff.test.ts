@@ -386,4 +386,67 @@ describeIfDb("computeFinancialFactDiff (integration)", () => {
     const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, "Revenues", "USD");
     expect(diff.sourceCode).toBe(TEST_SOURCE_CODE);
   });
+  it("discloses that a figure was restated by a later filing", async () => {
+    // A 10-K/A restates a number already reported in the 10-K: same concept, unit, periodStart
+    // and periodEnd, different accession, later filedDate. Taking the amended value is right -
+    // it is the company's own correction - but showing it identically to a first-time report
+    // withholds something a reader would want (independent review, ``gpt-5.6-terra``).
+    const concept = "RestatedRevenue";
+    const common = {
+      sourceId,
+      corpCode: CORP_CODE,
+      taxonomy: "us-gaap",
+      concept,
+      unit: "USD",
+      form: "10-Q",
+      raw: {},
+    };
+    await prisma.financialFact.createMany({
+      data: [
+        {
+          ...common,
+          periodStart: new Date("2025-12-29T00:00:00.000Z"),
+          periodEnd: new Date("2026-03-28T00:00:00.000Z"),
+          accessionNumber: "RS-PRIOR",
+          filedDate: new Date("2026-05-01T00:00:00.000Z"),
+          value: "90000",
+        },
+        {
+          ...common,
+          periodStart: new Date("2026-03-29T00:00:00.000Z"),
+          periodEnd: new Date("2026-06-27T00:00:00.000Z"),
+          accessionNumber: "RS-ORIGINAL",
+          filedDate: new Date("2026-07-31T00:00:00.000Z"),
+          value: "100000",
+        },
+        {
+          // The amendment: same period, filed later, different value.
+          ...common,
+          periodStart: new Date("2026-03-29T00:00:00.000Z"),
+          periodEnd: new Date("2026-06-27T00:00:00.000Z"),
+          accessionNumber: "RS-AMENDED",
+          filedDate: new Date("2026-08-15T00:00:00.000Z"),
+          value: "110000",
+        },
+      ],
+    });
+
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, concept, "USD");
+
+    expect(diff.status).toBe("COMPUTED");
+    // The amended value is the one used.
+    expect(diff.currentValue).toBe(110000);
+    expect(diff.currentAccession).toBe("RS-AMENDED");
+    expect(diff.currentIsRestatement).toBe(true);
+    // The prior period was reported once, so it is not a restatement.
+    expect(diff.previousIsRestatement).toBe(false);
+  });
+
+  it("does not label an ordinary first-time figure as restated", async () => {
+    // The negative control. A flag set on everything discloses nothing.
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, "Revenues", "USD");
+    expect(diff.status).toBe("COMPUTED");
+    expect(diff.currentIsRestatement).toBe(false);
+    expect(diff.previousIsRestatement).toBe(false);
+  });
 });

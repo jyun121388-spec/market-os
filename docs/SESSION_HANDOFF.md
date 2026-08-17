@@ -1,13 +1,39 @@
 LAST COMPLETED
 
-**Fourth round — interim, 2026-08-18.** 61 commits total, all local (HG-001). Baseline 338 → 379
-tests. Details in `docs/INTERIM_REVIEW_FINDINGS.md` and `docs/LOCAL_AI_CALIBRATION.md`.
+**Fifth round — first real independent review, 2026-08-18.** 66 commits total, all local
+(HG-001). Baseline 379 → 396 tests, 58 files.
 
-Codex usage is exhausted until 2026-08-22, so Ollama's `qwen3.5:4b` and `gemma3:4b` were
-calibrated as stand-in reviewers and **both failed**: they reported defects in correct code on
-every blind sample and never once returned `NO_SUPPORTED_DEFECT`. They are hypothesis generators
-only. **This range has had no independent review** — say so to Codex rather than implying the
-interim work was checked.
+**Codex access was restored by a plan upgrade.** Luna, Terra and Sol all probe AVAILABLE
+(`docs/AI_REVIEW_RUNTIME_STATE.md`), so HG-005 is unblocked and this branch has finally had
+independent eyes. Reviews ran **read-only** (`-s read-only`) — `codex exec` otherwise defaults to
+`workspace-write` with `approval: never`, which would let a reviewer edit the tree.
+
+Three defects came out of it, all reproduced before anything changed:
+
+- **IR-009 (P1)** — `Math.round(days / 30.436875)` buckets a 13-week and a 14-week quarter both
+  to 3 months. Real Apple data holds 492 quarters of 90 days beside 28 of 97, so Filing Diff
+  reported **+54.29%** on a comparison where ~7.8% is just the extra week. Now discloses the day
+  spans rather than refusing the comparison.
+- **IR-010 (P2)** — `findRevisionChainTail` only threw when _every_ row was referenced, so a cycle
+  beside an intact original returned the superseded value. DB-prevented, fixed anyway.
+- **IR-011 (P3)** — `FilingDiffResult` was the output type missed when fixing IR-007/008.
+
+Luna's full scoping matrix: **67 OK, 11 unscoped-safe, 1 risk, 1 output-gap** — discriminating,
+not flag-everything, which is what made its two hits worth acting on.
+
+Ollama's `qwen3.5:4b` and `gemma3:4b` remain **disqualified as reviewers** — they reported defects
+in correct code on every blind sample and never once returned `NO_SUPPORTED_DEFECT`. Now that
+Codex is available, prefer it for all real review; the local models keep only the one job where a
+deterministic oracle grades them (Ask Market adversarial input generation).
+
+**The first v2 implementation also landed**: the Reality Fabric read-only shadow projection
+(`npm run fabric:shadow`). Nothing imports it, it writes nothing, and a test asserts row counts
+are unchanged after a run. Against real dev data it immediately found the disagreement predicted
+in `WORLD_DATA_FABRIC.md` — three series that `staleness.ts` calls STALE while `/admin` shows the
+source healthy, one of them 220 days stale but retrieved yesterday. **Deliberately not "fixed":**
+`systemHealth` measures ingestion recency and `staleness.ts` measures data currency; both are
+accurate. The gap is that no operator view combines them, which is a Fabric concern rather than a
+v1 freeze change. Recording that adjudication is what shadow mode is for.
 
 Two things worth carrying forward from this round:
 
@@ -65,7 +91,7 @@ none.
 TEST STATUS
 All figures below were re-verified end to end at the close of the round, not carried forward.
 
-379/379 (56 files) against a real local PostgreSQL 16.10, run against a disposable database.
+396/396 (58 files) against a real local PostgreSQL 16.10, run against a disposable database.
 `npm run e2e` 30/30 in a real browser against the production build.
 `npm run verify:live:edgar` 67/67 against real data.sec.gov.
 16 migrations apply cleanly to a genuinely fresh database, followed by a real ingest of 2240
@@ -79,15 +105,13 @@ any future change to test setup.
 
 NEXT EXACT ACTION
 
-1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 61 commits are local-only;
+1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 66 commits are local-only;
    this machine has no GitHub credential and cannot prompt. Nothing was rewritten, no force
    operation used.
-2. **HG-005** — independent review. `codex-cli` IS installed and authenticated ("Logged in using
-   ChatGPT"); the blocker is included-usage exhaustion resetting **2026-08-22**. Re-check once
-   after that date, then run against `docs/INDEPENDENT_REVIEW_PACKET.md` **plus `a0eb92a..HEAD`**,
-   which the packet predates. Give Terra the cross-file sweep IR-001/IR-002 imply: queries keyed
-   on an identifier that is unique only within a source. Local AI is not a substitute — it was
-   tried and disqualified.
+2. **HG-005 — no longer blocked; now just unfinished.** Codex is available and the first pass is
+   done (IR-009/010/011). What remains: the packet's A1–A14 have not all been covered. Sol has not
+   been used at all — reserve it for the final Release Candidate adversarial pass and for any
+   P0/P1. Always invoke with `-s read-only`.
 3. **HG-002/003/004** — FRED/ECOS/OpenDART keys. All three hosts reachable and partially verified
    (request shape and error envelopes confirmed against the real APIs with deliberately invalid
    keys; no key leaked). The success shape — where EDGAR's drift hid — still needs a real key.

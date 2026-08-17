@@ -1,16 +1,17 @@
 # Interim Review Findings
 
-Findings raised while Codex included usage is exhausted (HG-005, resets 2026-08-22). Everything
-here is **interim**: local AI failed calibration (`docs/LOCAL_AI_CALIBRATION.md`), so nothing in
-this file has had independent cross-model review. Every entry is marked for the Codex audit.
-
 Review base: `a0eb92a` · Branch `claude/market-os-development-7vnicg`
 
-Verification at the close of this round: **379/379** tests across 56 files against real
-PostgreSQL 16.10; **228 passing / 151 skipping** with no database at all; **30/30** E2E in a real
-browser against the production build; **67/67** live EDGAR contract checks; lint, typecheck,
-format and build clean. The real dev database still holds 2240 filings and 1428 facts, verified by
-re-ingest after every suite run.
+**Status changed 2026-08-18.** IR-001 through IR-008 were raised while Codex usage was exhausted
+and local AI had failed calibration, so they were author-reviewed only. Codex access has since
+been restored by a plan upgrade (`docs/AI_REVIEW_RUNTIME_STATE.md`) and the first genuine
+independent review of this branch has now run — IR-009 through IR-011 below came from it. The
+earlier entries still want independent eyes; they are marked `Codex re-review: YES`.
+
+Verification at the close of this round: **396/396** tests across 58 files against real
+PostgreSQL 16.10; **30/30** E2E in a real browser against the production build; **67/67** live
+EDGAR contract checks; lint, typecheck, format and build clean. The real dev database still holds
+2240 filings and 1428 facts, verified by re-ingest after every suite run.
 
 Severity: **P0** data loss / security · **P1** false financial output reaching a user ·
 **P2** latent correctness or provenance defect · **P3** hygiene.

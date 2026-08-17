@@ -25,10 +25,32 @@ const fact = (over: Partial<CalculationInput> = {}): CalculationInput => ({
   ...over,
 });
 
+/**
+ * A well-formed, genuinely comparable calculation. Tests that are about something else — freshness,
+ * completeness, provenance — need a VALID calculation underneath, or they end up asserting against
+ * a structurally broken input and prove nothing about the dimension they name.
+ */
+const soundCalculation = () => ({
+  kind: "PERIOD_OVER_PERIOD_CHANGE" as const,
+  current: fact({
+    value: 109_417_000_000,
+    period: { start: "2026-03-29", end: "2026-06-27", months: 3, days: 90 },
+    accessionNumber: "ACC-2",
+  }),
+  previous: fact({
+    value: 111_184_000_000,
+    period: { start: "2025-12-29", end: "2026-03-28", months: 3, days: 89 },
+    accessionNumber: "ACC-1",
+  }),
+  claimedAbsoluteChange: -1_767_000_000,
+  claimedPercentChange: -1.5893,
+});
+
 const base = (over: Partial<VerificationInput> = {}): VerificationInput => ({
   outputId: "filingDiff:0000320193:Revenues:USD",
   claimType: "CALCULATION",
   sourceCodes: ["SEC_EDGAR"],
+  calculation: soundCalculation(),
   completeness: { providerTotal: 2240, fetched: 2240, truncated: false },
   freshness: { state: "FRESH", daysSinceLastObservation: 1 },
   ...over,
@@ -193,7 +215,9 @@ describe("Verify — provenance and source", () => {
   });
 
   it("rejects an INFERENCE with no confidence", () => {
-    const result = verify(base({ claimType: "INFERENCE", calculation: undefined }));
+    const result = verify(
+      base({ claimType: "INFERENCE", calculation: undefined, confidence: null }),
+    );
     expect(result.failed).toContain("provenance_integrity");
   });
 });
@@ -339,5 +363,181 @@ describe("Verify — a verdict always names its cause", () => {
     for (const [name, d] of Object.entries(result.dimensions)) {
       expect(d.rationale.trim().length, `${name} had an empty rationale`).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * Adversarial review by `gpt-5.6-sol`, 2026-08-18. Two P0s and four P1s, every one reproduced
+ * before the evaluator changed. Sol was routed here deliberately: these evaluators encode
+ * financial-comparability rules, which is its tier.
+ *
+ * The most useful finding is the first. My own controls only ever supplied a well-formed
+ * calculation, so the case where a CALCULATION arrives WITHOUT one was never exercised - and it
+ * verified clean. A verifier that returns VERIFIED on an empty claim is worse than no verifier,
+ * because it attaches a green label to nothing.
+ */
+describe("Verify — findings from adversarial review", () => {
+  it("does not verify a CALCULATION that carries no calculation", () => {
+    const result = verify(base({ claimType: "CALCULATION", calculation: undefined }));
+    expect(result.verdict).not.toBe("VERIFIED");
+    expect(result.failed).toContain("structural_validity");
+  });
+
+  it("does not compare two different companies", () => {
+    // The IR-001 class, one level up: the contract had no entity identifier at all, so Apple
+    // revenue against Microsoft revenue was not merely undetected, it was unrepresentable.
+    const result = verify(
+      base({
+        calculation: {
+          kind: "PERIOD_OVER_PERIOD_CHANGE",
+          current: fact({
+            entityRef: "0000320193",
+            value: 120,
+            period: { start: "2026-04-01", end: "2026-06-30", months: 3, days: 90 },
+          }),
+          previous: fact({
+            entityRef: "0000789019",
+            value: 100,
+            period: { start: "2026-01-01", end: "2026-03-31", months: 3, days: 89 },
+          }),
+          claimedAbsoluteChange: 20,
+          claimedPercentChange: 20,
+        },
+      }),
+    );
+    expect(result.verdict).toBe("REJECTED");
+    expect(result.failed).toContain("semantic_consistency");
+  });
+
+  it("does not compare two quantities whose concepts are unknown", () => {
+    // With `concept` optional, comparing revenue against net income passed the concept check by
+    // skipping it. Absence of a concept is not agreement between concepts.
+    const result = verify(
+      base({
+        calculation: {
+          kind: "PERIOD_OVER_PERIOD_CHANGE",
+          current: fact({
+            concept: undefined,
+            value: 120,
+            period: { start: "2026-04-01", end: "2026-06-30", months: 3, days: 90 },
+          }),
+          previous: fact({
+            concept: undefined,
+            value: 100,
+            period: { start: "2026-01-01", end: "2026-03-31", months: 3, days: 89 },
+          }),
+          claimedAbsoluteChange: 20,
+          claimedPercentChange: 20,
+        },
+      }),
+    );
+    // INSUFFICIENT_EVIDENCE, not FAIL: two unnamed quantities are not PROVEN incomparable, they
+    // are unjudgeable. Collapsing those two would make the layer cry wolf.
+    expect(result.dimensions.semantic_consistency.status).toBe("INSUFFICIENT_EVIDENCE");
+    expect(result.verdict).not.toBe("VERIFIED");
+  });
+
+  it("reports a fabricated comparison as REJECTED even when the data is also truncated", () => {
+    // Completeness used to win unconditionally, so the +232.9985% fabrication over a truncated
+    // ingest came back TRUNCATED - readable as "we are missing some rows" rather than "this
+    // number is wrong". Correctness must outrank coverage.
+    const result = verify(
+      base({
+        completeness: { providerTotal: 2240, fetched: 1000, truncated: true },
+        calculation: {
+          kind: "PERIOD_OVER_PERIOD_CHANGE",
+          current: fact({
+            value: 364_357_000_000,
+            period: { start: "2025-09-28", end: "2026-06-27", months: 9, days: 272 },
+          }),
+          previous: fact({
+            value: 109_417_000_000,
+            period: { start: "2026-03-29", end: "2026-06-27", months: 3, days: 90 },
+          }),
+          claimedAbsoluteChange: 254_940_000_000,
+          claimedPercentChange: 232.9985,
+        },
+      }),
+    );
+    expect(result.verdict).toBe("REJECTED");
+    // Truncation is not discarded, only outranked.
+    expect(result.failed).toContain("data_completeness");
+    expect(result.failed).toContain("semantic_consistency");
+  });
+
+  it("tolerates four-decimal rounding on a very small percentage", () => {
+    // The stored percentage is rounded to 4dp. A purely RELATIVE epsilon is smaller than that
+    // rounding once the percentage itself is tiny, so a correct figure was rejected.
+    const result = verify(
+      base({
+        calculation: {
+          kind: "PERIOD_OVER_PERIOD_CHANGE",
+          current: fact({
+            value: 1_000_000_049,
+            period: { start: "2026-04-01", end: "2026-06-30", months: 3, days: 90 },
+          }),
+          previous: fact({
+            value: 1_000_000_000,
+            period: { start: "2026-01-01", end: "2026-03-31", months: 3, days: 89 },
+          }),
+          claimedAbsoluteChange: 49,
+          claimedPercentChange: 0, // 0.0000049% rounds to 0.0000 at four decimals
+        },
+      }),
+    );
+    expect(result.dimensions.calculation_integrity.status).toBe("PASS");
+  });
+
+  it("allows an explicitly reconciled taxonomy transition", () => {
+    // Refusing every concept change made a CORRECT, deliberate ASC 606 reconciliation
+    // unrepresentable. The reconciliation has to be declared, not inferred.
+    const result = verify(
+      base({
+        calculation: {
+          kind: "PERIOD_OVER_PERIOD_CHANGE",
+          conceptsReconciled:
+            "ASC 606: SalesRevenueNet superseded by RevenueFromContractWithCustomerExcludingAssessedTax",
+          current: fact({
+            concept: "RevenueFromContractWithCustomerExcludingAssessedTax",
+            value: 120,
+            period: { start: "2018-04-01", end: "2018-06-30", months: 3, days: 90 },
+          }),
+          previous: fact({
+            concept: "SalesRevenueNet",
+            value: 100,
+            period: { start: "2018-01-01", end: "2018-03-31", months: 3, days: 89 },
+          }),
+          claimedAbsoluteChange: 20,
+          claimedPercentChange: 20,
+        },
+      }),
+    );
+    expect(result.verdict).toBe("VERIFIED_WITH_LIMITATION");
+    expect(result.limitations.join(" ")).toMatch(/ASC 606/);
+  });
+
+  it("still rejects an UNDECLARED taxonomy change", () => {
+    // The negative control for the escape hatch above. If declaring were optional in practice,
+    // the check would be decorative.
+    const result = verify(
+      base({
+        calculation: {
+          kind: "PERIOD_OVER_PERIOD_CHANGE",
+          current: fact({
+            concept: "RevenueFromContractWithCustomerExcludingAssessedTax",
+            value: 120,
+            period: { start: "2018-04-01", end: "2018-06-30", months: 3, days: 90 },
+          }),
+          previous: fact({
+            concept: "SalesRevenueNet",
+            value: 100,
+            period: { start: "2018-01-01", end: "2018-03-31", months: 3, days: 89 },
+          }),
+          claimedAbsoluteChange: 20,
+          claimedPercentChange: 20,
+        },
+      }),
+    );
+    expect(result.failed).toContain("semantic_consistency");
   });
 });

@@ -69,6 +69,16 @@ export interface CalculationInput {
   value: number;
   unit: string;
   sourceCode: string;
+  /**
+   * WHICH COMPANY this figure describes, in the issuing provider's own representation.
+   *
+   * Added after an adversarial review (`gpt-5.6-sol`) pointed out that the contract had no entity
+   * identifier at all, so Apple revenue compared against Microsoft revenue was not merely
+   * undetected — it was unrepresentable, and therefore invisible. A field that does not exist
+   * cannot be checked, which is the most expensive kind of gap in a verification layer.
+   */
+  entityRef?: string;
+  /** The period this figure covers. */
   period: PeriodSpan;
   /** us-gaap concept or equivalent, where the quantity is a reported financial fact. */
   concept?: string;
@@ -88,6 +98,14 @@ export interface VerificationInput {
     previous: CalculationInput;
     claimedAbsoluteChange: number;
     claimedPercentChange: number | null;
+    /**
+     * Set only when the two concepts genuinely differ AND the difference has been deliberately
+     * reconciled — an ASC 606 tag transition, say. Refusing every concept change made a correct,
+     * intentional reconciliation unrepresentable; accepting one silently is the defect. So the
+     * reconciliation must be DECLARED, and it surfaces as a disclosed limitation rather than
+     * disappearing into a clean verdict.
+     */
+    conceptsReconciled?: string;
   };
   /** Completeness evidence from the Reality Fabric, when available. */
   completeness?: {

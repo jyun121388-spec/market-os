@@ -36,8 +36,17 @@ const unknown = (rationale: string): DimensionResult => ({
  */
 const PERIOD_DAY_TOLERANCE = 4;
 
-/** Relative tolerance when recomputing a percentage, to absorb the stored rounding. */
-const PERCENT_EPSILON = 0.001;
+/**
+ * Tolerance when recomputing a percentage, absorbing the rounding already applied at storage.
+ *
+ * Both halves are needed. The relative part handles large percentages, where 4 decimal places is
+ * a vanishing share of the value. The ABSOLUTE floor handles small ones: a stored figure rounded
+ * to 4dp can be off by up to 0.00005, which a purely relative epsilon undershoots badly once the
+ * percentage itself is tiny — so a correct +0.0000049% change was being rejected as fabricated
+ * (`gpt-5.6-sol`, 2026-08-18). `filingDiff.ts` rounds to 4dp, which is where 0.00005 comes from.
+ */
+const PERCENT_EPSILON_RELATIVE = 0.001;
+const PERCENT_EPSILON_ABSOLUTE = 0.00005;
 
 function describe(input: CalculationInput): string {
   const span = input.period.start ? `${input.period.start}..${input.period.end}` : input.period.end;
@@ -64,11 +73,38 @@ function semanticConsistency(input: VerificationInput): DimensionResult {
     );
   }
 
-  if (current.concept && previous.concept && current.concept !== previous.concept) {
+  // Two different companies. The contract had no entity field at all until an adversarial review
+  // pointed it out, so this comparison was unrepresentable rather than merely unchecked.
+  if (current.entityRef && previous.entityRef && current.entityRef !== previous.entityRef) {
     return fail(
-      `Concepts differ: "${current.concept}" against "${previous.concept}". Tags that mean the ` +
-        "same thing across a taxonomy transition must be reconciled before subtracting, not assumed.",
+      `Different entities: ${previous.entityRef} against ${current.entityRef}. A change between ` +
+        "two companies is not a change.",
     );
+  }
+
+  // Absence of a concept is not agreement between concepts. With `concept` optional, comparing
+  // revenue against net income used to pass this check by skipping it.
+  if (!current.concept || !previous.concept) {
+    return unknown(
+      "At least one side does not state which concept it measures, so comparability cannot be " +
+        "judged. Two unnamed quantities are not known to be the same quantity.",
+    );
+  }
+
+  if (current.concept !== previous.concept) {
+    if (!calc.conceptsReconciled) {
+      return fail(
+        `Concepts differ: "${current.concept}" against "${previous.concept}". Tags that mean the ` +
+          "same thing across a taxonomy transition must be reconciled explicitly, not assumed.",
+      );
+    }
+    return {
+      status: "PASS",
+      rationale:
+        `Comparable, WITH A LIMITATION: the concept changed from "${previous.concept}" to ` +
+        `"${current.concept}" and the transition is declared reconciled — ${calc.conceptsReconciled}. ` +
+        "A reader must be told the tag changed underneath the comparison.",
+    };
   }
 
   // The +232.9985% defect, stated as a rule. Two figures from ONE filing describing periods that
@@ -160,7 +196,7 @@ function calculationIntegrity(input: VerificationInput): DimensionResult {
   }
 
   const expectedPercent = (expectedAbsolute / calc.previous.value) * 100;
-  const tolerance = Math.abs(expectedPercent) * PERCENT_EPSILON + 1e-6;
+  const tolerance = Math.abs(expectedPercent) * PERCENT_EPSILON_RELATIVE + PERCENT_EPSILON_ABSOLUTE;
   if (Math.abs(expectedPercent - calc.claimedPercentChange) > tolerance) {
     return fail(
       `Percent change does not recompute: claimed ${calc.claimedPercentChange}, computed ` +
@@ -264,6 +300,18 @@ function structuralValidity(input: VerificationInput): DimensionResult {
   if (!input.outputId || input.outputId.trim().length === 0) {
     return fail("No output identifier, so this verdict could not be attached to anything.");
   }
+
+  // A CALCULATION with nothing to check used to verify clean: every calculation-shaped dimension
+  // returned NOT_APPLICABLE, nothing failed, and the verdict came back VERIFIED. My own controls
+  // never supplied an empty one, so the case went unexercised until an adversarial review
+  // constructed it. Attaching a green label to nothing is worse than having no verifier.
+  if (input.claimType === "CALCULATION" && !input.calculation) {
+    return fail(
+      "Typed CALCULATION but carries no calculation, so there is nothing to verify. A verdict " +
+        "over an absent claim would be assurance about nothing.",
+    );
+  }
+
   const calc = input.calculation;
   if (calc) {
     for (const side of [calc.current, calc.previous]) {
@@ -296,6 +344,21 @@ function decide(dimensions: Dimensions): {
     .filter(([, d]) => d.status === "PASS" && d.rationale.includes("WITH A LIMITATION"))
     .map(([name, d]) => `${name}: ${d.rationale}`);
 
+  // CORRECTNESS OUTRANKS COVERAGE. An earlier ordering let any completeness failure win
+  // unconditionally, so the +232.9985% fabrication computed over a truncated ingest came back
+  // TRUNCATED — which reads as "we are missing some rows", not "this number is wrong". A reader
+  // would have filed it as a data-coverage task. Truncation is still reported in `failed`; it
+  // just no longer gets to speak for the verdict when something is actually incorrect.
+  const CORRECTNESS = new Set<DimensionName>([
+    "structural_validity",
+    "semantic_consistency",
+    "calculation_integrity",
+    "source_integrity",
+    "provenance_integrity",
+  ]);
+  if (failed.some((name) => CORRECTNESS.has(name))) {
+    return { verdict: "REJECTED", failed, limitations };
+  }
   if (failed.includes("data_completeness")) {
     return { verdict: "TRUNCATED", failed, limitations };
   }

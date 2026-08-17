@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "../httpTimeout";
+import { redactSecrets } from "../redactSecrets";
 import type { FredObservationRaw, FredObservationsResponse } from "./types";
 
 export class FredApiKeyMissingError extends Error {
@@ -59,13 +60,33 @@ export async function fetchFredObservations(
 
   const response = await fetchWithTimeout(url.toString());
   if (!response.ok) {
+    // FRED returns a structured explanation on failure — captured live 2026-08-18 with a
+    // deliberately invalid key:
+    //   {"error_code":400,"error_message":"Bad Request.  The value for variable api_key is not
+    //    registered. ..."}
+    // Throwing on `!response.ok` alone discarded it, leaving an operator with "400 Bad Request"
+    // when the provider had already said exactly what was wrong. Reading the body is
+    // best-effort: a non-JSON or empty error body must not turn a clear HTTP failure into a
+    // parse error.
+    const detail = await readFredErrorMessage(response);
     throw new FredApiError(
-      `FRED API request failed for series ${seriesId}: ${response.status} ${response.statusText}`,
+      `FRED API request failed for series ${seriesId}: ${response.status} ${response.statusText}` +
+        (detail ? ` — ${redactSecrets(detail)}` : ""),
       response.status,
     );
   }
 
   return (await response.json()) as FredObservationsResponse;
+}
+
+/** FRED's own error text, or null if the body is missing, unparseable, or shaped differently. */
+async function readFredErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as { error_message?: unknown };
+    return typeof body?.error_message === "string" ? body.error_message : null;
+  } catch {
+    return null;
+  }
 }
 
 const FRED_PAGE_SIZE = 5000;

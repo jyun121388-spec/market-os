@@ -288,4 +288,102 @@ describeIfDb("computeFinancialFactDiff (integration)", () => {
     expect(diffs[0].status).toBe("COMPUTED");
     expect(diffs[1].status).toBe("INSUFFICIENT_DATA");
   });
+
+  it("discloses a 14-week quarter compared against a 13-week one", async () => {
+    // Not hypothetical. Apple's fiscal Q1 is periodically 14 weeks rather than 13, and the real
+    // data in this repo holds 492 quarters of 90 days alongside 28 of 97 — plus 147 years of 363
+    // days against 33 of 370. `Math.round(days / 30.436875)` buckets 90 and 97 both to 3, so two
+    // periods differing by a full week are compared and labelled `periodMonths: 3`.
+    //
+    // Real example, Apple NetIncomeLoss: the 90-day quarter ending 2022-06-25 against the 97-day
+    // quarter ending 2022-12-31 reports +54.2948%. Roughly 7.8% of that is simply the extra week.
+    // Refusing the comparison would be wrong — companies report these quarters as consecutive and
+    // so should we — but presenting it as like-for-like without saying so is the same fabrication
+    // the nine-month-vs-quarter defect produced, in a quieter register.
+    const concept = "WeekCountRevenue";
+    const common = {
+      sourceId,
+      corpCode: CORP_CODE,
+      taxonomy: "us-gaap",
+      concept,
+      unit: "USD",
+      form: "10-Q",
+      raw: {},
+    };
+    await prisma.financialFact.createMany({
+      data: [
+        {
+          ...common,
+          periodStart: new Date("2022-03-27T00:00:00.000Z"),
+          periodEnd: new Date("2022-06-25T00:00:00.000Z"), // 90 days — 13 weeks
+          accessionNumber: "WK-13",
+          filedDate: new Date("2022-07-28T00:00:00.000Z"),
+          value: "19442000000",
+        },
+        {
+          ...common,
+          periodStart: new Date("2022-09-25T00:00:00.000Z"),
+          periodEnd: new Date("2022-12-31T00:00:00.000Z"), // 97 days — 14 weeks
+          accessionNumber: "WK-14",
+          filedDate: new Date("2023-02-02T00:00:00.000Z"),
+          value: "29998000000",
+        },
+      ],
+    });
+
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, concept, "USD");
+
+    // The comparison still happens — these genuinely are consecutive reported quarters.
+    expect(diff.status).toBe("COMPUTED");
+    expect(diff.periodMonths).toBe(3);
+
+    // But the actual spans are carried, and the inequality is flagged rather than implied away.
+    expect(diff.currentPeriodDays).toBe(97);
+    expect(diff.previousPeriodDays).toBe(90);
+    expect(diff.periodLengthMismatch).toBe(true);
+  });
+
+  it("does not flag a mismatch when the two periods really are the same length", async () => {
+    // The negative control. A flag that is always set discloses nothing.
+    const concept = "EvenQuarterRevenue";
+    const common = {
+      sourceId,
+      corpCode: CORP_CODE,
+      taxonomy: "us-gaap",
+      concept,
+      unit: "USD",
+      form: "10-Q",
+      raw: {},
+    };
+    await prisma.financialFact.createMany({
+      data: [
+        {
+          ...common,
+          periodStart: new Date("2025-12-29T00:00:00.000Z"),
+          periodEnd: new Date("2026-03-28T00:00:00.000Z"), // 89 days
+          accessionNumber: "EVEN-1",
+          filedDate: new Date("2026-05-01T00:00:00.000Z"),
+          value: "111184000000",
+        },
+        {
+          ...common,
+          periodStart: new Date("2026-03-29T00:00:00.000Z"),
+          periodEnd: new Date("2026-06-25T00:00:00.000Z"), // 88 days
+          accessionNumber: "EVEN-2",
+          filedDate: new Date("2026-07-31T00:00:00.000Z"),
+          value: "109417000000",
+        },
+      ],
+    });
+
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, concept, "USD");
+    expect(diff.status).toBe("COMPUTED");
+    // 88 vs 89 days is ordinary calendar drift within a 13-week quarter, not a week-count change.
+    expect(diff.periodLengthMismatch).toBe(false);
+  });
+
+  it("carries the source, so a diff cannot be attributed to the wrong provider", async () => {
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, "Revenues", "USD");
+    expect(diff.sourceCode).toBe(TEST_SOURCE_CODE);
+  });
 });

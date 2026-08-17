@@ -36,6 +36,8 @@ export interface FilingDiffResult {
   previousValue?: number;
   absoluteChange?: number;
   percentChange?: number | null;
+  /** The provider these figures came from — same obligation as every other displayed FACT. */
+  sourceCode?: string;
   /** YYYY-MM-DD. Included so a reader can confirm the two figures are comparable. */
   currentPeriodEnd?: string;
   previousPeriodEnd?: string;
@@ -44,7 +46,34 @@ export interface FilingDiffResult {
    * such as Assets, which has no span). Equal by construction when status is COMPUTED.
    */
   periodMonths?: number | null;
+  /**
+   * The ACTUAL span of each period in days, and whether they differ by enough to matter.
+   *
+   * Whole months are the right bucket for deciding what is comparable — fiscal quarters are not a
+   * fixed number of days — but equal buckets are not equal durations, and the gap is not academic.
+   * Apple's fiscal Q1 is periodically 14 weeks rather than 13: the real data in this repository
+   * holds 492 quarters of 90 days alongside 28 of 97, and 147 years of 363 days alongside 33 of
+   * 370. `Math.round(days / 30.436875)` sends 90 and 97 both to 3.
+   *
+   * So the 90-day quarter ending 2022-06-25 gets compared against the 97-day quarter ending
+   * 2022-12-31 and reports +54.2948% on NetIncomeLoss, of which roughly 7.8% is nothing but the
+   * extra week. Refusing the comparison would be wrong — companies report those quarters as
+   * consecutive — but presenting it as like-for-like without saying so is the same fabrication the
+   * nine-month-versus-quarter defect produced, only quieter.
+   */
+  currentPeriodDays?: number | null;
+  previousPeriodDays?: number | null;
+  periodLengthMismatch?: boolean;
 }
+
+/**
+ * Day difference beyond which two same-bucket periods are treated as materially unequal.
+ *
+ * Four days: a 13-week quarter drifts by a day or two against the calendar, which is noise, while
+ * a 14-week quarter is seven days longer, which is a week of trading. Setting this at 4 separates
+ * those two without needing to know a company's fiscal convention.
+ */
+const PERIOD_DAY_TOLERANCE = 4;
 
 /** Mean days per month. Used only to bucket a period into whole months, never to date-shift. */
 const DAYS_PER_MONTH = 30.436875;
@@ -72,10 +101,13 @@ export async function computeFinancialFactDiff(
 ): Promise<FilingDiffResult> {
   const base = { corpCode, concept, unit };
 
-  const rows = await prisma.financialFact.findMany({
-    where: { sourceId, corpCode, concept, unit },
-    orderBy: [{ periodEnd: "desc" }, { filedDate: "desc" }],
-  });
+  const [rows, source] = await Promise.all([
+    prisma.financialFact.findMany({
+      where: { sourceId, corpCode, concept, unit },
+      orderBy: [{ periodEnd: "desc" }, { filedDate: "desc" }],
+    }),
+    prisma.source.findUnique({ where: { id: sourceId }, select: { code: true } }),
+  ]);
 
   if (rows.length < 2) {
     return { ...base, status: "INSUFFICIENT_DATA" };
@@ -121,9 +153,17 @@ export async function computeFinancialFactDiff(
   const percentChange =
     previousValue === 0 ? null : round((absoluteChange / previousValue) * 100, 4);
 
+  const currentPeriodDays = periodLengthDays(current.periodStart, current.periodEnd);
+  const previousPeriodDays = periodLengthDays(previous.periodStart, previous.periodEnd);
+  const periodLengthMismatch =
+    currentPeriodDays !== null &&
+    previousPeriodDays !== null &&
+    Math.abs(currentPeriodDays - previousPeriodDays) > PERIOD_DAY_TOLERANCE;
+
   return {
     ...base,
     status: "COMPUTED",
+    sourceCode: source?.code,
     currentAccession: current.accessionNumber,
     previousAccession: previous.accessionNumber,
     currentValue,
@@ -133,7 +173,16 @@ export async function computeFinancialFactDiff(
     currentPeriodEnd: current.periodEnd.toISOString().slice(0, 10),
     previousPeriodEnd: previous.periodEnd.toISOString().slice(0, 10),
     periodMonths: currentMonths,
+    currentPeriodDays,
+    previousPeriodDays,
+    periodLengthMismatch,
   };
+}
+
+/** Exact span in days, or null for an instant concept. */
+function periodLengthDays(periodStart: Date | null, periodEnd: Date): number | null {
+  if (!periodStart) return null;
+  return Math.round((periodEnd.getTime() - periodStart.getTime()) / MS_PER_DAY);
 }
 
 /** Computes the diff for every concept tracked for one company, in one call. */

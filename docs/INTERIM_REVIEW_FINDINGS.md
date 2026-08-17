@@ -260,6 +260,100 @@ Recorded because a sweep that only reports hits says nothing about coverage:
 
 ---
 
+# First independent Codex review — 2026-08-18
+
+Codex access was restored by a plan upgrade (`docs/AI_REVIEW_RUNTIME_STATE.md`), so this is the
+**first genuine independent review this branch has had since `9b34f8b`**. Run read-only
+(`-s read-only`) so a reviewer could not modify the tree. Reviews were complementary, not
+duplicated: Luna took the bounded matrix, Terra the cross-file semantics, Sol was not needed.
+
+Every finding below was reproduced by me before any code changed. Model authority does not
+override runtime evidence.
+
+## IR-009 — Equal month buckets are not equal durations (Terra)
+
+|                 |                                                              |
+| --------------- | ------------------------------------------------------------ |
+| Reviewer        | `gpt-5.6-terra` — reproduced and confirmed against real data |
+| Subsystem       | `src/server/domain/filingDiff.ts`                            |
+| Severity        | **P1** — a plausible, misleading financial number            |
+| Status          | **VALID — fixed**                                            |
+| Codex re-review | **YES**                                                      |
+
+**Claim.** `periodLengthMonths` buckets with `Math.round(days / 30.436875)`, so a 52-week and a
+53-week fiscal year both become `12`, and a 13-week and 14-week quarter both become `3`.
+
+**Reproduction — this is not hypothetical, it is in the database now.** Real Apple facts:
+
+| Actual span  | Bucketed months | Rows |
+| ------------ | --------------- | ---- |
+| 90 days      | 3               | 492  |
+| **97 days**  | **3**           | 28   |
+| 363 days     | 12              | 147  |
+| **370 days** | **12**          | 33   |
+
+Apple's fiscal Q1 is periodically 14 weeks. Filing Diff therefore compares the 90-day quarter
+ending 2022-06-25 against the 97-day quarter ending 2022-12-31 and reports **+54.2948%** on
+NetIncomeLoss with `periodMonths: 3` — implying equal periods when one contains an extra week
+(~7.8% more days). Same shape in 2016 and 2011, and on OperatingIncomeLoss.
+
+**Fix — disclose, do not refuse.** Refusing would be wrong: companies report those quarters as
+consecutive and so should we. `currentPeriodDays`, `previousPeriodDays` and `periodLengthMismatch`
+(tolerance 4 days, which separates ordinary calendar drift from a whole extra week) are now
+returned and surfaced as an amber note on `/company/[corpCode]`. This is the same remedy applied
+to the nine-month-vs-quarter defect: carry the period so the reader can see it.
+
+**Verification.** Two tests — the 90-vs-97 case, and a **negative control** (88 vs 89 days must
+NOT flag). A mismatch flag that is always set discloses nothing.
+
+## IR-010 — Revision-chain cycle hidden behind an intact original (Terra)
+
+|                 |                                                   |
+| --------------- | ------------------------------------------------- |
+| Reviewer        | `gpt-5.6-terra` — reproduced                      |
+| Subsystem       | `src/server/domain/revisionChain.ts`              |
+| Severity        | **P2** — DB constraints make it unreachable today |
+| Status          | **VALID — fixed**                                 |
+| Codex re-review | **YES**                                           |
+
+`findRevisionChainTail` returned the row nothing points at, and threw only when **every** row was
+referenced. Given an original `o` plus revisions `a → b` and `b → a`, both `a` and `b` are
+referenced, `o` is the sole tail, and the function returned `o` — presenting a superseded value as
+current and silently discarding two stored revisions. Its own docstring promised it throws on a
+cycle; it did not.
+
+**Reachability, checked rather than assumed.** `observations_series_date_original_unique` permits
+one original per (seriesId, observationDate), and the composite unique permits one child per
+parent, so every malformed shape is DB-prevented. Fixed anyway: this function decides which number
+a user sees, and "the schema should prevent it" is the assumption behind most defects in this repo.
+
+**Fix.** Walk back from the tail and require every row to lie on that one path. One traversal
+catches cycles, dangling parents and disconnected components. Forked chains now throw instead of
+returning `tails[0]` — a deliberate reversal of the earlier "stable answer" choice, justified
+because two tails are two competing current values and the DB prevents it arising.
+
+## IR-011 — `FilingDiffResult` carried no source (Luna)
+
+|          |                                           |
+| -------- | ----------------------------------------- |
+| Reviewer | `gpt-5.6-luna` — confirmed                |
+| Severity | **P3** — attributed by page context today |
+| Status   | **VALID — fixed**                         |
+
+The same omission as IR-007/IR-008, in the one output type I missed when fixing those.
+`sourceCode` added. Low severity because `/company/[corpCode]` names the source in its header and
+all its data is scoped to it — but the API returned an unattributed financial comparison.
+
+## Luna's matrix result
+
+**67 OK · 11 UNSCOPED-SAFE · 1 UNSCOPED-RISK · 1 OUTPUT-GAP** across every Prisma call site in
+`src/`. A discriminating result, not a flag-everything one, which is what makes the two hits
+worth acting on.
+
+The UNSCOPED-RISK is `findKnownCorpCodes` (`companyXray.ts:131`) — the watchlist link resolver,
+already recorded as a known limitation under IR-002. Unchanged: fixing it means routing
+`/company/[corpCode]` by source, which is not a minimal change during freeze.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

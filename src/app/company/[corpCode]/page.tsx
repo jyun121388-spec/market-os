@@ -157,6 +157,21 @@ export default async function CompanyXrayPage({
                     ? `, ${c.periodMonths}-month periods`
                     : ", point-in-time balances"}
                 </div>
+                {/*
+                  Equal month buckets are not equal durations. Apple's fiscal Q1 is periodically
+                  14 weeks rather than 13, so a 97-day quarter gets compared against a 90-day one
+                  and the extra week lands in the percentage with nothing to indicate it. The
+                  comparison is still the right one to show — those are consecutive reported
+                  quarters — but the reader has to be told the periods were not the same length.
+                */}
+                {c.periodLengthMismatch && (
+                  <div className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                    These periods are not the same length: {c.previousPeriodDays} days vs{" "}
+                    {c.currentPeriodDays} days. Part of this change is the extra{" "}
+                    {Math.abs((c.currentPeriodDays ?? 0) - (c.previousPeriodDays ?? 0))} days, not
+                    underlying performance.
+                  </div>
+                )}
               </li>
             ))}
           </ul>

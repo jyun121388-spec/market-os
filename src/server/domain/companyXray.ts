@@ -249,7 +249,10 @@ export async function computeCompanyXray(corpCode: string): Promise<CompanyXray 
  * a lookup keyed on the wrong representation returns nothing and reports UNKNOWN forever, which
  * looks like a missing feature rather than a broken join.
  */
-async function assessCompleteness(sourceId: string, corpCode: string): Promise<CompletenessNote> {
+export async function assessCompleteness(
+  sourceId: string,
+  corpCode: string,
+): Promise<CompletenessNote> {
   const runs = await prisma.ingestRun.findMany({
     where: { sourceId, target: { in: [corpCode, `xbrl:${corpCode}`] } },
     orderBy: { startedAt: "desc" },

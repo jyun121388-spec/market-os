@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "fabric:shadow": "tsx scripts/fabric-shadow.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

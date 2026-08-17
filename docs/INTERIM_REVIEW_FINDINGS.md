@@ -1,0 +1,171 @@
+# Interim Review Findings
+
+Findings raised while Codex included usage is exhausted (HG-005, resets 2026-08-22). Everything
+here is **interim**: local AI failed calibration (`docs/LOCAL_AI_CALIBRATION.md`), so nothing in
+this file has had independent cross-model review. Every entry is marked for the Codex audit.
+
+Review base: `a0eb92a` · Current HEAD: `f6ebb5b` · Branch `claude/market-os-development-7vnicg`
+
+Severity: **P0** data loss / security · **P1** false financial output reaching a user ·
+**P2** latent correctness or provenance defect · **P3** hygiene.
+
+---
+
+## IR-001 — Ask Market blends financial facts across providers
+
+|                 |                                                                |
+| --------------- | -------------------------------------------------------------- |
+| Reviewer        | Claude (adversarial second pass, §14 method)                   |
+| Subsystem       | `src/server/domain/askMarket.ts` — `findCompanyFacts`          |
+| Severity        | **P2** (latent; **P1** the moment a second fact source exists) |
+| Status          | **VALID — fixed**                                              |
+| Fix commit      | `f6ebb5b`                                                      |
+| Codex re-review | **YES**                                                        |
+
+**Hypothesis.** The company is matched through a _filing_, which belongs to exactly one source,
+but the facts were then fetched with `where: { corpCode: filing.corpCode }` — no `sourceId`. Both
+unique indexes on `financial_facts` begin with `sourceId`, so the schema states that a corp code
+identifies a company only _within_ its provider. The query's correctness depended on corp-code
+namespaces never colliding across providers, which nothing enforces.
+
+**Reproduction.** Seeded a second source reusing the same `corpCode`, with a KRW figure of
+`999999999`. Ask Market returned `[999999999, 1000000, 250000]` — the other provider's
+foreign-currency figure _leading_ the answer, because it sorted first by `periodEnd`.
+
+**Root cause.** Query keyed on a non-unique business identifier.
+
+**Fix.** `where: { sourceId: filing.sourceId, corpCode: filing.corpCode }`.
+
+**Verification.** New regression test in `tests/integration/ask-market.test.ts`; the pre-existing
+`toHaveLength(2)` assertion independently caught the leak once the data existed. Full suite green.
+
+---
+
+## IR-002 — Company X-Ray presents a merged multi-source entity as one sourced record
+
+|                 |                                                           |
+| --------------- | --------------------------------------------------------- |
+| Reviewer        | Claude (propagation check from IR-001)                    |
+| Subsystem       | `src/server/domain/companyXray.ts` — `computeCompanyXray` |
+| Severity        | **P2** (latent; **P1** with a second source)              |
+| Status          | **VALID — fixed**                                         |
+| Fix commit      | `f6ebb5b`                                                 |
+| Codex re-review | **YES**                                                   |
+
+**Hypothesis.** Worse than IR-001, because the page _displays_ provenance. `sourceCode` is taken
+from whichever filing is newest, while `filingCount`, the ticker, `latestFigures` and
+`recentFilings` were each queried on `corpCode` alone — one provider named in the header, several
+pooled in the body. `listCompanies()` already groups by `(corpCode, corpName, sourceId)` and would
+list those as two separate companies, so the index page and the detail page disagreed about how
+many companies exist.
+
+**Reproduction.** Second provider sharing the corp code, filing _earlier_ so the header stayed
+correct and only the body was contaminated — the more dangerous arrangement. Result: three revenue
+figures where two exist, `filingCount` 2 instead of 1, and the other provider's report in the
+filing list. Two pre-existing tests failed alongside the new one.
+
+**Fix.** All four queries scoped to `{ sourceId: anyFiling.sourceId, corpCode }`. `changes` and
+`completeness` were already scoped this way; these four were not.
+
+**Known limitation, deliberately not fixed here.** `/company/[corpCode]` is keyed on corp code
+alone, so if two providers ever share one, the page shows the newest-filing source and the other is
+unreachable. Fixing that means changing the route to carry the source, which is not a minimal
+change during release hardening. Recorded rather than silently widened.
+
+---
+
+## IR-003 — Company X-Ray test suite silently stopped running
+
+|                 |                                                                             |
+| --------------- | --------------------------------------------------------------------------- |
+| Reviewer        | Claude (observed during IR-002 work)                                        |
+| Subsystem       | `tests/integration/company-xray.test.ts`                                    |
+| Severity        | **P3** — test hygiene (see the correction below; this is not a false-green) |
+| Status          | **VALID — fixed**                                                           |
+| Fix commit      | `f6ebb5b`                                                                   |
+| Codex re-review | NO                                                                          |
+
+**Reproduction.** The file's cleanup deleted facts and filings but not `ingest_runs`, which the
+completeness tests write. After a run aborted part-way, leftover rows blocked
+`prisma.source.delete` on `ingest_runs_sourceId_fkey`, so `beforeAll` threw on the _next_ run and
+vitest reported **"9 tests | 9 skipped"** — a suite that had quietly stopped exercising anything.
+
+**Correction to the first assessment.** I initially rated this P2 and called it a false-green on
+the grounds that the failure was silent. It is not. Vitest also printed `Failed Suites 1` and
+exited **255**, so CI fails loudly and a real regression could not slip through this way. What is
+genuinely wrong is narrower: an interrupted run left state that broke every subsequent run of the
+file, and the summary line reads "skipped" — misleading to a human skimming output, which is how
+it cost time here. Downgraded to P3 and removed from the Codex queue accordingly.
+
+**Fix.** `deleteSourceAndDependents()` removes `ingestRun` rows first, used by both `beforeAll`
+and `afterAll`; `afterAll` also tolerates an id that was never assigned.
+
+**Systemic lesson.** Test cleanup must cover every table with a foreign key to the fixture root,
+not just the tables the file writes directly. The completeness tests added `ingest_runs` writes
+later without extending teardown — the same "new dependency, old teardown" drift worth watching
+for elsewhere.
+
+---
+
+## IR-004 — Stored dates could shift a day under a non-UTC process — REJECTED
+
+|                 |                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| Reviewer        | Claude                                                                                   |
+| Subsystem       | `edgar/normalize.ts`, `edgar-xbrl/normalize.ts`, all `toISOString().slice(0,10)` renders |
+| Severity        | would have been **P1**                                                                   |
+| Status          | **REJECTED — no defect**                                                                 |
+| Codex re-review | NO (recorded so it is not re-investigated)                                               |
+
+**Hypothesis.** This machine runs at UTC+9. If any date were parsed as local time, rendering it
+with `toISOString().slice(0, 10)` would print the **previous day** on every period label in
+Filing Diff and Company X-Ray.
+
+**Result.** Both ingest paths use `new Date(Date.UTC(y, m - 1, d))`. Verified empirically rather
+than by reading: all 1431 facts and 2240 filings in the real dev database were checked for
+`getTime() % 86_400_000 !== 0` under a UTC+9 process. Zero offenders. Round-trip through
+PostgreSQL preserves exact midnight UTC.
+
+---
+
+## IR-005 — Fixture rows in the dev database — observation, not a product defect
+
+|                 |                                          |
+| --------------- | ---------------------------------------- |
+| Status          | **NOT A DEFECT — retained deliberately** |
+| Codex re-review | NO                                       |
+
+`financial_facts` in `market_os_dev` holds 1431 rows, not the 1428 the ingest reports. The extra
+three are `TESTCIK` rows under a second `sourceId`, left by test runs from before the fail-closed
+guard existed. No filing references that corp code, so nothing surfaces them.
+
+They are being kept as a **canary**: after IR-001 and IR-002, any appearance of `TESTCIK` in
+user-facing output is now a provenance regression with an obvious signature. Noticing the
+1431/1428 gap is what led to IR-001 in the first place.
+
+---
+
+## Rejected local-AI findings
+
+Recorded because they document the calibration failure, not because they have engineering value.
+Full analysis in `docs/LOCAL_AI_CALIBRATION.md`.
+
+| ID        | Model                     | Claim                                                                            | Disposition                                                                                            |
+| --------- | ------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| LOCAL-001 | `qwen3.5:4b`              | Fixed `computeFinancialFactDiff` "only matches facts with identical `periodEnd`" | **REJECTED** — contradicted by the `<` comparison in the code it was shown                             |
+| LOCAL-002 | `qwen3.5:4b`              | Periods with different start dates "cannot be meaningfully compared"             | **REJECTED** — would forbid period-over-period comparison entirely                                     |
+| LOCAL-003 | `qwen3.5:4b`, `gemma3:4b` | `parseEdgarDateAsUtc` accepts `"2026-02-30"`                                     | **REJECTED** — executed it: `Date.UTC(2026,1,30)` → `2026-03-02`, `getUTCDate()` = 2, assertion throws |
+| LOCAL-004 | `gemma3:4b`               | Defect in fixed diff, EXPECTED and OBSERVED both "returns INSUFFICIENT_DATA"     | **REJECTED** — self-refuting                                                                           |
+
+No code was changed in response to any of these. Zero local-AI findings survived reproduction.
+
+---
+
+## Carry-forward for the Codex audit
+
+1. Review `a0eb92a..HEAD`, not the older packet range — IR-001/002/003 all landed after it.
+2. IR-001 and IR-002 share a root cause: **a query keyed on a business identifier that is only
+   unique within a source.** The two found here were fixed; the class deserves a systematic sweep
+   that a cross-file reviewer (Terra) is better suited to than a bounded one.
+3. The interim period had **no independent review**. Local AI produced zero valid findings and two
+   demonstrably false ones, so treat this range as reviewed by the author only.

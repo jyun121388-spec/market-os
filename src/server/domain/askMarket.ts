@@ -133,20 +133,59 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // Position sizing framed around the reader's own money. Anchored on possessives and on the
   // act of allocating, NOT on the word "percentage" — "what percentage of GDP is household
   // debt" is a legitimate macro question and must keep passing through.
-  /\bmy (portfolio|holdings|position sizing)\b/i,
+  // One optional adjective between the possessive and the noun. "my current holdings" and "my
+  // existing portfolio" read identically to "my holdings" and were not matched — an adjective is
+  // the cheapest bypass there is.
+  /\bmy(\s+\w+)? (portfolio|holdings|position sizing)\b/i,
   /\bhow should i (allocate|split|divide|weight|size)\b/i,
   /\bwhat weighting\b/i,
   /\ballocate\b[\s\S]{0,20}\bbetween\b/i,
 
   // Roleplay and hypothetical framing — the request is unchanged, only the wrapper differs.
   /\b(pretend|roleplay|role-play|act as|imagine you(?:'re| are))\b/i,
-  /\bif you (were|had)\b[\s\S]{0,60}\b(buy|sell|invest|put it|would you)\b/i,
+  // Window widened from 60 to 120 characters. "If you had $50,000 to deploy right now based on my
+  // risk profile, what specific stocks would you pick" puts the payload 85 characters after the
+  // opener, so the narrower bound made the length of the preamble the thing that decided whether
+  // a guardrail applied.
+  /\bif you (were|had)\b[\s\S]{0,120}\b(buy|sell|invest|put it|would you|pick|deploy)\b/i,
+  /\bwould you (buy|sell|pick|choose|go with)\b/i,
   /\bwhere would you put\b/i,
   /\bwhat would (a|an|any)\b[\s\S]{0,30}\b(investor|trader|analyst|manager)\b/i,
 
   // Laundering the recommendation through a third party still asks for one.
   /\b(my|our) (advisor|adviser|broker|analyst|banker)\b/i,
   /\b(tell me|show me)\b[\s\S]{0,20}\bwhat to (buy|sell|invest)\b/i,
+
+  // --- 2026-08-18, second adversarial pass. Candidate phrasings were generated locally and every
+  // one was scored by this function rather than by the model that wrote them; these close the
+  // eight that got through. See docs/LOCAL_AI_CALIBRATION.md for why the model is only ever
+  // allowed to propose inputs, never to judge them.
+
+  // Asking on behalf of a named person is still asking for a personalized recommendation, and
+  // it defeats every first-person pattern above. The long window is deliberate: these arrive as
+  // a story ("my brother asked me to find a source that tells him which stocks to buy").
+  // The trailing clause must itself be a request for a recommendation. Keying merely on a person
+  // plus a finance word would block "my colleague wrote a paper on how retirement savings rates
+  // affect bond demand", which is exactly the macro question this product exists to answer.
+  /\b(my|his|her|their) (friend|brother|sister|father|mother|parent|spouse|wife|husband|colleague|co-?worker|client|kid|son|daughter)\b[\s\S]{0,140}\b(should (he|she|they)|what to (buy|sell|invest)|which (stock|stocks|etf|etfs|fund|funds)\b|where to (put|invest)|advice on)/i,
+  /\bwhere to (put|invest)\b/i,
+
+  // Order mechanics stated as logistics rather than as a question.
+  /\b(place|placing|put in|putting in)\b[\s\S]{0,15}\b(my|the|an?|some)\s+orders?\b/i,
+
+  // Position changes without the "to my/the" that the earlier pattern required. "adding more
+  // position to this growth stock" carries the same instruction.
+  /\b(add|adding|increase|increasing|reduce|reducing|trim|trimming|double down)\b[\s\S]{0,25}\b(position|holding|stake|allocation|exposure)\b/i,
+
+  // Korean order mechanics and tailored-advice framing.
+  // 가격/시점/타이밍 only — NOT a bare 가. "외국인 매도가 증가했다" ("foreign selling rose") is a
+  // plain market observation, and `매도\s*가` would have flagged it.
+  /(진입|매수|매도)\s*(가격|시점|타이밍)/,
+  // 투자 is deliberately excluded: "정부의 투자 계획" is a government capital-spending plan, a
+  // legitimate macro topic, not a request for a trading plan.
+  /(매수|매도)\s*(전략|계획)/,
+  /개인적?인?\s*(조언|추천)/, // "personal advice/recommendation"
+  /(내|제)\s*(상황|형편|자산|포트폴리오)에?\s*맞[춰추]/, // "tailored to my situation"
 
   // Korean: 비중 조절 with words in between ("비중 어떻게 조절할까요"), which the stricter
   // adjacent-form pattern above misses.

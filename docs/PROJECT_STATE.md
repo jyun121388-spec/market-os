@@ -15,15 +15,27 @@ real PostgreSQL 16.10, a real browser, and real network egress, none of which th
 had. Standing the project up there immediately falsified four things the cloud runs had
 reported as green. All four are fixed and committed; details below.
 
-**NOT `RELEASE_CANDIDATE_READY`.** That status requires all of: local commits pushed; FRED, ECOS
-and OpenDART each live-verified or explicitly recorded as externally blocked; Codex independent
-re-review complete; P0 = 0; P1 = 0; full verification green. Four of those are open — see
-`docs/HUMAN_GATE_QUEUE.md`. Do not promote the status because the engineering looks finished.
+Status: **`RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES`.**
 
-**`PUSH_PENDING_AUTH`** — commits after `9b20f01` are local-only. GitHub authentication is not
-configured on this machine and the environment cannot prompt for it (HG-001). All work is
-committed on `claude/market-os-development-7vnicg`; nothing is at risk, nothing was rewritten,
-and push is not being retried in a loop.
+**NOT `RELEASE_CANDIDATE_READY`.** That requires all of: local commits pushed; FRED, ECOS and
+OpenDART each live-verified on the success path; independent re-review complete; P0 = 0; P1 = 0;
+full verification green. Engineering-side conditions are met — P0 and P1 are both zero and the
+full chain is green — but four external gates are open, and none of them is something autonomous
+work can close. Do not promote the status because the engineering looks finished; see
+`docs/HUMAN_GATE_QUEUE.md`.
+
+**`PUSH_PENDING_AUTH`** — every commit after `6cb74fc` is local-only. This machine has no GitHub
+credential and the environment cannot prompt for one (HG-001). One push is attempted per
+meaningful credential-state change, not on a loop. All work is committed on
+`claude/market-os-development-7vnicg`; nothing was rewritten and no force operation was used.
+
+**`INDEPENDENT_REVIEW_PENDING_USAGE_RESET`** — the blocker here changed on 2026-08-18. `codex-cli`
+is installed and IS authenticated against the ChatGPT subscription, so the environment limitation
+recorded in earlier rounds is gone. What blocks review now is included-usage exhaustion, account
+level rather than model level, resetting 2026-08-22. No credits purchased, no API key configured
+(HG-005). `docs/INDEPENDENT_REVIEW_PACKET.md` is prepared against the current range with ten
+ranked attack targets — and working through that packet's own questions is what produced findings
+23-29 below, so it has already paid for itself before any reviewer has read it.
 
 STATUS
 Local environment is fully operational and reproducible:
@@ -168,8 +180,9 @@ SECOND ROUND (night autonomous run, 2026-08-17) — further defects found, all f
 Two patterns account for most of what was found, and both are worth carrying forward.
 
 _Identity and ordering keys that cannot bear the weight put on them_ — H3, the watchlist upsert,
-the three read paths, the filing ingests, and the fact-identity key. Four of the five were found
-only after the first was fixed and its shape was known.
+the three read paths, the filing ingests, the fact-identity key, event ingest, and
+`IngestRun.target`. Almost all were found only after the first was fixed and its shape was known,
+including two in code written the day before. Assume there is another one.
 
 _Silence where there should be a signal_ — every truncation defect, plus the two above. The most
 reliable way to find these was not reading code but looking at real numbers and asking whether
@@ -193,17 +206,52 @@ holding a score, rating, valuation or target, and a test asserts that structural
     verified as VERIFIED. Found by examining the neighbours of the Codex-reported H2 rather than
     only H2 itself.
 
-TESTS
-281 / 281 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
-`npm run e2e` 28/28 checks in a real browser (up from 12) — the walkthrough now drives the Ask
-Market guardrail and the Company X-Ray page through real rendered HTML, not just the domain
-functions. `npm run verify:live:edgar` **67/67** against real data.sec.gov. Lint / typecheck /
-format / production build all clean. Full suite runs in ~24s.
+THIRD ROUND (2026-08-18) — release hardening, all found by working through this project's own
+independent-review packet rather than waiting for a reviewer:
 
-Final end-to-end verification on a genuinely fresh database (2026-08-17): all 15 migrations
-applied, real ingest of 2240 filings and 1428 financial facts, re-ingest returning 0 inserted /
-all unchanged, and 67/67 live contract checks. The three migrations added this round were also
-applied to a POPULATED database, not just an empty one — the H1 discipline.
+23. **Destructive-test database selection now fails closed.** The previous protection fell back
+    to `DATABASE_URL` when `TEST_DATABASE_URL` was unset, so the protection only reached people
+    who already knew they needed it. Now: no test DB named → refuse; same database as the dev
+    one → refuse; a name that does not identify itself as disposable → refuse; a
+    production-looking name → refuse. 21 tests, plus all four paths exercised against the real
+    config.
+24. **A fourth read-then-write race, in event ingest.** Reproduced before fixing — four
+    concurrent ingests of one URL rejected three of four with a raw P2002. Worse, `Event` and
+    its first `EventMention` were separate statements, so a failure between them left an Event
+    claiming `mentionCount: 1` with nothing attached. Both now in one transaction.
+25. **A no-database test run did not actually work**, despite the guard documenting it as
+    supported. The Prisma client was constructed at module scope, so importing any module that
+    touches the database required `DATABASE_URL` — four unit test files failed outright. Client
+    is lazy now; a skipped suite that parsed the URL at describe scope was fixed too.
+26. **A fifth identity-representation mismatch**, in yesterday's own code: `IngestRun.target`
+    recorded the unpadded CIK while the data it describes is stored padded. Nothing joined them
+    yet, so nothing looked broken — and the completeness lookup built next would have silently
+    reported UNKNOWN forever.
+27. **Truncation now reaches the reader, not just the operator.** `/company/[corpCode]` carries
+    a completeness note: COMPLETE, KNOWN_INCOMPLETE (with the shortfall), LAST_RUN_FAILED, or
+    UNKNOWN when no run was recorded — absence is not evidence of completeness.
+28. **Persisted errors leaked filesystem paths and application source.** The `DATABASE_URL`
+    password does not appear in Prisma errors (checked, not assumed), but the code frame does,
+    and `ingest_runs.error` is rendered on /admin.
+29. **14 more Ask Market bypasses**, found by adversarial probe across the attack classes in the
+    release directive: stop loss, entry/exit price, portfolio percentage, allocation, roleplay,
+    "if you were me", quoted advisor, and mixed Korean/English forms.
+
+TESTS
+316 / 316 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+`npm run e2e` 30/30 checks in a real browser against the **production build** (up from 12) — the
+walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
+HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real
+data.sec.gov. Lint / typecheck / format / production build all clean. Full suite ~25s.
+
+Tests run against a disposable database, enforced fail-closed. With no database at all, 159 unit
+tests pass and the integration suite skips cleanly — a path that is now actually verified rather
+than assumed.
+
+End-to-end verification on a genuinely fresh database: all 16 migrations applied, real ingest of
+2240 filings and 1428 financial facts, re-ingest returning 0 inserted / all unchanged, and 67/67
+live contract checks. Every migration added in these rounds was also applied to a POPULATED
+database, not just an empty one — the H1 discipline.
 
 Note on the suite runtime: it briefly reached ~137s when pagination was first tested by pushing
 14,000 synthetic rows through the real ingest. That was moved to client-level tests, which is

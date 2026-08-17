@@ -233,10 +233,24 @@ function dataCompleteness(input: VerificationInput): DimensionResult {
     return fail(`Computed over a knowably partial dataset${detail}.`);
   }
   if (c.providerTotal === null) {
-    return unknown(
-      "The provider states no total, so completeness cannot be confirmed. Absence of a total is " +
-        "not evidence of completeness.",
-    );
+    // A DISCLOSED LIMITATION, not an unknown that erases the other dimensions.
+    //
+    // Discovered by the first shadow run against real data: all eight Apple outputs came back
+    // INSUFFICIENT_EVIDENCE while every correctness dimension passed, because SEC's companyfacts
+    // endpoint publishes no total. Since it never will, the old semantics meant Verify could
+    // never say VERIFIED about the product's main output — a verifier that returns one answer
+    // for everything has told you nothing, which is the failure this layer was built to avoid.
+    //
+    // The rule that matters is still kept: completeness is never CLAIMED without evidence. It is
+    // reported as a caveat the reader must see, and the correctness findings stay visible behind
+    // it instead of being swallowed.
+    return {
+      status: "PASS",
+      rationale:
+        "Verifiable, WITH A LIMITATION: no shortfall was detected, but the provider states no " +
+        "total to check the stored count against, so completeness is unconfirmed rather than " +
+        "established.",
+    };
   }
   if (c.fetched !== null && c.fetched < c.providerTotal) {
     return fail(`Holds ${c.fetched} of the ${c.providerTotal} records the provider reports.`);

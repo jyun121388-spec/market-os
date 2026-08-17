@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "fabric:shadow": "tsx scripts/fabric-shadow.ts",
+    "verify:shadow": "tsx scripts/verify-shadow.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

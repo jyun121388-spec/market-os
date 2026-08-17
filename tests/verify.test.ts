@@ -232,13 +232,29 @@ describe("Verify — completeness and freshness are distinct verdicts", () => {
     expect(result.verdict).toBe("TRUNCATED");
   });
 
-  it("reports INSUFFICIENT_EVIDENCE when the provider states no total", () => {
-    // Absence of a total is not evidence of completeness — the rule assessCompleteness already
-    // applies. It must not read as VERIFIED.
+  it("discloses unconfirmed completeness as a limitation, not as an unknown that erases everything", () => {
+    // SUPERSEDED SEMANTICS. This asserted INSUFFICIENT_EVIDENCE until the first shadow run
+    // against real data, where all eight Apple outputs came back that way while every
+    // correctness dimension passed — because SEC's companyfacts endpoint publishes no total and
+    // never will. A verifier that can only ever return one answer about the product's main
+    // output has told you nothing.
+    //
+    // The rule is unchanged where it matters: completeness is never CLAIMED without evidence.
+    // It is reported as a caveat the reader must see, with the correctness findings still visible.
     const result = verify(
       base({ completeness: { providerTotal: null, fetched: 40, truncated: false } }),
     );
-    expect(result.verdict).toBe("INSUFFICIENT_EVIDENCE");
+    expect(result.verdict).toBe("VERIFIED_WITH_LIMITATION");
+    expect(result.limitations.join(" ")).toMatch(/no total/i);
+    expect(result.limitations.join(" ")).not.toMatch(/\bcomplete\b(?!ness)/i);
+  });
+
+  it("still refuses to call it VERIFIED outright when completeness is unconfirmed", () => {
+    // The negative control for the change above: the caveat must not be optimised away.
+    const result = verify(
+      base({ completeness: { providerTotal: null, fetched: 40, truncated: false } }),
+    );
+    expect(result.verdict).not.toBe("VERIFIED");
   });
 
   it("reports STALE when only freshness fails", () => {

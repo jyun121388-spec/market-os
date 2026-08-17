@@ -180,7 +180,12 @@ export async function computeCompanyXray(corpCode: string): Promise<CompanyXray 
     }),
     prisma.financialFact.findMany({
       where: scope,
-      orderBy: [{ periodEnd: "desc" }, { filedDate: "desc" }],
+      // The final `id` tiebreak matters and is not cosmetic. `filingDiff` breaks a same-filedDate
+      // tie on `id`; without the same tiebreak here, an original and a same-day amendment could
+      // be ordered differently by the database, and the figures table would show one value while
+      // the changes table compared the other — the page contradicting itself about the same
+      // company (independent review, `gpt-5.6-terra`, 2026-08-18).
+      orderBy: [{ periodEnd: "desc" }, { filedDate: "desc" }, { id: "asc" }],
     }),
     prisma.filing.findMany({
       where: scope,

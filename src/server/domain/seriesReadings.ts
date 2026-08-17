@@ -46,8 +46,30 @@ export async function getRecentObservationPair(seriesId: string): Promise<Observ
     orderBy: [{ retrievedAt: "desc" }, { id: "desc" }],
   });
 
-  const forDate = (date: Date) =>
-    findRevisionChainTail(rows.filter((r) => r.observationDate.getTime() === date.getTime()));
+  // `findRevisionChainTail` throws on a malformed chain, which is right — refusing to guess which
+  // value is current beats presenting a superseded one. But the THROW must not escape this
+  // function. Every caller loops over many series, and an uncaught error here takes down Morning
+  // Brief, Macro Regime and Ask Market in their entirety over one corrupt row: a whole page lost
+  // to a defect in a single series (independent review, `gpt-5.6-terra`, 2026-08-18).
+  //
+  // Degrading to "no reading for this series" is what every caller already handles, since that is
+  // what a series with too little history returns. The error is logged rather than swallowed, so
+  // an operator can still see that something is structurally wrong — silence here would trade one
+  // failure mode for the quieter one this project keeps finding.
+  const forDate = (date: Date) => {
+    try {
+      return findRevisionChainTail(
+        rows.filter((r) => r.observationDate.getTime() === date.getTime()),
+      );
+    } catch (error) {
+      console.error(
+        `[seriesReadings] series ${seriesId} has a malformed revision chain on ` +
+          `${date.toISOString().slice(0, 10)}; treating the series as unreadable rather than ` +
+          `failing the whole request: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  };
 
   const current = forDate(recentDates[0].observationDate);
   const previous = forDate(recentDates[1].observationDate);
@@ -88,10 +110,21 @@ export async function getObservationsOneRowPerDate(seriesId: string): Promise<Ob
     else byDate.set(key, [row]);
   }
 
+  // Same containment as above, and here it matters more: this builds a full history, so one
+  // malformed date would otherwise discard every other date in the series as well. Skipping the
+  // affected date loses one point instead of all of them.
   const resolved: Observation[] = [];
-  for (const bucket of byDate.values()) {
-    const tail = findRevisionChainTail(bucket);
-    if (tail) resolved.push(tail);
+  for (const [dateKey, bucket] of byDate) {
+    try {
+      const tail = findRevisionChainTail(bucket);
+      if (tail) resolved.push(tail);
+    } catch (error) {
+      console.error(
+        `[seriesReadings] series ${seriesId} has a malformed revision chain on ` +
+          `${new Date(dateKey).toISOString().slice(0, 10)}; omitting that date from the history: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   return resolved.sort((a, b) => a.observationDate.getTime() - b.observationDate.getTime());

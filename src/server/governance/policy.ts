@@ -75,9 +75,20 @@ export interface GateRequirement {
   recommendedDefault: string;
 }
 
+export type ExecutionStatus = "READY" | "BLOCKED_MISSING_CREDENTIAL";
+
 export interface PolicyEvaluation {
   action: ActionDescriptor;
   decision: PolicyDecision;
+  /**
+   * Whether the action can actually be carried out right now, which is a SEPARATE question from
+   * whether policy permits it.
+   *
+   * "Policy permits it but the credential is absent" is not "policy denies it". Collapsing the
+   * two would record a standing environmental limitation as a governance refusal, and a later
+   * reader would conclude the rule forbids something it allows.
+   */
+  execution: ExecutionStatus;
   /** The rule that decided it, by document. A decision that cannot cite one is not a policy. */
   citations: string[];
   /** For AUTO_ALLOWED_WITH_VERIFY: exactly what must pass first. */
@@ -190,25 +201,14 @@ const RULES: Record<ActionKind, Rule> = {
     citations: ["CLAUDE.md — git policy", "docs/HUMAN_GATE_QUEUE.md HG-001"],
     rationale: "Publishing the branch is safe with a clean tree and a green suite.",
     requiredVerification: ["clean working tree", ...DONE],
-    // The ACTION is permitted; the CREDENTIAL is the gate. Conflating those made the earlier
-    // calibration dishonest — it claimed to replay HG-001, whose recorded outcome is "blocked on
-    // the user authenticating this machine", while asserting an auto-allow.
+    // A missing credential does NOT change the policy decision. Pushing is permitted; the branch
+    // simply cannot be pushed right now. An earlier version returned DEFERRED_HUMAN_GATE here,
+    // which dressed an environmental blocker up as a policy question — the mirror image of the
+    // mistake it was fixing, and it would have taught a reader that policy forbids something it
+    // permits. The distinction is carried in `execution` instead.
     refine: (action, base) =>
       action.context?.credentialsAvailable === false
-        ? {
-            ...base,
-            decision: "DEFERRED_HUMAN_GATE",
-            rationale:
-              "Pushing is permitted by policy, but no GitHub credential exists on this machine " +
-              "and the environment cannot prompt for one. The block is environmental, not a " +
-              "policy refusal.",
-            gate: {
-              id: "HG-001",
-              question: "Authenticate this machine to GitHub?",
-              recommendedDefault:
-                "Sign in via Git Credential Manager, `gh auth login`, or configure an SSH remote.",
-            },
-          }
+        ? { ...base, execution: "BLOCKED_MISSING_CREDENTIAL" }
         : base,
   },
   GIT_HISTORY_REWRITE: {
@@ -391,6 +391,7 @@ export function evaluateAction(action: ActionDescriptor): PolicyEvaluation {
   const base: PolicyEvaluation = {
     action,
     decision: rule.decision,
+    execution: "READY",
     citations: rule.citations,
     requiredVerification: rule.requiredVerification ?? [],
     gate: rule.gate,

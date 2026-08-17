@@ -207,13 +207,39 @@ describe("Governance — corrections from independent review", () => {
     ).toBe("AUTO_ALLOWED");
   });
 
-  it("defers the push when no credential exists, without calling the action itself forbidden", () => {
+  it("keeps a missing credential OUT of the policy decision", () => {
+    // Corrected twice. It first asserted a bare auto-allow while labelling the row HG-001, which
+    // was not a replay of the recorded decision. The fix then over-corrected into
+    // DEFERRED_HUMAN_GATE, which dressed an environmental blocker up as a policy question - and
+    // would teach a reader that policy forbids something it permits.
+    //
+    // Policy and executability are separate facts. Pushing is allowed; the branch just cannot be
+    // pushed right now.
     const evaluation = evaluateAction({
       kind: "GIT_PUSH",
       context: { credentialsAvailable: false },
     });
-    expect(evaluation.decision).toBe("DEFERRED_HUMAN_GATE");
-    expect(evaluation.gate?.id).toBe("HG-001");
+    expect(evaluation.decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
+    expect(evaluation.execution).toBe("BLOCKED_MISSING_CREDENTIAL");
+    expect(evaluation.gate).toBeUndefined();
+  });
+
+  it("reports execution READY when nothing blocks it", () => {
+    expect(evaluateAction({ kind: "GIT_PUSH" }).execution).toBe("READY");
+    expect(
+      evaluateAction({ kind: "GIT_PUSH", context: { credentialsAvailable: true } }).execution,
+    ).toBe("READY");
+  });
+
+  it("never reports an execution blocker as a reason a decision was refused", () => {
+    // Across the whole table: an execution status must never coincide with DENIED, or the two
+    // concepts have collapsed again.
+    for (const kind of GOVERNED_ACTIONS) {
+      const evaluation = evaluateAction({ kind, context: { credentialsAvailable: false } });
+      if (evaluation.execution !== "READY") {
+        expect(evaluation.decision, `${kind} conflated execution with policy`).not.toBe("DENIED");
+      }
+    }
   });
 
   it("denies rather than merely defers when verification is red", () => {

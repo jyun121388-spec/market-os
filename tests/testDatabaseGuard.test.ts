@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { resolveTestDatabase } from "./support/testDatabaseGuard.mjs";
 
 /**
@@ -104,5 +104,42 @@ describe("resolveTestDatabase", () => {
     const decision = resolveTestDatabase({ DATABASE_URL: DEV, TEST_DATABASE_URL: "   " });
     expect(decision.ok).toBe(false);
     expect(decision.reason).toMatch(/TEST_DATABASE_URL is not/i);
+  });
+});
+
+describe("same physical database spelled two ways", () => {
+  // Comparing host TEXT alone let localhost and 127.0.0.1 read as two different servers, so
+  // two URLs naming ONE database could pass the same-target check and the suite would treat a
+  // populated database as disposable. Found by independent review (`gpt-5.6-luna`).
+  it.each([
+    [
+      "postgresql://u:p@localhost:55432/market_os_test",
+      "postgresql://u:p@127.0.0.1:55432/market_os_test",
+    ],
+    [
+      "postgresql://u:p@127.0.0.1:55432/market_os_test",
+      "postgresql://u:p@localhost:55432/market_os_test",
+    ],
+    ["postgresql://u:p@localhost/market_os_test", "postgresql://u:p@localhost:5432/market_os_test"],
+  ])("refuses %s vs %s", (dev, test) => {
+    const decision = resolveTestDatabase({ DATABASE_URL: dev, TEST_DATABASE_URL: test });
+    expect(decision.ok).toBe(false);
+  });
+
+  it("still allows two genuinely different databases on the same host", () => {
+    // The negative control. Over-normalising would refuse the ordinary, correct setup.
+    const decision = resolveTestDatabase({
+      DATABASE_URL: "postgresql://u:p@localhost:55432/market_os_dev",
+      TEST_DATABASE_URL: "postgresql://u:p@127.0.0.1:55432/market_os_test",
+    });
+    expect(decision.ok).toBe(true);
+  });
+
+  it("does not treat an unrecognised host as loopback", () => {
+    const decision = resolveTestDatabase({
+      DATABASE_URL: "postgresql://u:p@db.internal:5432/market_os_test",
+      TEST_DATABASE_URL: "postgresql://u:p@localhost:5432/market_os_test",
+    });
+    expect(decision.ok).toBe(true);
   });
 });

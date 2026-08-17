@@ -61,7 +61,12 @@ export interface RecentFiling {
  * reported as such.
  */
 export interface CompletenessNote {
-  status: "COMPLETE" | "KNOWN_INCOMPLETE" | "LAST_RUN_FAILED" | "UNKNOWN";
+  /**
+   * `UNCONFIRMED` is deliberately distinct from both COMPLETE and UNKNOWN. The run succeeded and
+   * reported no shortfall, but the provider stated no total to compare against — so no shortfall
+   * was DETECTED, which is a weaker claim than completeness. UNKNOWN means no run at all.
+   */
+  status: "COMPLETE" | "UNCONFIRMED" | "KNOWN_INCOMPLETE" | "LAST_RUN_FAILED" | "UNKNOWN";
   detail: string;
 }
 
@@ -293,6 +298,23 @@ export async function assessCompleteness(
       detail:
         `The most recent ingest stored less than the provider reported${shortfall}. This page ` +
         "shows a subset of this company's history, not all of it.",
+    };
+  }
+
+  // A successful run proves no shortfall was DETECTED. It only proves completeness if the
+  // provider actually stated a total to check against. EDGAR states none, so every real run in
+  // this database has providerTotal NULL — and the old wording told readers the ingest "retrieved
+  // everything the provider reported" on evidence that did not exist. This function already
+  // refuses that inference for the no-run case; refusing it here too is the same rule.
+  const withoutTotal = latest.filter((r) => r.providerTotal === null);
+  if (withoutTotal.length > 0) {
+    return {
+      status: "UNCONFIRMED",
+      detail:
+        `The most recent ingest for ${withoutTotal.map((r) => r.target).join(", ")} completed ` +
+        "without error, but the provider did not state a total, so there is nothing to check the " +
+        "stored count against. No shortfall was detected — which is not the same as knowing the " +
+        "history is complete.",
     };
   }
 

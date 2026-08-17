@@ -51,13 +51,35 @@ function databaseNameOf(url: string): string | null {
   }
 }
 
+/**
+ * Loopback spellings that all reach the same machine.
+ *
+ * Comparing host TEXT alone meant `localhost` and `127.0.0.1` read as two different servers, so
+ * two URLs naming one physical database could pass the same-target check and the suite would
+ * treat a populated database as disposable. Contrived, but this guard exists because real
+ * ingested data was destroyed three times, and the cost of closing it is four lines
+ * (independent review, `gpt-5.6-luna`, 2026-08-18).
+ *
+ * Deliberately a fixed list rather than a DNS lookup: resolution would make a safety decision
+ * depend on the network, and a guard that behaves differently when DNS is slow or absent is worse
+ * than one with a known blind spot. Any host not listed here is compared literally, so an
+ * unrecognised alias falls back to the old behaviour rather than being wrongly cleared.
+ */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
+
+function canonicalHost(url: URL): string {
+  const hostname = url.hostname.toLowerCase();
+  const port = url.port || "5432";
+  return `${LOOPBACK_HOSTNAMES.has(hostname) ? "localhost" : hostname}:${port}`;
+}
+
 /** True when both URLs address the same host, port and database, however they are spelled. */
 function sameTarget(a: string, b: string): boolean {
   try {
     const ua = new URL(a);
     const ub = new URL(b);
     return (
-      ua.host.toLowerCase() === ub.host.toLowerCase() &&
+      canonicalHost(ua) === canonicalHost(ub) &&
       ua.pathname.replace(/\/$/, "") === ub.pathname.replace(/\/$/, "")
     );
   } catch {

@@ -12,6 +12,8 @@ export interface IngestResult {
   recentCount: number;
   /** Total across recent plus every overflow file that was fetched. */
   totalFetched: number;
+  /** What SEC says exists: recent plus the declared filingCount of every overflow file. */
+  providerTotal: number;
   overflowFilesFetched: number;
   /** True when SEC listed more overflow files than this run was willing to fetch. */
   truncated: boolean;
@@ -85,6 +87,7 @@ export async function ingestEdgarFilings(company: EdgarCompanyDefinition): Promi
     unchanged,
     recentCount: history.recentCount,
     totalFetched: filings.length,
+    providerTotal: history.providerTotal,
     overflowFilesFetched: history.overflowFilesFetched,
     truncated: history.truncated,
   };

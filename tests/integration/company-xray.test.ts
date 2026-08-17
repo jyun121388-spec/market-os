@@ -251,6 +251,34 @@ describeIfDb("computeCompanyXray (integration)", () => {
     await prisma.ingestRun.deleteMany({ where: { sourceId } });
   });
 
+  it("does not claim COMPLETE when the provider never stated a total", async () => {
+    // Found by independent review (`gpt-5.6-terra`) and confirmed against the real database:
+    // all 20 recorded ingest runs have providerTotal NULL, so /company/0000320193 was telling
+    // readers "the most recent ingest retrieved everything the provider reported" when the
+    // provider reported no total at all.
+    //
+    // This is the same rule the no-run branch of this function already states — absence of a
+    // record is not evidence of completeness — applied inconsistently two branches later. A
+    // successful run with nothing to compare against proves no shortfall was DETECTED, which is
+    // a weaker claim than completeness and has to read as one.
+    const { recordIngestRun } = await import("@/server/domain/ingestRun");
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+    await recordIngestRun({ sourceCode: SOURCE_CODE, target: CORP_CODE }, async () => ({
+      inserted: 3,
+      providerTotal: null,
+      fetched: 3,
+      truncated: false,
+    }));
+
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("UNCONFIRMED");
+    expect(xray.completeness.detail).toMatch(/did not state a total/i);
+    // Must not overstate: no claim of having retrieved everything.
+    expect(xray.completeness.detail).not.toMatch(/retrieved everything/i);
+
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
+
   it("exposes no field that could carry a score, rating or recommendation", async () => {
     // Structural guardrail, the same approach tests/etfSchemaGuardrail.test.ts takes: the shape
     // itself must make a judgment unrepresentable, so one cannot be added by accident later.

@@ -50,6 +50,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
       unchanged: 0,
       recentCount: 2,
       totalFetched: 2,
+      providerTotal: 2,
       overflowFilesFetched: 0,
       truncated: false,
     });
@@ -72,6 +73,7 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
       unchanged: 2,
       recentCount: 2,
       totalFetched: 2,
+      providerTotal: 2,
       overflowFilesFetched: 0,
       truncated: false,
     });

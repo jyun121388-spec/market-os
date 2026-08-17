@@ -30,10 +30,15 @@ export default async function CompanyXrayPage({
   }
 
   const { company, latestFigures, changes, recentFilings, completeness } = xray;
+  // Three tones, not two. UNCONFIRMED means the ingest reported no shortfall but the provider
+  // stated no total to check against — worth reading, but not the same as a KNOWN shortfall or a
+  // failed run, and dressing them alike would train a reader to ignore both.
   const completenessTone =
     completeness.status === "COMPLETE"
       ? "border-zinc-200 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
-      : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200";
+      : completeness.status === "UNCONFIRMED"
+        ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200"
+        : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200";
   const comparable = changes.filter((c) => c.status === "COMPUTED");
   const notComparable = changes.filter((c) => c.status !== "COMPUTED");
 

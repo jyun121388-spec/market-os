@@ -19,7 +19,9 @@ async function main() {
       { sourceCode: "SEC_EDGAR", target: padCik(company.cik) },
       async () => {
         const r = await ingestEdgarFilings(company);
-        return { ...r, fetched: r.totalFetched, providerTotal: null };
+        // SEC states no single total, but it declares the pieces. Recording the real number is what
+        // lets completeness be CHECKED rather than assumed - see companyXray.assessCompleteness.
+        return { ...r, fetched: r.totalFetched, providerTotal: r.providerTotal };
       },
     );
     console.log(

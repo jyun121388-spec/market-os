@@ -424,6 +424,75 @@ defensible position, and reversing it is a security **design decision** with a r
 either way — the kind of call to put in front of a person rather than make silently at 3am.
 Recorded as HG-009 with a recommended default.
 
+## IR-015 — `/company` claimed COMPLETE on evidence that did not exist (Terra, A4)
+
+|                 |                                                        |
+| --------------- | ------------------------------------------------------ |
+| Reviewer        | `gpt-5.6-terra` — reproduced against the real database |
+| Subsystem       | `companyXray.assessCompleteness`, EDGAR client         |
+| Severity        | **P2** — provenance                                    |
+| Status          | **VALID — fixed**                                      |
+| Codex re-review | **YES**                                                |
+
+**Reproduction.** All **20** ingest runs in the real database had `providerTotal = NULL` and
+`status = SUCCESS`, so `/company/0000320193` told readers "the most recent ingest retrieved
+everything the provider reported" when the provider reported no total at all. That is the same
+rule this function already states two branches earlier — _absence of a record is not evidence of
+completeness_ — applied inconsistently to itself.
+
+**Fixed in both directions, which matters.** Softening the wording alone would have traded a false
+claim for a permanently vague one.
+
+1. New `UNCONFIRMED` status, distinct from both COMPLETE and UNKNOWN: the run succeeded and
+   reported no shortfall, but there was nothing to check against. Rendered in its own tone, since
+   dressing it like a KNOWN shortfall trains readers to ignore both.
+2. **EDGAR now supplies a real total.** SEC publishes no single figure but declares the pieces —
+   `filings.recent` length plus the `filingCount` of every overflow file, fetched or not. Summing
+   them gives `providerTotal`.
+
+**Verified on real data**: the next EDGAR run recorded `providerTotal = 2240, fetched = 2240`.
+Exactly matching, which also independently corroborates the earlier 1000-cap fix. Completeness for
+filings is now provable rather than assumed; XBRL facts remain `UNCONFIRMED`, correctly, because
+companyfacts genuinely publishes no total.
+
+## IR-016 — Same database, two spellings, defeats the test guard (Luna, A6)
+
+|           |                                                      |
+| --------- | ---------------------------------------------------- |
+| Reviewer  | `gpt-5.6-luna`                                       |
+| Subsystem | `tests/support/testDatabaseGuard.mts` — `sameTarget` |
+| Severity  | **P2** — contrived, but this guard is P0-critical    |
+| Status    | **VALID — fixed**                                    |
+
+`sameTarget` compared host TEXT, so `localhost` and `127.0.0.1` read as different servers. Two
+URLs naming one physical database could pass the same-target check, and with a disposable-looking
+name the suite would treat a populated database as safe to wipe.
+
+Contrived — but this guard exists because real ingested data was destroyed three times, and the
+fix is four lines. Loopback spellings now canonicalise to one form, with the default port applied
+so `localhost` and `localhost:5432` match.
+
+**Deliberately a fixed list, not a DNS lookup.** Resolution would make a safety decision depend on
+the network, and a guard that behaves differently when DNS is slow is worse than one with a known
+blind spot. Unrecognised hosts still compare literally, so the fallback is the old behaviour rather
+than a wrong clear. Negative controls pin that two genuinely different databases on one host, and
+an unrecognised host, are still allowed.
+
+## Findings recorded but not actioned this round
+
+Valid, reproduced by reading, and deliberately queued rather than changed during freeze:
+
+| Finding                                                                                                                                     | Why deferred                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `truncated` is persisted and displayed but never **consumed** — series readers compute changes over possibly-partial FRED/ECOS data (Terra) | Latent: no FRED/ECOS data exists without keys (HG-002/003). Threading completeness into `seriesReadings` is what the Verify layer is for, and Verify already returns TRUNCATED for it. |
+| A later SUCCESS masks an earlier truncated run, because `IngestRun` records neither query range nor full-vs-incremental mode (Terra)        | Needs a schema migration to record range/mode. Same hypothesis the Fabric shadow projection raises as `COMPLETENESS_HISTORY`.                                                          |
+| Row writes and the `IngestRun` audit row are non-atomic, so a mid-run exception leaves rows with a zero-count FAILED record (Terra)         | Real. Fixing means wrapping ingest in a transaction, which changes ingest behaviour materially — not a freeze-safe change.                                                             |
+| EDGAR does not persist `requestsMade` (Terra, P2)                                                                                           | Auditing completeness only; no user-facing effect.                                                                                                                                     |
+| Four models have no natural unique key — `EtfHolding`, `RealEstateTransaction`, `Event`, `CausalEdge` (Luna, TOO-WIDE)                      | `Event` clustering is deliberate and `CausalEdge` is curated seed data. The other two have no active ingest path today.                                                                |
+
+**Luna found 0 TOO-NARROW keys across 16 models** — the dimension that produced the 168-discarded-facts
+defect is now sound, and `FinancialFact`'s two partial indexes were confirmed correct.
+
 ## Luna's matrix result
 
 **67 OK · 11 UNSCOPED-SAFE · 1 UNSCOPED-RISK · 1 OUTPUT-GAP** across every Prisma call site in

@@ -60,6 +60,11 @@ export interface EdgarFilingHistory {
   /** Every filing across `filings.recent` AND every overflow file, in one parallel-array set. */
   filings: EdgarRecentFilings;
   recentCount: number;
+  /**
+   * What SEC itself says the company has: `filings.recent` plus the declared `filingCount` of
+   * every overflow file, fetched or not. The number to check a stored count against.
+   */
+  providerTotal: number;
   overflowFilesAvailable: number;
   overflowFilesFetched: number;
   /** True when SEC listed more overflow files than this run was willing to fetch. */
@@ -120,11 +125,24 @@ export async function fetchEdgarFilingHistory(cik: string): Promise<EdgarFilingH
     appendFilings(merged, (await response.json()) as EdgarSubmissionsOverflow);
   }
 
+  // SEC does not publish a single "total filings" number, but it publishes the pieces: the length
+  // of `filings.recent` plus the `filingCount` SEC declares on EVERY overflow file — including
+  // ones this run chose not to fetch, because the question is what the provider says exists, not
+  // what we collected. Summing them is what makes completeness checkable instead of assumed.
+  //
+  // Without this, every EDGAR run stored providerTotal NULL, and the Company X-Ray page told
+  // readers the ingest "retrieved everything the provider reported" on the strength of no
+  // evidence at all (independent review, `gpt-5.6-terra`, 2026-08-18).
+  const providerTotal =
+    (recent.form?.length ?? 0) +
+    overflowFiles.reduce((sum, file) => sum + (file.filingCount ?? 0), 0);
+
   return {
     cik: submissions.cik,
     name: submissions.name,
     filings: merged,
     recentCount: recent.form?.length ?? 0,
+    providerTotal,
     overflowFilesAvailable: overflowFiles.length,
     overflowFilesFetched: toFetch.length,
     truncated: overflowFiles.length > MAX_OVERFLOW_FILES,

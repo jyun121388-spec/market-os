@@ -23,7 +23,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      # Used by migrations, the build and the e2e walkthrough. NOT by the test suite — see the
+      # `npm run test` step, which deliberately runs against a separate database.
       DATABASE_URL: postgresql://market_os:market_os_ci@localhost:5432/market_os?schema=public
+      TEST_DB_URL: postgresql://market_os:market_os_ci@localhost:5432/market_os_test?schema=public
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,10 +36,30 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx prisma migrate deploy
+
+      # A separate, disposable database for the destructive test suite. The suite deletes rows by
+      # corpCode, sourceId and email, so it must never share a database with anything whose
+      # contents matter — locally that is real ingested SEC data, and mirroring the separation
+      # here keeps CI honest about the same rule.
+      - name: Create and migrate the disposable test database
+        run: |
+          PGPASSWORD=market_os_ci psql -h localhost -U market_os -d market_os \
+            -c 'CREATE DATABASE market_os_test;'
+          DATABASE_URL="$TEST_DB_URL" npx prisma migrate deploy
+
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run test
+
+      - name: Test suite (disposable database only)
+        run: npm run test
+        env:
+          # DATABASE_URL is blanked so the fail-closed guard in vitest.config.mts cannot resolve
+          # to the migrate/build/e2e database, and so a future edit that removes
+          # TEST_DATABASE_URL fails the build rather than quietly targeting it.
+          DATABASE_URL: ""
+          TEST_DATABASE_URL: ${{ env.TEST_DB_URL }}
+
       - run: npm run build
 
       # The e2e walkthrough is the only check that exercises the legal guardrail through a real

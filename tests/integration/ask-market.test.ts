@@ -5,6 +5,12 @@ const hasDb = Boolean(process.env.DATABASE_URL);
 const describeIfDb = hasDb ? describe : describe.skip;
 
 const SOURCE_CODE = "TEST_ASK_MARKET_SOURCE";
+/**
+ * A SECOND provider that happens to use the same corpCode string as the first. Both unique
+ * indexes on financial_facts begin with sourceId, so the schema states plainly that a corpCode
+ * identifies a company only WITHIN one source — `corpCode` alone is not a company.
+ */
+const OTHER_SOURCE_CODE = "TEST_ASK_MARKET_OTHER_SOURCE";
 const SERIES_EXTERNAL_ID = "TEST_ASK_MARKET_SERIES";
 const SERIES_NAME = "TEST Widget Price Index";
 const CORP_NAME = "TEST Widget Corp";
@@ -18,13 +24,15 @@ describeIfDb("askMarket (integration)", () => {
     ({ prisma } = await import("@/server/db/client"));
     ({ askMarket } = await import("@/server/domain/askMarket"));
 
-    const existingSource = await prisma.source.findUnique({ where: { code: SOURCE_CODE } });
-    if (existingSource) {
-      await prisma.financialFact.deleteMany({ where: { sourceId: existingSource.id } });
-      await prisma.filing.deleteMany({ where: { sourceId: existingSource.id } });
-      await prisma.observation.deleteMany({ where: { sourceId: existingSource.id } });
-      await prisma.series.deleteMany({ where: { sourceId: existingSource.id } });
-      await prisma.source.delete({ where: { id: existingSource.id } });
+    for (const code of [SOURCE_CODE, OTHER_SOURCE_CODE]) {
+      const existingSource = await prisma.source.findUnique({ where: { code } });
+      if (existingSource) {
+        await prisma.financialFact.deleteMany({ where: { sourceId: existingSource.id } });
+        await prisma.filing.deleteMany({ where: { sourceId: existingSource.id } });
+        await prisma.observation.deleteMany({ where: { sourceId: existingSource.id } });
+        await prisma.series.deleteMany({ where: { sourceId: existingSource.id } });
+        await prisma.source.delete({ where: { id: existingSource.id } });
+      }
     }
     await prisma.causalEdge.deleteMany({
       where: { fromVariable: "TEST: Widget demand (ask-market)" },
@@ -125,16 +133,44 @@ describeIfDb("askMarket (integration)", () => {
         raw: {},
       },
     });
+
+    // A different provider reporting a figure under the SAME corpCode. Nothing about this is
+    // exotic: corpCode namespaces belong to their provider, and this project already stores SEC
+    // CIKs and DART corp codes in one column. The value is deliberately absurd so that if it
+    // ever appears in an answer about TEST Widget Corp, it is unmistakable.
+    const otherSource = await prisma.source.create({
+      data: { code: OTHER_SOURCE_CODE, name: "Test Ask Market Other Source", tier: "TIER_S" },
+    });
+    await prisma.financialFact.create({
+      data: {
+        sourceId: otherSource.id,
+        corpCode: CORP_CODE,
+        taxonomy: "ifrs-full",
+        concept: "Revenues",
+        unit: "KRW",
+        periodStart: new Date("2026-04-01T00:00:00.000Z"),
+        periodEnd: new Date("2026-06-30T00:00:00.000Z"),
+        fiscalYear: 2026,
+        fiscalPeriod: "Q2",
+        form: "OTHER_PROVIDER_FORM",
+        accessionNumber: "OTHER_SOURCE_ACCN",
+        filedDate: new Date("2026-07-01T00:00:00.000Z"),
+        value: "999999999",
+        raw: {},
+      },
+    });
   });
 
   afterAll(async () => {
-    const source = await prisma.source.findUnique({ where: { code: SOURCE_CODE } });
-    if (source) {
-      await prisma.financialFact.deleteMany({ where: { sourceId: source.id } });
-      await prisma.filing.deleteMany({ where: { sourceId: source.id } });
-      await prisma.observation.deleteMany({ where: { sourceId: source.id } });
-      await prisma.series.deleteMany({ where: { sourceId: source.id } });
-      await prisma.source.delete({ where: { id: source.id } });
+    for (const code of [SOURCE_CODE, OTHER_SOURCE_CODE]) {
+      const source = await prisma.source.findUnique({ where: { code } });
+      if (source) {
+        await prisma.financialFact.deleteMany({ where: { sourceId: source.id } });
+        await prisma.filing.deleteMany({ where: { sourceId: source.id } });
+        await prisma.observation.deleteMany({ where: { sourceId: source.id } });
+        await prisma.series.deleteMany({ where: { sourceId: source.id } });
+        await prisma.source.delete({ where: { id: source.id } });
+      }
     }
     await prisma.causalEdge.deleteMany({
       where: { fromVariable: "TEST: Widget demand (ask-market)" },
@@ -157,6 +193,18 @@ describeIfDb("askMarket (integration)", () => {
     expect(result.matchedTopic).toBe(CORP_NAME);
     expect(result.companyFacts).toHaveLength(2);
     expect(result.companyFacts.every((f) => f.concept === "Revenues")).toBe(true);
+  });
+
+  it("does not blend facts from another provider that reuses the same corpCode", async () => {
+    // The company was matched via a FILING, and a filing belongs to exactly one source. The
+    // facts shown alongside it must come from that same source, or the answer silently mixes
+    // providers while presenting a single sourced-looking figure — a provenance failure, and
+    // the kind that reads as perfectly plausible (`docs/DATA_POLICY.md`).
+    const result = await askMarket("TEST Widget Corp");
+
+    expect(result.companyFacts.map((f) => f.value)).not.toContain(999999999);
+    expect(result.companyFacts.every((f) => f.unit === "USD")).toBe(true);
+    expect(result.companyFacts).toHaveLength(2);
   });
 
   it("carries the covered period, so two figures sharing a fiscal label stay distinguishable", async () => {

@@ -261,8 +261,14 @@ async function findCompanyFacts(
   const filing = allFilings.find((f) => mentionsEachOther(f.corpName, topic));
   if (!filing) return { facts: [] };
 
+  // Scoped to the source the FILING came from. `corpCode` is not a company: both unique indexes
+  // on financial_facts begin with sourceId, because a corp code only identifies a company within
+  // the provider that issued it — this project already stores 10-digit SEC CIKs and 8-digit DART
+  // corp codes in the same column. Keying on corpCode alone made this answer depend on those
+  // namespaces never colliding, which nothing enforces, and the failure would have been a
+  // foreign-currency figure from another provider quietly leading an answer about a US company.
   const facts = await prisma.financialFact.findMany({
-    where: { corpCode: filing.corpCode },
+    where: { sourceId: filing.sourceId, corpCode: filing.corpCode },
     orderBy: [{ periodEnd: "desc" }],
     take: 10,
   });

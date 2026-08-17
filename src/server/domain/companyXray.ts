@@ -152,23 +152,33 @@ export async function computeCompanyXray(corpCode: string): Promise<CompanyXray 
   });
   if (!anyFiling) return null;
 
+  // Every query below is scoped to the source of the filing that named the company, because the
+  // page presents ONE `sourceCode` for everything it shows. Keyed on corpCode alone, the header
+  // said one provider while the filing count, ticker, figures and filing list were pooled across
+  // all of them — a merged entity presented as a single sourced record. `listCompanies` already
+  // groups by (corpCode, sourceId) and would have listed those as two companies, so the index
+  // and the detail page did not agree on how many companies existed.
+  //
+  // `changes` and `completeness` below were already scoped this way; these four were not.
+  const scope = { sourceId: anyFiling.sourceId, corpCode };
+
   const [aggregate, tickerRow, facts, recentFilings] = await Promise.all([
     prisma.filing.aggregate({
-      where: { corpCode },
+      where: scope,
       _count: { _all: true },
       _min: { receiptDate: true },
       _max: { receiptDate: true },
     }),
     prisma.filing.findFirst({
-      where: { corpCode, stockCode: { not: null } },
+      where: { ...scope, stockCode: { not: null } },
       select: { stockCode: true },
     }),
     prisma.financialFact.findMany({
-      where: { corpCode },
+      where: scope,
       orderBy: [{ periodEnd: "desc" }, { filedDate: "desc" }],
     }),
     prisma.filing.findMany({
-      where: { corpCode },
+      where: scope,
       orderBy: { receiptDate: "desc" },
       take: 10,
       select: { reportName: true, receiptNo: true, receiptDate: true },

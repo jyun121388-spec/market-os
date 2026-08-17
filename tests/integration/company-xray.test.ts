@@ -15,21 +15,24 @@ const describeIfDb = hasDb ? describe : describe.skip;
 
 const SOURCE_CODE = "TEST_COMPANY_XRAY_SOURCE";
 const CORP_CODE = "TEST_XRAY_CORP";
+/** A second provider reusing the same corp code. See the provenance test at the bottom. */
+const OTHER_SOURCE_CODE = "TEST_COMPANY_XRAY_OTHER_SOURCE";
 
 describeIfDb("computeCompanyXray (integration)", () => {
   let prisma: typeof PrismaClientInstance;
   let computeCompanyXray: typeof import("@/server/domain/companyXray").computeCompanyXray;
   let sourceId: string;
+  let otherSourceId: string;
 
   beforeAll(async () => {
     ({ prisma } = await import("@/server/db/client"));
     ({ computeCompanyXray } = await import("@/server/domain/companyXray"));
 
-    const existing = await prisma.source.findUnique({ where: { code: SOURCE_CODE } });
-    if (existing) {
-      await prisma.financialFact.deleteMany({ where: { sourceId: existing.id } });
-      await prisma.filing.deleteMany({ where: { sourceId: existing.id } });
-      await prisma.source.delete({ where: { id: existing.id } });
+    for (const code of [SOURCE_CODE, OTHER_SOURCE_CODE]) {
+      const existing = await prisma.source.findUnique({ where: { code } });
+      if (existing) {
+        await deleteSourceAndDependents(existing.id);
+      }
     }
 
     const source = await prisma.source.create({
@@ -92,12 +95,67 @@ describeIfDb("computeCompanyXray (integration)", () => {
         },
       ],
     });
+
+    // A DIFFERENT provider that happens to use the same corp code string. It files EARLIER, so
+    // the page still identifies the company as the first source's — which is exactly the
+    // dangerous case: the header is right, and the body quietly carries a second provider's
+    // filings and a foreign-currency figure alongside it.
+    const otherSource = await prisma.source.create({
+      data: { code: OTHER_SOURCE_CODE, name: "Company X-Ray other source", tier: "TIER_S" },
+    });
+    otherSourceId = otherSource.id;
+    await prisma.filing.create({
+      data: {
+        sourceId: otherSourceId,
+        corpCode: CORP_CODE,
+        corpName: "TOTALLY DIFFERENT COMPANY",
+        stockCode: "OTHER",
+        reportName: "OTHER-PROVIDER-REPORT",
+        receiptNo: "OTHER-0001",
+        receiptDate: new Date("2025-01-15T00:00:00.000Z"),
+        raw: {},
+      },
+    });
+    await prisma.financialFact.create({
+      data: {
+        sourceId: otherSourceId,
+        corpCode: CORP_CODE,
+        taxonomy: "ifrs-full",
+        concept: "Revenues",
+        unit: "KRW",
+        periodStart: new Date("2024-10-01T00:00:00.000Z"),
+        periodEnd: new Date("2024-12-31T00:00:00.000Z"),
+        fiscalYear: 2024,
+        fiscalPeriod: "Q4",
+        form: "OTHER-PROVIDER-FORM",
+        accessionNumber: "OTHER-ACCN",
+        filedDate: new Date("2025-01-15T00:00:00.000Z"),
+        value: "999999999",
+        raw: {},
+      },
+    });
   });
 
+  /**
+   * Removes a test source and everything pointing at it.
+   *
+   * `ingest_runs` matters and was missing: the completeness tests below write runs, and a
+   * source cannot be deleted while one references it. Any run that aborted part-way therefore
+   * left rows that made the NEXT run's setup fail on a foreign key — reported by vitest as a
+   * skipped suite, which reads exactly like "no database configured". A test file that cannot
+   * clean up after an interrupted run silently stops testing anything.
+   */
+  async function deleteSourceAndDependents(id: string) {
+    await prisma.ingestRun.deleteMany({ where: { sourceId: id } });
+    await prisma.financialFact.deleteMany({ where: { sourceId: id } });
+    await prisma.filing.deleteMany({ where: { sourceId: id } });
+    await prisma.source.delete({ where: { id } });
+  }
+
   afterAll(async () => {
-    await prisma.financialFact.deleteMany({ where: { sourceId } });
-    await prisma.filing.deleteMany({ where: { sourceId } });
-    await prisma.source.delete({ where: { id: sourceId } });
+    for (const id of [sourceId, otherSourceId]) {
+      if (id) await deleteSourceAndDependents(id);
+    }
     await prisma.$disconnect();
   });
 
@@ -201,5 +259,23 @@ describeIfDb("computeCompanyXray (integration)", () => {
     for (const forbidden of ["rating", "score", "recommend", "target", "verdict", "opinion"]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("does not merge two providers that happen to share a corp code", async () => {
+    // The page prints ONE source code, taken from the most recent filing, then counts filings
+    // and lists figures for the corp code across EVERY source. `listCompanies` already groups by
+    // (corpCode, sourceId) and reports these as two separate companies, so the index and the
+    // detail page disagreed about how many companies exist — and the detail page was the one
+    // presenting a merged entity as a single sourced record.
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+
+    // Everything shown must belong to the one source the page names.
+    expect(xray.company.sourceCode).toBe(SOURCE_CODE);
+    expect(xray.company.corpName).toBe("TEST X-Ray Corp");
+    expect(xray.company.filingCount).toBe(1);
+    expect(xray.company.stockCode).toBe("XRAY");
+    expect(xray.latestFigures.every((f) => f.unit === "USD")).toBe(true);
+    expect(xray.latestFigures.map((f) => f.value)).not.toContain(999999999);
+    expect(xray.recentFilings.every((f) => f.reportName !== "OTHER-PROVIDER-REPORT")).toBe(true);
   });
 });

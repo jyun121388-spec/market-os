@@ -91,12 +91,12 @@ none.
 TEST STATUS
 All figures below were re-verified end to end at the close of the round, not carried forward.
 
-396/396 (58 files) against a real local PostgreSQL 16.10, run against a disposable database.
+486/486 (62 files) against a real local PostgreSQL 16.10, run against a disposable database.
 `npm run e2e` 30/30 in a real browser against the production build.
 `npm run verify:live:edgar` 67/67 against real data.sec.gov.
 16 migrations apply cleanly to a genuinely fresh database, followed by a real ingest of 2240
 filings and 1428 facts and an idempotent re-ingest (0 inserted, all unchanged).
-With no database at all: 228 unit tests pass, 30 integration files skip cleanly.
+With no database at all: 323 unit tests pass, 31 integration files skip cleanly.
 Lint (0 problems, warnings included), typecheck, format and production build clean.
 
 The dev database survived the full suite — checked afterwards by re-ingesting, which reported
@@ -105,7 +105,7 @@ any future change to test setup.
 
 NEXT EXACT ACTION
 
-1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 66 commits are local-only;
+1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 70 commits are local-only;
    this machine has no GitHub credential and cannot prompt. Nothing was rewritten, no force
    operation used.
 2. **HG-005 — no longer blocked; now just unfinished.** Codex is available and the first pass is

@@ -144,10 +144,36 @@ A layer that cannot state its promotion criterion does not get promoted.
 
 ## Implementation order and current position
 
-1. **Reality Fabric contract** — types + shadow adapters over existing v1 data. ← contract drafted
-2. **Verify** — evidence model + dimension evaluators. ← contract drafted
-3. **Governance OS** — policy table derived from existing docs. ← contract drafted
-4. **Evolution Engine** — ledgers first, loop second. ← contract drafted
+| Layer              | State                                       | Independently reviewed               |
+| ------------------ | ------------------------------------------- | ------------------------------------ |
+| **Reality Fabric** | Read-only shadow projection **implemented** | not yet                              |
+| **Verify**         | Nine dimension evaluators **implemented**   | **yes** — `gpt-5.6-sol`, 2 P0s fixed |
+| **Governance OS**  | Policy table + engine **implemented**       | **yes** — `gpt-5.6-terra`, 7 fixed   |
+| **Evolution**      | OBSERVE → MEASURE → DETECT **implemented**  | in progress — `gpt-5.6-luna`         |
 
-No implementation has been written. That is deliberate: v1 is frozen, and the contracts are what a
-reviewer can usefully argue with before any code exists to defend.
+Every layer is shadow-only: nothing in v1 imports any of them, and zero v1 source files were
+changed to accommodate them. `src/server/fabric/`, `src/server/verify/`, `src/server/governance/`
+and `src/server/evolution/` are inert by construction.
+
+### What shadow mode has already paid for
+
+- **Reality Fabric** immediately found the disagreement its own contract predicted: three series
+  that `staleness.ts` calls STALE while `/admin` shows the source healthy, one 220 days stale but
+  retrieved yesterday. Adjudicated as **not a v1 defect** — the two implementations answer
+  different questions and both label themselves accurately — which is the layer working as
+  designed rather than a fix being dodged.
+- **Verify**'s controls caught a bug in Verify itself on first run: `temporal_integrity` returned
+  NOT_APPLICABLE before it ever examined freshness, so a stale FACT verified clean. That is the
+  argument for writing the negative controls before trusting the evaluator.
+- **Governance**'s review surfaced a class of error worth naming: rules that were STRICTER than
+  the document they cited. Encoding a Human Gate as a denial looks responsible and is not — it
+  removes a decision the user is entitled to make.
+- **Evolution**'s test caught an overreach in its own detector: requiring every weakness to span
+  multiple subsystems. Breadth is informative, not required.
+
+### What remains before any promotion
+
+None of these may leave shadow mode without the evidence each contract already names. In
+particular: Verify has not been run against live v1 output, Governance has not been compared
+against decisions made _after_ it was written, and Evolution stops at detection with no
+hypothesis, proposal or experiment step built.

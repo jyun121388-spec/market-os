@@ -1,7 +1,7 @@
 LAST COMPLETED
 
-Third hardening round, 2026-08-18. Nine commits on top of the 43 from the previous rounds — 52
-total, all local (HG-001). Baseline moved 281 → 331 tests, e2e 28 → 30 checks against the
+Third hardening round, 2026-08-18. Twelve commits on top of the 43 from the previous rounds — 55
+total, all local (HG-001). Baseline moved 281 → 338 tests, e2e 28 → 30 checks against the
 production build.
 
 Every finding this round came from working through this project's own review packet
@@ -42,16 +42,23 @@ CURRENT FAILURE
 none.
 
 TEST STATUS
-331/331 against a real local PostgreSQL 16.10, run against a disposable database.
+All figures below were re-verified end to end at the close of the round, not carried forward.
+
+338/338 (55 files) against a real local PostgreSQL 16.10, run against a disposable database.
 `npm run e2e` 30/30 in a real browser against the production build.
 `npm run verify:live:edgar` 67/67 against real data.sec.gov.
-16 migrations apply cleanly to both fresh and populated databases.
-With no database at all: 159 unit tests pass, integration skips cleanly.
-Lint, typecheck, format and production build clean.
+16 migrations apply cleanly to a genuinely fresh database, followed by a real ingest of 2240
+filings and 1428 facts and an idempotent re-ingest (0 inserted, all unchanged).
+With no database at all: 189 unit tests pass, 30 integration files skip cleanly.
+Lint (0 problems, warnings included), typecheck, format and production build clean.
+
+The dev database survived the full suite — checked afterwards by re-ingesting, which reported
+everything unchanged. That is the guard working, and it is worth re-checking the same way after
+any future change to test setup.
 
 NEXT EXACT ACTION
 
-1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 52 commits are local-only;
+1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 55 commits are local-only;
    this machine has no GitHub credential and cannot prompt. Nothing was rewritten, no force
    operation used.
 2. **HG-005** — independent review. `codex-cli` IS installed and authenticated ("Logged in using

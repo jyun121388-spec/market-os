@@ -119,6 +119,38 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   /\b(best|top) (stock|stocks|etf|etfs|pick|picks) to (buy|invest)/i,
   /\bwhat would you (buy|sell|invest in)\b/i,
   /\b(hold|keep) or sell\b/i,
+
+  // --- 2026-08-18 adversarial pass. Every pattern below closes a phrasing that a probe showed
+  // slipping through, drawn from the attack classes the release directive names. Each is a
+  // request for a transactional instruction, not for analysis.
+
+  // Order mechanics. These name a price or level to act at, which is advice with the reasoning
+  // omitted rather than anything factual.
+  /\bstop[-\s]?loss\b/i,
+  /\b(entry|exit)\s+price\b/i,
+  /\bwhere\b[\s\S]{0,20}\bset\b[\s\S]{0,20}\b(stop|limit)\b/i,
+
+  // Position sizing framed around the reader's own money. Anchored on possessives and on the
+  // act of allocating, NOT on the word "percentage" — "what percentage of GDP is household
+  // debt" is a legitimate macro question and must keep passing through.
+  /\bmy (portfolio|holdings|position sizing)\b/i,
+  /\bhow should i (allocate|split|divide|weight|size)\b/i,
+  /\bwhat weighting\b/i,
+  /\ballocate\b[\s\S]{0,20}\bbetween\b/i,
+
+  // Roleplay and hypothetical framing — the request is unchanged, only the wrapper differs.
+  /\b(pretend|roleplay|role-play|act as|imagine you(?:'re| are))\b/i,
+  /\bif you (were|had)\b[\s\S]{0,60}\b(buy|sell|invest|put it|would you)\b/i,
+  /\bwhere would you put\b/i,
+  /\bwhat would (a|an|any)\b[\s\S]{0,30}\b(investor|trader|analyst|manager)\b/i,
+
+  // Laundering the recommendation through a third party still asks for one.
+  /\b(my|our) (advisor|adviser|broker|analyst|banker)\b/i,
+  /\b(tell me|show me)\b[\s\S]{0,20}\bwhat to (buy|sell|invest)\b/i,
+
+  // Korean: 비중 조절 with words in between ("비중 어떻게 조절할까요"), which the stricter
+  // adjacent-form pattern above misses.
+  /비중.{0,12}(조절|조정|늘리|줄이|확대|축소)/,
   /지금\s*(살까|사야|팔까|팔아야)/, // "buy/sell now?" — the LEGAL_GUARDRAILS.md example
   // Same "buy/sell now?" intent without requiring "지금" immediately before it (e.g. "삼성전자
   // 살까요?" with the timing implied rather than stated).

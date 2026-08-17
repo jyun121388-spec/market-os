@@ -1262,3 +1262,122 @@ browser against the production build, 67/67 live EDGAR contract checks, all 15 m
 to both a fresh and a populated database, real ingest of 2240 filings and 1428 facts with an
 idempotent re-ingest, lint/typecheck/format/build clean. Nothing here is self-declared APPROVE,
 and no provider other than SEC EDGAR is claimed live-verified.
+
+---
+
+## 2026-08-18 — Third hardening round: working the review packet instead of waiting for it
+
+Independent review is blocked on included-usage exhaustion until 2026-08-22. Rather than treat
+that as a stop, the round was spent answering the attack questions in
+`docs/INDEPENDENT_REVIEW_PACKET.md` directly. Every finding below came from one of them, which
+is the argument for writing the packet before a reviewer is available rather than after.
+
+Two of the findings were in code written the previous day. That is the most useful signal in this
+entry: the patterns this project keeps producing are not historical, and freshly written code is
+not exempt.
+
+### Destructive-test database selection now fails closed
+
+The earlier protection redirected tests to `TEST_DATABASE_URL` when set and fell back to
+`DATABASE_URL` when not. Wrong default — the protection reached only people who already knew they
+needed it, and forgetting the variable silently reinstated the hazard it existed to remove.
+
+`resolveTestDatabase` is a pure function so the decision is testable, and refuses on: a reachable
+database with no test database named; a test URL addressing the same database as the dev one
+(compared by host and path, not string, so different credentials cannot slip it through); a name
+that does not identify itself as disposable; and a name reading as a real environment even when
+it also says "test". Same-database is checked first, because when both are true it is the more
+alarming diagnosis and the naming message would bury it.
+
+Applied in `vitest.config.mts`, not a setup file, so an unsafe configuration stops the run before
+anything opens a connection. All four paths were exercised against the real config rather than
+only the pure function, and the dev database still held its 2240 filings afterwards.
+
+### The "no database" path never actually worked
+
+The guard documents running with no database as supported. It was not: four unit test files
+failed outright, and a fifth after those. Found by trying it rather than trusting what had just
+been written.
+
+`export const prisma = createClient()` ran at module scope, so importing any module that touches
+the database required `DATABASE_URL` transitively — `tests/askMarket.test.ts` exercises a pure
+detector function but importing its module reached the client and threw. The client is now built
+on first property access behind a proxy: call sites unchanged, imports side-effect free, and a
+missing connection string surfaces at the query with the query in the stack.
+
+The fifth failure was `auth-migration-upgrade.test.ts` parsing `DATABASE_URL!` at describe-body
+scope. Vitest evaluates the body of a skipped `describe` to collect it, so a suite designed to
+skip itself failed the whole file. This was predicted by the packet's own A6 question.
+
+### Event ingest: a fourth read-then-write race, and a non-atomic write
+
+`ingestMention` did `findUnique({url})` then `create`. Reproduced before fixing: four concurrent
+ingests of one URL rejected three of four with a raw P2002 — for an operation whose own contract
+calls a repeated URL a no-op.
+
+Worse and structural: `Event` and its first `EventMention` were separate statements, so a failure
+between them left an Event with `mentionCount: 1` and nothing attached — a row rendering on
+/today as a real event with a count nothing backs. Both paths are single transactions now, and
+`countDistinctTiers` takes the transaction client so it counts the mention just inserted.
+
+### A fifth identity-representation mismatch, one day old
+
+`IngestRun.target` recorded the unpadded CIK while the filings and facts it describes are stored
+padded. Nothing joined them, so nothing looked broken — and the completeness lookup built minutes
+later would have returned nothing and reported UNKNOWN forever. That failure mode is worse than a
+crash: it reads as a feature nobody finished rather than a broken join.
+
+### Truncation reaches the reader, not just the operator
+
+The packet asks whether `truncated` is consumed anywhere that changes behaviour. It was not —
+only displayed, and only on /admin. `/company/[corpCode]` now carries COMPLETE,
+KNOWN_INCOMPLETE (with the shortfall), LAST_RUN_FAILED, or UNKNOWN. UNKNOWN matters: the runs
+table is new, so absence of a record is genuinely unknown, and defaulting it to a reassuring
+answer would be the same class of lie the truncation work exists to prevent.
+
+### Persisted errors carried filesystem paths and source code
+
+Tested rather than reasoned about, by forcing a real Prisma connection failure. Good news: the
+`DATABASE_URL` password does NOT appear — Prisma reports "Can't reach database server at
+host:port". Bad news: the message embeds a code frame with an absolute path and several lines of
+application source, and `recordIngestRun` persists `err.message` for /admin to render.
+`sanitiseErrorForStorage` redacts first, then strips the code frame, the `invocation in
+<path>:line:col` header, and absolute Windows and POSIX paths. The line an operator needs
+survives intact.
+
+### 14 more Ask Market bypasses
+
+A probe of 21 adversarial phrasings against 11 analytical controls found 14 slipping through:
+stop loss, entry and exit price, "what percentage of my portfolio", "how should I allocate
+between", "what weighting", roleplay and "pretend you are", "if you were me", "if you had X where
+would you put it", "what would a smart investor do", "my advisor said X do you agree", and the
+spaced Korean form of 비중 조절.
+
+The sizing patterns anchor on possessives and on the act of allocating rather than on the word
+"percentage" — "what percentage of GDP is Korean household debt" is a legitimate macro question
+and is now an explicit negative control. Zero false positives across all controls.
+
+### Recorded rather than built
+
+Filing Diff cannot show an original-vs-restated comparison, because a period-over-period change
+requires a different period end. That exclusion is correct — a restatement is not a
+period-over-period change, and showing it there would be the same category error as the +233%
+defect — but restatements are consequently invisible even though both rows are stored. Logged as
+debt, not built speculatively.
+
+Unit strings are matched exactly and case-sensitively; `tests/unitVocabulary.test.ts` pins the
+vocabulary so the next typo fails at test time, rather than introducing a type-level unit that
+five values do not justify.
+
+### Answered with evidence, no change needed
+
+Only `observationIngest` writes rows with `isRevision = true`, so nothing can fork a revision
+chain behind its back. No code path compares across units or currencies — every diff query fixes
+the unit. No test mocks the application path: `vi.stubGlobal` is only ever used on `fetch`, the
+database is always real, and the true request path is covered by the browser walkthrough against
+the production build.
+
+**Verification**: 331/331 tests against a disposable PostgreSQL 16.10, `npm run e2e` 30/30 in a
+real browser against the production build, 67/67 live EDGAR contract checks, 16 migrations
+against both fresh and populated databases, 159 unit tests passing with no database at all,
+lint/typecheck/format/build clean.

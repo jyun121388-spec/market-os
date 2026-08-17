@@ -1,153 +1,114 @@
 LAST COMPLETED
 
-Night autonomous run, 2026-08-17. Fourteen commits on top of `6cb74fc`, none pushed (HG-001).
-Baseline moved 209 → 247 tests, e2e 12 → 22 checks, live EDGAR contract checks 0 → 59.
+Third hardening round, 2026-08-18. Nine commits on top of the 43 from the previous rounds — 52
+total, all local (HG-001). Baseline moved 281 → 331 tests, e2e 28 → 30 checks against the
+production build.
 
-The through-line: development moved from the Claude Code Web sandbox to a local Windows machine
-with a real PostgreSQL 16.10, a real browser and real network egress. Every defect below was
-found by running or reading work that the cloud environment had already reported as green.
+Every finding this round came from working through this project's own review packet
+(`docs/INDEPENDENT_REVIEW_PACKET.md`) rather than waiting for a reviewer. Two of them were in
+code written the previous day.
 
-Local-environment round (`5ea3b9b`, `de49452`, `49f1483`, `4d33f6d`, `9b20f01`):
-
-- The H3 concurrency fix from the Codex REVISE round **was itself defective**. It found the
-  revision chain's tail with `orderBy: retrievedAt desc` on a `timestamp(3)` column, so an
-  original and its revision written in the same millisecond were indistinguishable. Not
-  concurrency-only — a sequential re-ingest reproduced it. Re-fixed structurally: the tail is
-  the row nothing else points at via `revisionOf`.
-- The H1 migration-upgrade regression test had never executed on Windows (`npx` ENOENT/EINVAL),
-  so it reported as a passing file while asserting nothing.
-- `run-ingest-jobs.ts` spawned `npm`; `spawnSync` returns `status: null` rather than throwing,
-  so every job would have read as FAILED instead of never-started.
-- Real SEC schema drift: `fy: null, fp: null` on some companyfacts rows against non-nullable
-  columns. Widened, not guessed.
-- M19 Watchlist got its first real request path.
-
-Hardening round (`e0eecf6`, `d590c11`, `3fd6533`, `eeeb9ba`, `453962f`, `af942f9`, `fe511e2`,
-`19221e0`, `7407ec3`):
-
-- **EDGAR was storing 45% of Apple's filing history.** `filings.recent` is capped by SEC at
-  1000; everything older spills into `filings.files[]`, which the adapter never fetched. Real
-  ingest went 1000 filings (oldest 2015-06-04) → 2240 (oldest 1994-01-26). Note this got past
-  the live contract check the day before, which verified shape, printed "1000 recent filings"
-  as an info line, and called it VERIFIED. Shape verification is not completeness verification,
-  and a round number should be read as a cap.
-- Silent pagination truncation in all three keyed adapters (FRED `count`, ECOS
-  `list_total_count`, DART `total_page` — each received and ignored). Found by code reading.
-- Watchlist audit: an unused exported server action (a "use server" export is a reachable
-  endpoint whether or not a page calls it), no per-user row cap, and an upsert that could
-  surface a raw P2002 under concurrent submission.
-- 14 real bypasses closed in the Ask Market buy/sell guardrail, including "price target" — the
-  reverse word order of the covered "target price", and an explicitly prohibited output — plus
-  two bypasses the Codex packet itself had documented as open. Seven analytical controls guard
-  the opposite failure.
-- The impossible-date guard from 2026-08-16 had only reached FRED and ECOS; DART, EDGAR
-  submissions and EDGAR XBRL were all missed. All four adapters now share it.
-- The XBRL normalizer reported nothing about what it dropped; it now matches FRED/ECOS's
-  `skippedMissing` convention.
-- `tests/integration-coverage-guard.test.ts`: with `DATABASE_URL` unset, all 25 integration
-  files skip themselves and the run still reports green. Now fails loudly in CI.
+- **Destructive-test DB selection now fails closed.** The old protection fell back to
+  `DATABASE_URL`, so it only helped people who already knew they needed it. Now refuses on: no
+  test DB named, same database as dev, a name not identifying itself as disposable, or a
+  production-looking name. All four paths exercised against the real config, not just the pure
+  function.
+- **Fourth read-then-write race, in event ingest.** Reproduced first: four concurrent ingests of
+  one URL rejected three of four with a raw P2002. `Event` and its first `EventMention` were also
+  written non-atomically, so a failure between them left an Event claiming a mention that did not
+  exist. Both now one transaction.
+- **The no-database run never actually worked.** The Prisma client was built at module scope, so
+  importing any module that touches the DB required `DATABASE_URL`; four unit files failed
+  outright. Client is lazy now. A skipped suite that parsed the URL at describe scope was the
+  fifth failure.
+- **Fifth identity-representation mismatch**: `IngestRun.target` recorded the unpadded CIK while
+  the data it describes is stored padded. Nothing joined them yet — and the completeness lookup
+  built minutes later would have reported UNKNOWN forever, which reads as an unfinished feature
+  rather than a broken join.
+- **Truncation now reaches the reader.** `/company/[corpCode]` shows COMPLETE /
+  KNOWN_INCOMPLETE (with shortfall) / LAST_RUN_FAILED / UNKNOWN.
+- **Persisted errors leaked paths and source.** The DB password is NOT in Prisma errors (checked,
+  not assumed) but the code frame is, and `ingest_runs.error` renders on /admin.
+- **14 more Ask Market bypasses** — stop loss, entry/exit price, portfolio percentage, allocation,
+  roleplay, "if you were me", quoted advisor, mixed Korean/English.
+- **Unit vocabulary guard** — `computeChange` matches `unit === "percent"` exactly, so a
+  "Percent" typo would silently disable basis points.
 
 CURRENT TASK
-None in progress. Everything unblocked has been done; remaining work is gated — see
-`docs/HUMAN_GATE_QUEUE.md` (HG-001..HG-008) and docs/CURRENT_TASK.md.
+None in progress. Every independent, unblocked release-hardening task identified has been
+completed. What remains is gated — see `docs/HUMAN_GATE_QUEUE.md`.
 
 CURRENT FAILURE
 none.
 
-SECOND HALF OF THE NIGHT RUN — the defects that only real data could reveal:
-
-- **Filing Diff reported a fabricated +233% revenue increase.** It compared a nine-month figure
-  against a quarterly one from the SAME filing (same period end, same accession). Now requires
-  the same period length and a different period, or reports INSUFFICIENT_DATA.
-- **168 financial facts silently discarded per ingest** — a fact's identity includes the period
-  START, and the unique key omitted it. Enforced as two partial indexes, since `periodStart` is
-  NULL for instant concepts and a NULL in a unique key stops enforcing anything.
-- **The two EDGAR adapters identified companies differently** (`0000320193` vs `320193`), so
-  2240 filings and 933 facts had zero joinable rows and Ask Market's "Company facts" section was
-  silently empty for every EDGAR company.
-- **Company X-Ray had no revenue after 2018** — the ASC 606 tag transition.
-- **CALCULATION claims never verified their own source attribution.**
-- **Provider API keys were reaching logs, and then `ingest_runs.error` and /admin.**
-- Company X-Ray finally has a view (`/company`, `/company/[corpCode]`), M15/M16's missing UI.
-- Ingest runs are persisted and surfaced on /admin, so `truncated` is no longer a field nobody
-  reads.
-
 TEST STATUS
-281/281 against a real local PostgreSQL 16.10. `npm run e2e` 28/28 in a real browser.
-`npm run verify:live:edgar` 67/67 against real data.sec.gov. Lint, typecheck, format and
-production build all clean. Full suite ~24s.
-
-Final fresh-database verification: 15 migrations applied, real ingest of 2240 filings and 1428
-facts, re-ingest fully idempotent, 67/67 live contract checks.
-
-**The most useful thing to carry forward**: almost everything above was found by looking at real
-numbers and asking whether they were plausible, not by reading code. 1000 filings is a
-suspiciously round total. 168 rows "unchanged" against an empty table is impossible. 2240 filings
-and 933 facts with zero joinable rows is not a coincidence. 244 rows of net income and 13 of
-revenue is not how a company reports. A +233% revenue increase is not what Apple did. None of
-these had a failing test; several had passing ones.
+331/331 against a real local PostgreSQL 16.10, run against a disposable database.
+`npm run e2e` 30/30 in a real browser against the production build.
+`npm run verify:live:edgar` 67/67 against real data.sec.gov.
+16 migrations apply cleanly to both fresh and populated databases.
+With no database at all: 159 unit tests pass, integration skips cleanly.
+Lint, typecheck, format and production build clean.
 
 NEXT EXACT ACTION
 
-1. HG-001: `git push origin claude/market-os-development-7vnicg` once GitHub auth exists. 14
-   commits are local-only. Nothing was rewritten; no force operation was attempted.
-2. HG-002/003/004: when a FRED/ECOS/OpenDART key lands, run `npm run verify:live:<provider>`
-   then the full sequence in docs/RELEASE_READINESS.md's header before classifying it
-   LIVE_VERIFIED. Expect drift — EDGAR had it twice.
-3. HG-005: Codex re-review, scope `9b34f8b..HEAD`, per docs/CODEX_REVIEW_PACKET.md §0.1.
+1. **HG-001** — `git push origin claude/market-os-development-7vnicg`. 52 commits are local-only;
+   this machine has no GitHub credential and cannot prompt. Nothing was rewritten, no force
+   operation used.
+2. **HG-005** — independent review. `codex-cli` IS installed and authenticated ("Logged in using
+   ChatGPT"); the blocker is included-usage exhaustion resetting **2026-08-22**. Re-check once
+   after that date, then run against `docs/INDEPENDENT_REVIEW_PACKET.md`.
+3. **HG-002/003/004** — FRED/ECOS/OpenDART keys. All three hosts reachable and partially verified
+   (request shape and error envelopes confirmed against the real APIs with deliberately invalid
+   keys; no key leaked). The success shape — where EDGAR's drift hid — still needs a real key.
+   `npm run verify:live:<provider>` is written and waiting for each.
 
 IMPORTANT CONTEXT — LOCAL WINDOWS ENVIRONMENT
 
-Postgres is a portable install, not a service. `.local/pgsql` (gitignored, ~322MB, EnterpriseDB
-binaries-only zip — no installer, no admin, no Docker). Start each session with:
+Start Postgres each session (it does not survive a reboot):
 
     .local\pgsql\bin\pg_ctl.exe -D .local\pgdata -l .local\pg.log -o "-p 55432 -c listen_addresses=127.0.0.1" -w start
 
-Port 55432 deliberately, to avoid colliding with any system Postgres. Superuser `postgres` /
-`devpassword`, database `market_os_dev`. Deleting `.local/` reverses the whole thing.
+Port 55432 deliberately. Superuser `postgres` / `devpassword`. Databases: `market_os_dev` (holds
+real ingested SEC data — 2240 filings, 1428 facts) and `market_os_test` (disposable).
 
-Bare `vitest`/`prisma` do NOT inherit `.env` — set `$env:DATABASE_URL` first. Run
-`npx prisma generate` after every schema change.
-
-`core.autocrlf=true`, so `git status` lists nearly every file as modified. Line-ending noise
-only — check `git diff --stat`, not `git status`, before committing.
-
-Two PowerShell 5.1 traps, both of which cost time tonight:
-
-- Commit messages with double quotes get mangled by here-strings. Write the message to a
-  scratchpad file and use `git commit -F <file>`.
-- `Get-Content`/`Set-Content` round-trip **corrupts Korean text** (reads as ANSI). Never rewrite
-  a file containing Hangul that way — use the Edit tool. This silently mangled a test file's
-  Korean strings into an invalid regex before being caught.
-
-Do not run `npx prettier --write .` without checking `.prettierignore` — `.local` holds 322MB of
-Postgres files. `.local/` and `.tmp-test-artifacts/` are excluded from prettier and eslint.
-
-**Restart `npm run dev` after `npx prisma generate`.** A running dev server holds the old
-generated client, so any page touching a newly added model fails at runtime while the code,
-tests, typecheck and build are all clean. This presented as four `/admin` e2e checks failing
-together — including two that had passed minutes earlier — which reads like a regression and is
-not one.
-
-Playwright: `npx playwright install chromium`, standard `%LOCALAPPDATA%\ms-playwright` cache.
-`PLAYWRIGHT_CHROMIUM_PATH` overrides only if needed. `npm run e2e` needs `npm run dev` running.
-
-Network egress works. SEC returns 403 for a User-Agent that is not roughly "<name> <email>";
-`EDGAR_USER_AGENT` is set in `.env` to the user's own contact address with their explicit
-approval (2026-08-17).
-
-**Set `TEST_DATABASE_URL` so the suite stops wiping your ingested data.** Integration tests are
-destructive by design — they `deleteMany` by corpCode, sourceId and email to isolate themselves —
-so running them against the dev database erases whatever real data shares those keys. This bit
-three times in one session, each time presenting as "the page suddenly shows nothing" rather than
-as anything test-related. `vitest.config.mts` now redirects tests to `TEST_DATABASE_URL` when it
-is set, leaving `DATABASE_URL` and `npm run dev` untouched:
+**Tests now REFUSE to run without `TEST_DATABASE_URL`.** That is deliberate and is the whole
+point — set it and leave `DATABASE_URL` alone:
 
     $env:TEST_DATABASE_URL = 'postgresql://postgres:devpassword@127.0.0.1:55432/market_os_test?schema=public'
 
-The `market_os_test` database already exists locally with migrations applied. If the variable is
-unset, behaviour is unchanged (tests use `DATABASE_URL`), so CI is unaffected.
+Setting `DATABASE_URL` as well is fine; the guard only refuses if it resolves to the same
+database, an undisposable name, or nothing at all.
 
-Standing user instructions: continue autonomously, never self-declare Codex APPROVE, never
-activate paid APIs or services, record Human Gates in the queue and keep working around them.
-Do not promote status to RELEASE_CANDIDATE_READY until every condition in PROJECT_STATE is met.
+Run `npx prisma generate` after every schema change, and **restart `npm run dev`/`next start`
+afterwards** — a running server holds the previously generated client, and a page touching a new
+model fails at runtime while code, tests and build are all clean.
+
+Two PowerShell 5.1 traps, both of which have bitten:
+
+- Commit messages with double quotes get mangled by here-strings. Write to a scratchpad file and
+  use `git commit -F <file>`.
+- `Get-Content`/`Set-Content` round-trips **corrupt Korean text and em dashes** unless BOTH ends
+  pass `-Encoding UTF8`. `tests/encoding-guard.test.ts` now fails the build if it happens again.
+
+`core.autocrlf=true`, so `git status` lists nearly every file as modified. Line-ending noise
+only — check `git diff --stat` before committing.
+
+Do not run `npx prettier --write .` without checking `.prettierignore`: `.local` holds 322MB of
+Postgres binaries.
+
+Network egress works. SEC returns 403 for a User-Agent that is not roughly "<name> <email>";
+`EDGAR_USER_AGENT` is set in `.env` to the user's own contact address with their approval.
+
+Standing instructions: continue autonomously, never self-declare an independent review as passed,
+never activate paid APIs or purchase credits, record Human Gates and keep working around them.
+Status stays `RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES` until every condition in PROJECT_STATE is
+actually met.
+
+THE THING MOST WORTH CARRYING FORWARD
+
+Across three rounds, almost every real defect was found by looking at a number and asking whether
+it was plausible — not by reading code, and never by a failing test. A round 1000. 168 rows
+"unchanged" against an empty table. 2240 filings and 933 facts with zero joinable rows. 244
+net-income rows against 13 revenue rows. A +233% quarterly revenue increase. Three of four
+concurrent calls rejected. If you ingest something new, look at what landed before trusting that
+it landed correctly.

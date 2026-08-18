@@ -52,6 +52,9 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
       totalFetched: 2,
       providerTotal: 2,
       overflowFilesFetched: 0,
+      // Two provider requests: the submissions document is fetched once for tickers and once
+      // inside fetchEdgarFilingHistory. No overflow files in this fixture.
+      requestsMade: 2,
       truncated: false,
     });
 
@@ -75,6 +78,9 @@ describeIfDb("EDGAR adapter ingest (integration)", () => {
       totalFetched: 2,
       providerTotal: 2,
       overflowFilesFetched: 0,
+      // Two provider requests: the submissions document is fetched once for tickers and once
+      // inside fetchEdgarFilingHistory. No overflow files in this fixture.
+      requestsMade: 2,
       truncated: false,
     });
 

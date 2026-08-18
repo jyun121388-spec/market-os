@@ -15,6 +15,8 @@ export interface IngestResult {
   /** What SEC says exists: recent plus the declared filingCount of every overflow file. */
   providerTotal: number;
   overflowFilesFetched: number;
+  /** Provider requests this run made: the submissions document twice, plus each overflow file. */
+  requestsMade: number;
   /** True when SEC listed more overflow files than this run was willing to fetch. */
   truncated: boolean;
 }
@@ -101,6 +103,11 @@ export async function ingestEdgarFilings(
     totalFetched: filings.length,
     providerTotal: history.providerTotal,
     overflowFilesFetched: history.overflowFilesFetched,
+    // Two fixed requests — the submissions document, fetched once here for tickers and once
+    // inside fetchEdgarFilingHistory — plus one per overflow document. Recorded so a history
+    // spanning thirteen provider requests can be audited as thirteen rather than as an unknown
+    // (independent review, `gpt-5.6-terra`).
+    requestsMade: 2 + history.overflowFilesFetched,
     truncated: history.truncated,
   };
 }

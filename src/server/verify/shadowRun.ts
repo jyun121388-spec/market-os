@@ -4,9 +4,11 @@ import { verify } from "./evaluate";
 import { askMarket } from "@/server/domain/askMarket";
 import { computeCalendarEntry } from "@/server/domain/economicCalendar";
 import { computeChange, getRecentObservationPair } from "@/server/domain/seriesReadings";
+import { AXIS_SERIES, computeRegimeSnapshot } from "@/server/domain/macroRegime";
 import { evaluateStaleness } from "@/server/domain/staleness";
 import { verificationInputFromAskMarket } from "./fromAskMarket";
 import { verificationInputFromFilingDiff } from "./fromFilingDiff";
+import { verificationInputFromRegimeAxis } from "./fromRegimeAxis";
 import { verificationInputFromSeriesChange, type ObservationEvidence } from "./fromSeriesChange";
 import type { DimensionName, Verdict, VerificationResult } from "./types";
 
@@ -24,7 +26,7 @@ import type { DimensionName, Verdict, VerificationResult } from "./types";
  */
 
 export interface ShadowObservation {
-  outputType: "FILING_DIFF" | "SERIES_CHANGE" | "ASK_MARKET";
+  outputType: "FILING_DIFF" | "SERIES_CHANGE" | "ASK_MARKET" | "REGIME_AXIS";
   outputId: string;
   entityRef: string;
   sourceCode: string;
@@ -309,6 +311,96 @@ export async function shadowVerifyAskMarket(): Promise<ShadowRunResult> {
         outputId: `askMarket:${query}`,
         entityRef: query,
         sourceCode,
+        verdict: "SHADOW_VERIFY_ERROR",
+        failed: [],
+        limitations: [],
+        dimensions: {},
+        evidenceGaps: {},
+        completeness: "UNKNOWN",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const byVerdict: Record<string, number> = {};
+  for (const o of observations) byVerdict[o.verdict] = (byVerdict[o.verdict] ?? 0) + 1;
+  return { observations, byVerdict };
+}
+
+/**
+ * Runs Verify over the real Macro Regime axes.
+ *
+ * The only output assembled from more than one provider, and therefore the only one that can
+ * exercise `cross_source_consistency` on anything other than "single source, nothing to reconcile".
+ */
+export async function shadowVerifyRegimeAxes(now: Date = new Date()): Promise<ShadowRunResult> {
+  const observations: ShadowObservation[] = [];
+  const snapshot = await computeRegimeSnapshot();
+
+  for (const axis of snapshot.axes) {
+    const outputId = `regimeAxis:${axis.axis}`;
+    try {
+      const configuredCount = AXIS_SERIES[axis.axis].length;
+      const computed = axis.readings.filter((r) => r.status === "COMPUTED");
+
+      // Worst freshness across the computed readings. An axis assembled from a stale input is a
+      // stale claim about the present, and taking the freshest input instead would be choosing the
+      // number that looks best.
+      let worst: { state: "FRESH" | "STALE" | "UNKNOWN"; daysSinceLastObservation: number | null } =
+        {
+          state: "FRESH",
+          daysSinceLastObservation: null,
+        };
+      for (const reading of computed) {
+        const series = await prisma.series.findFirst({
+          where: { externalId: reading.externalId, source: { code: reading.sourceCode } },
+          select: { id: true },
+        });
+        if (!series) continue;
+        const calendar = await computeCalendarEntry(series.id);
+        const staleness =
+          calendar.status === "PROJECTED" &&
+          calendar.lastObservedDate !== undefined &&
+          calendar.medianIntervalDays !== undefined
+            ? evaluateStaleness(
+                {
+                  lastObservedDate: calendar.lastObservedDate,
+                  medianIntervalDays: calendar.medianIntervalDays,
+                },
+                now,
+              )
+            : null;
+        const state = staleness?.status ?? "UNKNOWN";
+        // STALE outranks UNKNOWN outranks FRESH.
+        if (state === "STALE" || (state === "UNKNOWN" && worst.state === "FRESH")) {
+          worst = { state, daysSinceLastObservation: staleness?.daysSinceLastObservation ?? null };
+        }
+      }
+
+      const input = verificationInputFromRegimeAxis({ axis, configuredCount, freshness: worst });
+      if (!input) continue;
+
+      const result = verify(input);
+      observations.push({
+        outputType: "REGIME_AXIS",
+        outputId: result.outputId,
+        entityRef: axis.axis,
+        sourceCode: [...new Set(computed.map((r) => r.sourceCode))].join("+"),
+        verdict: result.verdict,
+        failed: result.failed,
+        limitations: result.limitations,
+        dimensions: Object.fromEntries(
+          Object.entries(result.dimensions).map(([name, d]) => [name, d.status]),
+        ),
+        evidenceGaps: collectEvidenceGaps(result),
+        completeness: input.completeness?.truncated ? "KNOWN_INCOMPLETE" : "COMPLETE",
+      });
+    } catch (error) {
+      observations.push({
+        outputType: "REGIME_AXIS",
+        outputId,
+        entityRef: axis.axis,
+        sourceCode: "",
         verdict: "SHADOW_VERIFY_ERROR",
         failed: [],
         limitations: [],

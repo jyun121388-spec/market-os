@@ -11,6 +11,7 @@ import {
   companiesWithFilings,
   shadowVerifyCompany,
   shadowVerifyAskMarket,
+  shadowVerifyRegimeAxes,
   shadowVerifySeriesChanges,
   VERIFIER_VERSION,
 } from "@/server/verify/shadowRun";
@@ -38,6 +39,23 @@ async function main() {
       if (o.error) console.log(`      error: ${o.error}`);
     }
     for (const [verdict, count] of Object.entries(byVerdict)) {
+      totals[verdict] = (totals[verdict] ?? 0) + count;
+    }
+    console.log("");
+  }
+
+  // The Macro Regime axes, the only output assembled from more than one provider.
+  const regime = await shadowVerifyRegimeAxes();
+  if (regime.observations.length > 0) {
+    observed += regime.observations.length;
+    console.log(`Macro Regime — ${regime.observations.length} axis/axes with data`);
+    for (const o of regime.observations) {
+      const cause = o.failed.length > 0 ? `  failed: ${o.failed.join(", ")}` : "";
+      console.log(`  ${o.verdict.padEnd(30)} ${o.outputId} [${o.sourceCode}]${cause}`);
+      console.log(`      cross-source: ${o.dimensions.cross_source_consistency}`);
+      if (o.error) console.log(`      error: ${o.error}`);
+    }
+    for (const [verdict, count] of Object.entries(regime.byVerdict)) {
       totals[verdict] = (totals[verdict] ?? 0) + count;
     }
     console.log("");

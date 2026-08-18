@@ -248,9 +248,35 @@ test fixture, verbatim.
 Korean mirrors are present for the same reason the request-side list has them — 적정가, 목표주가,
 매수 의견, 매도 의견. An English pattern with no Korean counterpart is a hole, not a simplification.
 
+### The fourth adapter, and the dimension nothing could reach
+
+`verificationInputFromRegimeAxis` covers the last v1 output shape, and the only one assembled from
+more than one provider. Every other adapter feeds Verify a single-source output, so
+`cross_source_consistency` had only ever returned "single source, nothing to reconcile against" —
+true, and never once tested against anything else.
+
+Against the real database both axes with data come back **TRUNCATED**, a verdict no other adapter
+can produce. GROWTH stands on one of its two configured series; RATES stands on one of its three,
+and the one that computes is the Bank of Korea base rate. `/today` renders it as the RATES reading,
+correctly attributed with provider and date — and nothing anywhere says the axis is standing on a
+third of its configured inputs. That is what the adapter surfaces.
+
+The adapter takes the axis's CONFIGURED size rather than counting the readings it was handed.
+Counting what arrived would make every axis complete by definition, which is the completeness
+failure this project already shipped once at 1000 of 2240 filings.
+
+`cross_source_consistency` still returns NOT_APPLICABLE on real data, because only one series per
+axis currently computes — the two US Treasury series are untracked pending FRED (HG-002). The
+multi-source branch is therefore exercised on a fixture shaped exactly like what RATES becomes the
+moment a key exists, rather than left untested until it silently starts mattering.
+
+Freshness for an axis is the WORST state among its computed readings. An axis is a claim about the
+present, and a claim assembled from a stale input is stale; taking the freshest input instead would
+be choosing the number that looks best.
+
 ## What the shadow run actually reports
 
-Three adapters exist, against three genuinely different real output shapes. Each one earned its
+Four adapters exist, one per real v1 output shape. Each one earned its
 place by exercising something the previous ones could not — until the second existed, every
 dimension had only ever been seen against Filing Diff, which is the fixture-realism failure this
 project keeps finding, pointed at the verifier itself.
@@ -260,6 +286,7 @@ project keeps finding, pointed at the verifier itself.
 | `verificationInputFromFilingDiff`   | Company X-Ray period comparison | Spans, with an accession naming each side |
 | `verificationInputFromSeriesChange` | Morning Brief "What Changed"    | Instants, with nothing naming the version |
 | `verificationInputFromAskMarket`    | Ask Market answer               | Not arithmetic at all: prose plus figures |
+| `verificationInputFromRegimeAxis`   | Macro Regime axis               | Many series, potentially many providers   |
 
 Against the real database, `npm run verify:shadow` currently reports:
 
@@ -267,9 +294,10 @@ Against the real database, `npm run verify:shadow` currently reports:
 VERIFIED_WITH_LIMITATION       8    (SEC filing diffs — completeness unconfirmable, correctness fine)
 SEMANTIC_REVISION_UNRESOLVED   5    (macro readings and Ask Market answers — no version evidence)
 STALE                          3    (macro readings past their own cadence)
+TRUNCATED                      2    (regime axes standing on a fraction of their configured series)
 ```
 
-Three verdicts across three shapes is the result worth having. A verifier that returns one answer for
+Four verdicts across four shapes is the result worth having. A verifier that returns one answer for
 everything has told you nothing, and this layer has produced exactly that twice during its own
 construction — once on completeness, once on advice-shape. The distribution is the control.
 

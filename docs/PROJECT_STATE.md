@@ -418,8 +418,29 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE FOURTH VERIFY ADAPTER — MACRO REGIME (2026-08-18, shadow)
+Covers the last v1 output shape, and the only one assembled from more than one provider. Against
+the real database both axes with data come back **TRUNCATED** — a verdict no other adapter can
+produce. GROWTH stands on one of its two configured series; RATES stands on one of its three, and
+the one that computes is the Bank of Korea base rate, which `/today` renders as the RATES reading.
+Correctly attributed with provider and date, and with nothing anywhere saying the axis is standing
+on a third of its inputs.
+
+The adapter takes the axis's CONFIGURED size rather than counting the readings it was handed, since
+counting what arrived would make every axis complete by definition — the completeness failure this
+project already shipped once at 1000 of 2240 filings. Axis freshness is the WORST state among the
+computed readings: a claim about the present assembled from a stale input is stale.
+
+`cross_source_consistency` still returns NOT_APPLICABLE on real data, because only one series per
+axis computes today — the two US Treasury series are untracked pending FRED (HG-002). The
+multi-source branch is exercised on a fixture shaped exactly like what RATES becomes once a key
+exists, rather than left untested until it silently starts mattering.
+
+All four real v1 output shapes now have adapters, and the shadow run reports four distinct
+verdicts: 8 VERIFIED_WITH_LIMITATION, 5 SEMANTIC_REVISION_UNRESOLVED, 3 STALE, 2 TRUNCATED.
+
 TESTS
-641 / 641 PASS across 75 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+648 / 648 PASS across 76 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **641 / 641** across 75 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **648 / 648** across 76 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -102,9 +102,10 @@ None was faked closed. None blocked other work.
      source, which nothing has done yet.
    - **IR-028** (Ask Market name matching) is written up with a full reproduction matrix and is
      waiting on a release-critical decision, not on engineering.
-   - **A Verify adapter for Macro Regime**, the last v1 output shape without one. It is the only
-     thing that would exercise `cross_source_consistency` on more than one source. Partly gated:
-     five of its six axes report `NOT_TRACKED` pending FRED (HG-002).
+   - **All four v1 output shapes now have Verify adapters.** What remains on this layer is gated:
+     `cross_source_consistency` cannot be exercised on REAL data until a second provider supplies a
+     series for one axis, which needs FRED (HG-002). The branch is tested on a fixture shaped like
+     what RATES becomes once a key exists.
 
 ## Two operational notes
 

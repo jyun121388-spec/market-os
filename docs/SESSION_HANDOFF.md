@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **658 / 658** across 76 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **682 / 682** across 77 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -141,3 +141,12 @@ The 291s duration points at database contention rather than at logic — the int
 one PostgreSQL instance and `fileParallelism` is already off — but that is a hypothesis, not a
 finding. **Next session: run the suite several times and capture full output, and if it recurs,
 identify the test before doing anything else.**
+
+**Second follow-up: six clean runs total, and one self-inflicted failure worth not misreading.**
+Three more captured runs: 658/658, 658/658, then a failure — which was mine. I was editing
+`askMarket.ts` while run 6 executed, so the failing assertion was against a half-applied change,
+not the mystery flake. Recorded because a failure in a flake hunt is exactly the kind of thing that
+gets counted as evidence when it is nothing of the sort. **Do not edit source while a hunt is
+running.**
+
+Standing at eight clean full runs since the original single failure, which remains unidentified.

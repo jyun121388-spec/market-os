@@ -127,6 +127,23 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // packet listed this too; only the "…right now" variant happened to be caught, by the
   // proximity rule.
   /\bis\b[\s\S]{0,40}\ba (buy|sell|strong buy|strong sell)\b/i,
+  // Long/short position vocabulary. The whole family was missing — "should I go long TSLA",
+  // "should I short Apple", "I want to short the market" and the Korean 롱/숏 forms all passed
+  // through, while the identical intent phrased as "buy" or "sell" was caught. A guardrail that
+  // depends on the user choosing retail vocabulary over trading vocabulary is not a guardrail
+  // (IR-031, `gpt-5.6-terra` A9/A12, reproduced).
+  //
+  // "long" is the dangerous word to pattern on — it is an ordinary English adjective — so it is
+  // anchored to a position verb rather than matched bare. "short" is anchored the same way, for
+  // the same reason: "short-term rates" must stay answerable.
+  /\b(go|going|goes|went)\s+(long|short)\b/i,
+  /\bshould i\b[\s\S]{0,20}\b(long|short)\b/i,
+  /\b(want|wants|thinking about|planning)\b[\s\S]{0,20}\bto short\b/i,
+  /\bshort (the market|this|it|that|stocks?|equities)\b/i,
+  /\b(open|opening|take|taking|build|building)\s+a\s+(long|short)\b/i,
+  // Korean: 롱/숏 as positions, plus 공매도 (short selling) in instruction form.
+  /(롱|숏)\s*(잡을|잡아|칠|쳐야|진입|포지션)/,
+  /공매도\s*(할까|해야|하면|해도)/,
   /\bhow much of my (portfolio|money|savings)\b/i,
   /\b(best|top) (stock|stocks|etf|etfs|pick|picks) to (buy|invest)/i,
   /\bwhat would you (buy|sell|invest in)\b/i,
@@ -198,6 +215,7 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // A definitive future price with no numeral in the sentence, so the existing
   // `will … (hit|reach|go to) <number>` pattern could not see it.
   /\bwhere\b[\s\S]{0,30}\b(will|is going to|gonna)\b[\s\S]{0,20}\b(land|end up|be|trade|close|settle)\b/i,
+  // Stays broad. See ACCOUNTING_COLLOCATIONS below for why the narrowing was reverted.
   /\bfair value\b/i,
   /\bupside to\b/i,
 
@@ -262,7 +280,47 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   /(사기|팔기)\s*좋은\s*(때|시점|타이밍)/, // "a good time to buy/sell"
 ];
 
+/**
+ * Phrases that contain a prohibited term but are ordinary financial-reporting vocabulary.
+ *
+ * "fair value" was blocking "What is fair value accounting under ASC 820?" and "Apple fair value
+ * of financial instruments" — questions this product exists to answer (IR-031, reproduced).
+ *
+ * The first attempt narrowed the pattern to `fair value of <security word>`, and the must-not-flag
+ * corpus immediately caught what that cost: "What is the fair value of Apple right now, roughly
+ * speaking?" stopped being blocked, which is unambiguously a valuation request. Narrowing the
+ * pattern traded a false positive for a false negative in a legal guardrail, so it was reverted.
+ *
+ * An exclusion list instead. It is deliberately SHORT and deliberately not a rule: each entry is a
+ * fixed accounting collocation where "fair value" is a measurement basis rather than a request for
+ * our opinion on a security. Anything not listed keeps being blocked, so the failure mode of an
+ * incomplete list is over-blocking — the smaller harm, and the one this project has already chosen
+ * once when it pinned eighteen legitimate macro questions as must-not-flag.
+ *
+ * Known and accepted: "the fair value of household wealth reported by the Federal Reserve" is
+ * still redirected. It is a real Fed statistic and a legitimate question, and there is no way to
+ * enumerate every non-tradeable subject. Refusing to answer it is a smaller harm than answering
+ * "what is the fair value of Apple", and it is recorded rather than quietly tolerated.
+ */
+const ACCOUNTING_COLLOCATIONS: RegExp[] = [
+  /\bfair value (accounting|measurement|hierarchy|adjustment|through profit)/i,
+  /\bfair value of (financial instruments|assets|liabilities|plan assets|derivatives)/i,
+  /\b(asc 820|ifrs 13)\b/i,
+];
+
 export function detectPersonalizedAdviceRequest(query: string): boolean {
+  // Checked first. An exclusion that ran after the patterns could never win, and one that ran on
+  // a per-pattern basis would let an unrelated prohibited phrase in the same sentence be excused
+  // by an accounting term elsewhere in it — so this only fires when the query's ONLY prohibited
+  // content is the excluded collocation.
+  if (ACCOUNTING_COLLOCATIONS.some((pattern) => pattern.test(query))) {
+    const withoutCollocation = ACCOUNTING_COLLOCATIONS.reduce(
+      (text, pattern) => text.replace(pattern, " "),
+      query,
+    );
+    if (!ADVICE_REQUEST_PATTERNS.some((pattern) => pattern.test(withoutCollocation))) return false;
+  }
+
   return ADVICE_REQUEST_PATTERNS.some((pattern) => pattern.test(query));
 }
 

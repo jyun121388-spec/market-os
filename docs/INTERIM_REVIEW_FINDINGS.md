@@ -875,6 +875,90 @@ database guard, A7 secret redaction and A8 CALCULATION provenance — which is t
 packet has been worked through against current code rather than against the range it was written
 for.
 
+## IR-031 — The long/short vocabulary was missing entirely — **VALID, fixed (P1)**
+
+|           |                                                                            |
+| --------- | -------------------------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-terra`, review packet targets A9/A12                              |
+| Subsystem | `src/server/domain/askMarket.ts` — `detectPersonalizedAdviceRequest`       |
+| Severity  | **P1** — a personalized trading instruction answered instead of redirected |
+| Status    | **VALID — reproduced, then fixed. A v1 change under the freeze.**          |
+
+Terra reported one bypass. Reproducing it found seven, in both languages:
+
+| Query                           | Before  |
+| ------------------------------- | ------- |
+| `Should I go long TSLA today?`  | allowed |
+| `should i go long on tesla`     | allowed |
+| `Should I short Apple?`         | allowed |
+| `go long TSLA`                  | allowed |
+| `I want to short the market`    | allowed |
+| `테슬라 롱 잡을까?`             | allowed |
+| `삼성전자 숏 쳐야 하나`         | allowed |
+| `Should I buy Apple stock now?` | blocked |
+
+**A guardrail that depends on the user choosing retail vocabulary over trading vocabulary is not a
+guardrail.** The same intent, phrased as "buy", was caught by four separate patterns. The concept
+had simply never been enumerated — which is the `GUARDRAIL_COVERAGE` lesson exactly: the last ten
+bypasses were found by listing English-only concepts, and nobody had listed this one at all.
+
+**Fix.** Seven patterns covering the position family, plus 공매도. `long` and `short` are anchored
+to a position verb rather than matched bare, because both are ordinary English words — a guardrail
+that ate "short-term rates" would make the macro side of the product unusable, which is a larger
+failure than the one being fixed.
+
+## The over-block in the same function, and the fix that was reverted
+
+Terra also reported `fair value` blocking legitimate accounting questions. Reproduced, and again
+worse than described — three of three:
+
+- `What is fair value accounting under ASC 820?` → redirected
+- `Apple fair value of financial instruments` → redirected
+- `What is the fair value of household wealth reported by the Federal Reserve?` → redirected
+
+**The first fix was wrong and the test corpus caught it.** Narrowing the pattern to require a
+security word after "fair value" fixed all three — and stopped blocking `What is the fair value of
+Apple right now, roughly speaking?`, a pinned must-block case from an earlier adversarial round.
+Narrowing a legal guardrail had traded a false positive for a false negative. Reverted.
+
+**Second fix: a short exclusion list**, checked before the patterns, of fixed accounting
+collocations where "fair value" is a measurement basis — `fair value accounting`, `fair value of
+financial instruments`, `fair value hierarchy`, `ASC 820`, `IFRS 13`. Deliberately a list and not a
+rule, so its failure mode is over-blocking. And deliberately not a bypass: the exclusion only
+applies when the query's ONLY prohibited content is the excluded phrase, so appending "under ASC
+820" to a real instruction buys nothing.
+
+**Known and accepted, pinned by a test:** the Fed household-wealth question is still redirected.
+There is no way to enumerate every non-tradeable subject, and refusing that is a smaller harm than
+answering "what is the fair value of Apple". Recorded as a decision rather than left as an
+oversight.
+
+## Two findings from the same review, reported and NOT fixed
+
+**A11 (P1) — `/company/[corpCode]` cannot address two providers.** The company index lists
+`(sourceCode, corpCode)` rows and links every one to `/company/${corpCode}`; `computeCompanyXray`
+then resolves the provider with an `anyFiling` lookup on `corpCode` alone. With two providers
+sharing a corp code the second company is unreachable, and with equal `receiptDate`s the choice is
+non-deterministic. Latent today — only SEC data is ingested — and structurally the IR-001/IR-002
+precondition rebuilt at the routing layer.
+
+Not fixed here on purpose. The fix changes a public URL shape, which is a v1 surface change worth
+its own round with its redirect and link-compatibility questions answered deliberately, rather than
+a hurried edit at the end of a long session. Recorded in `docs/REVIEW_DEBT.md`.
+
+**A14 (P2) — the shadow Verify run collapses provider identity the same way.**
+`companiesWithFilings()` deduplicates on `corpCode`, `shadowVerifyCompany()` takes only that code,
+and the output ids read `filingDiff:<corpCode>:...` with no provider. Shadow-only, so it is not
+frozen — but it is the same defect as A11 one layer up, and fixing the shadow layer while the v1
+routing still has it would be fixing the copy.
+
+## Targets with no findings
+
+**A10 watchlist authorization** and **A13 test-database guard and test realism**: no findings.
+Terra also examined the two remaining unscoped corp-code queries in production code and judged both
+defensible — `findKnownCorpCodes` is an existence filter rather than an entity merge, and
+`anyFiling` is unsafe only because the route above it supplies no source, which is A11.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

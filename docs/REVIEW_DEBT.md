@@ -59,3 +59,23 @@ matching for every query and needs its own round with must-match and must-not-ma
 Full reproduction matrix in `docs/INTERIM_REVIEW_FINDINGS.md` IR-028. **Flagged as a
 release-critical candidate**: whether the flagship query returning nothing blocks a release is the
 release owner's decision, not an autonomous one.
+
+## A11 / IR-031 — `/company/[corpCode]` cannot address two providers (raised 2026-08-18)
+
+The company index lists `(sourceCode, corpCode)` rows and links every one to
+`/company/${corpCode}`. `computeCompanyXray` then resolves the provider with an `anyFiling` lookup
+on `corpCode` alone, so with two providers sharing a corp code the second company is unreachable,
+and with equal `receiptDate`s the choice is non-deterministic.
+
+**P1, latent** — only SEC data is ingested today, so nothing is currently wrong on screen. It is
+the IR-001/IR-002 precondition rebuilt at the routing layer: a business identifier unique only
+within a provider, used as if it were global.
+
+Not fixed under the freeze, and not because of severity. The fix changes a public URL shape, and
+the questions that come with it — redirect from the old form, what the index links become, whether
+the source belongs in the path or a query parameter — deserve a deliberate round rather than an
+edit at the end of a long session. Found by `gpt-5.6-terra`, packet target A11.
+
+The same collapse exists one layer up in the shadow Verify run (`companiesWithFilings()`
+deduplicates on `corpCode`; output ids read `filingDiff:<corpCode>:...`). Shadow code is not
+frozen, but fixing the copy while the original stands would be the wrong order.

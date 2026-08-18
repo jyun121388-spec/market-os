@@ -458,8 +458,31 @@ the provider declared still reports complete — every real series ends on a sho
 that into a permanent warning would make the signal worthless. **A v1 change, permitted by the
 freeze because it is a reproduced P1.**
 
+REVIEW PACKET A9-A14, WORKED THROUGH (2026-08-18, `gpt-5.6-terra`)
+Four findings. **IR-031 (P1, A9/A12) — the long/short vocabulary was missing entirely.** Terra
+reported one bypass; reproducing it found seven, in both languages. `Should I short Apple?`,
+`Should I go long TSLA today?`, `테슬라 롱 잡을까?` and four more all passed through, while the same
+intent phrased as "buy" was caught by four separate patterns. A guardrail that depends on the user
+choosing retail vocabulary over trading vocabulary is not a guardrail. Fixed; `long` and `short`
+are anchored to a position verb so "short-term rates" stays answerable.
+
+The same review found `fair value` over-blocking legitimate accounting questions, and **the first
+fix was wrong**: narrowing the pattern stopped blocking a pinned must-block case from an earlier
+round, trading a false positive for a false negative in a legal guardrail. Reverted in favour of a
+short exclusion list of fixed accounting collocations, which cannot be used as a bypass and whose
+failure mode is over-blocking. One known false positive remains, pinned by a test rather than left
+as an oversight.
+
+**Reported and NOT fixed: A11 (P1, latent)** — `/company/[corpCode]` cannot address two providers
+sharing a corp code, the IR-001/IR-002 precondition rebuilt at the routing layer. The fix changes a
+public URL shape and deserves its own round; recorded in `docs/REVIEW_DEBT.md`. **A14 (P2)** — the
+shadow Verify run collapses provider identity the same way, and fixing the copy before the original
+would be the wrong order.
+
+**No findings: A10** watchlist authorization, **A13** test-database guard and test realism.
+
 TESTS
-658 / 658 PASS across 76 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+682 / 682 PASS across 77 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

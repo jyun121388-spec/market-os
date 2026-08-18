@@ -541,6 +541,20 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "SILENT_DEGRADATION",
   },
 
+  {
+    id: "GC-02",
+    ledger: "SECURITY_FINDING",
+    subsystem: "askMarket guardrail",
+    severity: "P1",
+    summary:
+      "The entire long/short position vocabulary was missing, in both languages, while the same " +
+      "intent phrased as buy or sell was caught by four separate patterns.",
+    lesson:
+      "The guardrail enumerated PHRASINGS of concepts it had thought of, and a concept nobody " +
+      "listed was covered by nothing at all.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

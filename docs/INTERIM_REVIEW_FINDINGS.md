@@ -1126,6 +1126,41 @@ teardown that can fail will report ITS error instead of the one that matters. Tw
 integration files delete by an id a failed setup would leave undefined. They have the same
 exposure, and the next unexplained failure in any of them will be equally unreadable.
 
+## IR-040 — An absence of completeness evidence read as "no shortfall detected" — **VALID, fixed (shadow)**
+
+|           |                                                                                       |
+| --------- | ------------------------------------------------------------------------------------- |
+| Found by  | the second-order discovery pass, asking "which consumer turns UNKNOWN into COMPLETE?" |
+| Subsystem | `src/server/verify/shadowRun.ts`                                                      |
+| Severity  | P2 (shadow layer; no v1 behaviour)                                                    |
+| Status    | **VALID — reproduced, then fixed.**                                                   |
+
+The shadow run mapped every Company X-Ray completeness status onto a `completeness` block, so
+`UNKNOWN` and `LAST_RUN_FAILED` arrived as `{ providerTotal: null, truncated: false }` — which
+`data_completeness` reads as _"no shortfall was detected"_.
+
+That sentence is true for `UNCONFIRMED`: a run succeeded and the provider publishes no total. It is
+false for the other two. `UNKNOWN` means **no ingest run was ever recorded**, so nothing was
+detected because nothing looked. `LAST_RUN_FAILED` means the most recent attempt failed outright.
+All three rendered as the same mild caveat.
+
+**Reproduced**: all three statuses produce an identical PASS with an identical rationale.
+
+**Fix**: completeness evidence is passed only when it was actually measured — `COMPLETE`,
+`UNCONFIRMED` or `KNOWN_INCOMPLETE`. The other two supply none, so the dimension returns
+`INSUFFICIENT_EVIDENCE`, which is the truth. The nuance is not lost: `ShadowObservation.completeness`
+already carries the status verbatim, so the distinction between "nobody ran" and "the run failed"
+survives in the observation while Verify stops making a claim it has no basis for.
+
+The real shadow run moved from 8/5/3 to **8 VERIFIED_WITH_LIMITATION, 4 TRUNCATED, 3
+SEMANTIC_REVISION_UNRESOLVED, 3 STALE** — the extra TRUNCATED is a company whose completeness was
+previously being reported as an unremarkable limitation.
+
+**Why this one is worth the entry.** The scheduler had converged — nothing startable — and the
+protocol's rule is that a converged queue is not a finished project. This came from working the
+second-order checklist rather than from the queue, and it was one step short of the exact failure
+the checklist names.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

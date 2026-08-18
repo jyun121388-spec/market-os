@@ -630,3 +630,53 @@ describe("Verify — no fail-open NOT_APPLICABLE", () => {
     }
   });
 });
+
+describe("an absence of completeness evidence is not a measurement of zero shortfall", () => {
+  /**
+   * IR-040. The shadow run mapped every Company X-Ray completeness status onto a `completeness`
+   * block, so `UNKNOWN` (no ingest run was ever recorded) and `LAST_RUN_FAILED` (the most recent
+   * attempt failed) arrived as `{ providerTotal: null, truncated: false }` — which
+   * `data_completeness` reads as "no shortfall was detected".
+   *
+   * That sentence is true for `UNCONFIRMED`, where a run succeeded against a provider publishing no
+   * total. It is false for the other two: nothing was detected because nothing looked, or because
+   * looking failed. All three rendered identically.
+   *
+   * Found by asking the continuation protocol's question directly — which consumer turns UNKNOWN
+   * into COMPLETE — and finding one that stopped a single step short of it.
+   */
+  const withEvidence = (over: Partial<NonNullable<VerificationInput["completeness"]>> = {}) =>
+    verify({
+      outputId: "completeness-evidence",
+      claimType: "FACT",
+      sourceCodes: ["SEC_EDGAR"],
+      completeness: { providerTotal: null, fetched: 2240, truncated: false, ...over },
+    });
+
+  it("reports a measured run with no provider total as a disclosed limitation", () => {
+    // UNCONFIRMED, and the one case where "no shortfall was detected" is a true statement.
+    const result = withEvidence();
+    expect(result.dimensions.data_completeness.status).toBe("PASS");
+    expect(result.dimensions.data_completeness.rationale).toContain("no shortfall was detected");
+  });
+
+  it("says nothing about completeness when no evidence was supplied at all", () => {
+    const result = verify({
+      outputId: "completeness-evidence",
+      claimType: "FACT",
+      sourceCodes: ["SEC_EDGAR"],
+    });
+    expect(result.dimensions.data_completeness.status).toBe("INSUFFICIENT_EVIDENCE");
+    // And must NOT be the sentence that claims a check happened.
+    expect(result.dimensions.data_completeness.rationale).not.toContain(
+      "no shortfall was detected",
+    );
+  });
+
+  it("still fails on a measured shortfall", () => {
+    // The control: narrowing what counts as evidence must not weaken the case that matters.
+    const result = withEvidence({ providerTotal: 2240, fetched: 1000, truncated: true });
+    expect(result.dimensions.data_completeness.status).toBe("FAIL");
+    expect(result.verdict).toBe("TRUNCATED");
+  });
+});

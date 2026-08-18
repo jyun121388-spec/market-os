@@ -100,17 +100,34 @@ export async function shadowVerifyCompany(
   // The same completeness evidence the page shows its reader, so the verifier is judging the
   // output as presented rather than a more favourable version of it.
   const completeness = xray.completeness.status;
+
+  // UNKNOWN and LAST_RUN_FAILED are ABSENCES of evidence, not measurements of zero shortfall.
+  //
+  // They used to be passed through as `{ providerTotal: null, truncated: false }`, which
+  // `data_completeness` reads as "no shortfall was detected" — a sentence that is true for
+  // UNCONFIRMED and false for the other two. UNKNOWN means no ingest run was ever recorded, so
+  // nothing was detected because nothing looked; LAST_RUN_FAILED means the most recent attempt
+  // failed outright. Both were rendering as the same mild caveat as a successful run against a
+  // provider that publishes no total.
+  //
+  // Found by a second-order pass asking the protocol's question directly: which consumer turns
+  // UNKNOWN into COMPLETE? This one, one step short of it.
+  //
+  // The nuance is not lost — `ShadowObservation.completeness` carries the status verbatim. What
+  // changes is that Verify stops making a claim it has no basis for.
+  const completenessMeasured =
+    completeness === "COMPLETE" ||
+    completeness === "UNCONFIRMED" ||
+    completeness === "KNOWN_INCOMPLETE";
   const truncated = completeness === "KNOWN_INCOMPLETE";
   const providerTotal = completeness === "COMPLETE" ? xray.company.filingCount : null;
 
   for (const diff of xray.changes) {
     try {
       const input = verificationInputFromFilingDiff(diff, {
-        completeness: {
-          providerTotal,
-          fetched: xray.company.filingCount,
-          truncated,
-        },
+        completeness: completenessMeasured
+          ? { providerTotal, fetched: xray.company.filingCount, truncated }
+          : undefined,
       });
       // INSUFFICIENT_DATA diffs produce no claim. Skipping them is correct: there is nothing to
       // verify, and emitting a verdict would imply one was evaluated.

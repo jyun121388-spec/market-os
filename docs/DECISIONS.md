@@ -1381,3 +1381,38 @@ the production build.
 real browser against the production build, 67/67 live EDGAR contract checks, 16 migrations
 against both fresh and populated databases, 159 unit tests passing with no database at all,
 lint/typecheck/format/build clean.
+
+## 2026-08-19 — Continuation is state-based, and escalation is asynchronous
+
+**Decision.** Autonomous work continues while a safe runnable task exists. Absolute time is never a
+completion condition, and an escalation or a Human Gate blocks only the task that actually depends
+on it.
+
+**Why this is written down rather than just followed.** Every previous directive carried a clock —
+"until 18:00", "until 20:00" — and a clock answers the wrong question. It says when to stop rather
+than whether anything is left, and the two diverge in both directions: a session can run out of
+useful work at 15:00 and can have a P1 half-fixed at 20:00. Checking the repository revealed
+something worth noting: **no time-based termination had ever been persisted here.** The deadlines
+lived entirely in chat, so there was nothing to remove — a case where the honest answer to "replace
+the time-based rules" is that there were none.
+
+**What changed, minimally.** `CLAUDE.md` gains the continuation, escalation and verification rules,
+because it is the file every session reads first. `evaluateStopSentinel()` joins the existing
+scheduler rather than starting a second mechanism.
+
+**The sentinel's design choice worth defending.** It takes counts of failing checks, advanceable
+blockers and unhandled review findings from the caller, and **an unsupplied count blocks stopping
+rather than defaulting to zero.** The scheduler cannot observe a failing build or an unread finding
+and must not pretend to. This is the project's standing rule — unknown is not success — applied to
+the thing that decides whether to stop, where getting it wrong would be self-concealing: a sentinel
+that assumes the best would report a clean stop precisely when it knew least.
+
+**Open escalations are recorded and never obeyed as a halt.** A single unanswered question would
+otherwise freeze every independent task in the repository, which is the failure the protocol
+explicitly forbids.
+
+**The escalation channel works in one direction.** Issue #2 is readable over the unauthenticated
+API because the repository is public, so ChatGPT → Claude is live. Claude → ChatGPT needs the same
+credential as `git push` (HG-001), so replies are staged verbatim in
+`docs/escalation/PENDING_COMMENTS.md`. Staging rather than reconstructing later matters: a reply
+written from memory weeks on is a different artifact from the one that was owed.

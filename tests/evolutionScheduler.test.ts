@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import * as scheduler from "@/server/evolution/scheduler";
-import { isWorkExhausted, scheduleNextWork } from "@/server/evolution/scheduler";
+import {
+  evaluateStopSentinel,
+  isWorkExhausted,
+  scheduleNextWork,
+} from "@/server/evolution/scheduler";
 import type { Proposal } from "@/server/evolution/proposal";
 import type { ActionKind } from "@/server/governance/policy";
 
@@ -193,7 +197,12 @@ describe("the scheduler cannot do anything", () => {
     const exported = Object.keys(scheduler);
     // COMPLETED_WORK is data — a record of what was done, with the commit for each. Data cannot
     // carry work out; the check that matters is that no export is a verb.
-    expect(exported.sort()).toEqual(["COMPLETED_WORK", "isWorkExhausted", "scheduleNextWork"]);
+    expect(exported.sort()).toEqual([
+      "COMPLETED_WORK",
+      "evaluateStopSentinel",
+      "isWorkExhausted",
+      "scheduleNextWork",
+    ]);
     for (const name of exported) {
       expect(name).not.toMatch(/execute|apply|run|commit|perform|mutate/i);
     }
@@ -241,5 +250,60 @@ describe("against the real ledger and capability matrix", () => {
         observed(queue.actionable[i]),
       );
     }
+  });
+});
+
+describe("the stop sentinel", () => {
+  const empty = { actionable: [], deferred: [] };
+  const full = { unresolvedFailures: 0, advanceableBlockers: 0, unhandledReviewFindings: 0 };
+
+  it("permits stopping only when every condition is satisfied", () => {
+    const sentinel = evaluateStopSentinel({ queue: empty, ...full });
+    expect(sentinel.mayStop).toBe(true);
+  });
+
+  /**
+   * The condition that matters most, and the one a prose summary gets wrong. A queue with anything
+   * startable is not a finished project, however tidy the report reads.
+   */
+  it("refuses while anything is startable", () => {
+    const queue = scheduleNextWork({ context: { verificationGreen: true } });
+    expect(queue.actionable.length).toBeGreaterThan(0);
+    expect(evaluateStopSentinel({ queue, ...full }).mayStop).toBe(false);
+  });
+
+  /**
+   * An unsupplied count is not zero. The scheduler cannot see a failing build or an unread review
+   * finding, so a caller that does not say blocks the sentinel rather than being assumed fine —
+   * unknown is not success, applied to the thing that decides whether to stop.
+   */
+  it.each(["unresolvedFailures", "advanceableBlockers", "unhandledReviewFindings"])(
+    "refuses when %s was never established",
+    (field) => {
+      const input: Parameters<typeof evaluateStopSentinel>[0] = { queue: empty, ...full };
+      delete (input as Record<string, unknown>)[field];
+      const sentinel = evaluateStopSentinel(input);
+      expect(sentinel.mayStop).toBe(false);
+      expect(sentinel.conditions.find((c) => !c.satisfied)?.detail).toContain("never established");
+    },
+  );
+
+  /**
+   * An escalation is a question waiting for an answer, not a halt. If one could stop the sentinel,
+   * a single unanswered decision would freeze every independent task in the repository.
+   */
+  it("does not let an open escalation block the sentinel", () => {
+    const sentinel = evaluateStopSentinel({ queue: empty, ...full, openEscalations: 3 });
+    expect(sentinel.mayStop).toBe(true);
+    expect(sentinel.conditions.find((c) => c.name.includes("escalation"))?.detail).toContain("3");
+  });
+
+  it("says what remains even when it permits stopping", () => {
+    // "Nothing startable" must never be reported as "nothing remains". The deferred work and its
+    // reasons travel with the verdict.
+    const queue = scheduleNextWork({ context: { providerKeyAvailable: false } });
+    const sentinel = evaluateStopSentinel({ queue, ...full });
+    expect(sentinel.remaining.length).toBeGreaterThan(0);
+    expect(sentinel.remaining.join(" ")).toMatch(/HG-00\d|BLOCKED/);
   });
 });

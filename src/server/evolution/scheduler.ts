@@ -324,3 +324,78 @@ export const COMPLETED_WORK: CompletedWork[] = [
       "runner and nothing compares the two.",
   },
 ];
+
+/**
+ * Why the loop may or may not stop, stated as evidence rather than as a feeling.
+ *
+ * `isWorkExhausted` answers one question — is anything startable — and the continuation protocol
+ * asks six. Reporting the queue's answer as the whole answer is how "the queue is empty" becomes
+ * "the project is done", which is the same collapse as reading a skip as a pass.
+ *
+ * Every field is supplied by the caller except the queue, because the scheduler cannot observe a
+ * failing build or an unread review finding and must not pretend to. An unsupplied field is
+ * `undefined` and blocks the sentinel rather than defaulting to "fine" — the whole point is that
+ * unknown is not success.
+ */
+export interface StopSentinelInput {
+  queue: NextWorkQueue;
+  /** Failing tests, CI, build, typecheck or migration that could still be investigated. */
+  unresolvedFailures?: number;
+  /** Blockers a person could still advance with code, tests, docs or analysis. */
+  advanceableBlockers?: number;
+  /** Review findings recorded but never reproduced, accepted or rejected. */
+  unhandledReviewFindings?: number;
+  /** Escalations posted and not yet answered. NOT a stop condition — recorded, not obeyed. */
+  openEscalations?: number;
+}
+
+export interface StopSentinel {
+  /** True only when every condition below is satisfied. */
+  mayStop: boolean;
+  /** Each condition, and whether it holds. A bare boolean would not be checkable. */
+  conditions: { name: string; satisfied: boolean; detail: string }[];
+  /** What remains, and why none of it can be started here. */
+  remaining: string[];
+}
+
+export function evaluateStopSentinel(input: StopSentinelInput): StopSentinel {
+  const { queue } = input;
+
+  const unknown = (label: string, value: number | undefined) =>
+    value === undefined
+      ? { satisfied: false, detail: `${label} was never established, and unknown is not zero.` }
+      : { satisfied: value === 0, detail: `${value} ${label}.` };
+
+  const conditions = [
+    {
+      name: "no startable task",
+      satisfied: queue.actionable.length === 0,
+      detail: `${queue.actionable.length} startable, ${queue.deferred.length} deferred.`,
+    },
+    { name: "no unresolved failing check", ...unknown("failing checks", input.unresolvedFailures) },
+    {
+      name: "no blocker advanceable by code, tests, docs or analysis",
+      ...unknown("advanceable blockers", input.advanceableBlockers),
+    },
+    {
+      name: "no review finding left unhandled",
+      ...unknown("unhandled review findings", input.unhandledReviewFindings),
+    },
+    {
+      // Deliberately always satisfied. An open escalation is an asynchronous request for a
+      // decision, and treating it as a stop condition would let one unanswered question halt every
+      // independent task in the repository — the exact failure the protocol forbids.
+      name: "open escalations do not block (recorded, not obeyed)",
+      satisfied: true,
+      detail: `${input.openEscalations ?? 0} open; work independent of them continues.`,
+    },
+  ];
+
+  return {
+    mayStop: conditions.every((c) => c.satisfied),
+    conditions,
+    remaining: queue.deferred.map(
+      (w) => `${w.proposal.id}: ${w.authority}${w.blockedBy ? ` (${w.blockedBy})` : ""}`,
+    ),
+  };
+}

@@ -38,6 +38,62 @@ repo public, or any feature that crosses `docs/LEGAL_GUARDRAILS.md`.
 If a task is blocked on a Human Gate, switch to the next independent task instead of stopping
 all work.
 
+## Continuation: state-based, never time-based
+
+Autonomous work continues while a safe runnable task exists. **Absolute time is never a completion
+condition** — not "until 18:00", not "for N hours". If a runtime limit exists anywhere it is a
+runaway-process safety valve, not a goal, and continuity is never bought by raising it.
+
+None of these is a reason to stop: a finished milestone or phase, a written report, a completed
+review, an open escalation, a Human Gate, a blocked dependency, or a long context.
+
+`src/server/evolution/scheduler.ts` is the machinery — Evolution proposes, Governance classifies,
+`scheduleNextWork()` returns `{ actionable, deferred }`. Reinforce it; do not build a second one.
+Before concluding there is nothing to do, RUN IT: a prose summary is not evidence about the queue,
+and the first time it ran it contradicted one written minutes earlier.
+
+**The only normal completion sentinel** is `evaluateStopSentinel()` in that module: no startable
+task, no unresolved failing check, no blocker advanceable by code, tests, docs or analysis, no
+review finding quietly dropped, and everything remaining genuinely needs a human, a credential, or
+an unavailable service.
+
+## Escalation is asynchronous, not a stop
+
+The canonical channel is the open GitHub issue titled **AI ESCALATION CHANNEL**
+(`jyun121388-spec/market-os` #2). One issue, never a second.
+
+- `[ESCALATION][<PROJECT_ID>][<ESC_ID>]` — Claude → ChatGPT
+- `[CHATGPT_DECISION][<ESC_ID>]` — ChatGPT → Claude
+- `[CLAUDE_APPLIED][<ESC_ID>]` — Claude → ChatGPT
+
+Escalate only what genuinely needs a higher judgement: architecture contracts, conflicting product
+intent, cross-repository protocol, security/financial/destructive/irreversible decisions, an
+unresolvable conflict with an independent review, or a question the ADRs and evidence cannot
+settle. Not lint, not a clear bug, not a reversible low-risk choice.
+
+Posting an escalation blocks **only the task that depends on it** — mark that `WAITING_DECISION`
+and continue everything independent. Check the channel at session start, milestone completion,
+major checkpoints, and before returning to a previously escalated task; not after every edit.
+
+A decision is not applied on sight. Confirm it targets this repository, matches an open `ESC_ID`,
+and has not gone stale against the current HEAD. If it has, reply `[ESCALATION_REFRESH_REQUIRED]`
+with the difference rather than guessing.
+
+**Reading works; writing needs HG-001.** The repository is public, so decisions can be read over
+the unauthenticated REST API. Posting needs a credential this machine does not have, so replies
+are staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and posted unchanged when one exists.
+
+## Unknown is not success
+
+Record what was actually established: `VERIFIED`, `VERIFIED_WITH_LIMITATION`,
+`LIVE_VERIFICATION_REQUIRED`, `HUMAN_GATE`, `BLOCKED`, `REVIEW_PENDING`. A verification that could
+not be run is never recorded as passing, "implemented" is not "verified", and a reviewer's
+confidence is not evidence.
+
+On repeated failure, compare the failure signature against the last attempt before retrying.
+Re-running the same approach with no new evidence is not debugging, and an environment problem
+must never be hidden by a product change.
+
 ## Development loop (repeat per milestone)
 
 READ STATE → DEFINE TASK → IMPLEMENT → TEST → FIX → RETEST → SELF REVIEW →

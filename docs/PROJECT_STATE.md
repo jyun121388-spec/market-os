@@ -729,8 +729,22 @@ contention, leaving ids unset, and the `afterAll` that dereferences them throws 
 teardown's error is the one that gets reported.** Fixed with a guard and a 60s hook. Deliberately
 not `deleteMany`, which reads `undefined` as "no condition" and would delete every user.
 
+CONTINUATION PROTOCOL — STATE-BASED (2026-08-19)
+Recorded in `CLAUDE.md` (read first every session) and `docs/DECISIONS.md`. Work continues while a
+safe runnable task exists; absolute time is never a completion condition. Checking the repository
+first found that **no time-based termination had ever been persisted** — the deadlines lived only in
+chat, so there was nothing to replace.
+
+`evaluateStopSentinel()` extends the existing scheduler rather than starting a second mechanism. It
+answers the protocol's six conditions instead of the queue's one, and **an unsupplied count blocks
+stopping rather than defaulting to zero** — the scheduler cannot see a failing build or an unread
+review finding and must not pretend to. Unknown is not success, applied to the thing that decides
+whether to stop, where the wrong default would be self-concealing.
+
+Open escalations are recorded and never obeyed as a halt.
+
 TESTS
-780 / 780 PASS across 86 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+787 / 787 PASS across 86 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

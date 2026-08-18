@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **635 / 635** across 75 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **641 / 641** across 75 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -102,9 +102,9 @@ None was faked closed. None blocked other work.
      source, which nothing has done yet.
    - **IR-028** (Ask Market name matching) is written up with a full reproduction matrix and is
      waiting on a release-critical decision, not on engineering.
-   - The Evolution detector still stops at clustering. Proposals are generated from the capability
-     matrix only; a second generator over the ledger clusters would make each cluster falsifiable
-     rather than merely counted.
+   - **A Verify adapter for Macro Regime**, the last v1 output shape without one. It is the only
+     thing that would exercise `cross_source_consistency` on more than one source. Partly gated:
+     five of its six axes report `NOT_TRACKED` pending FRED (HG-002).
 
 ## Two operational notes
 
@@ -115,3 +115,19 @@ known-fresh server on port 3100.
 
 The full suite takes 95-206s across runs on the same tree. The `~25s` recorded in PROJECT_STATE for
 several rounds was stale; the variance is integration files contending for one Postgres.
+
+## One unresolved observation: a single flaky run
+
+On 2026-08-18 the full suite failed once — `1 failed | 640 passed`, in a run that took **291s**
+against the usual 95–160s — and passed twice immediately afterwards at 641/641. The failing test's
+name was lost with the output before it was captured, and two subsequent clean runs did not
+reproduce it.
+
+Recorded rather than dismissed. This project's worst defects were non-deterministic: an original
+and its revision sharing a `timestamp(3)`, a completeness verdict that could flip between requests.
+"It passed the next two times" is exactly what those looked like too.
+
+The 291s duration points at database contention rather than at logic — the integration files share
+one PostgreSQL instance and `fileParallelism` is already off — but that is a hypothesis, not a
+finding. **Next session: run the suite several times and capture full output, and if it recurs,
+identify the test before doing anything else.**

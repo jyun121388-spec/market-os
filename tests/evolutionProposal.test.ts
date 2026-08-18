@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { GOVERNED_ACTIONS } from "@/server/governance/policy";
-import { capabilityGapProposals, observedEvidence } from "@/server/evolution/proposal";
+import {
+  capabilityGapProposals,
+  clusterProposals,
+  observedEvidence,
+} from "@/server/evolution/proposal";
+import { detectWeaknesses } from "@/server/evolution/detect";
+import { BACKFILLED_LEDGER } from "@/server/evolution/ledger";
 
 /**
  * Proposals, held to the structure that is the only thing separating them from fabrication.
@@ -89,5 +95,73 @@ describe("what the matrix currently proposes", () => {
   it("is a pure function of the matrix", () => {
     expect(capabilityGapProposals()).toEqual(proposals);
     expect(capabilityGapProposals([])).toEqual([]);
+  });
+});
+
+describe("cluster proposals", () => {
+  const clusters = clusterProposals();
+
+  it("turns every detected cluster into a prediction, not just a count", () => {
+    // "IDENTITY_MODELLING, 9 instances" tells a reader something recurred and nothing about what
+    // to do next. The Engine's stated purpose is the prediction.
+    expect(clusters.length).toBe(detectWeaknesses(BACKFILLED_LEDGER).length);
+    for (const proposal of clusters) {
+      expect(proposal.prediction, proposal.id).toBeTruthy();
+    }
+  });
+
+  /**
+   * The field that makes a prediction a claim rather than a slogan. It is also the one most likely
+   * to be quietly dropped, which is why it is asserted separately and asserted to be substantial.
+   */
+  it("states what would show each prediction wrong", () => {
+    for (const proposal of clusters) {
+      expect(proposal.falsifiedBy, proposal.id).toBeTruthy();
+      expect(proposal.falsifiedBy!.length, proposal.id).toBeGreaterThan(40);
+      // A falsifier that restates the prediction is not a falsifier.
+      expect(proposal.falsifiedBy, proposal.id).not.toBe(proposal.prediction);
+    }
+  });
+
+  it("draws its evidence from the ledger rather than from the countermeasure", () => {
+    const identity = clusters.find((p) => p.id === "CLUSTER-IDENTITY_MODELLING");
+    expect(identity).toBeDefined();
+    const observed = observedEvidence(identity!);
+    // One observed item per ledger instance, each quoting that entry's lesson verbatim.
+    const weakness = detectWeaknesses(BACKFILLED_LEDGER).find(
+      (w) => w.category === "IDENTITY_MODELLING",
+    );
+    expect(observed.length).toBe(weakness!.instances.length);
+    for (const item of observed) {
+      expect(weakness!.lessons).toContain(item.statement);
+      expect(item.source).toMatch(/^evolution\/ledger\.ts — /);
+    }
+  });
+
+  it("cannot claim a cluster is broader or worse than the ledger says", () => {
+    for (const weakness of detectWeaknesses(BACKFILLED_LEDGER)) {
+      const proposal = clusters.find((p) => p.id === `CLUSTER-${weakness.category}`)!;
+      expect(proposal.observation).toContain(`${weakness.instances.length} recorded instances`);
+      expect(proposal.observation).toContain(weakness.worstSeverity);
+      for (const subsystem of weakness.subsystems) {
+        expect(proposal.observation).toContain(subsystem);
+      }
+    }
+  });
+
+  it("has a countermeasure for every category, so a new one cannot generate an empty proposal", () => {
+    // A category added to the ledger with no entry here would produce a proposal with undefined
+    // fields — a silently empty recommendation, which is worse than no recommendation.
+    const covered = new Set(clusters.map((p) => p.systemicWeakness));
+    for (const category of new Set(BACKFILLED_LEDGER.map((e) => e.category))) {
+      const instances = BACKFILLED_LEDGER.filter((e) => e.category === category).length;
+      if (instances >= 2)
+        expect(covered, `${category} has ${instances} instances`).toContain(category);
+    }
+  });
+
+  it("is a pure function of the ledger", () => {
+    expect(clusterProposals([])).toEqual([]);
+    expect(clusterProposals()).toEqual(clusters);
   });
 });

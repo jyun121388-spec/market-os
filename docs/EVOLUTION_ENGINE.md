@@ -138,6 +138,33 @@ The ceiling proposal states its own risk plainly — a limitation recorded once 
 limitation assumed forever. The matrix needs re-checking when a provider versions its API, not only
 when our code changes.
 
+## From counting to predicting
+
+The detector clusters; `clusterProposals()` turns each cluster into a claim that can be wrong.
+
+"`IDENTITY_MODELLING`, 9 instances" tells a reader that something recurred and nothing about what
+to do. Each cluster now carries a `prediction` — what this cause will break next — and a
+`falsifiedBy`, the observation that would show the prediction wrong. The second field is the
+load-bearing one and the easiest to omit: a prediction with no stated way to be wrong is a slogan,
+and this repository keeps a whole document about confident output that could not be told apart from
+verified output. A test asserts it exists, is substantial, and is not a restatement of the
+prediction.
+
+**Generated and authored, deliberately split.** The observation, the instance list, the subsystems
+and the per-instance evidence all come from the ledger, so a proposal cannot claim a cluster is
+broader or worse than the record says — a test checks each against `detectWeaknesses` directly. The
+prediction and the countermeasure are hand-authored once per category, for the same reason
+`LedgerEntry.category` is assigned when the entry is written: the judgement belongs to whoever
+understood the defects, not to a later pass inferring it from prose.
+
+Every category must have a countermeasure. A category added to the ledger with no entry would
+generate a proposal with undefined fields — a silently empty recommendation, which is worse than
+none — so a test fails if one is missing.
+
+`npm run evolution:shadow` prints the clusters, the isolated incidents that have not yet recurred,
+and every proposal with the governed actions carrying it out would require, decided by the shadow
+policy engine rather than asserted. It touches no database and writes nothing.
+
 ## Hard constraints
 
 1. **No production mutation, ever.** Experiments run in a git worktree and a disposable database

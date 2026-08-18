@@ -405,8 +405,21 @@ recommendations". A detector that cannot read a negation would condemn the sente
 refusing. The real message is a test fixture, verbatim. Korean mirrors are present — 적정가,
 목표주가, 매수 의견, 매도 의견.
 
+EVOLUTION — FROM COUNTING TO PREDICTING (2026-08-18, shadow)
+`clusterProposals()` turns each detected cluster into a claim that can be wrong. Every cluster now
+carries a `prediction` and a `falsifiedBy` — the second is the load-bearing field and the easiest
+to omit, because a prediction with no stated way to be wrong is a slogan. Observation, instances,
+subsystems and per-instance evidence are generated from the ledger, so a proposal cannot overstate
+a cluster; the prediction and countermeasure are authored once per category, on the same principle
+that assigns `category` at write time. A missing category fails a test rather than producing a
+silently empty recommendation.
+
+`npm run evolution:shadow` prints 44 ledger entries, 10 clusters, and every proposal with the
+governed actions it would require — decided by the policy engine rather than asserted. No database,
+no writes.
+
 TESTS
-635 / 635 PASS across 75 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+641 / 641 PASS across 75 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

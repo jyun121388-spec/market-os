@@ -145,7 +145,22 @@ export async function fetchEdgarFilingHistory(cik: string): Promise<EdgarFilingH
     providerTotal,
     overflowFilesAvailable: overflowFiles.length,
     overflowFilesFetched: toFetch.length,
-    truncated: overflowFiles.length > MAX_OVERFLOW_FILES,
+    // Two ways to be short, and only the first was reported (IR-038). Hitting our own page cap is
+    // one. The other is holding fewer filings than SEC says exist — a short overflow document, a
+    // partial mirror, or SEC's own `filingCount` drifting from what it serves — and that was
+    // reported as complete, because the question being asked was "did WE stop early?" rather than
+    // "do we have it all?".
+    //
+    // The same defect as IR-030 in FRED, ECOS and DART. Those three were fixed together and EDGAR
+    // was not part of that finding, which is why it survived: the fix went where the defect had
+    // been looked for. This is the live path — EDGAR is the only provider with real data — so
+    // unlike the other latent identity findings this one had a reader in front of it.
+    //
+    // `providerTotal` above already sums `filings.recent` and the declared `filingCount` of every
+    // overflow file, INCLUDING the ones this run chose not to fetch. Everything needed to answer
+    // the question was already computed and never compared.
+    truncated:
+      overflowFiles.length > MAX_OVERFLOW_FILES || (merged.form?.length ?? 0) < providerTotal,
   };
 }
 

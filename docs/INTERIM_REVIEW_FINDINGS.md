@@ -1049,6 +1049,46 @@ the same mistake the `fair value` pattern made, which a reviewer found weeks lat
 negative controls caught it in the same minute, which is the whole argument for writing them
 alongside rather than afterwards.
 
+## IR-038 — EDGAR reported complete from its own page cap — **VALID, fixed (P1)**
+
+|           |                                                                       |
+| --------- | --------------------------------------------------------------------- |
+| Found by  | the `CAP-CEILING-SEC_EDGAR` phase, checking the generalized invariant |
+| Subsystem | `src/server/adapters/edgar/client.ts`                                 |
+| Severity  | **P1** — a partial ingest recorded SUCCESS on the live path           |
+| Status    | **VALID — reproduced, then fixed.**                                   |
+
+The invariant under test: **provider response success is not a complete dataset.** IR-030 fixed
+FRED, ECOS and DART, each of which derived `truncated` from the reason its loop stopped. EDGAR was
+not part of that finding and has the same shape:
+
+```ts
+truncated: overflowFiles.length > MAX_OVERFLOW_FILES;
+```
+
+That is a statement about hitting OUR OWN page cap. It says nothing about whether we hold what SEC
+says exists — and `providerTotal` is computed two lines above, carefully, as
+`filings.recent.length` plus the declared `filingCount` of every overflow file including the ones
+this run chose not to fetch. Everything needed to answer the question was already there and never
+compared.
+
+**Reproduced**: one overflow file, well under the 20-file cap, declaring 500 filings and serving 100. `providerTotal` 501, held 101, `truncated: false`. `recordIngestRun` turns that into SUCCESS
+and `/company` renders completeness from the run.
+
+**This is the live path.** EDGAR is the only provider with real data, so unlike IR-032 and IR-037
+this defect had a reader in front of it rather than waiting for a second provider.
+
+**Fix**: `overflowFiles.length > MAX_OVERFLOW_FILES || merged.form.length < providerTotal`.
+
+**Checked against real data before changing anything**: the three most recent Apple runs record
+`providerTotal=2240, fetched=2240`, so the live path stays SUCCESS. The fix fires only when the two
+genuinely disagree, which is the whole point. The control — hitting the page cap itself — is
+preserved by a second test.
+
+Why it survived IR-030: that finding named three clients and the fix went to those three. The fix
+went where the defect had been looked for, which is the same lesson as `RF-04` and `RF-06` and now
+the third time it has been recorded.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

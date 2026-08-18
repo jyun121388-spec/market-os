@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchAllFredObservations } from "@/server/adapters/fred/client";
 import { fetchAllEcosObservations } from "@/server/adapters/ecos/client";
 import { fetchAllDartDisclosures } from "@/server/adapters/dart/client";
+import { fetchEdgarFilingHistory } from "@/server/adapters/edgar/client";
 import { TRACKED_ECOS_SERIES } from "@/server/adapters/ecos/types";
 
 /**
@@ -400,5 +401,127 @@ describe("a short page before the declared total", () => {
     const page = await fetchAllFredObservations("DGS10");
     expect(page.observations.length).toBe(3);
     expect(page.truncated).toBe(false);
+  });
+});
+
+/**
+ * EDGAR: the fourth adapter with the same completeness defect (IR-038).
+ *
+ * IR-030 fixed FRED, ECOS and DART, all of which derived `truncated` from the reason their loop
+ * stopped rather than from held-versus-declared. EDGAR was not part of that finding and has the
+ * same shape: `truncated: overflowFiles.length > MAX_OVERFLOW_FILES` — a statement about hitting
+ * OUR OWN page cap, not about whether we hold what SEC says exists.
+ *
+ * It computes `providerTotal` correctly, and carefully: `filings.recent.length` plus the
+ * `filingCount` SEC declares on every overflow file, INCLUDING the ones this run chose not to
+ * fetch. Everything needed to answer the question is right there and is never compared.
+ *
+ * This is the live path. EDGAR is the only provider with real data, so unlike IR-032 and IR-037
+ * this is not latent — a short or partial overflow document makes `/company` report a complete
+ * filing history it does not hold, exactly as 1000 of 2240 once did.
+ */
+describe("EDGAR completeness comes from the page cap, not from the count", () => {
+  const CIK = "0000320193";
+  const submissions = (overflow: { name: string; filingCount: number }[]) => ({
+    cik: CIK,
+    name: "Apple Inc.",
+    entityType: "operating",
+    tickers: ["AAPL"],
+    exchanges: ["Nasdaq"],
+    filings: {
+      recent: {
+        accessionNumber: ["0000320193-26-000001"],
+        filingDate: ["2026-01-02"],
+        reportDate: ["2026-01-01"],
+        acceptanceDateTime: ["2026-01-02T00:00:00.000Z"],
+        act: [""],
+        form: ["10-K"],
+        fileNumber: [""],
+        filmNumber: [""],
+        items: [""],
+        primaryDocument: ["a.htm"],
+        primaryDocDescription: ["10-K"],
+        size: [1],
+        isXBRL: [1],
+        isInlineXBRL: [1],
+      },
+      files: overflow,
+    },
+  });
+
+  const overflowBody = (rows: number) => ({
+    accessionNumber: Array.from(
+      { length: rows },
+      (_, i) => `0000320193-25-${String(i).padStart(6, "0")}`,
+    ),
+    filingDate: Array.from({ length: rows }, () => "2025-06-01"),
+    reportDate: Array.from({ length: rows }, () => "2025-05-31"),
+    acceptanceDateTime: Array.from({ length: rows }, () => "2025-06-01T00:00:00.000Z"),
+    act: Array.from({ length: rows }, () => ""),
+    form: Array.from({ length: rows }, () => "8-K"),
+    fileNumber: Array.from({ length: rows }, () => ""),
+    filmNumber: Array.from({ length: rows }, () => ""),
+    items: Array.from({ length: rows }, () => ""),
+    primaryDocument: Array.from({ length: rows }, () => "b.htm"),
+    primaryDocDescription: Array.from({ length: rows }, () => "8-K"),
+    size: Array.from({ length: rows }, () => 1),
+    isXBRL: Array.from({ length: rows }, () => 0),
+    isInlineXBRL: Array.from({ length: rows }, () => 0),
+  });
+
+  it("declares 501 filings, returns 101, and reports truncated", async () => {
+    process.env.EDGAR_USER_AGENT = "market-os-test test@example.com";
+    // One overflow file, well under the 20-file cap, that declares 500 filings and serves 100.
+    // A short document, a partial mirror, or SEC's own count drifting all produce this.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        const body = url.includes("CIK0000320193-submissions-001.json")
+          ? overflowBody(100)
+          : submissions([{ name: "CIK0000320193-submissions-001.json", filingCount: 500 }]);
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    const history = await fetchEdgarFilingHistory(CIK);
+
+    // SEC says 501 exist. We hold 101.
+    expect(history.providerTotal).toBe(501);
+    expect(history.filings.form.length).toBe(101);
+
+    // And the run reports itself complete, because the only question asked was whether OUR page
+    // cap was hit. recordIngestRun turns this boolean into SUCCESS, and /company renders
+    // completeness from the run.
+    // Fixed: truncation now comes from held-versus-declared, not from whether our own page cap
+    // was hit. recordIngestRun turns this into PARTIAL rather than SUCCESS, and /company reports
+    // a shortfall instead of a complete history it does not hold.
+    expect(history.truncated).toBe(true);
+  });
+
+  it("does report truncation when the page cap itself is hit", async () => {
+    // The control: the one case the current logic does catch must keep working, so a fix narrows
+    // nothing. Twenty-one overflow files exceed MAX_OVERFLOW_FILES.
+    process.env.EDGAR_USER_AGENT = "market-os-test test@example.com";
+    const files = Array.from({ length: 21 }, (_, i) => ({
+      name: `CIK0000320193-submissions-${String(i).padStart(3, "0")}.json`,
+      filingCount: 1,
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const body = String(input).includes("-submissions-") ? overflowBody(1) : submissions(files);
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    const history = await fetchEdgarFilingHistory(CIK);
+    expect(history.truncated).toBe(true);
   });
 });

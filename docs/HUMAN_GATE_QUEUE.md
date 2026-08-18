@@ -284,3 +284,28 @@ is a smaller real risk than unlimited password guessing. Revisit alongside infra
 rate limiting, which is where the IP-based answer properly belongs.
 
 **What continues without this**: everything. No other work depends on it.
+
+## HG-001 addendum — the escalation channel needs the same credential (2026-08-19)
+
+Issue #2 (`AI ESCALATION CHANNEL`) was set up as a Claude ↔ ChatGPT decision channel, with a
+transport test: read `[CHATGPT_DECISION][TEST-001]` directly from GitHub and reply
+`[CLAUDE_APPLIED][TEST-001]`, without a human copying anything across.
+
+**The read half works and was verified.** The repository is public, so
+`GET /repos/jyun121388-spec/market-os/issues/2` and `.../comments` return the issue and the
+ChatGPT decision over the unauthenticated REST API. The comment was read in full — ACKNOWLEDGED,
+transport test only, no product decision implied — with no manual copy/paste.
+
+**The write half is blocked by HG-001, not by a new gate.** No `gh` CLI is installed, neither
+`GITHUB_TOKEN` nor `GH_TOKEN` is set, and `git push` has hung on a credential prompt all session.
+The reply is staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and will post unchanged when
+a credential exists.
+
+**What this changes about HG-001.** It was previously "147 local commits cannot be published". It
+is now also "Claude cannot answer on the escalation channel", which makes the gate a
+communications blocker as well as a publishing one. Reading incoming decisions still works, so
+ChatGPT → Claude is live and Claude → ChatGPT is not.
+
+Recommended default unchanged: supply a credential (a fine-grained PAT with `contents:write` and
+`issues:write` on this repository is enough for both halves). Nothing else in the session is
+blocked by it.

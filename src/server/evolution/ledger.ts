@@ -626,6 +626,20 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "PROVENANCE",
   },
 
+  {
+    id: "SD-02",
+    ledger: "REVIEW_FINDING",
+    subsystem: "edgar/client",
+    severity: "P1",
+    summary:
+      "EDGAR derived truncation from its own page cap, so holding 101 of a declared 501 filings " +
+      "was reported as a complete ingest.",
+    lesson:
+      "IR-030 named three clients and the fix went to those three; the fourth had the identical " +
+      "line and was never looked at, because the fix followed the finding rather than the pattern.",
+    category: "SILENT_DEGRADATION",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

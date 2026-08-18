@@ -15,6 +15,7 @@ import {
   type Proposal,
 } from "@/server/evolution/proposal";
 import { evaluateAction } from "@/server/governance/policy";
+import { isWorkExhausted, scheduleNextWork } from "@/server/evolution/scheduler";
 
 function printProposal(proposal: Proposal) {
   console.log(`\n${proposal.id}`);
@@ -73,9 +74,35 @@ function main() {
   console.log("\n\nPROPOSALS FROM PROVIDER CAPABILITY GAPS");
   for (const proposal of capabilityGapProposals()) printProposal(proposal);
 
+  // The meta-loop, printed: Evolution proposes, Governance classifies, the scheduler says what
+  // may be started now. Nothing here executes anything — there is deliberately no way to.
+  const queue = scheduleNextWork({
+    context: {
+      verificationGreen: true,
+      credentialsAvailable: false,
+      providerKeyAvailable: false,
+      includedModelQuotaAvailable: true,
+    },
+  });
+
+  console.log("\n\nNEXT WORK QUEUE — what an agent may start now");
+  for (const work of queue.actionable) {
+    console.log(`  ${work.authority.padEnd(31)} ${work.proposal.id}`);
+  }
+  console.log("\nDEFERRED — recorded, and NOT a reason to stop");
+  for (const work of queue.deferred) {
+    console.log(
+      `  ${work.authority.padEnd(31)} ${work.proposal.id}  ${work.blockedBy ?? ""}`.trimEnd(),
+    );
+  }
   console.log(
-    "\n\nShadow mode: nothing above was applied, no code was changed, and no v1 module imports " +
-      "the Engine. Every proposal names the governed actions it would require.",
+    `\nWork exhausted: ${isWorkExhausted(queue)} — meaning nothing is STARTABLE, not that nothing remains.`,
+  );
+
+  console.log(
+    "\nShadow mode: nothing above was applied, no code was changed, and no v1 module imports " +
+      "the Engine. Every proposal names the governed actions it would require, and the scheduler " +
+      "exports no way to carry any of them out.",
   );
 }
 

@@ -165,6 +165,87 @@ none — so a test fails if one is missing.
 and every proposal with the governed actions carrying it out would require, decided by the shadow
 policy engine rather than asserted. It touches no database and writes nothing.
 
+## The meta-loop, in engineering-control form
+
+`src/server/evolution/scheduler.ts`. Evolution proposes, Governance classifies, and the scheduler
+decides what an agent may pick up next without asking anyone. It is the wiring between three layers
+that already existed separately, and it is the piece that makes a finished phase yield the next one
+instead of a question.
+
+```
+ledger + capability matrix
+   ↓  clusterProposals() / capabilityGapProposals()
+proposals, each naming the governed actions it would require
+   ↓  evaluateAction() per action
+one ExecutionAuthority per proposal
+   ↓
+{ actionable, deferred }
+```
+
+**It cannot approve anything.** Every authority is derived from `evaluateAction`, which reads the
+governing documents. The scheduler contributes exactly one rule of its own:
+
+> A proposal is only as permitted as its **most restricted** required action.
+
+That is the property that stops "add a test, then deploy to production" from being scheduled as an
+auto-allowed test. Taking the most permissive answer — or, worse, the first action's — would make
+the loop a path from "Evolution noticed something" to "production changed" with no human in it.
+
+| Authority                        | Means                                                |
+| -------------------------------- | ---------------------------------------------------- |
+| `AGENT_MAY_PROCEED`              | every required action is auto-allowed                |
+| `AGENT_MAY_PROCEED_AFTER_VERIFY` | permitted; the stated verification must pass first   |
+| `REQUIRES_HUMAN`                 | at least one action needs a gate                     |
+| `FORBIDDEN`                      | at least one action is settled policy against        |
+| `BLOCKED_BY_ENVIRONMENT`         | policy permits everything; the machine cannot do one |
+
+A gated action stays `REQUIRES_HUMAN` even when a credential is also missing. Reclassifying it as
+an environment block would file a decision the user is entitled to make as a thing to fix.
+
+### Blocked is not finished
+
+`isWorkExhausted` is true only when nothing is **startable**. A queue containing only deferred items
+is blocked work, not exhausted work, and treating the two alike is how a missing API key becomes
+"the project is done". Deferred items stay in the same result with their reasons attached, so a
+caller can see there is work and why it cannot start.
+
+### What it looks like right now
+
+`npm run evolution:shadow`, against the real ledger and capability matrix, with no provider keys:
+
+```
+NEXT WORK QUEUE — 9 startable
+  AGENT_MAY_PROCEED_AFTER_VERIFY  CLUSTER-IDENTITY_MODELLING
+  AGENT_MAY_PROCEED_AFTER_VERIFY  CLUSTER-GUARDRAIL_COVERAGE
+  AGENT_MAY_PROCEED               CLUSTER-FIXTURE_REALISM
+  ...
+DEFERRED — 5, and not a reason to stop
+  BLOCKED_BY_ENVIRONMENT  CAP-DEBT-FRED       HG-002
+  BLOCKED_BY_ENVIRONMENT  CAP-DEBT-ECOS       HG-003
+  BLOCKED_BY_ENVIRONMENT  CAP-DEBT-OPENDART   HG-004
+  ...
+Work exhausted: false
+```
+
+The first time this ran it contradicted a judgement made minutes earlier in the same session — a
+report had described the remaining work as gated, and the scheduler found nine startable items from
+the same evidence. That is the mechanism doing its job: a queue derived from the ledger is harder to
+fool than a summary written from memory.
+
+### There is no `execute()`
+
+Deliberately, and a test asserts the module exports exactly `scheduleNextWork` and
+`isWorkExhausted` and nothing matching `execute|apply|run|commit|perform|mutate`. A scheduler that
+could run its own output would close the loop with nothing in between.
+
+### One behaviour worth knowing
+
+An unspecified environment reads as available. The policy engine only tightens on an explicit
+`false`, so a caller who says nothing about provider keys gets an optimistic queue — not an unsafe
+one, since nothing is bypassed, but one an agent may not be able to work through. The remedy is for
+the caller to supply what it knows, and a test pins the behaviour so it stays a decision rather than
+a surprise.
+
 ## Hard constraints
 
 1. **No production mutation, ever.** Experiments run in a git worktree and a disposable database

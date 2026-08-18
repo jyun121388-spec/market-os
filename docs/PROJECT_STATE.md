@@ -501,8 +501,33 @@ provider: `filingDiff:SEC_EDGAR:0000320193:Assets:USD`.
 Control: an unambiguous code still resolves with no `?source=`, because every real company today
 has exactly one provider and a disambiguation prompt for all of them would be worse than the defect.
 
+PHASE — AUTONOMOUS META-LOOP HARDENING (2026-08-18, shadow)
+`src/server/evolution/scheduler.ts` wires the three layers that already existed separately.
+Evolution proposes, Governance classifies each proposal's required actions, and the scheduler
+returns `{ actionable, deferred }` — what an agent may start now, and what cannot start with the
+reason attached.
+
+**It approves nothing.** Every authority comes from `evaluateAction`. The scheduler adds exactly
+one rule: a proposal is only as permitted as its MOST RESTRICTED required action, which is what
+stops "add a test, then deploy to production" being scheduled as an auto-allowed test. A gated
+action stays REQUIRES_HUMAN even when a credential is also missing — reclassifying it as an
+environment block would file a decision the user is entitled to make as a thing to fix.
+
+**Blocked is not finished.** `isWorkExhausted` is true only when nothing is STARTABLE. A queue of
+purely deferred items is blocked work, and treating that as exhaustion is how a missing API key
+becomes "the project is done".
+
+**There is no `execute()`**, and a test asserts the module exports exactly two functions, neither
+matching `execute|apply|run|commit|perform|mutate`. A scheduler that could run its own output would
+close the loop with nothing in between.
+
+Against the real ledger with no provider keys: **9 startable, 5 deferred on HG-002/003/004**. The
+first run contradicted a judgement made minutes earlier in the same session — a report had described
+the remaining work as gated, and the scheduler found nine startable items from the same evidence.
+A queue derived from the ledger is harder to fool than a summary written from memory.
+
 TESTS
-690 / 690 PASS across 78 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+705 / 705 PASS across 79 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

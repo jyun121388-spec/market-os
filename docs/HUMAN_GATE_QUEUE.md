@@ -130,10 +130,19 @@ Codex models now probe AVAILABLE (`docs/AI_REVIEW_RUNTIME_STATE.md`). The first 
 independent review of this branch has run and produced six confirmed defects — IR-009 through
 IR-014 in `docs/INTERIM_REVIEW_FINDINGS.md`, five fixed and one deferred as HG-009.
 
+**2026-08-18, later the same day — two further reviews ran.** `gpt-5.6-terra` reviewed the v2
+shadow layers cross-file over `b6eb8fd..HEAD`: five findings, all five reproduced, all five valid
+(IR-022..IR-026). `gpt-5.6-luna` audited the Governance rule table against the documents it cites
+and the Evolution ledger against the findings it was backfilled from: one rule looser than its
+citation (IR-029), 28 ledger entries checked with zero fabrications, and eight documented defects
+missing, now added.
+
 What remains is coverage, not access: the packet's A1–A14 have not all been reviewed, and **Sol
 has not been used at all** — reserve it for the final Release Candidate adversarial pass and for
 any P0/P1. Always invoke with `-s read-only`; `codex exec` otherwise defaults to `workspace-write`
-with `approval: never`, which lets a reviewer edit the tree.
+with `approval: never`, which lets a reviewer edit the tree. One further operational note: pass
+`< /dev/null`, or `codex exec` blocks on stdin indefinitely even with the prompt supplied as an
+argument.
 
 The historical account below is kept because it explains why the range went unreviewed for so long.
 

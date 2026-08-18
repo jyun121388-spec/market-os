@@ -528,6 +528,19 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "GUARDRAIL_COVERAGE",
   },
 
+  {
+    id: "SD-01",
+    ledger: "REVIEW_FINDING",
+    subsystem: "fred / ecos / dart clients",
+    severity: "P1",
+    summary:
+      "All three adapters stopped on a short page and reported the partial result as complete.",
+    lesson:
+      "The reason a loop stopped was used as the answer to whether everything was held, and the " +
+      "provider-declared total that contradicted it was received and never consulted.",
+    category: "SILENT_DEGRADATION",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

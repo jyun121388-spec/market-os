@@ -121,8 +121,9 @@ export async function fetchAllEcosObservations(
     rows.push(...batch);
 
     // Stop on a short page (the normal end) or once we have everything ECOS claims exists.
+    // Stopping is not the same claim as completeness — see the note in fred/client.ts (IR-030).
     if (batch.length < ECOS_PAGE_SIZE || rows.length >= totalCount) {
-      return { rows, totalCount, requestsMade, truncated: false };
+      return { rows, totalCount, requestsMade, truncated: rows.length < totalCount };
     }
   }
 

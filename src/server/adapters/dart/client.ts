@@ -134,6 +134,9 @@ export async function fetchAllDartDisclosures(
     rows,
     totalCount,
     pagesFetched,
-    truncated: totalPage > MAX_DART_PAGES,
+    // Two ways to be short, and only the first was reported: hitting our own page ceiling, and
+    // DART disagreeing with its own total_page by returning an empty page early. The break above
+    // handles the second correctly and used to call the result complete anyway (IR-030).
+    truncated: totalPage > MAX_DART_PAGES || rows.length < totalCount,
   };
 }

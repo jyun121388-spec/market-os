@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **648 / 648** across 76 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **658 / 658** across 76 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -128,6 +128,15 @@ Recorded rather than dismissed. This project's worst defects were non-determinis
 and its revision sharing a `timestamp(3)`, a completeness verdict that could flip between requests.
 "It passed the next two times" is exactly what those looked like too.
 
+**Update, same day: six clean runs, still unexplained.** Three further full runs were captured
+deliberately — 654/654 each, at 182s, 90s and 115s. Six consecutive clean runs since the single
+failure, and the failing test was never identified because its name was lost with the output.
+
+The wide duration spread (90–230s across the session, on an unchanged tree) is real and supports
+the contention hypothesis, but a hypothesis is all it is. Left open rather than closed: one
+unreproduced failure is not the same as no failure, and this project has twice shipped defects
+whose symptom was intermittent rather than constant. Any future run that fails should have its
+output captured before anything else is done.
 The 291s duration points at database contention rather than at logic — the integration files share
 one PostgreSQL instance and `fileParallelism` is already off — but that is a hypothesis, not a
 finding. **Next session: run the suite several times and capture full output, and if it recurs,

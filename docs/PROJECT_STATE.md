@@ -439,8 +439,27 @@ exists, rather than left untested until it silently starts mattering.
 All four real v1 output shapes now have adapters, and the shadow run reports four distinct
 verdicts: 8 VERIFIED_WITH_LIMITATION, 5 SEMANTIC_REVISION_UNRESOLVED, 3 STALE, 2 TRUNCATED.
 
+REVIEW PACKET A1-A8, WORKED THROUGH (2026-08-18, `gpt-5.6-terra`)
+The first pass over the independent-review packet against CURRENT code rather than the range it
+was written for. **Seven of eight targets: NO FINDINGS** — A1 Filing Diff, A2 fact identity, A3
+revision chain, A5 company identity, A6 test-database guard, A7 secret redaction, A8 CALCULATION
+provenance.
+
+**IR-030 (P1, A4) — a short page reported as a complete answer, in all three keyed adapters.** FRED,
+ECOS and DART each stopped looping on a short page and returned `truncated: false`, conflating the
+reason they stopped with whether they hold everything. `recordIngestRun` marks SUCCESS off that
+boolean and `/company` renders completeness from the run, so a partial ingest read as complete —
+the 1000-of-2240 defect in a different provider's clothes, with the contradicting field (`count`,
+`list_total_count`, `total_count`) received and never consulted.
+
+Reproduced first with three failing tests, then fixed: `truncated` is now derived from
+held-versus-declared at every return. A control test asserts that a short page which IS everything
+the provider declared still reports complete — every real series ends on a short page, and turning
+that into a permanent warning would make the signal worthless. **A v1 change, permitted by the
+freeze because it is a reproduced P1.**
+
 TESTS
-648 / 648 PASS across 76 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+658 / 658 PASS across 76 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

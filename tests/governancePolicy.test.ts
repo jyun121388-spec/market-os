@@ -398,3 +398,91 @@ describe("recording what became of an action", () => {
     expect(observeExecution(gated, "DEFERRED", "awaiting approval").outcome).toBe("DEFERRED");
   });
 });
+
+/**
+ * Every gate on record, replayed by name — including the ones the engine answers with an
+ * EXECUTION status rather than a decision, and the one it deliberately cannot answer at all.
+ *
+ * The table above replays four of the nine gates in `docs/HUMAN_GATE_QUEUE.md`. The five it omits
+ * are the interesting ones, because each is a case where "what does the engine say about HG-00N?"
+ * has an answer that is not a `PolicyDecision`. Leaving them out made the replay look complete
+ * while covering the easy half.
+ */
+describe("Governance — the whole Human Gate queue, replayed by gate id", () => {
+  /**
+   * HG-002, HG-003 and HG-004 are the §12 distinction in its original form. All three providers
+   * are FREE to call. What is missing is a key, which is an environmental fact — so policy must
+   * keep permitting the call and the engine must report the blocker separately. Recording any of
+   * these as DEFERRED_HUMAN_GATE would say the policy forbids calling a free provider, which it
+   * does not.
+   */
+  it.each([
+    ["HG-002 FRED API key", "FRED"],
+    ["HG-003 ECOS API key", "ECOS"],
+    ["HG-004 OpenDART API key", "OPENDART"],
+  ])("%s — permitted by policy, blocked by environment", (_gate, provider) => {
+    const evaluation = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      detail: provider,
+      context: { providerKeyAvailable: false, withinDocumentedRateLimit: true },
+    });
+    expect(evaluation.decision).toBe("AUTO_ALLOWED");
+    expect(evaluation.execution).toBe("BLOCKED_PROVIDER_KEY");
+    expect(evaluation.gate).toBeUndefined();
+  });
+
+  /**
+   * HG-005 changed twice. It was a login problem, then an included-usage exhaustion, and as of
+   * 2026-08-18 Codex is available again and two reviews have run. In every one of those states the
+   * POLICY was the same — review by an included model is required by the development loop and
+   * costs nothing extra — and only the execution status moved.
+   */
+  it("HG-005 independent review — policy constant, execution follows the quota", () => {
+    const exhausted = evaluateAction({
+      kind: "RUN_INDEPENDENT_AI_REVIEW",
+      context: { includedModelQuotaAvailable: false },
+    });
+    expect(exhausted.decision).toBe("AUTO_ALLOWED");
+    expect(exhausted.execution).toBe("BLOCKED_USAGE_LIMIT");
+
+    const available = evaluateAction({
+      kind: "RUN_INDEPENDENT_AI_REVIEW",
+      context: { includedModelQuotaAvailable: true },
+    });
+    expect(available.decision).toBe("AUTO_ALLOWED");
+    expect(available.execution).toBe("READY");
+  });
+
+  /**
+   * HG-009 is the honest gap, and stating it is the point.
+   *
+   * It asks a human to choose between a targeted lockout DoS and unlimited password guessing.
+   * Every option trades one weakness for another, so there is no rule to encode — and inventing an
+   * action kind for it would produce a decision the engine has no basis to make, dressed in the
+   * same shape as the decisions it does. A governance engine that answers questions it cannot
+   * answer is worse than one with a visible boundary.
+   */
+  it("HG-009 login lockout — deliberately outside what the engine models", () => {
+    const security = GOVERNED_ACTIONS.filter((kind) => /LOCKOUT|THREAT|AUTH_POLICY/.test(kind));
+    expect(security).toEqual([]);
+    // The nearest representable action is a credential/security change, which is correctly a gate
+    // — but it is a gate about MAKING the change, not about which tradeoff to accept.
+    expect(evaluateAction({ kind: "CREDENTIAL_CHANGE" }).decision).toBe("DEFERRED_HUMAN_GATE");
+  });
+
+  /**
+   * The coverage check that keeps this honest. Every gate id in the queue document must appear in
+   * this file, so a gate added later cannot sit unreplayed while the suite reports green.
+   */
+  it("replays every gate recorded in docs/HUMAN_GATE_QUEUE.md", async () => {
+    const { readFileSync } = await import("node:fs");
+    const queue = readFileSync("docs/HUMAN_GATE_QUEUE.md", "utf8");
+    const recordedGates = [...queue.matchAll(/^## (HG-\d+)/gm)].map((m) => m[1]);
+    expect(recordedGates.length).toBeGreaterThanOrEqual(9);
+
+    const thisFile = readFileSync("tests/governancePolicy.test.ts", "utf8");
+    for (const gate of recordedGates) {
+      expect(thisFile, `${gate} is recorded but never replayed`).toContain(gate);
+    }
+  });
+});

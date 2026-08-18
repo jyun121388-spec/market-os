@@ -829,6 +829,52 @@ defects with no entry. All eight are now recorded as `VF-01`..`VF-08` — every 
 in Verify itself, which is the ledger's most direct evidence that a verifier is not exempt from the
 failure modes it verifies against.
 
+## IR-030 — A short page reported as a complete answer, in all three keyed adapters — **VALID, fixed (P1)**
+
+|           |                                                                     |
+| --------- | ------------------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-terra`, review packet target A4 (completeness vs. success) |
+| Subsystem | `fred/client.ts`, `ecos/client.ts`, `dart/client.ts`                |
+| Severity  | **P1** — a partial ingest recorded as SUCCESS and rendered COMPLETE |
+| Status    | **VALID — reproduced, then fixed. A v1 change under the freeze.**   |
+
+All three adapters stopped looping on a short page and returned `truncated: false`, **conflating
+the reason they stopped with the question of whether they hold everything.** Stopping on a short
+page is right; concluding "therefore complete" is a separate claim, and it is false whenever the
+provider's own declared total says otherwise. `recordIngestRun` marks the run SUCCESS off that
+boolean, and `/company` renders completeness from the run.
+
+This is the 1000-of-2240 defect wearing a different provider's clothes, and it is the same shape
+twice over: the field that contradicts the conclusion — FRED's `count`, ECOS's `list_total_count`,
+DART's `total_count` — was received, stored, and not consulted at the moment it mattered.
+
+**Reproduced before any change**, three failing tests:
+
+| Provider | Response                                           | Reported      | Should be |
+| -------- | -------------------------------------------------- | ------------- | --------- |
+| FRED     | `count: 10000`, 100 observations on the first page | not truncated | truncated |
+| ECOS     | `list_total_count: 900`, 40 rows                   | not truncated | truncated |
+| DART     | `total_page: 2, total_count: 200`, page 2 empty    | not truncated | truncated |
+
+The DART case is the sharpest: the client already detects that DART disagrees with its own
+`total_page`, breaks the loop deliberately, logs it — and then reports the result as complete.
+
+**Fix.** `truncated` is derived from held-versus-declared at every return, in all three clients. One
+idea written three times, so it was wrong in three places, which is the `IDENTITY_MODELLING` lesson
+from `RF-04` arriving again in a different cluster.
+
+**Control.** Every real series ends on a short page. A test asserts that a short page which IS
+everything the provider declared still reports complete — turning ordinary series ends into a
+permanent truncation warning would make the signal worthless, which is the failure mode of the
+over-broad fix.
+
+**Note on the freeze.** v1 is frozen except for reproduced P0/P1. This qualified: reproduced first,
+minimal fix, targeted verify, then the full suite. Seven of the eight A1–A8 packet targets returned
+**NO FINDINGS** — A1 Filing Diff, A2 fact identity, A3 revision chain, A5 company identity, A6 test
+database guard, A7 secret redaction and A8 CALCULATION provenance — which is the first time this
+packet has been worked through against current code rather than against the range it was written
+for.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

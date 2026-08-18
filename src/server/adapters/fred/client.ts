@@ -155,7 +155,12 @@ export async function fetchAllFredObservations(
         observationStart,
         observationEnd,
         requestsMade,
-        truncated: false,
+        // Why we stopped and whether we hold everything are two questions, and this used to
+        // answer the second with the first: a short page returned truncated=false even when
+        // FRED's own `count` said thousands were missing (IR-030, `gpt-5.6-terra`, reproduced).
+        // Stopping on a short page is right. Concluding "therefore complete" is a separate claim,
+        // and the provider already told us whether it holds.
+        truncated: observations.length < count,
       };
     }
   }

@@ -157,6 +157,39 @@ The canonical example remains `GIT_PUSH`: policy `AUTO_ALLOWED_WITH_VERIFY`, exe
 `BLOCKED_MISSING_CREDENTIAL`, outcome `BLOCKED_MISSING_CREDENTIAL`. The policy has not changed
 because a credential is absent.
 
+## Replaying the queue, all of it
+
+The engine is calibrated by replaying the Human Gate decisions already on record. That replay
+covered four of the nine gates in `docs/HUMAN_GATE_QUEUE.md` and looked complete, because the five
+it omitted are the ones whose answer is not a `PolicyDecision` at all.
+
+| Gate                         | What the engine says                                                |
+| ---------------------------- | ------------------------------------------------------------------- |
+| HG-001 GitHub push           | `AUTO_ALLOWED_WITH_VERIFY` + execution `BLOCKED_MISSING_CREDENTIAL` |
+| HG-002/003/004 provider keys | `AUTO_ALLOWED` + execution `BLOCKED_PROVIDER_KEY`                   |
+| HG-005 independent review    | `AUTO_ALLOWED`; execution follows the quota                         |
+| HG-006 paid provider         | `DEFERRED_HUMAN_GATE`                                               |
+| HG-007 production deployment | `DEFERRED_HUMAN_GATE`                                               |
+| HG-008 payment activation    | `DEFERRED_HUMAN_GATE`                                               |
+| HG-009 login lockout         | **not modelled, deliberately**                                      |
+
+HG-002, HG-003 and HG-004 are the separation in its original form. All three providers are FREE to
+call; what is missing is a key, which is an environmental fact. Recording any of them as
+`DEFERRED_HUMAN_GATE` would say the policy forbids calling a free provider, which it does not.
+
+HG-005 moved three times — a login problem, then an exhausted quota, then available again — and
+the policy never changed. Only the execution status did. That is the separation doing its job
+across a real sequence of events rather than in a single example.
+
+HG-009 is the honest gap. It asks a human to choose between a targeted lockout DoS and unlimited
+password guessing, and every option trades one weakness for another; there is no rule to encode.
+Inventing an action kind for it would produce a decision the engine has no basis to make, wearing
+the same shape as the decisions it does. A governance engine that answers questions it cannot
+answer is worse than one with a visible boundary, so a test asserts no such action kind exists.
+
+A coverage test reads `HUMAN_GATE_QUEUE.md` and fails if any recorded gate id never appears in the
+replay, so a gate added later cannot sit unreplayed while the suite reports green.
+
 ## The policy table
 
 Derived from the existing documents. Each row cites its origin; none of it is invented here.

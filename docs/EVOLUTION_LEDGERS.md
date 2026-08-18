@@ -189,7 +189,7 @@ Clusters the detector reports over the current backfill, worst severity first wi
 | `FIXTURE_REALISM`      | 5         | P0    | Fixtures hold one of something the world has many of         |
 | `PROVIDER_ASSUMPTION`  | 5         | P1    | A documented shape believed over an observed response        |
 | `CONCURRENCY`          | 4         | P1    | A read-then-write sequence treated as atomic                 |
-| `SILENT_DEGRADATION`   | 4         | P1    | Failure by returning less, with no signal                    |
+| `SILENT_DEGRADATION`   | 5         | P1    | Failure by returning less, with no signal                    |
 | `PROVENANCE`           | 3         | P1    | A value shown without what it came from                      |
 | `ENVIRONMENT_DRIFT`    | 3         | P2    | A check made on surface text rather than what it resolves to |
 | `SEMANTIC_RECENCY`     | 2         | P1    | Freshness inferred from when it was observed, not what       |

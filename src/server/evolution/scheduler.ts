@@ -309,4 +309,18 @@ export const COMPLETED_WORK: CompletedWork[] = [
       "fixing it breaks the test.",
     remaining: "IR-037's additive render is deferred by the freeze.",
   },
+  {
+    proposalId: "CLUSTER-ENVIRONMENT_DRIFT",
+    commit: "recorded with this entry",
+    evidence:
+      "Four hypotheses probed against the real environments — CI's blanked DATABASE_URL, CRLF " +
+      "in file-content assertions, the no-database path, and ADMIN_EMAILS in a production " +
+      "build — and all four refuted. tests/environmentModes.test.ts pins the two mechanisms " +
+      "those answers depend on: the DATABASE_URL rewiring, and one identical skip idiom across " +
+      "all 39 integration files.",
+    remaining:
+      "Four refuted hypotheses are four questions answered, not a proof of soundness. Windows " +
+      "versus Linux behaviour is still only observed on Windows, because CI is the only Linux " +
+      "runner and nothing compares the two.",
+  },
 ];

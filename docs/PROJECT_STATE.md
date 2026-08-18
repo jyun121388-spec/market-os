@@ -690,8 +690,28 @@ un-completed the other six. Now a union.
 
 The queue converges: **3 startable, 5 deferred on provider keys**, down from 9 and 5.
 
+PHASE — ENVIRONMENT MODES (2026-08-19), the scheduler's seventh item
+`CLUSTER-ENVIRONMENT_DRIFT`, countermeasure: for each guard, ask what two different strings could
+denote the same thing, and what differs between the places this runs. Four hypotheses probed against
+the real environments; **all four refuted**, and recording that is the point — a cluster does not get
+to keep producing findings just because it exists.
+
+1. _CI skips every integration test, because it blanks `DATABASE_URL`._ Refuted: `vitest.config`
+   rewires it from the guard's decision, so the 39 integration files run there as they do locally.
+2. _File-content assertions break on CRLF._ Refuted: no test asserts a multi-line literal against
+   file text.
+3. _The no-database path is broken._ Refuted: 569 pass, 205 skip, 39 files skipped, cleanly, in 28s.
+   The documented "350 unit tests, 30 files" was stale and is corrected.
+4. _ADMIN_EMAILS is frozen into the production build._ Refuted: `/admin` is `force-dynamic` and
+   builds as `ƒ`, so the allowlist is read per request.
+
+`tests/environmentModes.test.ts` pins the two mechanisms those answers depend on — the DATABASE_URL
+rewiring, and that every integration file gates on one identical idiom so the rewiring covers all of
+them. Remove either and CI would create a test database, migrate it, then skip everything that would
+use it while reporting green.
+
 TESTS
-774 / 774 PASS across 85 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+778 / 778 PASS across 86 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
@@ -700,8 +720,9 @@ data.sec.gov. Lint / typecheck / format / production build all clean. Full suite
 database across two runs on the same tree — the variance is real and is the integration files
 contending for one Postgres, not noise worth averaging away.
 
-Tests run against a disposable database, enforced fail-closed. With no database at all, 350 unit
-tests pass and the integration suite skips cleanly (30 files) — a path that is now actually
+Tests run against a disposable database, enforced fail-closed. With no database at all, **569 tests
+pass and 205 skip across 39 skipped files**, cleanly, in 28s (measured 2026-08-19; the "350 unit
+tests, 30 files" recorded here for several rounds was stale) — a path that is
 verified rather than assumed.
 
 **2026-08-18 interim round** (`a0eb92a..HEAD`, `docs/INTERIM_REVIEW_FINDINGS.md`). Codex usage is

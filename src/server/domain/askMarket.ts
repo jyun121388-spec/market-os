@@ -144,6 +144,44 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // Korean: 롱/숏 as positions, plus 공매도 (short selling) in instruction form.
   /(롱|숏)\s*(잡을|잡아|칠|쳐야|진입|포지션)/,
   /공매도\s*(할까|해야|하면|해도)/,
+  // Whole CONCEPTS that were never enumerated, found by probing concepts rather than phrasings
+  // (IR-034). IR-031 closed long/short; this closes seven more families that were absent for the
+  // same reason — the list covered phrasings of ideas someone had thought of, and nothing covered
+  // an idea nobody had listed.
+  //
+  // Every pattern here is anchored to an INSTRUCTION frame, because each of these words is also
+  // ordinary financial vocabulary. "margin" is an operating margin, "leverage" is a leverage
+  // ratio, "average" is a moving average, "portfolio" is portfolio theory. Matching them bare
+  // would break the analytical half of the product to protect the advisory half.
+  /\bshould i\b[\s\S]{0,30}\b(margin|leverage|calls?|puts?|options?|average down)\b/i,
+  /\bhow much (leverage|margin)\b/i,
+  /\b(use|using|trade|trading|buy|buying)\b[\s\S]{0,12}\b(on )?(margin|\d+x leverage)\b/i,
+  /\b(which|what) strike\b/i,
+  /\b(write|writing|sell|selling|buy|buying) (naked )?(calls?|puts?)\b/i,
+  /\baverage down\b/i,
+  // Anchored to an instruction, not to the term. "How does dollar cost averaging work as a
+  // concept?" is a question this product should answer, and the bare pattern blocked it — the
+  // same over-block the `fair value` pattern produced, caught here by the negative controls
+  // before it shipped rather than by a reviewer afterwards.
+  /\b(should i|good idea to|worth|recommend)\b[\s\S]{0,30}\bdollar[-\s]?cost[-\s]?averag/i,
+  /\bdollar[-\s]?cost[-\s]?averag\w*\b[\s\S]{0,15}\binto (this|it|that|my)\b/i,
+  // Hypothetical and third-party framings, which sidestep every first-person pattern by design.
+  /\bhypothetical(ly)?\b[\s\S]{0,80}\b(where should|what should|buy|sell|invest|put)\b/i,
+  /\bfor a friend\b[\s\S]{0,40}\b(buy|sell|hold|invest)\b/i,
+  /\bif someone had\b[\s\S]{0,40}\b(where|what|buy|invest|put)\b/i,
+  /\bis now a good (entry|time|moment)\b/i,
+  /\b(build|make|create) (me )?an? (portfolio|allocation|basket)\b/i,
+  /\bwhat percentage in\b/i,
+  // Korean counterparts. An English pattern with no Korean mirror is a hole, which this list has
+  // now learned twice.
+  /물타기/,
+  /(친구|아버지|어머니|부모님?|형|누나|동생|와이프|아내|남편)(가|이|께서|은|는)?\s*[\s\S]{0,25}(사야|팔아야|뭘\s*사|어디에?\s*투자)/,
+  /(가정해서|만약에?)\s*[\s\S]{0,30}(어디에?\s*(넣|투자)|뭘\s*사)/,
+  /포트폴리오\s*(짜|구성|만들)/,
+  /(들어갈|나올|진입할)\s*타이밍/,
+  /코인\s*(뭐|무엇|어떤)[\s\S]{0,10}(사|살|매수)/,
+  /(신용|미수|레버리지)\s*(로|으로)?\s*[\s\S]{0,10}(살까|사야|들어가|투자)/,
+  /(콜|풋)\s*옵션\s*[\s\S]{0,10}(살까|사야|매수|팔까)/,
   /\bhow much of my (portfolio|money|savings)\b/i,
   /\b(best|top) (stock|stocks|etf|etfs|pick|picks) to (buy|invest)/i,
   /\bwhat would you (buy|sell|invest in)\b/i,

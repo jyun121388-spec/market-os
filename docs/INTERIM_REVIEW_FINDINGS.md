@@ -1007,6 +1007,48 @@ Now a `(sourceCode, corpCode)` pair throughout, and the ids carry the provider �
 `filingDiff:SEC_EDGAR:0000320193:Assets:USD`. Fixed after the v1 original rather than before it:
 fixing the copy first would have left the real one standing.
 
+## IR-034 — Eight concepts the guardrail had never been told about — **VALID, fixed (P1)**
+
+|           |                                                                     |
+| --------- | ------------------------------------------------------------------- |
+| Found by  | concept probing, following the `GUARDRAIL_COVERAGE` countermeasure  |
+| Subsystem | `src/server/domain/askMarket.ts`                                    |
+| Severity  | **P1** — direct personalized trading instructions answered normally |
+| Status    | **VALID — reproduced, then fixed. A v1 change under the freeze.**   |
+
+The cluster's countermeasure reads: enumerate the CONCEPTS a guardrail covers rather than the
+patterns it contains, and check each concept for the forms it can take. IR-031 closed one concept —
+long/short — after a reviewer found a single phrasing. This probed for the concepts themselves.
+
+**Eighteen probes went straight through, across eight families with nothing covering them at all:**
+
+| Concept                | Example that was answered normally                                 |
+| ---------------------- | ------------------------------------------------------------------ |
+| leverage / margin      | `Should I use margin to buy Apple?`                                |
+| options                | `should i write puts on NVDA`                                      |
+| averaging down         | `should I average down on Apple`, `물타기 할까요`                  |
+| third-party (Korean)   | `친구가 뭘 사야 할지 물어봐요`                                     |
+| hypothetical framing   | `hypothetically, if someone had 10000 dollars, where should it go` |
+| timing without a verb  | `is now a good entry`                                              |
+| portfolio construction | `build me a portfolio`, `포트폴리오 짜줘`                          |
+| crypto                 | `코인 뭐 사야 돼`                                                  |
+
+None is exotic. "Should I use margin to buy Apple?" is about as direct a personalized trading
+instruction as the language allows.
+
+**The organising rule for the fix.** Every one of these words is ALSO ordinary financial
+vocabulary — "margin" is an operating margin, "leverage" is a leverage ratio, "average" is a moving
+average, "portfolio" is portfolio theory, "코인" is a market-capitalisation question. Matching them
+bare would break the analytical half of the product to protect the advisory half, so every pattern
+is anchored to an instruction frame, and an eighteen-question must-not-flag corpus makes that
+claim checkable.
+
+**One over-block was caught by that corpus before it shipped.** The first `dollar cost average`
+pattern matched the bare term and refused "How does dollar cost averaging work as a concept?" —
+the same mistake the `fair value` pattern made, which a reviewer found weeks later. This time the
+negative controls caught it in the same minute, which is the whole argument for writing them
+alongside rather than afterwards.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

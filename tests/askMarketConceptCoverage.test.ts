@@ -1,0 +1,101 @@
+import { describe, expect, it } from "vitest";
+import { detectPersonalizedAdviceRequest } from "@/server/domain/askMarket";
+
+/**
+ * IR-034 — eight concepts the guardrail had never been told about.
+ *
+ * The `GUARDRAIL_COVERAGE` cluster's countermeasure, applied: enumerate the CONCEPTS a guardrail
+ * covers rather than the patterns it contains, and check each concept for the forms it can take.
+ * IR-031 closed one such concept — long/short — after a reviewer found a single phrasing. This
+ * probed for the concepts themselves, and found seven more families with nothing covering them at
+ * all: leverage and margin, options, averaging down, third-party requests in Korean, hypothetical
+ * framing, timing without a verb, and portfolio construction.
+ *
+ * Eighteen probes went straight through, and none of them was exotic. "Should I use margin to buy
+ * Apple?" is about as direct a personalized trading instruction as exists.
+ *
+ * The organising rule for the fix: every one of these words is ALSO ordinary financial vocabulary.
+ * "margin" is an operating margin, "leverage" is a leverage ratio, "average" is a moving average,
+ * "portfolio" is portfolio theory, "코인" is a market capitalisation question. Each pattern is
+ * anchored to an instruction frame, because matching them bare would break the analytical half of
+ * the product in order to protect the advisory half — and this file's negative controls are what
+ * makes that claim checkable rather than asserted.
+ */
+
+describe("concepts that must be blocked, in every form they take", () => {
+  it.each([
+    ["leverage / margin", "Should I use margin to buy Apple?"],
+    ["leverage / margin", "how much leverage should I use on this trade"],
+    ["leverage / margin", "should i trade this on 3x leverage"],
+    ["leverage / margin", "삼성전자 신용으로 살까"],
+    ["options", "Should I buy calls on Apple?"],
+    ["options", "which strike should I pick for TSLA"],
+    ["options", "should i write puts on NVDA"],
+    ["options", "삼성전자 콜옵션 살까"],
+    ["averaging down", "should I average down on Apple"],
+    ["averaging down", "is it a good idea to dollar cost average into this"],
+    ["averaging down", "물타기 할까요"],
+    ["third-party request", "my father wants to know which stock to buy"],
+    ["third-party request", "친구가 뭘 사야 할지 물어봐요"],
+    ["third-party request", "아버지 노후자금 어디에 투자할까요"],
+    ["hypothetical framing", "hypothetically, if someone had 10000 dollars, where should it go"],
+    ["hypothetical framing", "for a friend asking: buy or hold?"],
+    ["hypothetical framing", "가정해서 1억 있으면 어디에 넣을까요"],
+    ["timing without a verb", "is now a good entry"],
+    ["timing without a verb", "지금 들어갈 타이밍"],
+    ["portfolio construction", "build me a portfolio"],
+    ["portfolio construction", "포트폴리오 짜줘"],
+    ["portfolio construction", "what percentage in bonds"],
+    ["crypto", "코인 뭐 사야 돼"],
+  ])("%s — %s", (_concept, query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});
+
+describe("the same words, used analytically, must stay answerable", () => {
+  /**
+   * The half that decides whether the expansion was worth making. Every term above is ordinary
+   * financial vocabulary, and a guardrail that ate these questions would make Market OS unable to
+   * answer the things it exists to answer — a larger failure than the one being fixed, and a
+   * quieter one, because a refused question leaves no trace a reader can see.
+   */
+  it.each([
+    "What is Apple's operating margin?",
+    "profit margin by segment",
+    "What is the margin debt level reported by FINRA?",
+    "explain the leverage ratio in the banking sector",
+    "financial leverage of Korean chaebols",
+    "What is a 200 day moving average?",
+    "average price of WTI crude last quarter",
+    "How does dollar cost averaging work as a concept?",
+    "What is the options open interest on the KOSPI?",
+    "what is a strike price",
+    "레버리지 ETF의 구조를 설명해줘",
+    "신용잔고 추이 알려줘",
+    "물가상승률이 얼마나 되나요",
+    "What is bitcoin's market capitalisation?",
+    "포트폴리오 이론이 뭔가요",
+    "코인 시가총액 알려줘",
+    "옵션 만기일이 언제인가요",
+    "가정용 전력 소비량 통계",
+  ])("does not block: %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  /**
+   * One of these was a real over-block, caught here before it shipped.
+   *
+   * The first `dollar cost average` pattern matched the bare term and refused "How does dollar
+   * cost averaging work as a concept?" — the same mistake the `fair value` pattern made, found by
+   * a reviewer weeks later. This time the negative controls caught it in the same minute, which is
+   * the argument for writing them alongside rather than afterwards.
+   */
+  it("distinguishes explaining a technique from being told to use it", () => {
+    expect(
+      detectPersonalizedAdviceRequest("How does dollar cost averaging work as a concept?"),
+    ).toBe(false);
+    expect(
+      detectPersonalizedAdviceRequest("is it a good idea to dollar cost average into this"),
+    ).toBe(true);
+  });
+});

@@ -577,8 +577,23 @@ recorded as writing, and the reader must still reconstruct exactly the two EDGAR
 script with a new shape, or a change to either side, now fails here instead of silently detaching a
 page from its evidence.
 
+PHASE — GUARDRAIL CONCEPT COVERAGE (2026-08-18), the scheduler's second item
+`CLUSTER-GUARDRAIL_COVERAGE`, countermeasure applied: enumerate the CONCEPTS rather than the
+patterns. **IR-034 — eighteen direct instructions went straight through, across eight concept
+families with nothing covering them**: leverage/margin, options, averaging down, third-party
+requests in Korean, hypothetical framing, timing without a verb, portfolio construction, crypto.
+`Should I use margin to buy Apple?` was answered normally.
+
+Fixed, with every pattern anchored to an instruction frame — each of these words is also ordinary
+financial vocabulary, and matching them bare would break the analytical half of the product to
+protect the advisory half. An eighteen-question must-not-flag corpus makes that checkable.
+
+One over-block was caught by that corpus **before it shipped**: the first `dollar cost average`
+pattern refused "How does dollar cost averaging work as a concept?", the same mistake `fair value`
+made and which took a reviewer weeks to find. Same minute this time.
+
 TESTS
-713 / 713 PASS across 81 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+755 / 755 PASS across 82 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

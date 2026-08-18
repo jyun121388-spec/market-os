@@ -583,6 +583,21 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "IDENTITY_MODELLING",
   },
 
+  {
+    id: "GC-03",
+    ledger: "SECURITY_FINDING",
+    subsystem: "askMarket guardrail",
+    severity: "P1",
+    summary:
+      "Eight whole concepts had nothing covering them: leverage, margin, options, averaging " +
+      "down, third-party requests in Korean, hypothetical framing, timing without a verb, and " +
+      "portfolio construction.",
+    lesson:
+      "Probing for PHRASINGS finds phrasings; only probing for CONCEPTS finds a concept nobody " +
+      "ever listed, and eighteen direct instructions went through because of it.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

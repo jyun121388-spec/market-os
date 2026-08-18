@@ -598,6 +598,20 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "GUARDRAIL_COVERAGE",
   },
 
+  {
+    id: "CC-05",
+    ledger: "REVIEW_FINDING",
+    subsystem: "auth",
+    severity: "P2",
+    summary:
+      "Concurrent signup with one email creates exactly one account, and hands the losers a raw " +
+      "P2002 instead of the AuthError the sequential path produces.",
+    lesson:
+      "The constraint was added and the HANDLER was not, so the race was made safe without being " +
+      "made presentable — the third time this exact pair has come apart.",
+    category: "CONCURRENCY",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

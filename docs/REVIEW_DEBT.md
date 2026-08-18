@@ -140,3 +140,28 @@ reserves for P0/P1.
 adapter now carries the shortfall, so the real shadow run reports Ask Market answers as
 **TRUNCATED** with `data_completeness` failing. The gap is measured and visible in the verdict
 before it is visible on the page; promoting it to the page is a v1 decision.
+
+## IR-036 — A concurrent signup gets a raw P2002 (raised 2026-08-18, deferred by the freeze)
+
+From the `CONCURRENCY` countermeasure — list every place that reads a row, decides something, and
+writes based on the decision; each is either transactional, constraint-protected, or an instance
+waiting to happen.
+
+`signUp` reads `user.findUnique({ email })`, decides the address is free, and creates.
+`User.email` is `@unique`, so the database never produces two accounts — **reproduced with three
+concurrent signups: exactly one user created.** The constraint holds.
+
+What does not hold is the error. The two losers receive a raw Prisma `PrismaClientKnownRequestError`
+(P2002) rather than the `AuthError` the sequential path produces, so the signup form shows a 500
+where it should show "an account with this email already exists". Identical in shape to CC-03
+(watchlist) and CC-04 (revision chain), both of which were fixed before the freeze.
+
+**P2, not fixed.** Nothing is corrupted and nothing is exposed; a rare race produces a bad error
+message. The fix is a `catch` on P2002 in `signUp` rethrowing the existing `AuthError` — two lines,
+making two paths agree rather than changing behaviour — but the freeze reserves v1 for P0/P1 and
+consistency about that line matters more than one cheap fix.
+
+`tests/integration/signup-race.test.ts` pins both halves: the constraint invariant asserted as it
+should be, and the error shape asserted **as it currently is, deliberately the wrong way round, so
+that fixing it breaks the test.** A known gap asserted as correct behaviour is how a defect becomes
+a specification.

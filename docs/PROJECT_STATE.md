@@ -632,8 +632,27 @@ gap is measured and visible in a verdict before it is visible on a page.
 Controls both ways: an answer showing everything held is not flagged, and absent holdings report
 INSUFFICIENT_EVIDENCE rather than becoming "complete".
 
+PHASE — READ-THEN-WRITE ENUMERATION (2026-08-18), the scheduler's fifth item
+`CLUSTER-CONCURRENCY`, countermeasure: list every place that reads a row, decides something, and
+writes based on the decision; each is either transactional, constraint-protected, or an instance
+waiting to happen.
+
+Enumerated. The event ingest paths are inside `$transaction`, the observation chain is
+constraint-protected by a partial unique index, and the watchlist upsert was fixed as CC-03. One
+was left: **`signUp` reads `user.findUnique({ email })`, decides the address is free, and creates.**
+
+**IR-036, reproduced with three concurrent signups: exactly one account created — the constraint
+holds — and the two losers receive a raw Prisma P2002 rather than the `AuthError` the sequential
+path produces.** On the signup form that is a 500 for a user who did nothing unusual. The same
+shape as CC-03 and CC-04, both fixed before the freeze: the constraint was added and the HANDLER
+was not, so the race was made safe without being made presentable.
+
+P2 and not fixed — nothing corrupted, nothing exposed. The test pins both halves, and the error
+shape is asserted **as it currently is, deliberately the wrong way round, so that fixing it breaks
+the test.** A known gap asserted as correct behaviour is how a defect becomes a specification.
+
 TESTS
-764 / 764 PASS across 83 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+766 / 766 PASS across 84 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

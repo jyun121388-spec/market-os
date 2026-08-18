@@ -557,9 +557,15 @@ export function classifyEvidenceGap(
           "so its absence from this record is a property of the record, not of the provider.",
       };
     case "CONDITIONAL":
+      // Deliberately does NOT claim the condition was checked, because this function is not given
+      // enough to check it (`gpt-5.6-terra`). Saying "expected absence" outright would classify a
+      // genuinely malformed record as normal; saying the condition went unevaluated leaves the
+      // reader able to look.
       return {
         kind: "CONDITIONAL_ABSENCE",
-        rationale: `${sourceCode} supplies ${axis} only under stated conditions: ${capability.basis}`,
+        rationale:
+          `${sourceCode} supplies ${axis} only under stated conditions, and whether this record ` +
+          `meets them was not evaluated here: ${capability.basis}`,
       };
     case "UNKNOWN":
       return {

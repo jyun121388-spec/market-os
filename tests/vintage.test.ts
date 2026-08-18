@@ -192,6 +192,9 @@ describe("Verify — revision_integrity applicability", () => {
     concept: "Revenues",
     period: { start: null, end, months: 3, days: 91 },
     accessionNumber: accession,
+    // Filing Diff ranks every held version before choosing; an accession alone does not settle
+    // which version is current (IR-025).
+    isMostCurrentHeldVersion: true,
   });
 
   /**

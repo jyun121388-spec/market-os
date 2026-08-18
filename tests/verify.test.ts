@@ -22,6 +22,10 @@ const fact = (over: Partial<CalculationInput> = {}): CalculationInput => ({
   concept: "RevenueFromContractWithCustomerExcludingAssessedTax",
   period: { start: "2026-03-29", end: "2026-06-27", months: 3, days: 90 },
   accessionNumber: "ACC-2",
+  // These fixtures stand in for Filing Diff output, and `computeFinancialFactDiff` ranks every
+  // held fact through the shared comparator before choosing. Without saying so, `revision_integrity`
+  // correctly refuses to stand down — an accession names a filing, not the current version (IR-025).
+  isMostCurrentHeldVersion: true,
   ...over,
 });
 

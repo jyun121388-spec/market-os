@@ -1,4 +1,4 @@
-import { vintageUnavailable, knownVintage, type ProviderVintage } from "../fabric/vintage";
+import { vintageUnavailable, withStoredReleaseDate, type ProviderVintage } from "../fabric/vintage";
 import type { CalculationInput, VerificationInput } from "./types";
 
 /**
@@ -55,18 +55,18 @@ export interface SeriesChangeEvidence {
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Vintage for one observation: the release date is real evidence where the provider gave one. */
+/**
+ * Vintage for one observation.
+ *
+ * A stored release date counts as evidence only where the capability matrix says the provider's
+ * release semantics have been confirmed live — see `withStoredReleaseDate`.
+ */
 function vintageOf(sourceCode: string, observation: ObservationEvidence): ProviderVintage {
-  const base = vintageUnavailable(sourceCode, observation.retrievedAt.toISOString());
-  return observation.releaseDate
-    ? {
-        ...base,
-        sourceReleasedAt: knownVintage(
-          observation.releaseDate.toISOString(),
-          `${sourceCode}: Observation.releaseDate as stored`,
-        ),
-      }
-    : base;
+  return withStoredReleaseDate(
+    vintageUnavailable(sourceCode, observation.retrievedAt.toISOString()),
+    sourceCode,
+    observation.releaseDate?.toISOString() ?? null,
+  );
 }
 
 export function verificationInputFromSeriesChange(

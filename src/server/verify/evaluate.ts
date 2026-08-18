@@ -416,10 +416,30 @@ function revisionIntegrity(input: VerificationInput): DimensionResult {
 
   const calc = input.calculation;
   if (calc?.current.accessionNumber && calc.previous.accessionNumber) {
-    return na(
-      `Both figures are bound to a named provider filing (${calc.previous.accessionNumber} then ` +
-        `${calc.current.accessionNumber}). Which version of a figure is shown follows from the ` +
-        "filing it was read out of, not from the order our ingests happened to arrive.",
+    // An accession alone is NOT enough, although the first version of this treated it as though
+    // it were. It identifies the filing a figure came from; a figure restated by a later 10-K/A
+    // still carries the accession of the original, so "both sides name a filing" was returning
+    // NOT_APPLICABLE for precisely the case this dimension exists to catch.
+    //
+    // What earns it is filing identity PLUS someone having ranked every held version for the
+    // period. Where that ranking has not happened, the question is open, not inapplicable.
+    if (calc.current.isMostCurrentHeldVersion && calc.previous.isMostCurrentHeldVersion) {
+      return na(
+        `Both figures are bound to a named provider filing (${calc.previous.accessionNumber} then ` +
+          `${calc.current.accessionNumber}) and each is the most current version held for its ` +
+          "period. Which version is shown follows from filing identity and that ranking, not from " +
+          "the order our ingests happened to arrive.",
+      );
+    }
+    return withEvidenceGap(
+      unknown(
+        `Both figures name a filing (${calc.previous.accessionNumber}, ` +
+          `${calc.current.accessionNumber}), but nothing states that either is the most current ` +
+          "version held for its period. A figure restated by a later amendment carries the " +
+          "accession of the filing it was originally reported in.",
+      ),
+      input,
+      "amendment_identity",
     );
   }
 

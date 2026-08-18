@@ -1,7 +1,7 @@
 LAST COMPLETED
 
-**Seventh round — provider capability matrix, 2026-08-18.** v1 frozen throughout; every change is
-in the v2 shadow layers. Baseline 538 → **596** tests across 71 files.
+**Seventh round — provider capability matrix and its independent review, 2026-08-18.** v1 frozen
+throughout; every change is in the v2 shadow layers. Baseline 538 → **616** tests across 73 files.
 
 ## Verified state at handoff
 
@@ -10,7 +10,7 @@ in the v2 shadow layers. Baseline 538 → **596** tests across 71 files.
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **596 / 596** across 71 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **616 / 616** across 73 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -39,6 +39,17 @@ instants, and it produces verdicts the SEC path structurally cannot.
 providers, every cell carrying its evidence and provenance. `SUPPORTED` and `NOT_SUPPORTED` both
 require `LIVE_RESPONSE`; every `NOT_VERIFIED` names its gate. Verify classifies evidence gaps
 against it, Governance reads reality state, Evolution generates proposals from it.
+
+## Independent review
+
+Codex became available mid-session. `gpt-5.6-terra` reviewed the shadow layers cross-file over
+`b6eb8fd..HEAD` and returned five findings; **all five reproduced and all five were valid**
+(IR-022..IR-026), which is a sharp contrast with the previous two rounds and did not make the
+reproduction step optional. Separately, investigating the ECOS shadow disagreement produced IR-027:
+no v1 defect, but a real fixture gap now closed.
+
+Independent review of Governance and Evolution specifically has NOT been run; Sol remains reserved
+for the final Release Candidate pass and for any v1 P0/P1.
 
 ## Shadow run against the real database
 

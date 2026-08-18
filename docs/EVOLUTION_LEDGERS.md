@@ -184,11 +184,11 @@ Clusters the detector reports over the current backfill, worst severity first wi
 
 | Category               | Instances | Worst | The recurring cause                                          |
 | ---------------------- | --------- | ----- | ------------------------------------------------------------ |
+| `IDENTITY_MODELLING`   | 5         | P0    | A key asked to carry more than it can                        |
 | `PROVIDER_ASSUMPTION`  | 5         | P1    | A documented shape believed over an observed response        |
-| `IDENTITY_MODELLING`   | 4         | P0    | A key asked to carry more than it can                        |
+| `GUARDRAIL_COVERAGE`   | 5         | P1    | A rule expressed in one language, order or path only         |
 | `CONCURRENCY`          | 4         | P1    | A read-then-write sequence treated as atomic                 |
 | `FIXTURE_REALISM`      | 4         | P1    | Fixtures hold one of something the world has many of         |
-| `GUARDRAIL_COVERAGE`   | 4         | P1    | A rule expressed in one language, order or path only         |
 | `PROVENANCE`           | 3         | P1    | A value shown without what it came from                      |
 | `SILENT_DEGRADATION`   | 3         | P1    | Failure by returning less, with no signal                    |
 | `ENVIRONMENT_DRIFT`    | 3         | P2    | A check made on surface text rather than what it resolves to |
@@ -206,6 +206,17 @@ pass reported from a dev server started before the fix under test. Different sub
 code, one cause — a clock standing in for provenance. `EVIDENCE_FABRICATION` joins a Codex reviewer
 quoting a reproduction it never ran to four local-model findings that survived nothing. Both were
 recorded as one-off embarrassments at the time; only the ledger makes them a pattern.
+
+**Two entries added 2026-08-18 from the shadow-layer review**, both in existing clusters rather
+than new ones — which is the detector working as intended:
+
+- `RF-04` (IDENTITY_MODELLING) — the same release-date promotion written independently at two call
+  sites, and wrong at both. The lesson is not "check release dates"; it is that a rule duplicated
+  across two readers will be wrong in both places at once, and the fix is one shared function
+  rather than two corrected copies.
+- `GC-01` (GUARDRAIL_COVERAGE) — an audit record that refused to log a DENIED action as EXECUTED
+  but accepted a conditionally-permitted one with the condition unmentioned. A guard written for
+  the obvious violation, with the adjacent one left open.
 
 ## Storage
 

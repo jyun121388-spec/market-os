@@ -105,10 +105,18 @@ describe("the macro path and the version question", () => {
     expect(result.verdict).toBe("SEMANTIC_REVISION_UNRESOLVED");
   });
 
-  it("settles it when the provider dated both versions", () => {
+  /**
+   * These two used FRED and passed until IR-022: a stored release date was being promoted to
+   * evidence for any provider, including three whose release semantics have never been seen in a
+   * real response. They now use SEC_EDGAR, whose `filed` date IS live-verified, so what they test
+   * is unchanged — that a dated pair of versions settles the question — while the provenance rule
+   * decides whether the date counts as dated at all.
+   */
+  it("settles it when a provider whose release semantics are proven dated both versions", () => {
     const result = verify(
       verificationInputFromSeriesChange(
         evidence({
+          sourceCode: "SEC_EDGAR",
           current: observation("2026-08-01", 4.25, {
             isRevision: true,
             releaseDate: new Date("2026-08-15T00:00:00.000Z"),
@@ -127,6 +135,7 @@ describe("the macro path and the version question", () => {
     const result = verify(
       verificationInputFromSeriesChange(
         evidence({
+          sourceCode: "SEC_EDGAR",
           current: observation("2026-08-01", 4.25, {
             isRevision: true,
             releaseDate: new Date("2026-08-05T00:00:00.000Z"),
@@ -139,6 +148,25 @@ describe("the macro path and the version question", () => {
     );
     expect(result.dimensions.revision_integrity.status).toBe("FAIL");
     expect(result.verdict).toBe("REJECTED");
+  });
+
+  it("does not settle it for a provider whose release semantics are unverified", () => {
+    // The same two dated versions, from FRED. Identical evidence, different standing.
+    const result = verify(
+      verificationInputFromSeriesChange(
+        evidence({
+          current: observation("2026-08-01", 4.25, {
+            isRevision: true,
+            releaseDate: new Date("2026-08-15T00:00:00.000Z"),
+          }),
+          supersededByCurrent: observation("2026-08-01", 4.2, {
+            releaseDate: new Date("2026-08-05T00:00:00.000Z"),
+          }),
+        }),
+      ),
+    );
+    expect(result.dimensions.revision_integrity.status).toBe("INSUFFICIENT_EVIDENCE");
+    expect(result.verdict).toBe("SEMANTIC_REVISION_UNRESOLVED");
   });
 
   /**

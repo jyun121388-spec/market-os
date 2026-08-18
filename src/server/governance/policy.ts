@@ -139,6 +139,11 @@ export interface ObservedExecution {
   outcome: ExecutionOutcome;
   /** What happened, in words. An outcome with no account of itself is not an audit record. */
   detail: string;
+  /**
+   * What satisfied the required verification, for an EXECUTED action that was permitted subject
+   * to one. Required in that case; meaningless otherwise.
+   */
+  verifiedBy?: string;
 }
 
 export interface PolicyEvaluation {
@@ -544,6 +549,7 @@ export function observeExecution(
   evaluation: PolicyEvaluation,
   outcome: ExecutionOutcome,
   detail: string,
+  verifiedBy?: string,
 ): ObservedExecution {
   if (
     outcome === "EXECUTED" &&
@@ -555,7 +561,32 @@ export function observeExecution(
         "record.",
     );
   }
-  return { action: evaluation.action.kind, decision: evaluation.decision, outcome, detail };
+
+  // AUTO_ALLOWED_WITH_VERIFY means the verification MUST pass, and the first version of this
+  // function let an action be recorded as EXECUTED without any statement that it had
+  // (`gpt-5.6-terra`, reproduced with REFACTOR). "Permitted subject to a condition" recorded as
+  // "done" with no mention of the condition is the same hole the DENIED check above closes, one
+  // decision further along.
+  if (
+    outcome === "EXECUTED" &&
+    evaluation.decision === "AUTO_ALLOWED_WITH_VERIFY" &&
+    evaluation.requiredVerification.length > 0 &&
+    !verifiedBy
+  ) {
+    throw new Error(
+      `${evaluation.action.kind} was recorded as EXECUTED under AUTO_ALLOWED_WITH_VERIFY without ` +
+        `naming what satisfied [${evaluation.requiredVerification.join(", ")}]. The condition is ` +
+        "part of the permission, so an outcome that omits it is not evidence the action was allowed.",
+    );
+  }
+
+  return {
+    action: evaluation.action.kind,
+    decision: evaluation.decision,
+    outcome,
+    detail,
+    verifiedBy,
+  };
 }
 
 export function evaluateAction(action: ActionDescriptor): PolicyEvaluation {

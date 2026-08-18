@@ -73,3 +73,30 @@ No Codex finding changes code on its own authority. Every finding goes through
 reproduce → valid/invalid → failing test → minimal fix → verify. Unreproducible findings are
 recorded as `REJECTED_FINDING` with reasoning, in `docs/INTERIM_REVIEW_FINDINGS.md`. Model
 authority does not override runtime evidence.
+
+## Review actually performed, 2026-08-18 (second window)
+
+Codex became available again during this session. One review was run and routed per the standing
+rules.
+
+| Model           | Scope                                                      | Result                                 |
+| --------------- | ---------------------------------------------------------- | -------------------------------------- |
+| `gpt-5.6-terra` | Cross-file review of the v2 shadow layers, `b6eb8fd..HEAD` | 5 findings, **all 5 valid**, all fixed |
+
+Terra is the correct routing for this: the target was interactions BETWEEN files — a capability
+matrix, a contract deriving from it, and two consumers — which is exactly what a bounded reviewer
+would miss and what Sol should not be spent on. Sol remains reserved for the final Release
+Candidate adversarial pass and for any P0/P1 on v1.
+
+Two operational notes worth keeping:
+
+- `codex exec` blocks on stdin when invoked non-interactively even with the prompt passed as an
+  argument. Redirect from `/dev/null` or the process hangs indefinitely, printing only
+  "Reading additional input from stdin...".
+- Always `-s read-only`. Without it `codex exec` defaults to `workspace-write` with
+  `approval: never`, which lets a reviewer edit the tree it is reviewing.
+
+**Calibration.** All five findings reproduced exactly as described, which is a marked contrast with
+the two previous rounds — Sol fabricated a reproduction (IR-020) and the local models produced four
+worthless findings. The reproduction step did not become optional as a result. It is what
+established that these five were real, and it is the same step that rejected the other five.

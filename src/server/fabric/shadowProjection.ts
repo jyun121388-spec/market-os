@@ -2,7 +2,7 @@ import { prisma } from "@/server/db/client";
 import { computeCalendarEntry } from "@/server/domain/economicCalendar";
 import { evaluateStaleness } from "@/server/domain/staleness";
 import { assessCompleteness } from "@/server/domain/companyXray";
-import { knownVintage, vintageUnavailable, type ProviderVintage } from "./vintage";
+import { vintageUnavailable, withStoredReleaseDate, type ProviderVintage } from "./vintage";
 
 /**
  * Reality Fabric — READ-ONLY SHADOW PROJECTION (docs/WORLD_DATA_FABRIC.md).
@@ -163,16 +163,11 @@ export async function computeFabricProjection(now: Date = new Date()): Promise<F
     // A release date, where the provider gave one, IS vintage evidence — the weaker rung, but
     // real. Everything else is reported at whatever the capability table says is honest for this
     // provider, so the projection never implies we hold evidence we do not.
-    const baseVintage = vintageUnavailable(s.source.code, lastRetrieval ? iso(lastRetrieval) : "");
-    const vintage: ProviderVintage = latestObservation?.releaseDate
-      ? {
-          ...baseVintage,
-          sourceReleasedAt: knownVintage(
-            latestObservation.releaseDate.toISOString(),
-            `${s.source.code}: Observation.releaseDate as stored`,
-          ),
-        }
-      : baseVintage;
+    const vintage: ProviderVintage = withStoredReleaseDate(
+      vintageUnavailable(s.source.code, lastRetrieval ? iso(lastRetrieval) : ""),
+      s.source.code,
+      latestObservation?.releaseDate?.toISOString() ?? null,
+    );
 
     const stalenessVerdict = staleness?.status ?? "UNKNOWN";
     const state: FabricState =

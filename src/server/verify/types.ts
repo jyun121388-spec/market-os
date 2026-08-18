@@ -99,6 +99,20 @@ export interface CalculationInput {
   concept?: string;
   /** The filing this came from. Two inputs sharing one accession did not span two periods. */
   accessionNumber?: string;
+  /**
+   * Whether this figure is the most current version HELD for its period.
+   *
+   * Distinct from `accessionNumber`, and the distinction was a real gap (`gpt-5.6-terra`,
+   * reproduced). An accession says which filing a figure came from; it says nothing about whether
+   * a later filing has since restated it. A superseded original carries a perfectly good
+   * accession, so `revision_integrity` was returning NOT_APPLICABLE for exactly the case it
+   * exists to catch.
+   *
+   * Set by an adapter that has ranked every held version for the period — `filingDiff` does, via
+   * the shared `compareFactCurrency`. Absent means nobody ranked them, which is a different claim
+   * from "there was only one".
+   */
+  isMostCurrentHeldVersion?: boolean;
 }
 
 /**

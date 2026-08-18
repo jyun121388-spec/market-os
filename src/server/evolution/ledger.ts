@@ -406,6 +406,35 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "SEMANTIC_RECENCY",
   },
 
+  // From the independent review of the shadow layers (`gpt-5.6-terra`, 2026-08-18). Both land in
+  // clusters that already existed, which is the detector working rather than a new category.
+  {
+    id: "RF-04",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify/fromSeriesChange + fabric/shadowProjection",
+    severity: "P1",
+    summary:
+      "Both call sites promoted a stored releaseDate to KNOWN evidence for providers whose " +
+      "release semantics have never been observed.",
+    lesson:
+      "A rule duplicated across two readers was wrong in both places at once, so correcting " +
+      "either copy would have left the defect live in the other.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "GC-01",
+    ledger: "REVIEW_FINDING",
+    subsystem: "governance/policy",
+    severity: "P1",
+    summary:
+      "observeExecution refused to record a DENIED action as EXECUTED but accepted a " +
+      "conditionally-permitted one with the condition unmentioned.",
+    lesson:
+      "A guard was written for the obvious violation and stopped one step short of the adjacent " +
+      "one, which shares its shape exactly.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

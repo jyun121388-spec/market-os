@@ -677,6 +677,81 @@ any series that has actually been revised without provider evidence, which curre
 runs. It is still **PROVIDER_KEY_REQUIRED**; what changed is that the shape of the answer is now
 written down and tested, so the key is the only thing missing rather than the key and the design.
 
+## IR-022..IR-026 — Independent review of the shadow layers (`gpt-5.6-terra`) — **all five VALID, fixed**
+
+|           |                                                                       |
+| --------- | --------------------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-terra`, cross-file review of `b6eb8fd..HEAD`, `-s read-only` |
+| Subsystem | v2 shadow layers only — no v1 file was touched                        |
+| Severity  | four P1, one P2 (all shadow; nothing reaches a rendered page)         |
+| Status    | **all five reproduced before any change, all five VALID, all fixed**  |
+
+Worth recording as a calibration data point alongside IR-020. Terra reported five findings and all
+five reproduced exactly as described — after a round in which Sol fabricated a reproduction and the
+local models produced four worthless findings. A reviewer being wrong before does not make it wrong
+now; it just means the reproduction step is not optional either way. Each was run first.
+
+**IR-022 (P1) — a stored release date was treated as understood.** `fromSeriesChange` and
+`shadowProjection` both promoted `Observation.releaseDate` to `KNOWN` for any provider, while the
+capability matrix records FRED's, ECOS's and DART's release semantics as `NOT_VERIFIED`. Holding a
+value and knowing what the provider meant by it are different things, and the unverified one was
+strong enough to flip `revision_integrity` to PASS. Reproduced: a FRED revision with release dates
+on both sides returned PASS. Fixed with one shared `withStoredReleaseDate()` — the two call sites
+had each written the same promotion independently, which is how they were both wrong. SEC's
+live-verified `filed` date still counts, so the fix narrows by provenance rather than by distrust.
+
+**IR-023 (P1) — "permitted subject to verification" could be recorded as simply done.**
+`observeExecution` refused to log a DENIED action as EXECUTED but accepted an
+`AUTO_ALLOWED_WITH_VERIFY` one with no statement that the verification had passed. Reproduced with
+`REFACTOR`. The condition is part of the permission, so an outcome omitting it is not evidence the
+action was allowed — the same hole as the DENIED case, one decision further along. Now requires the
+verification be named.
+
+**IR-024 (P1) — the vintage rungs were interchangeable.** `compareVintage` dropped to release time
+whenever the two sides did not BOTH carry a vintage. Reproduced: current with vintage 2026-06-01
+and release 2026-01-01 against a candidate with no vintage and release 2026-02-01 returned
+`CANDIDATE_IS_NEWER`, while the stronger evidence held says the current value became current four
+months after the candidate was published. Now `UNRESOLVED` when a vintage exists on one side only.
+Release time is still used when neither side has one — the narrowing is specific.
+
+**IR-025 (P1) — an accession names a filing, not the current version.** `revision_integrity`
+returned `NOT_APPLICABLE` whenever both figures carried an accession. A figure restated by a later
+10-K/A still carries the accession of the filing it was first reported in, so the dimension was
+standing down for exactly the case it exists to catch. Fixed by requiring filing identity PLUS a
+statement that each side is the most current version HELD for its period; `fromFilingDiff` can make
+that statement, because `computeFinancialFactDiff` ranks every held fact through the shared
+`compareFactCurrency`. The eight real SEC outputs are unchanged, which is the control — without
+that flag they would all have collapsed to one verdict.
+
+**IR-026 (P2) — a conditional absence implied a check that never happened.**
+`classifyEvidenceGap` reported `CONDITIONAL_ABSENCE` without being given anything that could
+establish whether the record met the condition. The classification stays; the rationale now says
+the condition was not evaluated here, so a genuinely malformed record is not described as normal.
+
+All five carry regression tests in `tests/shadowReviewFindings.test.ts`, each paired with a
+positive control — four of the five fixes narrow something, and a narrowing that goes too far
+produces a layer that answers "cannot tell" to everything, which this project has already done to
+itself twice.
+
+## IR-027 — A revision retrieved before its own parent — **no defect, coverage gap closed**
+
+The shadow Fabric projection flagged `ECOS:722Y001:0101000` (한국은행 기준금리) as revised without
+provider vintage evidence. Reading the rows behind the flag shows something the flag did not
+predict: the revision to 2.5 carries a `retrievedAt` about **nine hours earlier** than the original
+3.0 it points at.
+
+**v1 handles it correctly.** `getRecentObservationPair` walks the revision chain structurally
+rather than sorting on `retrievedAt`, so the tail is found regardless. Verified by running it.
+
+The gap was in the fixtures. Existing tests cover an original and its revision sharing an
+_identical_ `retrievedAt` — the `timestamp(3)` collision behind the original defect — and nothing
+covered _inversion_, which is strictly stronger: a tiebreak that merely broke ties deterministically
+would pass the equal-timestamps tests and still answer this wrongly.
+`tests/integration/revision-retrieval-inversion.test.ts` now pins it, including a three-row chain
+whose retrieval order is the exact reverse of its semantic order, and the write path attaching the
+next revision to the right parent. Not exotic: a backfill ingesting recent data first, a retried
+job from an earlier queue, or a stale CDN page all produce it.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

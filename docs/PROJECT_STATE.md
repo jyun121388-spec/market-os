@@ -328,8 +328,39 @@ Propagated:
   CAP-DEBT proposals and one CAP-CEILING. No CAP-DEBT-SEC_EDGAR exists, which is the control: a
   generator that raises one per provider is not reading anything.
 
+INDEPENDENT REVIEW OF THE SHADOW LAYERS (2026-08-18, `gpt-5.6-terra`)
+Codex became available again and one cross-file review was run over `b6eb8fd..HEAD`, scoped to the
+v2 shadow layers. **Five findings, all five reproduced before any change, all five valid, all
+fixed** — recorded as IR-022..IR-026. Terra was the right routing: the target was interactions
+between a capability matrix, a contract deriving from it, and two consumers.
+
+- **IR-022** a stored `releaseDate` was promoted to KNOWN evidence for providers whose release
+  semantics have never been observed. The same promotion had been written independently at two
+  call sites and was wrong at both; one shared `withStoredReleaseDate()` now decides it.
+- **IR-023** `observeExecution` accepted an EXECUTED record for an `AUTO_ALLOWED_WITH_VERIFY`
+  action with no statement that the verification had passed.
+- **IR-024** `compareVintage` dropped to release time whenever the two sides did not BOTH carry a
+  vintage, so weaker evidence could answer while stronger evidence was held.
+- **IR-025** `revision_integrity` returned NOT_APPLICABLE whenever both figures carried an
+  accession. A figure restated by a later 10-K/A carries the accession of the filing it was first
+  reported in, so the dimension was standing down for the case it exists to catch.
+- **IR-026** `classifyEvidenceGap` implied it had checked a condition it was never given enough to
+  check.
+
+**IR-027 — the ECOS shadow disagreement, investigated.** `REVISED_WITHOUT_VINTAGE` on
+`ECOS:722Y001:0101000` led to something the flag did not predict: the revision carries a
+`retrievedAt` nine hours EARLIER than the original it supersedes. v1 handles it correctly — the
+chain is walked structurally rather than sorted — but no fixture covered inversion, only the
+equal-timestamp collision. `tests/integration/revision-retrieval-inversion.test.ts` closes that,
+including a three-row chain retrieved in exact reverse order.
+
+Every fix is paired with a positive control. Four of the five narrow something, and a narrowing
+that goes too far produces a layer answering "cannot tell" to everything — a failure this project
+has already caused itself twice. The eight real SEC outputs are unchanged at
+VERIFIED_WITH_LIMITATION, which is the control that matters.
+
 TESTS
-596 / 596 PASS across 71 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+616 / 616 PASS across 73 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

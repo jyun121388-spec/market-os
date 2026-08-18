@@ -134,6 +134,28 @@ export function compareVintage(
     };
   }
 
+  // A vintage on one side and none on the other is NOT a reason to drop to release time.
+  //
+  // Found by independent review (`gpt-5.6-terra`) and reproduced: current carries
+  // providerVintageAt 2026-06-01 and sourceReleasedAt 2026-01-01, candidate carries no vintage
+  // and sourceReleasedAt 2026-02-01. Comparing releases returned CANDIDATE_IS_NEWER while the
+  // stronger evidence we actually hold says the current value became current in June — four
+  // months after the candidate was published. The rungs are not interchangeable, so falling
+  // between them silently discards the better evidence and answers from the worse.
+  const vintageStates = [
+    current.providerVintageAt.availability,
+    candidate.providerVintageAt.availability,
+  ];
+  if (vintageStates.includes("KNOWN")) {
+    return {
+      verdict: "UNRESOLVED",
+      rationale:
+        "One side states a provider vintage and the other does not, so there is nothing to " +
+        "compare it against. Dropping to release time here would answer from weaker evidence " +
+        "while holding stronger evidence that may contradict it.",
+    };
+  }
+
   if (isKnown(current.sourceReleasedAt, candidate.sourceReleasedAt)) {
     const c = current.sourceReleasedAt.value as string;
     const n = candidate.sourceReleasedAt.value as string;
@@ -188,6 +210,37 @@ function availabilityFromCapability(state: CapabilityState): EvidenceAvailabilit
     case "UNKNOWN":
       return "UNKNOWN";
   }
+}
+
+/**
+ * Vintage for a value whose stored release date we hold.
+ *
+ * Shared by every caller, because the two that existed had each promoted a stored `releaseDate`
+ * straight to KNOWN — which asserts we know what the provider MEANT by it, while the capability
+ * matrix says FRED's, ECOS's and DART's release semantics have never been seen in a real response
+ * (`gpt-5.6-terra`, reproduced). Holding a value and understanding it are different things, and
+ * an unverified field promoted to evidence can flip `revision_integrity` from open to PASS.
+ *
+ * The value is still recorded, in the basis, so nothing is thrown away. It just does not get to
+ * order two readings until a live response says what it means.
+ */
+export function withStoredReleaseDate(
+  base: ProviderVintage,
+  sourceCode: string,
+  releaseDate: string | null,
+): ProviderVintage {
+  if (!releaseDate) return base;
+  const proven = capabilityOf(sourceCode, "source_release_time")?.state === "SUPPORTED";
+  return {
+    ...base,
+    sourceReleasedAt: proven
+      ? knownVintage(releaseDate, `${sourceCode}: release time confirmed against a live response`)
+      : absentVintage(
+          "NOT_VERIFIED",
+          `${sourceCode}: a release date of ${releaseDate} is stored, but what this provider means ` +
+            "by it has never been confirmed against a real response, so it cannot order two readings.",
+        ),
+  };
 }
 
 /**

@@ -57,6 +57,11 @@ export function verificationInputFromFilingDiff(
       days: periodDays ?? null,
     },
     accessionNumber,
+    // `computeFinancialFactDiff` sorts every held fact through the shared `compareFactCurrency`
+    // and takes the top-ranked row for each period, so both sides here ARE the most current
+    // version held. Stated explicitly rather than inferred downstream, because the ranking
+    // happens in v1 and Verify cannot see it.
+    isMostCurrentHeldVersion: true,
   });
 
   return {

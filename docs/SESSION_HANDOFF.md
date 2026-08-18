@@ -1,16 +1,16 @@
 LAST COMPLETED
 
-**Sixth round — live Verify integration, 2026-08-18.** 78 commits, all local (HG-001).
-Baseline 396 → 527 tests across 65 files.
+**Sixth round — live Verify integration, 2026-08-18.** 81 commits, all local (HG-001).
+Baseline 396 → 531 tests across 66 files.
 
 ## Verified state at handoff
 
 |                                     |                                                                                    |
 | ----------------------------------- | ---------------------------------------------------------------------------------- |
 | Branch                              | `claude/market-os-development-7vnicg`                                              |
-| Commits ahead of origin             | **78** — all local, nothing rewritten, no force operation                          |
+| Commits ahead of origin             | **81** — all local, nothing rewritten, no force operation                          |
 | Working tree                        | clean                                                                              |
-| Full suite                          | **527 / 527** across 65 files, real PostgreSQL 16.10, disposable test DB           |
+| Full suite                          | **531 / 531** across 66 files, real PostgreSQL 16.10, disposable test DB           |
 | No-database run                     | **350 pass / 177 skip**, 33 integration files skip cleanly                         |
 | E2E                                 | **33 / 33** in a real browser against a **freshly rebuilt** production build       |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                              |
@@ -76,7 +76,7 @@ permits.
 
 **Human Gates — none of these stop independent work.**
 
-- **HG-001 PUSH_PENDING_AUTH** — 78 commits local-only. No `gh`, no credential, environment
+- **HG-001 PUSH_PENDING_AUTH** — 81 commits local-only. No `gh`, no credential, environment
   cannot prompt. Attempted once per credential-state change, never in a loop.
 - **HG-002/003/004** — FRED / ECOS / OpenDART keys. Request shapes and error envelopes are
   verified against the real APIs with deliberately invalid keys; the **success** shape, where
@@ -90,20 +90,28 @@ permits.
 
 **Queued Terra findings, classified rather than casually implemented:**
 
-| Finding                                                 | Class                                                 |
-| ------------------------------------------------------- | ----------------------------------------------------- |
-| `truncated` never consumed by series readers            | PROVIDER_KEY_REQUIRED — latent without FRED/ECOS data |
-| ~~Later SUCCESS masks an earlier truncated run~~        | **DONE** — `IngestRun.mode` FULL/INCREMENTAL/UNKNOWN  |
-| Row writes and the `IngestRun` audit row are non-atomic | SHADOW_ONLY — changes ingest behaviour materially     |
-| EDGAR does not persist `requestsMade`                   | SAFE_NOW, low value                                   |
-| ~~Restatement not disclosed on the company page~~       | **DONE**                                              |
+| Finding                                                     | Class                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------- |
+| `truncated` never consumed by series readers                | PROVIDER_KEY_REQUIRED — latent without FRED/ECOS data     |
+| ~~Later SUCCESS masks an earlier truncated run~~            | **DONE** — `IngestRun.mode` FULL/INCREMENTAL/UNKNOWN      |
+| ~~Row writes and the `IngestRun` audit row are non-atomic~~ | **DONE** — audit reports partial progress; no transaction |
+| ~~EDGAR does not persist `requestsMade`~~                   | **DONE**                                                  |
+| ~~Restatement not disclosed on the company page~~           | **DONE**                                                  |
 
 ## NEXT HIGHEST-PRIORITY TASK
 
-Make ingest atomic with its audit row (Terra, SHADOW_ONLY). A mid-run exception currently leaves
-rows written with a zero-count FAILED record, so the audit disagrees with what actually landed.
-It changes ingest behaviour materially, so prototype it behind the shadow boundary first and
-prove idempotency against real EDGAR data before touching the live path.
+**The safe unblocked queue is drained.** Every A1–A14 packet target is reviewed, and every
+Terra/Luna/Sol finding is either fixed or genuinely blocked:
+
+- `truncated` never consumed by series readers — **PROVIDER_KEY_REQUIRED.** Implementable, but no
+  FRED or ECOS data exists without a key, so the fix could not be verified and would change v1
+  behaviour untested. Verify already returns TRUNCATED for this shape.
+- **HG-009** login-lockout tradeoff — a security design decision, not a defect with one right
+  answer.
+
+What is left is genuinely gated. If more time is available, the highest-value work is a second
+adversarial pass by Sol over the full `9b34f8b..HEAD` range as a final Release Candidate audit —
+it has seen only the Verify layer so far.
 
 ## Environment notes that have cost time before
 

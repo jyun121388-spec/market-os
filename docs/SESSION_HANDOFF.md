@@ -1,22 +1,22 @@
 LAST COMPLETED
 
-**Sixth round — live Verify integration, 2026-08-18.** 75 commits, all local (HG-001).
-Baseline 396 → 522 tests across 65 files.
+**Sixth round — live Verify integration, 2026-08-18.** 78 commits, all local (HG-001).
+Baseline 396 → 527 tests across 65 files.
 
 ## Verified state at handoff
 
-|                                     |                                                                              |
-| ----------------------------------- | ---------------------------------------------------------------------------- |
-| Branch                              | `claude/market-os-development-7vnicg`                                        |
-| Commits ahead of origin             | **75** — all local, nothing rewritten, no force operation                    |
-| Working tree                        | clean                                                                        |
-| Full suite                          | **522 / 522** across 65 files, real PostgreSQL 16.10, disposable test DB     |
-| No-database run                     | **350 pass / 172 skip**, 33 integration files skip cleanly                   |
-| E2E                                 | **33 / 33** in a real browser against a **freshly rebuilt** production build |
-| Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                        |
-| Migrations                          | 16 applied cleanly to a genuinely fresh database, re-verified this round     |
-| Lint / typecheck / prettier / build | clean                                                                        |
-| Real dev data                       | **2240 filings, 1428 facts** — re-ingest reports 0 inserted, all unchanged   |
+|                                     |                                                                                    |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| Branch                              | `claude/market-os-development-7vnicg`                                              |
+| Commits ahead of origin             | **78** — all local, nothing rewritten, no force operation                          |
+| Working tree                        | clean                                                                              |
+| Full suite                          | **527 / 527** across 65 files, real PostgreSQL 16.10, disposable test DB           |
+| No-database run                     | **350 pass / 177 skip**, 33 integration files skip cleanly                         |
+| E2E                                 | **33 / 33** in a real browser against a **freshly rebuilt** production build       |
+| Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                              |
+| Migrations                          | **17** applied cleanly to a fresh AND a populated database, re-verified this round |
+| Lint / typecheck / prettier / build | clean                                                                              |
+| Real dev data                       | **2240 filings, 1428 facts** — re-ingest reports 0 inserted, all unchanged         |
 
 ## Verify — proven against real v1 output, not just fixtures
 
@@ -76,7 +76,7 @@ permits.
 
 **Human Gates — none of these stop independent work.**
 
-- **HG-001 PUSH_PENDING_AUTH** — 75 commits local-only. No `gh`, no credential, environment
+- **HG-001 PUSH_PENDING_AUTH** — 78 commits local-only. No `gh`, no credential, environment
   cannot prompt. Attempted once per credential-state change, never in a loop.
 - **HG-002/003/004** — FRED / ECOS / OpenDART keys. Request shapes and error envelopes are
   verified against the real APIs with deliberately invalid keys; the **success** shape, where
@@ -93,16 +93,17 @@ permits.
 | Finding                                                 | Class                                                 |
 | ------------------------------------------------------- | ----------------------------------------------------- |
 | `truncated` never consumed by series readers            | PROVIDER_KEY_REQUIRED — latent without FRED/ECOS data |
-| Later SUCCESS masks an earlier truncated run            | MIGRATION_REQUIRED — needs range/mode on `IngestRun`  |
+| ~~Later SUCCESS masks an earlier truncated run~~        | **DONE** — `IngestRun.mode` FULL/INCREMENTAL/UNKNOWN  |
 | Row writes and the `IngestRun` audit row are non-atomic | SHADOW_ONLY — changes ingest behaviour materially     |
 | EDGAR does not persist `requestsMade`                   | SAFE_NOW, low value                                   |
-| Restatement not disclosed on the company page           | SAFE_NOW — next task                                  |
+| ~~Restatement not disclosed on the company page~~       | **DONE**                                              |
 
 ## NEXT HIGHEST-PRIORITY TASK
 
-Disclose restatement status on `/company/[corpCode]`. `filingDiff` already returns
-`currentAccession` and `previousAccession`; the page renders neither, so a figure restated by a
-10-K/A is shown without saying so. Same disclosure principle as the 14-week quarter.
+Make ingest atomic with its audit row (Terra, SHADOW_ONLY). A mid-run exception currently leaves
+rows written with a zero-count FAILED record, so the audit disagrees with what actually landed.
+It changes ingest behaviour materially, so prototype it behind the shadow boundary first and
+prove idempotency against real EDGAR data before touching the live path.
 
 ## Environment notes that have cost time before
 

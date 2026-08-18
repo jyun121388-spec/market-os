@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateAction,
+  observeExecution,
   GOVERNED_ACTIONS,
   type ActionKind,
   type PolicyDecision,
@@ -295,6 +296,55 @@ describe("Governance — corrections from independent review", () => {
     }
   });
 
+  it("refuses to call a stale reading the current state of the world", () => {
+    const stale = evaluateAction({
+      kind: "PUBLISH_CURRENT_STATE_CLAIM",
+      context: { sourceFreshness: "STALE", verificationGreen: true },
+    });
+    expect(stale.decision).toBe("DENIED");
+    // A DECISION, not an execution blocker: nothing in the environment is missing, and the data
+    // that is present says the claim would be false.
+    expect(stale.execution).toBe("READY");
+    expect(stale.gate).toBeUndefined();
+  });
+
+  it("allows the same claim outright when the series is inside its own cadence", () => {
+    const fresh = evaluateAction({
+      kind: "PUBLISH_CURRENT_STATE_CLAIM",
+      context: { sourceFreshness: "FRESH", verificationGreen: true },
+    });
+    expect(fresh.decision).toBe("AUTO_ALLOWED");
+    expect(fresh.requiredVerification).toEqual([]);
+  });
+
+  it("treats unmeasurable freshness as a disclosure requirement, never as currency", () => {
+    for (const context of [{ sourceFreshness: "UNKNOWN" as const }, {}]) {
+      const evaluation = evaluateAction({
+        kind: "PUBLISH_CURRENT_STATE_CLAIM",
+        context: { ...context, verificationGreen: true },
+      });
+      expect(evaluation.decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
+      expect(evaluation.requiredVerification.join(" ")).toContain("disclose");
+    }
+  });
+
+  it("permits an unconfirmed completeness claim only with the limitation disclosed", () => {
+    // The permanent state for SEC facts: companyfacts publishes no total, so this never resolves.
+    // Denying it outright would forbid the product's main output; allowing it silently is the
+    // 1000-of-2240 defect.
+    const unconfirmed = evaluateAction({
+      kind: "PUBLISH_COMPLETENESS_CLAIM",
+      context: { completenessEvidence: "UNCONFIRMED", verificationGreen: true },
+    });
+    expect(unconfirmed.decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
+    expect(unconfirmed.requiredVerification.join(" ")).toContain("unconfirmed");
+
+    const short = evaluateAction({
+      kind: "PUBLISH_COMPLETENESS_CLAIM",
+      context: { completenessEvidence: "KNOWN_INCOMPLETE", verificationGreen: true },
+    });
+    expect(short.decision).toBe("DENIED");
+  });
   it.each<ActionKind>(["CREDENTIAL_CHANGE", "BULK_MESSAGING"])(
     "%s is representable and deferred",
     (kind) => {
@@ -303,4 +353,43 @@ describe("Governance — corrections from independent review", () => {
       expect(evaluateAction({ kind }).decision).toBe("DEFERRED_HUMAN_GATE");
     },
   );
+});
+
+describe("recording what became of an action", () => {
+  it("keeps readiness and outcome as separate questions", () => {
+    const push = evaluateAction({
+      kind: "GIT_PUSH",
+      context: { credentialsAvailable: false, verificationGreen: true },
+    });
+    expect(push.decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
+    expect(push.execution).toBe("BLOCKED_MISSING_CREDENTIAL");
+
+    const observed = observeExecution(
+      push,
+      "BLOCKED_MISSING_CREDENTIAL",
+      "git push hung on a credential prompt that cannot be shown in this environment.",
+    );
+    expect(observed.outcome).toBe("BLOCKED_MISSING_CREDENTIAL");
+    expect(observed.decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
+  });
+
+  /**
+   * The one thing an audit record must be unable to express.
+   *
+   * If a denied action can be recorded as having simply executed, the governance log becomes the
+   * last place a violation is visible rather than the first.
+   */
+  it("cannot record a denied action as having executed", () => {
+    const denied = evaluateAction({ kind: "PERSONALIZED_ADVICE_OUTPUT" });
+    expect(denied.decision).toBe("DENIED");
+    expect(() => observeExecution(denied, "EXECUTED", "shipped anyway")).toThrow(/EXECUTED/);
+  });
+
+  it("cannot record a human-gated action as having executed", () => {
+    const gated = evaluateAction({ kind: "CALL_PAID_PROVIDER" });
+    expect(gated.decision).toBe("DEFERRED_HUMAN_GATE");
+    expect(() => observeExecution(gated, "EXECUTED", "called it")).toThrow();
+    // Recording that it was NOT done is exactly what the gate expects.
+    expect(observeExecution(gated, "DEFERRED", "awaiting approval").outcome).toBe("DEFERRED");
+  });
 });

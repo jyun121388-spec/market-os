@@ -1,3 +1,5 @@
+import { capabilityOf, type CapabilityAxis, type CapabilityState } from "./providerCapability";
+
 /**
  * Reality Fabric — PROVIDER VINTAGE AND SEMANTIC RECENCY (shadow contract).
  *
@@ -164,64 +166,29 @@ function missingVintageReason(a: ProviderVintage, b: ProviderVintage): string {
 }
 
 /**
- * What each tracked provider actually offers, as of 2026-08-18.
+ * Bridge from the capability matrix to vintage availability.
  *
- * Recorded as `NOT_VERIFIED` wherever it comes from documentation rather than a real response.
- * EDGAR is the only provider whose live shape has been confirmed, and the whole reason this
- * project distrusts documented shapes is that SEC's real responses differed from them in four
- * separate ways.
+ * Deliberately DERIVED rather than restated. An earlier draft carried its own provider table, and
+ * a second table describing the same providers is a second thing to keep true — this repository
+ * has shipped a page whose banner and figure disagreed for exactly that reason, and the whole
+ * IDENTITY_MODELLING cluster is variations on the same theme. `providerCapability.ts` is the one
+ * place a claim about a provider is made.
  */
-export interface ProviderVintageCapability {
-  sourceCode: string;
-  providerRevisionId: EvidenceAvailability;
-  providerVintageAt: EvidenceAvailability;
-  sourceReleasedAt: EvidenceAvailability;
-  notes: string;
+function availabilityFromCapability(state: CapabilityState): EvidenceAvailability {
+  switch (state) {
+    case "SUPPORTED":
+      return "KNOWN";
+    case "NOT_SUPPORTED":
+      return "NOT_PROVIDED";
+    case "NOT_VERIFIED":
+      return "NOT_VERIFIED";
+    // A capability that holds only under stated conditions says nothing about THIS record, so the
+    // honest availability is unknown rather than either extreme.
+    case "CONDITIONAL":
+    case "UNKNOWN":
+      return "UNKNOWN";
+  }
 }
-
-export const PROVIDER_VINTAGE_CAPABILITIES: ProviderVintageCapability[] = [
-  {
-    sourceCode: "SEC_EDGAR",
-    // Accession numbers are issued per filing and a /A suffix marks an amendment — both confirmed
-    // against real responses by the live contract check.
-    providerRevisionId: "KNOWN",
-    // SEC publishes no "this figure became current at" timestamp. A later filing supersedes an
-    // earlier one, but that is an inference from filing order, not a published vintage.
-    providerVintageAt: "NOT_PROVIDED",
-    sourceReleasedAt: "KNOWN",
-    notes:
-      "Accession plus /A amendment suffix and filing date are confirmed live. No per-figure " +
-      "vintage is published, so ordering restatements relies on filedDate plus the amendment flag.",
-  },
-  {
-    sourceCode: "FRED",
-    providerRevisionId: "NOT_VERIFIED",
-    // realtime_start is exactly the field this contract wants, and fred/types.ts already declares
-    // it — but no key exists to confirm its real semantics and no adapter reads it. Claiming
-    // KNOWN would be the fabricated certainty this module exists to prevent.
-    providerVintageAt: "NOT_VERIFIED",
-    sourceReleasedAt: "NOT_VERIFIED",
-    notes:
-      "realtime_start/realtime_end are declared in fred/types.ts and are the natural vintage " +
-      "source. Unverified: HG-002 blocks a live check, and no adapter reads them yet.",
-  },
-  {
-    sourceCode: "ECOS",
-    providerRevisionId: "NOT_VERIFIED",
-    providerVintageAt: "NOT_VERIFIED",
-    sourceReleasedAt: "NOT_VERIFIED",
-    notes: "No vintage concept identified in the documented shape. HG-003 blocks a live check.",
-  },
-  {
-    sourceCode: "OPENDART",
-    providerRevisionId: "NOT_VERIFIED",
-    providerVintageAt: "NOT_PROVIDED",
-    sourceReleasedAt: "NOT_VERIFIED",
-    notes:
-      "Receipt number identifies a filing; as with SEC there is no per-figure vintage. HG-004 " +
-      "blocks a live check.",
-  },
-];
 
 /**
  * A vintage record for a value we hold but captured no version evidence for.
@@ -231,19 +198,28 @@ export const PROVIDER_VINTAGE_CAPABILITIES: ProviderVintageCapability[] = [
  * distinction is what turns this from a shrug into a work item.
  */
 export function vintageUnavailable(sourceCode: string, retrievedAt: string): ProviderVintage {
-  const capability = PROVIDER_VINTAGE_CAPABILITIES.find((c) => c.sourceCode === sourceCode);
-  const basis = capability
-    ? `${sourceCode}: ${capability.notes}`
-    : `${sourceCode}: no vintage capability recorded`;
-
-  const field = (a: EvidenceAvailability | undefined): VintageField<string> =>
-    absentVintage(a === "KNOWN" || a === undefined ? "UNKNOWN" : a, basis);
+  const field = (axis: CapabilityAxis): VintageField<string> => {
+    const capability = capabilityOf(sourceCode, axis);
+    const basis = capability
+      ? `${sourceCode}: ${capability.basis}`
+      : `${sourceCode}: no capability profile recorded`;
+    const availability = capability ? availabilityFromCapability(capability.state) : "UNKNOWN";
+    // KNOWN is downgraded to UNKNOWN on purpose. The provider DOES publish this; we simply did
+    // not store it, which is a work item rather than a limitation, and collapsing the two is how
+    // "nobody has fetched this yet" starts reading like "there is nothing to fetch".
+    return absentVintage(availability === "KNOWN" ? "UNKNOWN" : availability, basis);
+  };
 
   return {
-    providerRevisionId: field(capability?.providerRevisionId),
-    providerVintageAt: field(capability?.providerVintageAt),
-    sourceReleasedAt: field(capability?.sourceReleasedAt),
-    sourceEffectiveAt: absentVintage("NOT_PROVIDED", basis),
+    providerRevisionId: field("provider_revision_identity"),
+    providerVintageAt: field("provider_vintage_time"),
+    sourceReleasedAt: field("source_release_time"),
+    // Not an axis in the matrix: no provider examined so far distinguishes when a value took
+    // effect in the world from when it was published, so there is nothing yet to model.
+    sourceEffectiveAt: absentVintage(
+      "NOT_PROVIDED",
+      `${sourceCode}: no effective-time concept identified`,
+    ),
     retrievedAt,
   };
 }

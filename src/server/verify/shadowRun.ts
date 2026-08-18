@@ -6,7 +6,7 @@ import { computeChange, getRecentObservationPair } from "@/server/domain/seriesR
 import { evaluateStaleness } from "@/server/domain/staleness";
 import { verificationInputFromFilingDiff } from "./fromFilingDiff";
 import { verificationInputFromSeriesChange, type ObservationEvidence } from "./fromSeriesChange";
-import type { DimensionName, Verdict } from "./types";
+import type { DimensionName, Verdict, VerificationResult } from "./types";
 
 /**
  * Verify — SHADOW RUN over real v1 output (docs/VERIFY_ARCHITECTURE.md).
@@ -41,6 +41,13 @@ export interface ShadowObservation {
    * a broken verifier, so the breakdown travels with it.
    */
   dimensions: Record<string, string>;
+  /**
+   * Per dimension, why the evidence it wanted was missing — structural limitation, verification
+   * debt, or a defect in this record. Present only for dimensions the capability matrix could
+   * explain. A run where every gap is VERIFICATION_DEBT is a work list; one where they are all
+   * STRUCTURAL_LIMITATION is the ceiling of what these providers can support.
+   */
+  evidenceGaps: Record<string, string>;
   /** Non-null only when the verifier itself failed. */
   error?: string;
 }
@@ -57,7 +64,16 @@ export interface ShadowRunResult {
  * Bumped by hand when evaluator semantics change. Without it a ledger of verdicts is
  * uninterpretable later: "REJECTED" means nothing unless you know which rules produced it.
  */
-export const VERIFIER_VERSION = "verify-shadow-1";
+export const VERIFIER_VERSION = "verify-shadow-2";
+
+/** Only dimensions the capability matrix could explain; an empty map means it explained none. */
+function collectEvidenceGaps(result: VerificationResult): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(result.dimensions)
+      .filter(([, d]) => d.evidenceGap !== undefined && d.evidenceGap !== "NO_GAP")
+      .map(([name, d]) => [name, d.evidenceGap as string]),
+  );
+}
 
 /**
  * Runs Verify over one company's real Filing Diff output.
@@ -102,6 +118,7 @@ export async function shadowVerifyCompany(corpCode: string): Promise<ShadowRunRe
         dimensions: Object.fromEntries(
           Object.entries(result.dimensions).map(([name, d]) => [name, d.status]),
         ),
+        evidenceGaps: collectEvidenceGaps(result),
         completeness,
       });
     } catch (error) {
@@ -115,6 +132,7 @@ export async function shadowVerifyCompany(corpCode: string): Promise<ShadowRunRe
         failed: [],
         limitations: [],
         dimensions: {},
+        evidenceGaps: {},
         completeness,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -212,6 +230,7 @@ export async function shadowVerifySeriesChanges(now: Date = new Date()): Promise
         dimensions: Object.fromEntries(
           Object.entries(result.dimensions).map(([name, d]) => [name, d.status]),
         ),
+        evidenceGaps: collectEvidenceGaps(result),
         // No macro provider states how many observations a series should have, which is the same
         // position SEC leaves companyfacts in.
         completeness: "UNCONFIRMED",
@@ -226,6 +245,7 @@ export async function shadowVerifySeriesChanges(now: Date = new Date()): Promise
         failed: [],
         limitations: [],
         dimensions: {},
+        evidenceGaps: {},
         completeness: "UNKNOWN",
         error: error instanceof Error ? error.message : String(error),
       });

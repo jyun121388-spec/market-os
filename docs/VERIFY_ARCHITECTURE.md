@@ -129,6 +129,29 @@ Today, with no adapter populating any vintage field, every macro observation res
 picture, and it is also the work item: the verdict disappears from the macro path the moment a
 provider vintage is captured.
 
+### Why the evidence was missing, not just that it was
+
+`DimensionResult` carries an optional `evidenceGap`, classified against the provider capability
+matrix. The status says the evidence is not there; this says whether anyone can do anything about
+it.
+
+Two macro outputs can both be `INSUFFICIENT_EVIDENCE` on `revision_integrity` and mean opposite
+things. For SEC the gap is `STRUCTURAL_LIMITATION` — no per-figure vintage is published and none
+ever will be. For FRED it is `VERIFICATION_DEBT` with `HG-002` attached — the field is declared,
+nobody has called the API, and one key closes it. A reader who cannot tell those apart will treat
+both as the first, because that is the one requiring nothing.
+
+The same applies to completeness. "The provider states no total" was being said identically about
+SEC facts, where it is permanent, and about FRED, where a `count` field is declared and unverified.
+
+Two rules keep it honest. The matrix describes ONE provider, so an output assembled from two
+sources gets no classification at all rather than the first source's answer presented as if it
+covered both — the cross-provider conflation IR-001 and IR-002 were about. And a source with no
+profile yields `CAPABILITY_UNKNOWN`, never a guess.
+
+Against the real database the gaps currently read: SEC filing diffs `CONDITIONAL_ABSENCE`, FRED and
+ECOS series `VERIFICATION_DEBT`, test-fixture sources `CAPABILITY_UNKNOWN`.
+
 ## Evidence model
 
 A verdict must be recomputable from what it cites. Anything else is an opinion with a timestamp.

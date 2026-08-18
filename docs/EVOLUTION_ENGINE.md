@@ -97,6 +97,47 @@ export interface ExperimentResult {
 }
 ```
 
+## Proposals, and the structure that makes them checkable
+
+`src/server/evolution/proposal.ts`. The Engine detects weaknesses; this turns one class of them
+into something a human can act on without re-deriving the reasoning. It proposes and nothing else:
+no code is written, no migration is run, and every proposal names the governed actions carrying it
+out would require, so the decision to act stays where it belongs.
+
+Each proposal carries all nine fields — `observation`, `evidence`, `systemicWeakness`,
+`hypothesis`, `proposedChange`, `expectedBenefit`, `expectedRisk`, `requiredVerify`,
+`requiredGovernance` — and every evidence item is labelled `OBSERVED` or `INFERRED`, with a source
+naming where to go and check it.
+
+That structure is the entire defence, and it is aimed at a documented failure. Four local-model
+findings and one Codex reproduction claim have been rejected on this project, and every one was
+fluent, confident and correctly formatted; nothing in their prose distinguished them from real
+findings. So the tests check the SHAPE of the reasoning — an observation exists, inference is
+labelled, a cost is stated — rather than trying to judge whether the reasoning is good. The
+`expectedRisk` field is pinned specifically, because it is the one anything generating these will
+fill in with "none".
+
+Proposals are **generated from the capability matrix**, not written. A hand-written proposal can
+claim whatever its author believes; a generated one can only say what the matrix says, and a test
+asserts the function is pure over its input.
+
+Currently derived:
+
+| Proposal                | Weakness              | Blocked by |
+| ----------------------- | --------------------- | ---------- |
+| `CAP-DEBT-FRED`         | `PROVIDER_ASSUMPTION` | HG-002     |
+| `CAP-DEBT-ECOS`         | `PROVIDER_ASSUMPTION` | HG-003     |
+| `CAP-DEBT-OPENDART`     | `PROVIDER_ASSUMPTION` | HG-004     |
+| `CAP-CEILING-SEC_EDGAR` | none — a ceiling      | nothing    |
+
+No `CAP-DEBT-SEC_EDGAR` exists, because SEC has been observed and there is nothing left to verify.
+That absence is the control: a generator that raises a proposal for every provider is not reading
+anything.
+
+The ceiling proposal states its own risk plainly — a limitation recorded once can become a
+limitation assumed forever. The matrix needs re-checking when a provider versions its API, not only
+when our code changes.
+
 ## Hard constraints
 
 1. **No production mutation, ever.** Experiments run in a git worktree and a disposable database

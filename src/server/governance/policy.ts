@@ -45,6 +45,8 @@ export type ActionKind =
   | "CREDENTIAL_CHANGE"
   | "BULK_MESSAGING"
   | "COMMIT_CREDENTIAL"
+  | "PUBLISH_CURRENT_STATE_CLAIM"
+  | "PUBLISH_COMPLETENESS_CLAIM"
   | "PERSONALIZED_ADVICE_OUTPUT"
   | "UNSOURCED_FACT_OUTPUT"
   | "DECLARE_RELEASE_CANDIDATE_READY";
@@ -71,6 +73,16 @@ export interface ActionDescriptor {
     providerKeyAvailable?: boolean;
     /** Whether an INCLUDED model still has quota. Never a reason to buy more. */
     includedModelQuotaAvailable?: boolean;
+    /**
+     * Reality, as the Fabric reports it, for the data behind a claim.
+     *
+     * These are what let a policy reason about the world instead of only about the action. "May I
+     * publish this?" has no answer that does not depend on whether the underlying series is past
+     * its cadence — and until now the engine could not see that, so the question could only be
+     * decided by whoever was reading at the time.
+     */
+    sourceFreshness?: "FRESH" | "STALE" | "UNKNOWN";
+    completenessEvidence?: "COMPLETE" | "UNCONFIRMED" | "KNOWN_INCOMPLETE" | "UNKNOWN";
   };
 }
 
@@ -103,6 +115,31 @@ export type ExecutionStatus =
    * and the response is to route to another included model or to deterministic verification.
    */
   | "BLOCKED_USAGE_LIMIT";
+
+/**
+ * What actually happened to an action, recorded AFTER the attempt.
+ *
+ * Separate from `ExecutionStatus`, which is readiness assessed BEFORE it. Folding the two into one
+ * type would put EXECUTED and FAILED on a `PolicyEvaluation` that is produced before anything has
+ * been tried, where they could never legitimately appear — a state nothing can reach reads as a
+ * capability the engine does not have.
+ */
+export type ExecutionOutcome =
+  | "EXECUTED"
+  | "FAILED"
+  | "DEFERRED"
+  | "BLOCKED_MISSING_CREDENTIAL"
+  | "BLOCKED_PROVIDER_KEY"
+  | "BLOCKED_USAGE_LIMIT";
+
+export interface ObservedExecution {
+  action: ActionKind;
+  /** The decision that was in force when this was attempted. */
+  decision: PolicyDecision;
+  outcome: ExecutionOutcome;
+  /** What happened, in words. An outcome with no account of itself is not an audit record. */
+  detail: string;
+}
 
 export interface PolicyEvaluation {
   action: ActionDescriptor;
@@ -395,6 +432,69 @@ const RULES: Record<ActionKind, Rule> = {
     citations: ["CLAUDE.md — absolute rules"],
     rationale: "A committed secret is compromised even after removal, because history persists.",
   },
+  PUBLISH_CURRENT_STATE_CLAIM: {
+    decision: "AUTO_ALLOWED_WITH_VERIFY",
+    citations: ["docs/DATA_POLICY.md", "CLAUDE.md — no hallucinated financial facts"],
+    rationale:
+      "Presenting a value as the current state of the world is a claim about the world, so the " +
+      "freshness of what it rests on is part of the claim rather than metadata about it.",
+    requiredVerification: ["underlying series is within its own observed cadence"],
+    refine: (action, base) => {
+      const freshness = action.context?.sourceFreshness;
+      if (freshness === "STALE") {
+        // A DECISION, not an execution blocker. Nothing in the environment is missing; the data
+        // is present and says the claim would be false.
+        return {
+          ...base,
+          decision: "DENIED",
+          requiredVerification: [],
+          rationale:
+            "The underlying series is past its own update cadence, so presenting its last value " +
+            "as the current state would assert something the data does not support.",
+        };
+      }
+      if (freshness === "FRESH") {
+        return { ...base, decision: "AUTO_ALLOWED", requiredVerification: [] };
+      }
+      // UNKNOWN and absent are the same position: too little history to project a cadence, so
+      // currency was never established. Absence of evidence is not evidence of currency.
+      return {
+        ...base,
+        requiredVerification: ["disclose that freshness could not be established"],
+      };
+    },
+  },
+  PUBLISH_COMPLETENESS_CLAIM: {
+    decision: "AUTO_ALLOWED_WITH_VERIFY",
+    citations: ["docs/DATA_POLICY.md", "docs/ARCHITECTURE.md — Claim Ledger"],
+    rationale:
+      "Saying a dataset is complete is itself a claim, and this project has shipped it wrongly: " +
+      "1000 of 2240 filings were presented as the whole history.",
+    requiredVerification: ["provider-stated total matches what is held"],
+    refine: (action, base) => {
+      switch (action.context?.completenessEvidence) {
+        case "KNOWN_INCOMPLETE":
+          return {
+            ...base,
+            decision: "DENIED",
+            requiredVerification: [],
+            rationale: "A known shortfall cannot be presented as a complete dataset.",
+          };
+        case "COMPLETE":
+          return { ...base, decision: "AUTO_ALLOWED", requiredVerification: [] };
+        default:
+          // UNCONFIRMED is the normal state for SEC facts and will stay that way, because
+          // companyfacts publishes no total. The claim is still permitted — with the limitation
+          // shown to the reader, which is what separates it from silence.
+          return {
+            ...base,
+            requiredVerification: [
+              "disclose that completeness is unconfirmed rather than established",
+            ],
+          };
+      }
+    },
+  },
   PERSONALIZED_ADVICE_OUTPUT: {
     decision: "DENIED",
     citations: ["docs/LEGAL_GUARDRAILS.md"],
@@ -432,6 +532,32 @@ const RULES: Record<ActionKind, Rule> = {
  *
  * Pure and synchronous: a policy engine that needs I/O to decide is one that can fail open.
  */
+/**
+ * Records what became of an action, refusing to record the one thing that must never happen.
+ *
+ * An action the policy DENIED or deferred to a human cannot be recorded as EXECUTED. If it was, the
+ * governance record would be the last place the violation is visible, which is the opposite of what
+ * a governance record is for. Throwing here is deliberate: this is called by the recorder, never on
+ * a user path, and a silently-corrected audit entry is worse than a crash in a shadow tool.
+ */
+export function observeExecution(
+  evaluation: PolicyEvaluation,
+  outcome: ExecutionOutcome,
+  detail: string,
+): ObservedExecution {
+  if (
+    outcome === "EXECUTED" &&
+    (evaluation.decision === "DENIED" || evaluation.decision === "DEFERRED_HUMAN_GATE")
+  ) {
+    throw new Error(
+      `${evaluation.action.kind} was recorded as EXECUTED under a ${evaluation.decision} decision. ` +
+        "An audit record that can express a policy violation as a normal outcome is not an audit " +
+        "record.",
+    );
+  }
+  return { action: evaluation.action.kind, decision: evaluation.decision, outcome, detail };
+}
+
 export function evaluateAction(action: ActionDescriptor): PolicyEvaluation {
   const rule = RULES[action.kind];
   const base: PolicyEvaluation = {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { PROVIDER_CAPABILITIES, capabilityOf } from "@/server/fabric/providerCapability";
 import {
-  PROVIDER_VINTAGE_CAPABILITIES,
   absentVintage,
   compareVintage,
   knownVintage,
@@ -81,11 +81,10 @@ describe("provider capability table", () => {
    * response has ever been observed.
    */
   it("claims KNOWN only where a live response confirmed it", () => {
-    const fred = PROVIDER_VINTAGE_CAPABILITIES.find((c) => c.sourceCode === "FRED");
-    expect(fred?.providerVintageAt).toBe("NOT_VERIFIED");
-    for (const capability of PROVIDER_VINTAGE_CAPABILITIES) {
-      if (capability.sourceCode === "SEC_EDGAR") continue;
-      expect(capability.providerVintageAt).not.toBe("KNOWN");
+    expect(capabilityOf("FRED", "provider_vintage_time")?.state).toBe("NOT_VERIFIED");
+    for (const profile of PROVIDER_CAPABILITIES) {
+      if (profile.sourceCode === "SEC_EDGAR") continue;
+      expect(profile.axes.provider_vintage_time.state).not.toBe("SUPPORTED");
     }
   });
 

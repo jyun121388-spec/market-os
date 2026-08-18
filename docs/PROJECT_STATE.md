@@ -289,8 +289,48 @@ contract wants, they are already declared in `fred/types.ts`, and no adapter rea
 capability table records them `NOT_VERIFIED` and a test forbids upgrading that to `KNOWN` without a
 live response. One key (HG-002) closes the largest open item in this design.
 
+PROVIDER CAPABILITY MATRIX (2026-08-18, shadow)
+`src/server/fabric/providerCapability.ts` — what each source can actually tell us, on 13 axes,
+with the evidence for every cell. The direct continuation of the vintage work, and the answer to
+the question it kept raising: is this absent because the provider withholds it, or because nobody
+has looked?
+
+The rule that gives it value is enforced by test: **`SUPPORTED` and `NOT_SUPPORTED` both require
+`LIVE_RESPONSE`.** Asserting NOT_SUPPORTED from a documentation page is the same error as asserting
+SUPPORTED from one, and worse in effect — it closes an inquiry instead of opening it. Every
+`NOT_VERIFIED` must also name the gate that would clear it, so the matrix doubles as a work list.
+
+Current standing: SEC_EDGAR has live evidence on all 13 axes (6 SUPPORTED, 3 NOT_SUPPORTED, 4
+CONDITIONAL); FRED, ECOS and OpenDART have live evidence on none, and every axis reads
+NOT_VERIFIED behind HG-002/003/004. SEC's cells carry counts rather than adjectives — 912 of 1431
+facts have a period start and 519 do not; 86 filings and 17 facts carry a `/A` suffix.
+`total_count_evidence` is CONDITIONAL because filings can be counted and facts cannot, which makes
+fact completeness **permanently unconfirmable** rather than merely unconfirmed.
+
+The vintage contract now DERIVES its availability states from this matrix instead of restating
+them. Two tables describing the same providers is two things to keep true, and the whole
+IDENTITY_MODELLING cluster is variations on that theme.
+
+Propagated:
+
+- **Verify** — `DimensionResult.evidenceGap` classifies why evidence was missing:
+  STRUCTURAL_LIMITATION / VERIFICATION_DEBT / DATA_QUALITY_ISSUE / CONDITIONAL_ABSENCE /
+  CAPABILITY_UNKNOWN. Two macro outputs can both be INSUFFICIENT_EVIDENCE and mean opposite
+  things — SEC's missing vintage is a ceiling, FRED's is one API call. An output built from two
+  sources gets no classification rather than the first source's answer.
+- **Governance** — `PUBLISH_CURRENT_STATE_CLAIM` and `PUBLISH_COMPLETENESS_CLAIM` read the Fabric's
+  reality state. A stale series DENIES a current-state claim; an unconfirmed total permits a
+  completeness claim only with the limitation disclosed. `ExecutionOutcome` (EXECUTED / FAILED /
+  DEFERRED / the three blockers) is now separate from `ExecutionStatus` readiness, and
+  `observeExecution()` throws rather than record a DENIED action as EXECUTED.
+- **Evolution** — `capabilityGapProposals()` generates evidence-backed proposals from the matrix,
+  carrying all nine required fields with every evidence item labelled OBSERVED or INFERRED. Three
+  CAP-DEBT proposals and one CAP-CEILING. No CAP-DEBT-SEC_EDGAR exists, which is the control: a
+  generator that raises one per provider is not reading anything.
+
 TESTS
-562 / 562 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+596 / 596 PASS across 71 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real

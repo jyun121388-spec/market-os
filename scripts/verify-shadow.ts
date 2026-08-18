@@ -30,8 +30,10 @@ async function main() {
     console.log(`${corpCode} — ${observations.length} verifiable output(s)`);
     for (const o of observations) {
       const cause = o.failed.length > 0 ? `  failed: ${o.failed.join(", ")}` : "";
-      console.log(`  ${o.verdict.padEnd(26)} ${o.outputId}${cause}`);
-      for (const limitation of o.limitations) console.log(`      limitation: ${limitation}`);
+      console.log(`  ${o.verdict.padEnd(30)} ${o.outputId}${cause}`);
+      for (const [dimension, gap] of Object.entries(o.evidenceGaps)) {
+        console.log(`      gap: ${dimension} -> ${gap}`);
+      }
       if (o.error) console.log(`      error: ${o.error}`);
     }
     for (const [verdict, count] of Object.entries(byVerdict)) {
@@ -48,7 +50,9 @@ async function main() {
     for (const o of macro.observations) {
       const cause = o.failed.length > 0 ? `  failed: ${o.failed.join(", ")}` : "";
       console.log(`  ${o.verdict.padEnd(30)} ${o.outputId}${cause}`);
-      for (const limitation of o.limitations) console.log(`      limitation: ${limitation}`);
+      for (const [dimension, gap] of Object.entries(o.evidenceGaps)) {
+        console.log(`      gap: ${dimension} -> ${gap}`);
+      }
       if (o.error) console.log(`      error: ${o.error}`);
     }
     for (const [verdict, count] of Object.entries(macro.byVerdict)) {

@@ -105,6 +105,58 @@ is that one — never this — that raises a gate.
 Two invariants are enforced by test across the whole table: an execution blocker never coincides
 with `DENIED`, and an execution blocker never raises a `gate`.
 
+## Reasoning about reality, not only about the action
+
+"May I publish this?" has no answer that does not depend on the state of the data underneath. Two
+action kinds consume the Fabric's reality state directly:
+
+| Action                        | Reality                    | Decision                                 |
+| ----------------------------- | -------------------------- | ---------------------------------------- |
+| `PUBLISH_CURRENT_STATE_CLAIM` | freshness `STALE`          | `DENIED` — the claim would be false      |
+|                               | freshness `FRESH`          | `AUTO_ALLOWED`                           |
+|                               | freshness `UNKNOWN`/absent | `AUTO_ALLOWED_WITH_VERIFY` — disclose it |
+| `PUBLISH_COMPLETENESS_CLAIM`  | `KNOWN_INCOMPLETE`         | `DENIED`                                 |
+|                               | `COMPLETE`                 | `AUTO_ALLOWED`                           |
+|                               | `UNCONFIRMED`/`UNKNOWN`    | `AUTO_ALLOWED_WITH_VERIFY` — disclose it |
+
+A stale reading produces a DECISION, not an execution blocker: nothing in the environment is
+missing, and the data that is present says the claim would be false. That is the mirror image of a
+missing credential, and keeping the two apart is the point of the whole separation.
+
+`UNCONFIRMED` is the permanent state for SEC financial facts. Denying it would forbid the product's
+main output; allowing it silently is the 1000-of-2240 defect. Permitting it with the limitation
+disclosed is the only answer that is both true and useful.
+
+## Decision, readiness, and outcome are three questions
+
+```ts
+export type PolicyDecision =
+  "AUTO_ALLOWED" | "AUTO_ALLOWED_WITH_VERIFY" | "DEFERRED_HUMAN_GATE" | "DENIED";
+export type ExecutionStatus =
+  "READY" | "BLOCKED_MISSING_CREDENTIAL" | "BLOCKED_PROVIDER_KEY" | "BLOCKED_USAGE_LIMIT";
+export type ExecutionOutcome =
+  | "EXECUTED"
+  | "FAILED"
+  | "DEFERRED"
+  | "BLOCKED_MISSING_CREDENTIAL"
+  | "BLOCKED_PROVIDER_KEY"
+  | "BLOCKED_USAGE_LIMIT";
+```
+
+`ExecutionStatus` is readiness assessed BEFORE the attempt and lives on a `PolicyEvaluation`.
+`ExecutionOutcome` is what happened, recorded AFTER, and lives on an `ObservedExecution`. Folding
+them together would put `EXECUTED` on a record produced before anything was tried, where it could
+never legitimately appear.
+
+`observeExecution()` throws if an action decided `DENIED` or `DEFERRED_HUMAN_GATE` is recorded as
+`EXECUTED`. An audit record able to express a policy violation as a normal outcome is not an audit
+record — it would make the governance log the last place a violation is visible rather than the
+first.
+
+The canonical example remains `GIT_PUSH`: policy `AUTO_ALLOWED_WITH_VERIFY`, execution
+`BLOCKED_MISSING_CREDENTIAL`, outcome `BLOCKED_MISSING_CREDENTIAL`. The policy has not changed
+because a credential is absent.
+
 ## The policy table
 
 Derived from the existing documents. Each row cites its origin; none of it is invented here.

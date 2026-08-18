@@ -8,6 +8,7 @@ import type {
   Verdict,
 } from "./types";
 import { compareVintage } from "../fabric/vintage";
+import { classifyEvidenceGap, type CapabilityAxis } from "../fabric/providerCapability";
 
 /**
  * Verify — SHADOW MODE evaluators (docs/VERIFY_ARCHITECTURE.md).
@@ -29,6 +30,38 @@ const unknown = (rationale: string): DimensionResult => ({
   status: "INSUFFICIENT_EVIDENCE",
   rationale,
 });
+
+/**
+ * The single source an output was assembled from, or null when that is not a single answer.
+ *
+ * The capability matrix describes ONE provider, so asking it about an output built from two would
+ * be answering a question nobody asked. Returning null makes the caller handle that rather than
+ * silently consulting the first source and presenting the result as though it covered both.
+ */
+function soleSource(input: VerificationInput): string | null {
+  const distinct = new Set(input.sourceCodes.filter((c) => c && c.trim().length > 0));
+  return distinct.size === 1 ? [...distinct][0] : null;
+}
+
+/**
+ * Attaches the capability matrix's explanation for a missing piece of evidence.
+ *
+ * The status says the evidence is not there; this says whether anyone can do anything about it.
+ */
+function withEvidenceGap(
+  result: DimensionResult,
+  input: VerificationInput,
+  axis: CapabilityAxis,
+): DimensionResult {
+  const sourceCode = soleSource(input);
+  if (!sourceCode) return result;
+  const gap = classifyEvidenceGap(sourceCode, axis, false);
+  return {
+    ...result,
+    evidenceGap: gap.kind,
+    rationale: `${result.rationale} ${gap.rationale}${gap.blockedBy ? ` (${gap.blockedBy})` : ""}`,
+  };
+}
 
 /**
  * Day difference beyond which two same-bucket periods are materially unequal. Matches
@@ -255,13 +288,21 @@ function dataCompleteness(input: VerificationInput): DimensionResult {
     // The rule that matters is still kept: completeness is never CLAIMED without evidence. It is
     // reported as a caveat the reader must see, and the correctness findings stay visible behind
     // it instead of being swallowed.
-    return {
-      status: "PASS",
-      rationale:
-        "Verifiable, WITH A LIMITATION: no shortfall was detected, but the provider states no " +
-        "total to check the stored count against, so completeness is unconfirmed rather than " +
-        "established.",
-    };
+    // Which KIND of "no total" this is decides whether anyone can act on it. SEC's companyfacts
+    // publishes none and never will, so the limitation is permanent; FRED declares a `count` no
+    // live response has confirmed, so the same sentence describes a work item. Rendering both as
+    // "the provider states no total" told a reader nothing they could use.
+    return withEvidenceGap(
+      {
+        status: "PASS",
+        rationale:
+          "Verifiable, WITH A LIMITATION: no shortfall was detected, but no provider-stated " +
+          "total is held to check the count against, so completeness is unconfirmed rather " +
+          "than established.",
+      },
+      input,
+      "total_count_evidence",
+    );
   }
   if (c.fetched !== null && c.fetched < c.providerTotal) {
     return fail(`Holds ${c.fetched} of the ${c.providerTotal} records the provider reports.`);
@@ -357,14 +398,18 @@ function revisionIntegrity(input: VerificationInput): DimensionResult {
             "contradicted itself or the two were never the same series.",
         );
       case "UNRESOLVED":
-        return unknown(
-          `${decision.rationale}` +
-            (rev.valueRepeatsEarlierInChain
-              ? " The applied value also repeats one seen earlier in this chain, which is the " +
-                "signature of a stale replay AND of a provider correcting back to a figure it " +
-                "published before. Those are opposite situations and no held evidence separates " +
-                "them."
-              : ""),
+        return withEvidenceGap(
+          unknown(
+            `${decision.rationale}` +
+              (rev.valueRepeatsEarlierInChain
+                ? " The applied value also repeats one seen earlier in this chain, which is the " +
+                  "signature of a stale replay AND of a provider correcting back to a figure it " +
+                  "published before. Those are opposite situations and no held evidence separates " +
+                  "them."
+                : ""),
+          ),
+          input,
+          "provider_vintage_time",
         );
     }
   }
@@ -378,10 +423,14 @@ function revisionIntegrity(input: VerificationInput): DimensionResult {
     );
   }
 
-  return unknown(
-    "No figure here names the provider filing or revision it came from, and no vintage evidence " +
-      "was supplied, so whether a later ingest silently replaced a newer value cannot be " +
-      "established. Retrieval order is not semantic recency.",
+  return withEvidenceGap(
+    unknown(
+      "No figure here names the provider filing or revision it came from, and no vintage " +
+        "evidence was supplied, so whether a later ingest silently replaced a newer value cannot " +
+        "be established. Retrieval order is not semantic recency.",
+    ),
+    input,
+    "provider_vintage_time",
   );
 }
 

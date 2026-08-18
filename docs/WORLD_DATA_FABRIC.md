@@ -139,6 +139,78 @@ export interface FabricStatus {
 }
 ```
 
+## Provider capability matrix
+
+`src/server/fabric/providerCapability.ts`. What each source can actually tell us, on 13 axes, with
+the evidence for every cell.
+
+This exists because "the provider supports X" is the most expensive unexamined claim in the system.
+Every provider defect on this project was a capability believed rather than observed: `fy` was
+non-nullable because the documentation said so and arrives null; the filing history was complete
+because the endpoint returned 200, and it was 1000 of 2240; revenue kept one tag across time
+because that is how a taxonomy is supposed to work, and it moved across three.
+
+```ts
+export type CapabilityState =
+  | "SUPPORTED" // a real response carried it
+  | "NOT_SUPPORTED" // a real response established the provider does not carry it
+  | "NOT_VERIFIED" // documented or declared, never seen live — debt, not a limitation
+  | "CONDITIONAL" // carried for some records and not others, on stated conditions
+  | "UNKNOWN"; // availability cannot currently be determined
+
+export type CapabilityProvenance =
+  "LIVE_RESPONSE" | "PROVIDER_DOCUMENTATION" | "ADAPTER_DECLARATION" | "ABSENT";
+```
+
+**The rule, enforced by test: `SUPPORTED` and `NOT_SUPPORTED` both require `LIVE_RESPONSE`.** The
+second half is the part that is easy to get wrong. Absence of a field from the documentation is not
+proof the provider withholds it, any more than its presence is proof the provider supplies it —
+and asserting NOT_SUPPORTED from a document is worse in effect, because it closes an inquiry
+instead of opening one. Every `NOT_VERIFIED` must also name the gate that would clear it, so the
+matrix doubles as a work list.
+
+The 13 axes: `observation_time`, `period_start`, `period_end`, `source_release_time`,
+`provider_revision_identity`, `provider_vintage_time`, `amendment_identity`, `pagination_evidence`,
+`total_count_evidence`, `freshness_semantics`, `revision_history`, `source_provenance`,
+`schema_version_metadata`.
+
+### Where the four providers stand
+
+| Provider    | Live-observed axes | Standing                                                                 |
+| ----------- | ------------------ | ------------------------------------------------------------------------ |
+| `SEC_EDGAR` | 13 / 13            | 6 SUPPORTED, 3 NOT_SUPPORTED, 4 CONDITIONAL — all from real responses    |
+| `FRED`      | 0 / 13             | All NOT_VERIFIED. Error path verified; no success response ever observed |
+| `ECOS`      | 0 / 13             | All NOT_VERIFIED (HG-003)                                                |
+| `OPENDART`  | 0 / 13             | All NOT_VERIFIED (HG-004)                                                |
+
+SEC's cells carry real counts rather than adjectives: 912 of 1431 stored facts have a period start
+and 519 do not, which is why `period_start` is CONDITIONAL rather than SUPPORTED; 86 filings and 17
+facts carry a `/A` amendment suffix. `total_count_evidence` is CONDITIONAL because filings can be
+counted (each overflow file states its `filingCount`) and facts cannot — companyfacts publishes no
+total, so completeness there is **permanently unconfirmable** rather than merely unconfirmed.
+
+FRED's `realtime_start` is the single most valuable unverified field in the system: exactly the
+evidence the vintage contract needs, already declared in `fred/types.ts`, read by no adapter. A test
+forbids promoting it to SUPPORTED without a live response.
+
+### Explaining an absence
+
+`classifyEvidenceGap(sourceCode, axis, presentInRecord)` turns "this field is missing" into
+something actionable. At the point of use all of these look identical and they call for opposite
+responses:
+
+| Kind                    | Means                                              | Do                     |
+| ----------------------- | -------------------------------------------------- | ---------------------- |
+| `STRUCTURAL_LIMITATION` | the provider does not supply it, confirmed live    | disclose the ceiling   |
+| `VERIFICATION_DEBT`     | it may supply it; we have never called and checked | schedule the call      |
+| `DATA_QUALITY_ISSUE`    | it does supply it and THIS record lacks it         | investigate the record |
+| `CONDITIONAL_ABSENCE`   | supplied only under conditions not met here        | nothing                |
+| `CAPABILITY_UNKNOWN`    | no profile for this source                         | profile it             |
+
+The vintage contract derives its availability states from this matrix rather than restating them.
+A second table describing the same providers is a second thing to keep true, and the whole
+`IDENTITY_MODELLING` cluster in the Evolution ledger is variations on that theme.
+
 ## Provider vintage and semantic recency
 
 `TemporalStamp` answers WHEN. It does not answer WHICH VERSION, and IR-021 is what that gap costs:

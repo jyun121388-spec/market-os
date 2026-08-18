@@ -8,7 +8,7 @@ freeze is enforced by the suite rather than by discipline.
 
 STATUS as of 2026-08-18:
 
-- 562/562 unit and integration tests, E2E 33/33 in a real browser against the production build,
+- 596/596 unit and integration tests, E2E 33/33 in a real browser against the production build,
   `verify:live:edgar` 67/67, lint / typecheck / format / build clean. P0 = 0, P1 = 0.
 - 124 commits are local-only (HG-001, `PUSH_PENDING_AUTH`). No credential on this machine.
 - Independent review is blocked on included-usage exhaustion resetting 2026-08-22 (HG-005). Not
@@ -16,9 +16,19 @@ STATUS as of 2026-08-18:
 - Shadow layers implemented: Reality Fabric projection, Verify, Governance policy engine,
   Evolution ledger and detector — plus the provider-vintage contract that ties them together.
 
+- Provider capability matrix covers 13 axes × 4 providers. Only SEC_EDGAR has live evidence;
+  FRED, ECOS and OpenDART are entirely NOT_VERIFIED behind HG-002/003/004.
+
 ## The last thing done
 
-The provider-vintage / semantic-recency contract (`src/server/fabric/vintage.ts`), the concept
+The provider capability matrix (`src/server/fabric/providerCapability.ts`), continuing directly
+from the vintage contract and answering the question it kept raising: is this evidence absent
+because the provider withholds it, or because nobody has looked? `SUPPORTED` and `NOT_SUPPORTED`
+both require a live response — asserting the second from a documentation page closes an inquiry
+that was never opened. Verify classifies gaps against it, Governance reads reality state from the
+Fabric, and Evolution generates evidence-backed proposals from it.
+
+Before that, the provider-vintage / semantic-recency contract (`src/server/fabric/vintage.ts`), the concept
 IR-021 forced into existence, propagated through Fabric → Verify → Evolution → Governance. The
 governing sentence is **retrieval order is not semantic recency**: `retrievedAt` is always
 available and never authoritative, and a negative-control test fails if it ever becomes a

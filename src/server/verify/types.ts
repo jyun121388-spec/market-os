@@ -14,6 +14,7 @@
  * Nothing in v1 imports this. It computes verdicts and blocks nothing.
  */
 
+import type { EvidenceGapKind } from "../fabric/providerCapability";
 import type { ProviderVintage } from "../fabric/vintage";
 
 export type Verdict =
@@ -33,6 +34,16 @@ export interface DimensionResult {
   status: DimensionStatus;
   /** What was actually checked, in words. Required — a bare PASS proves nothing to a reader. */
   rationale: string;
+  /**
+   * Why the evidence this dimension wanted was missing, where it was missing.
+   *
+   * Set only when the capability matrix can explain the absence. The status alone cannot carry
+   * this: "the provider does not publish it", "we have never verified that it does" and "the
+   * provider does and this record lacks it" all render as INSUFFICIENT_EVIDENCE, and they are
+   * respectively a permanent limitation, a work item, and a defect. A reader who cannot tell them
+   * apart will treat all three as the first one, because that is the only one requiring nothing.
+   */
+  evidenceGap?: EvidenceGapKind;
 }
 
 export type DimensionName =

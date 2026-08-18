@@ -16,7 +16,7 @@ async function main() {
     const result = await recordIngestRun(
       // Canonical padded CIK, matching `FinancialFact.corpCode`. See the note in
       // scripts/ingest-edgar.ts for why the unpadded form is not used here.
-      { sourceCode: "SEC_EDGAR", target: `xbrl:${padCik(company.cik)}` },
+      { sourceCode: "SEC_EDGAR", target: `xbrl:${padCik(company.cik)}`, mode: "FULL" },
       async () => {
         const r = await ingestCompanyFacts(company);
         return {

@@ -32,7 +32,18 @@ export interface IngestRunOutcome {
  * potentially a connection string) into a table rendered on an authenticated page.
  */
 export async function recordIngestRun<T extends IngestRunOutcome>(
-  args: { sourceCode: string; target: string },
+  args: {
+    sourceCode: string;
+    target: string;
+    /**
+     * Whether this run re-fetches the target's ENTIRE history or only appends to it.
+     *
+     * Omitted means UNKNOWN, deliberately. A caller that has not thought about it must not have
+     * FULL assumed on its behalf: FULL is what lets a later success clear an earlier truncation,
+     * so guessing it would silently declare gaps repaired that nobody re-fetched.
+     */
+    mode?: "FULL" | "INCREMENTAL";
+  },
   run: () => Promise<T>,
 ): Promise<T> {
   const startedAt = new Date();
@@ -63,6 +74,7 @@ async function writeRun(args: {
   target: string;
   startedAt: Date;
   status: IngestRunStatus;
+  mode?: "FULL" | "INCREMENTAL";
   outcome: IngestRunOutcome;
   error?: string;
 }): Promise<void> {
@@ -80,6 +92,7 @@ async function writeRun(args: {
       startedAt: args.startedAt,
       finishedAt: new Date(),
       status: args.status,
+      mode: args.mode ?? "UNKNOWN",
       inserted: outcome.inserted ?? 0,
       revised: outcome.revised ?? 0,
       unchanged: outcome.unchanged ?? 0,

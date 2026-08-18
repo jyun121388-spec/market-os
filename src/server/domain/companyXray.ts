@@ -268,6 +268,25 @@ export async function assessCompleteness(
     orderBy: { startedAt: "desc" },
   });
 
+  /**
+   * Whether an earlier truncation is still unrepaired for a given target.
+   *
+   * Reducing to "the most recent run per target" was not enough. A truncated all-history run
+   * followed by a successful 2026-only rerun reported COMPLETE, while the old filings it never
+   * asked for were still missing. Only a later FULL run — one that re-fetched the whole history —
+   * can clear that; an INCREMENTAL or UNKNOWN one leaves the gap exactly where it was
+   * (independent review, `gpt-5.6-terra`, 2026-08-18).
+   */
+  function unrepairedTruncation(target: string): boolean {
+    const forTarget = runs.filter((r) => r.target === target); // newest first
+    const lastTruncatedIndex = forTarget.findIndex((r) => r.truncated || r.status === "PARTIAL");
+    if (lastTruncatedIndex === -1) return false;
+    // Runs newer than that truncation. A FULL success among them repairs it.
+    return !forTarget
+      .slice(0, lastTruncatedIndex)
+      .some((r) => r.status === "SUCCESS" && r.mode === "FULL");
+  }
+
   if (runs.length === 0) {
     return {
       status: "UNKNOWN",
@@ -288,6 +307,18 @@ export async function assessCompleteness(
       detail:
         `The most recent ingest for ${failed.map((r) => r.target).join(", ")} failed, so the ` +
         "figures below may be missing anything that run would have added.",
+    };
+  }
+
+  // An unrepaired truncation ANYWHERE in a target's history, not only in its most recent run.
+  const stillTruncated = [...new Set(latest.map((r) => r.target))].filter(unrepairedTruncation);
+  if (stillTruncated.length > 0 && !latest.some((r) => r.truncated || r.status === "PARTIAL")) {
+    return {
+      status: "KNOWN_INCOMPLETE",
+      detail:
+        `An earlier ingest for ${stillTruncated.join(", ")} stored less than the provider ` +
+        "reported, and no later run has re-fetched the full history since. The most recent run " +
+        "succeeded, but it only added to what was already stored — the earlier gap is still there.",
     };
   }
 

@@ -306,4 +306,76 @@ describeIfDb("computeCompanyXray (integration)", () => {
     expect(xray.latestFigures.map((f) => f.value)).not.toContain(999999999);
     expect(xray.recentFilings.every((f) => f.reportName !== "OTHER-PROVIDER-REPORT")).toBe(true);
   });
+  it("does not let an INCREMENTAL success clear an earlier truncation", async () => {
+    // Terra''s finding, reproduced. assessCompleteness reduced to "the most recent run per
+    // target", so a truncated all-history run followed by a successful partial rerun reported
+    // COMPLETE while the old filings nobody re-fetched were still missing.
+    //
+    // Only a later FULL run can repair that. IngestRun had no way to say which kind it was,
+    // which is why this needed a migration rather than a query change.
+    const { recordIngestRun } = await import("@/server/domain/ingestRun");
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+
+    await recordIngestRun(
+      { sourceCode: SOURCE_CODE, target: CORP_CODE, mode: "FULL" },
+      async () => ({ inserted: 1000, providerTotal: 2240, fetched: 1000, truncated: true }),
+    );
+    await recordIngestRun(
+      { sourceCode: SOURCE_CODE, target: CORP_CODE, mode: "INCREMENTAL" },
+      async () => ({ inserted: 3, providerTotal: 3, fetched: 3, truncated: false }),
+    );
+
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("KNOWN_INCOMPLETE");
+    expect(xray.completeness.detail).toMatch(/only added to what was already stored/i);
+
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
+
+  it("lets a later FULL success clear an earlier truncation", async () => {
+    // The negative control. Without it the rule above would simply mark every company that was
+    // ever truncated as permanently incomplete, which is its own false statement.
+    const { recordIngestRun } = await import("@/server/domain/ingestRun");
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+
+    await recordIngestRun(
+      { sourceCode: SOURCE_CODE, target: CORP_CODE, mode: "FULL" },
+      async () => ({ inserted: 1000, providerTotal: 2240, fetched: 1000, truncated: true }),
+    );
+    await recordIngestRun(
+      { sourceCode: SOURCE_CODE, target: CORP_CODE, mode: "FULL" },
+      async () => ({ inserted: 2240, providerTotal: 2240, fetched: 2240, truncated: false }),
+    );
+
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("COMPLETE");
+
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
+
+  it("treats an UNKNOWN-mode success as not having repaired anything", async () => {
+    // Rows predating this distinction default to UNKNOWN. Assuming FULL for them would
+    // retroactively declare gaps repaired that nobody re-fetched - inventing certainty about
+    // runs no one observed.
+    const { recordIngestRun } = await import("@/server/domain/ingestRun");
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+
+    await recordIngestRun({ sourceCode: SOURCE_CODE, target: CORP_CODE }, async () => ({
+      inserted: 1000,
+      providerTotal: 2240,
+      fetched: 1000,
+      truncated: true,
+    }));
+    await recordIngestRun({ sourceCode: SOURCE_CODE, target: CORP_CODE }, async () => ({
+      inserted: 3,
+      providerTotal: 3,
+      fetched: 3,
+      truncated: false,
+    }));
+
+    const xray = (await computeCompanyXray(CORP_CODE))!;
+    expect(xray.completeness.status).toBe("KNOWN_INCOMPLETE");
+
+    await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
 });

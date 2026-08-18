@@ -54,6 +54,19 @@ enum IngestRunStatus {
   FAILED // threw before completing
 }
 
+/// Whether a run re-fetched a target's ENTIRE history, or only added to what was already stored.
+///
+/// The distinction decides whether a later success can clear an earlier truncation. A FULL run
+/// that succeeds replaces everything, so a gap left by a previous truncated run is gone. An
+/// INCREMENTAL run only appends, so that gap is still there — and reporting the company as
+/// COMPLETE because the most recent run happened to succeed would be a false claim about data
+/// nobody re-fetched (independent review, `gpt-5.6-terra`, 2026-08-18).
+enum IngestRunMode {
+  FULL // re-fetched the whole history for this target
+  INCREMENTAL // added to what was already stored; earlier gaps persist
+  UNKNOWN // recorded before this distinction existed, or by a caller that cannot say
+}
+
 // A record of one real ingestion run, so completeness is auditable after the fact rather than
 // a console line nobody reads.
 //
@@ -74,6 +87,11 @@ model IngestRun {
   startedAt  DateTime        @default(now())
   finishedAt DateTime?
   status     IngestRunStatus
+
+  /// Whether this run re-fetched everything or only appended. Defaults to UNKNOWN so existing
+  /// rows keep an honest value rather than being retroactively claimed as FULL — a backfill that
+  /// invented certainty about runs nobody observed would be worse than the gap it closed.
+  mode IngestRunMode @default(UNKNOWN)
 
   inserted  Int @default(0)
   revised   Int @default(0)

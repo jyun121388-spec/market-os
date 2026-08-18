@@ -17,7 +17,7 @@ async function main() {
       // constant here would repeat the identity mismatch that left 2240 filings and 933 facts
       // with zero joinable rows — and it would silently break any consumer trying to ask
       // "was this company's data complete?".
-      { sourceCode: "SEC_EDGAR", target: padCik(company.cik) },
+      { sourceCode: "SEC_EDGAR", target: padCik(company.cik), mode: "FULL" },
       async () => {
         const r = await ingestEdgarFilings(company);
         // SEC states no single total, but it declares the pieces. Recording the real number is what

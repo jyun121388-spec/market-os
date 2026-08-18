@@ -8,7 +8,7 @@ been restored by a plan upgrade (`docs/AI_REVIEW_RUNTIME_STATE.md`) and the firs
 independent review of this branch has now run — IR-009 through IR-011 below came from it. The
 earlier entries still want independent eyes; they are marked `Codex re-review: YES`.
 
-Verification at the close of this round: **532/532** tests across 66 files against real
+Verification at the close of this round: **538/538** tests across 67 files against real
 PostgreSQL 16.10; **33/33** E2E in a real browser against a freshly rebuilt production build; **67/67** live
 EDGAR contract checks; lint, typecheck, format and build clean. The real dev database still holds
 2240 filings and 1428 facts, verified by re-ingest after every suite run.
@@ -626,6 +626,44 @@ does not exist.
 
 `A delayed older ingest can become the newest revision` (P1) — not yet reproduced, and not acted
 on. Recorded as an unverified hypothesis rather than a finding.
+
+---
+
+## IR-021 — A stale replay rolled a corrected value backward — **VALID, fixed**
+
+|           |                                                         |
+| --------- | ------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-sol` proposed it; reproduced before any change |
+| Subsystem | `src/server/domain/observationIngest.ts`                |
+| Severity  | **P1** — a superseded figure served to users            |
+| Status    | **VALID — fixed**                                       |
+
+**Hypothesis.** "A delayed older ingest may become the newest revision and roll a correct value
+backward." `upsertRevisionAwareObservation` asks only whether an incoming value differs from the
+chain tail, which silently assumes whatever arrived last is true.
+
+**Reproduced.** Original 100 → legitimate revision 110 → a replay of 100 returned `revised`, the
+tail became 100, and `getRecentObservationPair` served 100 to the read path. The test was written
+to record a rejection if it did not occur; it occurred.
+
+Not exotic: a provider CDN serving a stale cached response, a lagging read replica, or a retried
+job from an earlier queue all deliver an OLD value at a NEW time.
+
+**Fix.** A value that already appears earlier in the same chain is the signature of a replay and
+is no longer applied. Returns a distinct `stale_ignored` status and logs; counted in the FRED and
+ECOS tallies rather than dropped.
+
+**Known limitation, deliberate and stated in the code.** A provider genuinely re-correcting back
+to a previously reported figure looks identical and is also ignored. Distinguishing them needs the
+provider's own vintage — FRED publishes `realtime_start` for exactly this, and
+`Observation.releaseDate` exists to hold it — but **no adapter populates it and no key is
+available to verify the real semantics**, so ordering on it now would be inventing behaviour.
+Of the two available errors, refusing to regress a published figure is visible in the log and the
+counts; the other is silent. Resolving it properly is **PROVIDER_KEY_REQUIRED**.
+
+**Controls.** No row is written for the ignored replay (appending one would make it the tail and
+reinstate the defect); a genuinely new value still applies, so the guard cannot wedge the chain; a
+repeat of the current value is still `unchanged`, so re-ingestion stays idempotent.
 
 ## Rejected local-AI findings
 

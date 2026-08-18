@@ -1,17 +1,17 @@
 LAST COMPLETED
 
-**Sixth round — live Verify integration, 2026-08-18.** 84 commits, all local (HG-001).
-Baseline 396 → 532 tests across 66 files.
+**Sixth round — live Verify integration, 2026-08-18.** 86 commits, all local (HG-001).
+Baseline 396 → 538 tests across 67 files.
 
 ## Verified state at handoff
 
 |                                     |                                                                                    |
 | ----------------------------------- | ---------------------------------------------------------------------------------- |
 | Branch                              | `claude/market-os-development-7vnicg`                                              |
-| Commits ahead of origin             | **84** — all local, nothing rewritten, no force operation                          |
+| Commits ahead of origin             | **86** — all local, nothing rewritten, no force operation                          |
 | Working tree                        | clean                                                                              |
-| Full suite                          | **532 / 532** across 66 files, real PostgreSQL 16.10, disposable test DB           |
-| No-database run                     | **350 pass / 177 skip**, 33 integration files skip cleanly                         |
+| Full suite                          | **538 / 538** across 67 files, real PostgreSQL 16.10, disposable test DB           |
+| No-database run                     | **350 pass / 188 skip**, 33 integration files skip cleanly                         |
 | E2E                                 | **33 / 33** in a real browser against a **freshly rebuilt** production build       |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                              |
 | Migrations                          | **17** applied cleanly to a fresh AND a populated database, re-verified this round |
@@ -77,7 +77,7 @@ permits.
 
 **Human Gates — none of these stop independent work.**
 
-- **HG-001 PUSH_PENDING_AUTH** — 84 commits local-only. No `gh`, no credential, environment
+- **HG-001 PUSH_PENDING_AUTH** — 86 commits local-only. No `gh`, no credential, environment
   cannot prompt. Attempted once per credential-state change, never in a loop.
 - **HG-002/003/004** — FRED / ECOS / OpenDART keys. Request shapes and error envelopes are
   verified against the real APIs with deliberately invalid keys; the **success** shape, where
@@ -110,18 +110,23 @@ Terra/Luna/Sol finding is either fixed or genuinely blocked:
 - **HG-009** login-lockout tradeoff — a security design decision, not a defect with one right
   answer.
 
-**The final RC adversarial audit is done** (`gpt-5.6-sol`, full `9b34f8b..HEAD`). Three findings
-fixed — IR-017/018/019 — and one rejected: Sol reported P1 that every date shifts a day backward
-outside UTC and claimed to have reproduced it against the populated database. It had not; the real
-path returns midnight UTC. **No code was changed on that one**, and the rejection is recorded in
-`docs/INTERIM_REVIEW_FINDINGS.md` because a false reproduction claim from the strongest model is
+**The final RC adversarial audit is done** (`gpt-5.6-sol`, full `9b34f8b..HEAD`), and its last
+open hypothesis is now resolved.
+
+**IR-021 — reproduced and fixed.** "A delayed older ingest may become the newest revision and roll
+a correct value backward." It does: original 100, a legitimate revision to 110, then a replay of
+100 became the chain tail and the read path served users the superseded figure. A stale CDN
+response, a lagging replica or a retried job all deliver an OLD value at a NEW time, so this is an
+ordinary operational event. Guarded — a value already present earlier in the chain is not applied,
+returns `stale_ignored`, and is counted rather than dropped.
+
+**IR-020 — rejected, no code changed.** Sol reported P1 that every date shifts a day backward
+outside UTC and stated it had reproduced it against the populated database. It had not; the real
+path returns midnight UTC. Recorded because a false reproduction claim from the strongest model is
 the most instructive kind.
 
-One unverified hypothesis remains from that audit: "a delayed older ingest can become the newest
-revision and roll a correct value backward". Not reproduced, so not acted on — that is the next
-thing to attempt.
-
-What is left beyond it is genuinely gated: a provider key, a GitHub credential, or HG-009.
+**No unresolved P0 or P1 remains.** Every safe unblocked task is complete. What is left is gated
+on a provider key, a GitHub credential, or HG-009.
 
 ## Environment notes that have cost time before
 

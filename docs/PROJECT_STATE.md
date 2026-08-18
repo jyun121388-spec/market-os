@@ -253,7 +253,7 @@ first shadow deliverable is a read-only projection that runs all three and repor
 because each disagreement is a v1 defect hypothesis.
 
 TESTS
-532 / 532 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+538 / 538 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 30/30 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real

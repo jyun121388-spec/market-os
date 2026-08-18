@@ -8,7 +8,7 @@ freeze is enforced by the suite rather than by discipline.
 
 STATUS as of 2026-08-18:
 
-- 755/755 unit and integration tests, E2E 33/33 in a real browser against the production build,
+- 761/761 unit and integration tests, E2E 33/33 in a real browser against the production build,
   `verify:live:edgar` 67/67, lint / typecheck / format / build clean. P0 = 0, P1 = 0.
 - Every commit after `6cb74fc` is local-only, ~128 of them (HG-001, `PUSH_PENDING_AUTH`). No
   credential on this machine. Stated as an anchor rather than a count, because a count written

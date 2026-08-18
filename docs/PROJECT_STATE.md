@@ -592,8 +592,30 @@ One over-block was caught by that corpus **before it shipped**: the first `dolla
 pattern refused "How does dollar cost averaging work as a concept?", the same mistake `fair value`
 made and which took a reviewer weeks to find. Same minute this time.
 
+PHASE — FIXTURE CARDINALITY (2026-08-18), the scheduler's third item
+`CLUSTER-FIXTURE_REALISM`, five instances at P0, every one of the form "the suite was green because
+its data could not express the failure". Countermeasure: list the dimensions the real data varies on
+and mark which are represented by exactly one value.
+
+Measured across all five adapter fixtures. The EDGAR companyfacts fixture carries the variety that
+cost the most — two forms, `fy` both null and numeric, `start` present and absent, facts sharing a
+period end — and `tests/fixtureRealism.test.ts` now pins each of those, since each was a separate
+defect before it was a fixture dimension.
+
+Three dimensions are genuinely single-valued and each is covered by an INLINE stub elsewhere rather
+than by the shared fixture: EDGAR's `filings.files[]` overflow, DART's `total_page > 1`, and a short
+page before a declared total. The test records the pairing, so a single-valued dimension stays
+acceptable only while something else exercises it.
+
+**Two of the five reported gaps were my own measurement error, caught by the assertions before they
+became findings.** The probe counted MATCHING ROWS and I read the answer as a CARDINALITY — one row
+with a `.` value came back as "1", which looks identical to "one distinct value" and means the
+opposite. Both fixtures already carry the missing-value marker they were reported as lacking.
+Writing that up would have produced a confident, well-formed, wrong finding from a script rather
+than a model, which is not a meaningful difference. Pinned by a test named for what it is.
+
 TESTS
-755 / 755 PASS across 82 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+761 / 761 PASS across 83 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

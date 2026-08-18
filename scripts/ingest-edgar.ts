@@ -18,8 +18,14 @@ async function main() {
       // with zero joinable rows — and it would silently break any consumer trying to ask
       // "was this company's data complete?".
       { sourceCode: "SEC_EDGAR", target: padCik(company.cik), mode: "FULL" },
-      async () => {
-        const r = await ingestEdgarFilings(company);
+      async (progress) => {
+        // Keeps the audit row honest if this throws partway through: rows already written are
+        // not rolled back, so recording zero would misrepresent the database.
+        const r = await ingestEdgarFilings(company, (p) => {
+          progress.inserted = p.inserted;
+          progress.unchanged = p.unchanged;
+          progress.fetched = p.fetched;
+        });
         // SEC states no single total, but it declares the pieces. Recording the real number is what
         // lets completeness be CHECKED rather than assumed - see companyXray.assessCompleteness.
         return { ...r, fetched: r.totalFetched, providerTotal: r.providerTotal };

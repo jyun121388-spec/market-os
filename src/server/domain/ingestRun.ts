@@ -30,6 +30,24 @@ export interface IngestRunOutcome {
  * but a run that died is exactly the run an operator most wants to see afterwards. Only the
  * error MESSAGE is stored — never a stack trace, which would put local filesystem paths (and
  * potentially a connection string) into a table rendered on an authenticated page.
+ *
+ * ## Partial progress
+ *
+ * The run function receives a mutable `progress` object it may update as it goes. On failure the
+ * wrapper records whatever is in it.
+ *
+ * That exists because rows are written one at a time and are NOT rolled back, while the failure
+ * path used to record `{}` — every count zero. An exception after fifty successful inserts left
+ * fifty real rows behind an audit row saying `inserted: 0`, and an operator reading /admin would
+ * reasonably conclude the database was untouched (independent review, `gpt-5.6-terra`).
+ *
+ * Deliberately NOT a transaction. Wrapping a 2240-row EDGAR ingest in one would discard two
+ * thousand good rows because the last failed, and risks long-transaction timeouts against a
+ * provider-paced loop. The defect was a lying audit, not a lying database, so the audit is what
+ * changed. Ingest behaviour is untouched.
+ *
+ * The parameter is optional in practice: every existing caller is a zero-argument arrow and none
+ * needed editing.
  */
 export async function recordIngestRun<T extends IngestRunOutcome>(
   args: {
@@ -44,16 +62,19 @@ export async function recordIngestRun<T extends IngestRunOutcome>(
      */
     mode?: "FULL" | "INCREMENTAL";
   },
-  run: () => Promise<T>,
+  run: (progress: IngestRunOutcome) => Promise<T>,
 ): Promise<T> {
   const startedAt = new Date();
+  const progress: IngestRunOutcome = {};
 
   try {
-    const result = await run();
+    const result = await run(progress);
     await writeRun({
       ...args,
       startedAt,
       status: result.truncated ? "PARTIAL" : "SUCCESS",
+      // The returned value wins over `progress`: it is the run's authoritative final account,
+      // and progress exists only for the path that never gets to return one.
       outcome: result,
     });
     return result;
@@ -62,7 +83,7 @@ export async function recordIngestRun<T extends IngestRunOutcome>(
       ...args,
       startedAt,
       status: "FAILED",
-      outcome: {},
+      outcome: progress,
       error: err instanceof Error ? err.message : String(err),
     });
     throw err;

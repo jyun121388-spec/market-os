@@ -25,7 +25,18 @@ export interface IngestResult {
  * is a stable, source-issued identifier, so this is a plain upsert keyed on
  * (sourceId, receiptNo), not revision-tracking.
  */
-export async function ingestEdgarFilings(company: EdgarCompanyDefinition): Promise<IngestResult> {
+export async function ingestEdgarFilings(
+  company: EdgarCompanyDefinition,
+  /**
+   * Called after each row so a failure partway through can still be audited truthfully.
+   *
+   * Rows are written one at a time and are not rolled back. Without this, an exception at row
+   * 2000 of 2240 recorded `inserted: 0` while two thousand rows sat in the database — an audit
+   * that actively misleads the operator reading it. Optional, so nothing that does not care has
+   * to change.
+   */
+  onProgress?: (progress: { inserted: number; unchanged: number; fetched: number }) => void,
+): Promise<IngestResult> {
   const source = await prisma.source.upsert({
     where: { code: "SEC_EDGAR" },
     update: {},
@@ -71,6 +82,7 @@ export async function ingestEdgarFilings(company: EdgarCompanyDefinition): Promi
     );
     if (didInsert) inserted++;
     else unchanged++;
+    onProgress?.({ inserted, unchanged, fetched: inserted + unchanged });
   }
 
   if (history.truncated) {

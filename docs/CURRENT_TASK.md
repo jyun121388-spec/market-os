@@ -10,7 +10,7 @@ STATUS as of 2026-08-18:
 
 - 596/596 unit and integration tests, E2E 33/33 in a real browser against the production build,
   `verify:live:edgar` 67/67, lint / typecheck / format / build clean. P0 = 0, P1 = 0.
-- 124 commits are local-only (HG-001, `PUSH_PENDING_AUTH`). No credential on this machine.
+- 127 commits are local-only (HG-001, `PUSH_PENDING_AUTH`). No credential on this machine.
 - Independent review is blocked on included-usage exhaustion resetting 2026-08-22 (HG-005). Not
   something to poll for, and not something to buy a way out of.
 - Shadow layers implemented: Reality Fabric projection, Verify, Governance policy engine,

@@ -671,6 +671,25 @@ P2, deferred — nothing false is shown, something true is omitted, and the only
 fixture. Pinned the self-correcting way: the absence is asserted as it currently is, so fixing it
 breaks the test.
 
+PHASE — THE LOOP'S OWN MEMORY (2026-08-18)
+Re-running the scheduler after six completed phases returned the same nine items. It had no way to
+tell "not started" from "finished and unrecorded" — an absence read as a state, which is the defect
+class this layer exists to notice, in the layer itself.
+
+`COMPLETED_WORK` records each finished proposal with its commit, what exists now that did not
+before, and what the countermeasure did NOT cover. A completion needs evidence, not a tick: an
+entry with no artefact is a claim that work happened, which is what this project refuses to accept
+from any other source.
+
+Four of the six carry a `remaining` note — IR-033, IR-035, IR-036 and IR-037 are each partly
+deferred by the freeze — so a partially-addressed cause does not read as a closed one.
+
+**The first version had the semantics wrong**, caught by its own tests: an explicit `completed`
+argument REPLACED the record instead of adding to it, so a caller marking one item done silently
+un-completed the other six. Now a union.
+
+The queue converges: **3 startable, 5 deferred on provider keys**, down from 9 and 5.
+
 TESTS
 774 / 774 PASS across 85 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).

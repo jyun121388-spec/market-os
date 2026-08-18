@@ -174,7 +174,17 @@ export function scheduleNextWork(
   } = {},
 ): NextWorkQueue {
   const context = options.context ?? {};
-  const completed = new Set(options.completed ?? []);
+  // Recorded completions are ADDED to whatever the caller supplies, never replaced by it. The
+  // first version treated `completed` as an override, which meant marking one item done silently
+  // un-completed the other six — a caller asking a narrow question got a wrong wide answer.
+  //
+  // Without the record at all, the queue returned the same items after every phase and could never
+  // converge: an absence read as a state, which is the defect class this whole layer exists to
+  // notice, in the layer itself.
+  const completed = new Set([
+    ...COMPLETED_WORK.map((w) => w.proposalId),
+    ...(options.completed ?? []),
+  ]);
   const proposals = (options.proposals ?? [...clusterProposals(), ...capabilityGapProposals()])
     .filter((p) => !completed.has(p.id))
     .map((p) => classify(p, context));
@@ -215,3 +225,88 @@ export function scheduleNextWork(
 export function isWorkExhausted(queue: NextWorkQueue): boolean {
   return queue.actionable.length === 0;
 }
+
+/**
+ * Work the loop has actually done, with the evidence for each.
+ *
+ * The scheduler could not distinguish "not started" from "finished and unrecorded", so it returned
+ * the same nine items after every phase and could never converge. That is the same defect class it
+ * exists to find — an absence read as a state — and it made the queue's own count untrustworthy in
+ * exactly the way a summary written from memory is.
+ *
+ * A completion needs EVIDENCE, not a tick. Each entry names the commit and what was produced, so a
+ * reader can check the claim rather than take it. An entry with no artefact is a claim that work
+ * happened, which is the thing this project keeps refusing to accept from anyone else.
+ */
+export interface CompletedWork {
+  proposalId: string;
+  /** The commit that carried it. */
+  commit: string;
+  /** What exists now that did not before. */
+  evidence: string;
+  /**
+   * What the countermeasure did NOT cover, where it did not cover everything.
+   *
+   * A partially-addressed cause must not read as a closed one. Where this is set the cluster stays
+   * live in the ledger, and the note says what a later pass would still have to do.
+   */
+  remaining?: string;
+}
+
+export const COMPLETED_WORK: CompletedWork[] = [
+  {
+    proposalId: "CLUSTER-IDENTITY_MODELLING",
+    commit: "df35ba7, f63005f",
+    evidence:
+      "tests/orderingDeterminism.test.ts enumerates all 12 domain orderings and requires each to " +
+      "be total or waived with a reason; tests/ingestTargetConvention.test.ts pins the join key " +
+      "five ingest scripts write and one reader reconstructs.",
+    remaining:
+      "Two Ask Market orderings can still tie and are deferred by the freeze as IR-033, held in " +
+      "the test's DEFERRED_BY_FREEZE list.",
+  },
+  {
+    proposalId: "CLUSTER-GUARDRAIL_COVERAGE",
+    commit: "6e06e35",
+    evidence:
+      "Probed for CONCEPTS rather than phrasings and found eight families with no coverage at " +
+      "all; 18 direct instructions were reproduced, then closed, with an 18-question " +
+      "must-not-flag corpus in tests/askMarketConceptCoverage.test.ts.",
+  },
+  {
+    proposalId: "CLUSTER-FIXTURE_REALISM",
+    commit: "030e93e",
+    evidence:
+      "tests/fixtureRealism.test.ts measures each fixture's cardinality on the dimensions that " +
+      "produced real defects, and pairs every single-valued dimension with the inline test that " +
+      "covers it instead.",
+  },
+  {
+    proposalId: "CLUSTER-SILENT_DEGRADATION",
+    commit: "ea9c79a",
+    evidence:
+      "Ask Market shows 10 of 1428 held facts with no signal (IR-035). Measured and surfaced in " +
+      "the shadow verdict — the real run now reports those answers TRUNCATED.",
+    remaining:
+      "Disclosing the shortfall on the page itself is a v1 change the freeze defers; only the " +
+      "shadow half is done.",
+  },
+  {
+    proposalId: "CLUSTER-CONCURRENCY",
+    commit: "7859ccf",
+    evidence:
+      "Enumerated every read-then-write in the domain layer. All were transactional or " +
+      "constraint-protected except signUp, whose race was reproduced (IR-036): the constraint " +
+      "holds, the error shape does not.",
+    remaining: "IR-036's two-line handler fix is deferred by the freeze.",
+  },
+  {
+    proposalId: "CLUSTER-PROVENANCE",
+    commit: "2b78fbd",
+    evidence:
+      "Audited every page at the rendering layer. Every figure names its source; the causal " +
+      "graph's schema-required `evidence` field is dropped before the page (IR-037), pinned so " +
+      "fixing it breaks the test.",
+    remaining: "IR-037's additive render is deferred by the freeze.",
+  },
+];

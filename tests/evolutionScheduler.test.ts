@@ -191,7 +191,9 @@ describe("the scheduler cannot do anything", () => {
    */
   it("exports no way to carry out the work it schedules", () => {
     const exported = Object.keys(scheduler);
-    expect(exported.sort()).toEqual(["isWorkExhausted", "scheduleNextWork"]);
+    // COMPLETED_WORK is data — a record of what was done, with the commit for each. Data cannot
+    // carry work out; the check that matters is that no export is a verb.
+    expect(exported.sort()).toEqual(["COMPLETED_WORK", "isWorkExhausted", "scheduleNextWork"]);
     for (const name of exported) {
       expect(name).not.toMatch(/execute|apply|run|commit|perform|mutate/i);
     }
@@ -216,9 +218,12 @@ describe("against the real ledger and capability matrix", () => {
       },
     });
 
-    // Real state as of 2026-08-18: nine cluster and capability proposals an agent may start, and
-    // the three provider-key items plus the two clusters whose countermeasure needs a live call.
-    expect(queue.actionable.length).toBeGreaterThanOrEqual(5);
+    // Real state after six clusters were worked and recorded: three startable remain, and the
+    // three provider-key items plus the two clusters whose countermeasure needs a live call stay
+    // deferred. The queue converging is the point — before COMPLETED_WORK existed it returned the
+    // same nine items forever.
+    expect(queue.actionable.length).toBeGreaterThanOrEqual(1);
+    expect(queue.actionable.length).toBeLessThan(9);
     expect(queue.deferred.map((w) => w.proposal.id)).toEqual(
       expect.arrayContaining(["CAP-DEBT-FRED", "CAP-DEBT-ECOS", "CAP-DEBT-OPENDART"]),
     );

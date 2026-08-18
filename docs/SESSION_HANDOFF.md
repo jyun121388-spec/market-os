@@ -8,7 +8,7 @@ in the v2 shadow layers. Baseline 538 → **596** tests across 71 files.
 |                                     |                                                                          |
 | ----------------------------------- | ------------------------------------------------------------------------ |
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
-| Commits ahead of origin             | **127** — all local, nothing rewritten, no force operation               |
+| Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
 | Full suite                          | **596 / 596** across 71 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |

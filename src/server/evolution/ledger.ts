@@ -612,6 +612,20 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "CONCURRENCY",
   },
 
+  {
+    id: "PV-01",
+    ledger: "REVIEW_FINDING",
+    subsystem: "askMarket / ask page",
+    severity: "P2",
+    summary:
+      "A causal claim is rendered with its confidence and its counterexamples, and without the " +
+      "evidence field the schema requires for exactly that purpose.",
+    lesson:
+      "Two fields were made mandatory for the same reason and only one was carried to the page, " +
+      "so the claim shows what limits it and not what supports it.",
+    category: "PROVENANCE",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

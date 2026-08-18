@@ -165,3 +165,26 @@ consistency about that line matters more than one cheap fix.
 should be, and the error shape asserted **as it currently is, deliberately the wrong way round, so
 that fixing it breaks the test.** A known gap asserted as correct behaviour is how a defect becomes
 a specification.
+
+## IR-037 — A causal claim shown with its limitation and without its basis (raised 2026-08-18, deferred)
+
+From the `PROVENANCE` countermeasure — assert provenance where the reader SEES it. Auditing every
+page found each FIGURE properly attributed, including the Macro Regime axes that were this
+cluster's last instance. The causal graph is not.
+
+`CausalEdge.evidence` is stored and schema-required, described as "why this is believed —
+established literature/precedent, not a citation-shaped guess". `CausalFactor`, the domain type
+between the database and the page, has no such field, so `/ask` renders the direction, confidence,
+mechanism, lag and counterexamples, and cannot render the basis.
+
+The asymmetry is the tell: both `evidence` and `counterexamples` are schema-required for the same
+reason, and the LIMITATION is shown while the BASIS is not. A reader sees "MEDIUM confidence" with
+the caveats and no way to ask why anyone believes it.
+
+**P2, not fixed.** Nothing false is displayed; something true is omitted. Only one causal edge is
+stored today and it is a test fixture, so the current user-facing impact is nil — the same latency
+argument as IR-032. The fix is additive: carry `evidence` through `CausalFactor` and render it
+beside the limitations.
+
+`tests/causalProvenance.test.ts` pins the gap the self-correcting way — the absence is asserted as
+it currently is, so fixing IR-037 breaks the test.

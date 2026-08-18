@@ -651,8 +651,28 @@ P2 and not fixed — nothing corrupted, nothing exposed. The test pins both halv
 shape is asserted **as it currently is, deliberately the wrong way round, so that fixing it breaks
 the test.** A known gap asserted as correct behaviour is how a defect becomes a specification.
 
+PHASE — PROVENANCE AT THE PAGE (2026-08-18), the scheduler's sixth item
+`CLUSTER-PROVENANCE`, countermeasure: assert provenance where the reader SEES it, because both
+instances were rendering failures a domain-level test could not see.
+
+Audited every page. Every FIGURE is properly attributed, including the Macro Regime axes that were
+this cluster's last instance — now pinned by a test that reads the page rather than the domain.
+
+**IR-037 — the causal graph is not.** `CausalEdge.evidence` is stored and schema-required ("why
+this is believed — established literature/precedent, not a citation-shaped guess"). `CausalFactor`,
+the domain type between the database and the page, has no such field, so `/ask` renders direction,
+confidence, mechanism, lag and counterexamples and CANNOT render the basis.
+
+The asymmetry is the tell: `evidence` and `counterexamples` are schema-required for the same reason,
+and the limitation is shown while the basis is not. A reader sees "MEDIUM confidence" with the
+caveats and no way to ask why anyone believes it.
+
+P2, deferred — nothing false is shown, something true is omitted, and the only stored edge is a test
+fixture. Pinned the self-correcting way: the absence is asserted as it currently is, so fixing it
+breaks the test.
+
 TESTS
-766 / 766 PASS across 84 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+774 / 774 PASS across 85 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

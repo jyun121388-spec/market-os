@@ -555,6 +555,20 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "GUARDRAIL_COVERAGE",
   },
 
+  {
+    id: "RF-05",
+    ledger: "REVIEW_FINDING",
+    subsystem: "companyXray / company routes / verify shadowRun",
+    severity: "P1",
+    summary:
+      "A corp code resolved its own provider by taking the most recent filing that carried it, " +
+      "so a second company sharing the code was unreachable.",
+    lesson:
+      "Scoping the QUERIES to one provider fixed the pooling and left the CHOICE of provider " +
+      "unexamined, so the same identity defect survived one layer up in the routing.",
+    category: "IDENTITY_MODELLING",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

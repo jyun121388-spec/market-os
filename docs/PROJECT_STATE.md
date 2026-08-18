@@ -481,8 +481,28 @@ would be the wrong order.
 
 **No findings: A10** watchlist authorization, **A13** test-database guard and test realism.
 
+IR-032 — A CORP CODE CHOSE ITS OWN PROVIDER (2026-08-18, P1 latent, fixed)
+The A11/A14 items deferred earlier the same day, closed rather than carried. `computeCompanyXray`
+resolved the provider by taking the most recent filing carrying the code, and `/company` linked
+every `(sourceCode, corpCode)` row to the same URL — so a second company sharing a code was
+**unreachable**, and with equal receipt dates the choice was not stable between requests. IR-001 and
+IR-002 rebuilt one layer up: scoping fixed the pooling and left the CHOICE untouched.
+
+Reproduced against this repository's own IR-001/IR-002 fixture, which already creates two providers
+sharing one corp code. The fix broke all eleven calls in that file, which is the demonstration:
+before it, none of them needed to name a provider.
+
+Fixed as a refusal rather than a better tiebreak — `computeCompanyXray` returns null when the code
+is ambiguous and no provider is named, `listCompanySources` reports the candidates, links carry
+`?source=`, and the page asks. A better tiebreak would still be choosing which company the reader
+meant. The shadow Verify run now carries `(sourceCode, corpCode)` pairs and its output ids name the
+provider: `filingDiff:SEC_EDGAR:0000320193:Assets:USD`.
+
+Control: an unambiguous code still resolves with no `?source=`, because every real company today
+has exactly one provider and a disambiguation prompt for all of them would be worse than the defect.
+
 TESTS
-682 / 682 PASS across 77 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+690 / 690 PASS across 78 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

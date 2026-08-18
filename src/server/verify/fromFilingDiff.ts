@@ -65,7 +65,7 @@ export function verificationInputFromFilingDiff(
   });
 
   return {
-    outputId: `filingDiff:${diff.corpCode}:${diff.concept}:${diff.unit}`,
+    outputId: `filingDiff:${diff.sourceCode ?? "UNKNOWN_SOURCE"}:${diff.corpCode}:${diff.concept}:${diff.unit}`,
     claimType: "CALCULATION",
     sourceCodes: diff.sourceCode ? [diff.sourceCode] : [],
     calculation: {

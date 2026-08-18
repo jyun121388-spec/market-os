@@ -164,7 +164,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
   });
 
   it("keeps one latest figure per period length, each labelled with what it covers", async () => {
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.company.corpName).toBe("TEST X-Ray Corp");
     expect(xray.company.stockCode).toBe("XRAY");
 
@@ -183,7 +183,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
   });
 
   it("compares like with like, and never the two figures from one filing", async () => {
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     const change = xray.changes.find((c) => c.concept === "Revenues")!;
 
     expect(change.status).toBe("COMPUTED");
@@ -198,7 +198,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
     // Absence of a record is not evidence of completeness. The runs table only started being
     // written recently, so a company with no run is genuinely unknown and must say so rather
     // than defaulting to a reassuring answer.
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("UNKNOWN");
     expect(xray.completeness.detail).toMatch(/not evidence of completeness/i);
   });
@@ -215,7 +215,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
       truncated: true,
     }));
 
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("KNOWN_INCOMPLETE");
     expect(xray.completeness.detail).toContain("100 of 5000");
 
@@ -230,7 +230,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
       }),
     ).rejects.toThrow();
 
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("LAST_RUN_FAILED");
 
     await prisma.ingestRun.deleteMany({ where: { sourceId } });
@@ -245,7 +245,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
       truncated: false,
     }));
 
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("COMPLETE");
 
     await prisma.ingestRun.deleteMany({ where: { sourceId } });
@@ -270,7 +270,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
       truncated: false,
     }));
 
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("UNCONFIRMED");
     expect(xray.completeness.detail).toMatch(/did not state a total/i);
     // Must not overstate: no claim of having retrieved everything.
@@ -282,7 +282,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
   it("exposes no field that could carry a score, rating or recommendation", async () => {
     // Structural guardrail, the same approach tests/etfSchemaGuardrail.test.ts takes: the shape
     // itself must make a judgment unrepresentable, so one cannot be added by accident later.
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     const serialized = JSON.stringify(xray).toLowerCase();
     for (const forbidden of ["rating", "score", "recommend", "target", "verdict", "opinion"]) {
       expect(serialized).not.toContain(forbidden);
@@ -295,7 +295,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
     // (corpCode, sourceId) and reports these as two separate companies, so the index and the
     // detail page disagreed about how many companies exist — and the detail page was the one
     // presenting a merged entity as a single sourced record.
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
 
     // Everything shown must belong to the one source the page names.
     expect(xray.company.sourceCode).toBe(SOURCE_CODE);
@@ -325,7 +325,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
       async () => ({ inserted: 3, providerTotal: 3, fetched: 3, truncated: false }),
     );
 
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("KNOWN_INCOMPLETE");
     expect(xray.completeness.detail).toMatch(/only added to what was already stored/i);
 
@@ -347,7 +347,7 @@ describeIfDb("computeCompanyXray (integration)", () => {
       async () => ({ inserted: 2240, providerTotal: 2240, fetched: 2240, truncated: false }),
     );
 
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("COMPLETE");
 
     await prisma.ingestRun.deleteMany({ where: { sourceId } });
@@ -373,9 +373,39 @@ describeIfDb("computeCompanyXray (integration)", () => {
       truncated: false,
     }));
 
-    const xray = (await computeCompanyXray(CORP_CODE))!;
+    const xray = (await computeCompanyXray(CORP_CODE, SOURCE_CODE))!;
     expect(xray.completeness.status).toBe("KNOWN_INCOMPLETE");
 
     await prisma.ingestRun.deleteMany({ where: { sourceId } });
+  });
+
+  /**
+   * IR-032 extends this file's own fixture.
+   *
+   * The two-provider setup above exists because IR-001/IR-002 were about a page whose header named
+   * one provider while its body pooled figures from another. Scoping stopped the pooling. What it
+   * left in place was the CHOICE: the resolver still picked a provider by taking whichever filing
+   * was most recent, so the second company was unreachable and the pick was unstable when receipt
+   * dates tied.
+   *
+   * Every `computeCompanyXray(CORP_CODE)` call above now passes a source, which is itself the
+   * evidence — before the fix none of them needed to, and that was the defect.
+   */
+  it("returns null rather than an arbitrary provider's company", async () => {
+    expect(await computeCompanyXray(CORP_CODE)).toBeNull();
+  });
+
+  it("names both providers so a caller can choose", async () => {
+    const { listCompanySources } = await import("@/server/domain/companyXray");
+    expect((await listCompanySources(CORP_CODE)).sort()).toEqual(
+      [SOURCE_CODE, OTHER_SOURCE_CODE].sort(),
+    );
+  });
+
+  it("returns the other provider's company when asked for it by name", async () => {
+    // Unreachable before the fix: no URL and no argument could address it.
+    const other = await computeCompanyXray(CORP_CODE, OTHER_SOURCE_CODE);
+    expect(other?.company.corpName).toBe("TOTALLY DIFFERENT COMPANY");
+    expect(other?.company.sourceCode).toBe(OTHER_SOURCE_CODE);
   });
 });

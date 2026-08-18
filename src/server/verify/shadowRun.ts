@@ -85,10 +85,16 @@ function collectEvidenceGaps(result: VerificationResult): Record<string, string>
  * Returns observations rather than persisting them. Keeping the write decision with the caller is
  * what makes this safe to run against `market_os_dev`, which holds real ingested SEC data.
  */
-export async function shadowVerifyCompany(corpCode: string): Promise<ShadowRunResult> {
+export async function shadowVerifyCompany(
+  corpCode: string,
+  sourceCode: string,
+): Promise<ShadowRunResult> {
   const observations: ShadowObservation[] = [];
 
-  const xray = await computeCompanyXray(corpCode);
+  // The provider is now required, not inferred. `computeCompanyXray` refuses to guess between two
+  // providers sharing a corp code, so a shadow run that passed only the code would have silently
+  // verified nothing for an ambiguous company — the same collapse as A11, one layer up (IR-032).
+  const xray = await computeCompanyXray(corpCode, sourceCode);
   if (!xray) return { observations, byVerdict: {} };
 
   // The same completeness evidence the page shows its reader, so the verifier is judging the
@@ -129,7 +135,7 @@ export async function shadowVerifyCompany(corpCode: string): Promise<ShadowRunRe
       // Degrade, never propagate. A defect in the verifier must cost an observation, not a page.
       observations.push({
         outputType: "FILING_DIFF",
-        outputId: `filingDiff:${corpCode}:${diff.concept}:${diff.unit}`,
+        outputId: `filingDiff:${diff.sourceCode ?? sourceCode}:${corpCode}:${diff.concept}:${diff.unit}`,
         entityRef: corpCode,
         sourceCode: diff.sourceCode ?? "",
         verdict: "SHADOW_VERIFY_ERROR",
@@ -417,12 +423,24 @@ export async function shadowVerifyRegimeAxes(now: Date = new Date()): Promise<Sh
   return { observations, byVerdict };
 }
 
-/** Every company with stored filings, so a shadow run needs no hard-coded list. */
-export async function companiesWithFilings(): Promise<string[]> {
+/**
+ * Every company with stored filings, as (provider, corp code) PAIRS.
+ *
+ * Deduplicating on `corpCode` alone dropped one of any two companies sharing a code, and the run
+ * then verified whichever provider the resolver happened to pick. A corp code is not a company
+ * (IR-001, IR-002, IR-032); the pair is.
+ */
+export async function companiesWithFilings(): Promise<{ sourceCode: string; corpCode: string }[]> {
   const rows = await prisma.filing.findMany({
-    distinct: ["corpCode"],
-    select: { corpCode: true },
-    orderBy: { corpCode: "asc" },
+    distinct: ["sourceId", "corpCode"],
+    select: { corpCode: true, source: { select: { code: true } } },
+    orderBy: [{ corpCode: "asc" }],
   });
-  return rows.map((r) => r.corpCode);
+  return rows
+    .map((r) => ({ sourceCode: r.source.code, corpCode: r.corpCode }))
+    .sort((a, b) =>
+      a.corpCode === b.corpCode
+        ? a.sourceCode.localeCompare(b.sourceCode)
+        : a.corpCode.localeCompare(b.corpCode),
+    );
 }

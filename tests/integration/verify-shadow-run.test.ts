@@ -93,7 +93,7 @@ describeIfDb("Verify shadow run (integration)", () => {
   });
 
   it("produces a verdict for a real Filing Diff, with every dimension recorded", () => {
-    return shadowVerifyCompany(CORP_CODE).then((run) => {
+    return shadowVerifyCompany(CORP_CODE, SOURCE_CODE).then((run) => {
       expect(run.observations.length).toBeGreaterThan(0);
       const o = run.observations[0];
       expect(o.outputType).toBe("FILING_DIFF");
@@ -122,7 +122,7 @@ describeIfDb("Verify shadow run (integration)", () => {
   it("does not reject a correct, genuinely comparable quarter-over-quarter change", () => {
     // The negative control, and the one that decides whether this is worth promoting. Every
     // correctness dimension must pass on real output that is actually right.
-    return shadowVerifyCompany(CORP_CODE).then((run) => {
+    return shadowVerifyCompany(CORP_CODE, SOURCE_CODE).then((run) => {
       const o = run.observations.find((x) => x.outputId.includes("Revenues"))!;
       expect(o.verdict).not.toBe("REJECTED");
       expect(o.failed).toEqual([]);
@@ -138,7 +138,7 @@ describeIfDb("Verify shadow run (integration)", () => {
   });
 
   it("carries the completeness state the page itself shows, not a rosier one", () => {
-    return shadowVerifyCompany(CORP_CODE).then((run) => {
+    return shadowVerifyCompany(CORP_CODE, SOURCE_CODE).then((run) => {
       // No ingest run was recorded for this fixture, so the honest answer is UNKNOWN. A verifier
       // that quietly assumed COMPLETE here would be grading a version of reality nobody sees.
       expect(run.observations[0].completeness).toBe("UNKNOWN");
@@ -146,7 +146,7 @@ describeIfDb("Verify shadow run (integration)", () => {
   });
 
   it("returns nothing for a company that does not exist, rather than inventing a verdict", () => {
-    return shadowVerifyCompany("NO_SUCH_CORP").then((run) => {
+    return shadowVerifyCompany("NO_SUCH_CORP", SOURCE_CODE).then((run) => {
       expect(run.observations).toEqual([]);
     });
   });
@@ -157,7 +157,7 @@ describeIfDb("Verify shadow run (integration)", () => {
       prisma.filing.count(),
       prisma.ingestRun.count(),
     ]);
-    await shadowVerifyCompany(CORP_CODE);
+    await shadowVerifyCompany(CORP_CODE, SOURCE_CODE);
     const after = await Promise.all([
       prisma.financialFact.count(),
       prisma.filing.count(),

@@ -60,7 +60,19 @@ Full reproduction matrix in `docs/INTERIM_REVIEW_FINDINGS.md` IR-028. **Flagged 
 release-critical candidate**: whether the flagship query returning nothing blocks a release is the
 release owner's decision, not an autonomous one.
 
-## A11 / IR-031 — `/company/[corpCode]` cannot address two providers (raised 2026-08-18)
+## A11 / IR-032 — `/company/[corpCode]` could not address two providers — **CLOSED 2026-08-18**
+
+Raised and closed the same day. The entry below is kept because the reasoning for deferring it was
+wrong in a way worth remembering: "the fix changes a public URL shape and deserves its own round"
+described a preference for a tidy boundary, not a blocker. The round was available.
+
+**Fixed.** `computeCompanyXray` takes an optional `sourceCode` and returns null rather than
+choosing between providers; `listCompanySources` reports the candidates; `/company` links carry
+`?source=`; `/company/[corpCode]` asks when the code is ambiguous. The shadow Verify run carries
+`(sourceCode, corpCode)` pairs and its output ids name the provider. Full write-up in
+`docs/INTERIM_REVIEW_FINDINGS.md` IR-032.
+
+**Original entry, for the record:**
 
 The company index lists `(sourceCode, corpCode)` rows and links every one to
 `/company/${corpCode}`. `computeCompanyXray` then resolves the provider with an `anyFiling` lookup

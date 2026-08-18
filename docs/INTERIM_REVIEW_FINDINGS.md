@@ -959,6 +959,54 @@ Terra also examined the two remaining unscoped corp-code queries in production c
 defensible — `findKnownCorpCodes` is an existence filter rather than an entity merge, and
 `anyFiling` is unsafe only because the route above it supplies no source, which is A11.
 
+## IR-032 — A corp code chose its own provider — **VALID, fixed (P1, latent)**
+
+|           |                                                                            |
+| --------- | -------------------------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-terra`, review packet targets A11 and A14                         |
+| Subsystem | `companyXray.ts`, `/company`, `/company/[corpCode]`, `verify/shadowRun`    |
+| Severity  | **P1**, latent — only SEC data is ingested, so nothing was wrong on screen |
+| Status    | **VALID — reproduced, then fixed. A v1 change under the freeze.**          |
+
+`computeCompanyXray(corpCode)` resolved the provider by taking the most recent filing carrying the
+code, whichever provider that was. The company index lists `(sourceCode, corpCode)` rows and linked
+every one of them to `/company/${corpCode}`. So with two providers sharing a code the second
+company was **unreachable** — no URL and no argument could address it — and with equal receipt
+dates the choice was not stable between requests.
+
+This is IR-001/IR-002 rebuilt one layer up. Those were about pooling two providers' figures under
+one header; scoping fixed the pooling and left the CHOICE untouched.
+
+**Reproduced against this repository's own fixture.** `tests/integration/company-xray.test.ts`
+already creates two providers sharing `TEST_XRAY_CORP` — it is the IR-001/IR-002 regression setup —
+and every `computeCompanyXray(CORP_CODE)` call in it was silently resolving to whichever provider
+won. The fix broke all eleven of them, which is the cleanest possible demonstration: before it,
+none of those calls needed to name a provider.
+
+**Fix: a refusal, not a better guess.**
+
+- `listCompanySources(corpCode)` reports every provider that uses the code.
+- `computeCompanyXray(corpCode, sourceCode?)` scopes to the named provider. Where the code is
+  ambiguous and no provider is named it returns **null** rather than an arbitrary company.
+- `/company` links carry `?source=`, and `/company/[corpCode]` asks which provider is meant when
+  the code is ambiguous and none was given.
+
+Refusing is the point. A better tiebreak would still be a choice made on the reader's behalf about
+which company they were looking at, and it would read as correct from every angle except the one
+that matters.
+
+**Control, and the thing an over-broad fix would have broken:** every real company today has
+exactly one provider. A test asserts that an unambiguous code still resolves with no `?source=`,
+because turning that into a disambiguation prompt would make the fix worse than the defect.
+
+**A14, the same collapse in the shadow layer, fixed in the same change.**
+`companiesWithFilings()` deduplicated on `corpCode` and would have dropped one of any two companies
+sharing a code; `shadowVerifyCompany()` took only the code; output ids read
+`filingDiff:<corpCode>:...` with no provider, so two companies' verdicts were indistinguishable.
+Now a `(sourceCode, corpCode)` pair throughout, and the ids carry the provider —
+`filingDiff:SEC_EDGAR:0000320193:Assets:USD`. Fixed after the v1 original rather than before it:
+fixing the copy first would have left the real one standing.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

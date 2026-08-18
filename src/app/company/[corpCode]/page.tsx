@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/server/actions/auth";
-import { computeCompanyXray } from "@/server/domain/companyXray";
+import { computeCompanyXray, listCompanySources } from "@/server/domain/companyXray";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +15,10 @@ export const dynamic = "force-dynamic";
  */
 export default async function CompanyXrayPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ corpCode: string }>;
+  searchParams: Promise<{ source?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) {
@@ -24,7 +26,23 @@ export default async function CompanyXrayPage({
   }
 
   const { corpCode } = await params;
-  const xray = await computeCompanyXray(corpCode);
+  const { source } = await searchParams;
+
+  // A corp code is unique only within the provider that issued it. This page used to take one and
+  // show whichever provider's filing happened to be most recent, so a second company sharing the
+  // code was unreachable and the choice was unstable between requests (IR-032). The provider now
+  // travels in `?source=`, and where it is absent and the code is ambiguous the page ASKS rather
+  // than picking — showing a wrong company under a right-looking header is the failure mode that
+  // IR-001 and IR-002 were about.
+  const sources = await listCompanySources(corpCode);
+  if (sources.length === 0) {
+    notFound();
+  }
+  if (!source && sources.length > 1) {
+    return <SourceChoice corpCode={corpCode} sources={sources} />;
+  }
+
+  const xray = await computeCompanyXray(corpCode, source ?? sources[0]);
   if (!xray) {
     notFound();
   }
@@ -225,6 +243,39 @@ export default async function CompanyXrayPage({
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * Two providers report this corp code, and only the reader knows which company they meant.
+ *
+ * Deliberately a question rather than a default. Picking one and rendering it under a header that
+ * names a single provider is exactly the shape of IR-001 and IR-002 — a merged or misattributed
+ * entity presented as a single sourced record — and it reads as correct from every angle except
+ * the one that matters.
+ */
+function SourceChoice({ corpCode, sources }: { corpCode: string; sources: string[] }) {
+  return (
+    <div className="mx-auto flex max-w-3xl flex-1 flex-col gap-4 px-6 py-10">
+      <h1 className="text-2xl font-semibold tracking-tight">Which provider?</h1>
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        {sources.length} providers report a company under the code <code>{corpCode}</code>. A corp
+        code identifies a company only within the provider that issued it, so these are not
+        necessarily the same company.
+      </p>
+      <ul className="flex flex-col gap-2">
+        {sources.map((sourceCode) => (
+          <li key={sourceCode} className="rounded border border-zinc-200 p-3 dark:border-zinc-800">
+            <Link
+              href={`/company/${corpCode}?source=${encodeURIComponent(sourceCode)}`}
+              className="font-medium underline"
+            >
+              {sourceCode}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

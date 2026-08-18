@@ -24,12 +24,12 @@ async function main() {
   const totals: Record<string, number> = {};
   let observed = 0;
 
-  for (const corpCode of companies) {
-    const { observations, byVerdict } = await shadowVerifyCompany(corpCode);
+  for (const { sourceCode, corpCode } of companies) {
+    const { observations, byVerdict } = await shadowVerifyCompany(corpCode, sourceCode);
     if (observations.length === 0) continue;
     observed += observations.length;
 
-    console.log(`${corpCode} — ${observations.length} verifiable output(s)`);
+    console.log(`${sourceCode}:${corpCode} — ${observations.length} verifiable output(s)`);
     for (const o of observations) {
       const cause = o.failed.length > 0 ? `  failed: ${o.failed.join(", ")}` : "";
       console.log(`  ${o.verdict.padEnd(30)} ${o.outputId}${cause}`);

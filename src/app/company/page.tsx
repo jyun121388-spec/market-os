@@ -44,7 +44,10 @@ export default async function CompanyIndexPage() {
               key={`${c.sourceCode}:${c.corpCode}`}
               className="rounded border border-zinc-200 p-3 dark:border-zinc-800"
             >
-              <Link href={`/company/${c.corpCode}`} className="font-medium underline">
+              <Link
+                href={`/company/${c.corpCode}?source=${encodeURIComponent(c.sourceCode)}`}
+                className="font-medium underline"
+              >
                 {c.corpName}
               </Link>
               <div className="text-sm text-zinc-600 dark:text-zinc-400">

@@ -149,9 +149,36 @@ export async function findKnownCorpCodes(refs: string[]): Promise<Set<string>> {
  * date — and collapsing those to "the latest" would silently pick one of two very different
  * numbers (docs/DECISIONS.md, 2026-08-17). Both are shown, each labelled with what it covers.
  */
-export async function computeCompanyXray(corpCode: string): Promise<CompanyXray | null> {
-  const anyFiling = await prisma.filing.findFirst({
+export async function listCompanySources(corpCode: string): Promise<string[]> {
+  const rows = await prisma.filing.findMany({
     where: { corpCode },
+    distinct: ["sourceId"],
+    select: { source: { select: { code: true } } },
+    orderBy: { sourceId: "asc" },
+  });
+  return rows.map((r) => r.source.code).sort();
+}
+
+export async function computeCompanyXray(
+  corpCode: string,
+  sourceCode?: string,
+): Promise<CompanyXray | null> {
+  // A corp code identifies a company only within the provider that issued it, and this function
+  // used to resolve one by taking the most recent filing that happened to carry the code —
+  // whichever provider that was. With two providers sharing a code the second company became
+  // unreachable, and with equal receipt dates the choice was not even stable between requests
+  // (IR-032, `gpt-5.6-terra` A11, reproduced).
+  //
+  // It now REFUSES to guess. Where the code is ambiguous and no source is named, the answer is
+  // null rather than an arbitrary company, so a caller has to decide which one it meant.
+  // `listCompanySources` is how it finds out.
+  const sources = await listCompanySources(corpCode);
+  if (sources.length === 0) return null;
+  if (!sourceCode && sources.length > 1) return null;
+  const resolvedSourceCode = sourceCode ?? sources[0];
+
+  const anyFiling = await prisma.filing.findFirst({
+    where: { corpCode, source: { code: resolvedSourceCode } },
     orderBy: { receiptDate: "desc" },
     include: { source: { select: { code: true } } },
   });

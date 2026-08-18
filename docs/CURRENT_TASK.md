@@ -8,7 +8,7 @@ freeze is enforced by the suite rather than by discipline.
 
 STATUS as of 2026-08-18:
 
-- 554/554 unit and integration tests, E2E 33/33 in a real browser against the production build,
+- 562/562 unit and integration tests, E2E 33/33 in a real browser against the production build,
   `verify:live:edgar` 67/67, lint / typecheck / format / build clean. P0 = 0, P1 = 0.
 - 124 commits are local-only (HG-001, `PUSH_PENDING_AUTH`). No credential on this machine.
 - Independent review is blocked on included-usage exhaustion resetting 2026-08-22 (HG-005). Not
@@ -40,9 +40,11 @@ tiebreak. See `docs/PROJECT_STATE.md` for what each layer gained.
    real divergences from its documented shape on the first run, and these three adapters were
    written the same way, from documentation.
 3. **If no key has arrived**, continue in shadow. The open items, in order of value:
-   - Verify has no adapter for outputs other than Filing Diff. A Morning Brief or Company X-Ray
-     adapter would put the evaluators in front of a second real output shape, which is the only
-     way to find out whether the dimensions generalise or were fitted to one case.
+   - A third Verify adapter. Two exist (Filing Diff, and Morning Brief's "What Changed"), and the
+     second immediately produced two verdicts the first never could. Macro Regime and Ask Market
+     are the remaining real output shapes; Ask Market is the interesting one, because its output
+     is prose rather than a number and `adversarial_resilience` has never been exercised on
+     anything that could actually read as advice.
    - The Evolution detector stops at clustering. It emits no hypotheses and has no path to
      production, by design — but a `prediction` field per weakness, written by hand, would make
      each cluster falsifiable.

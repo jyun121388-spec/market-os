@@ -10,6 +10,7 @@
 import {
   companiesWithFilings,
   shadowVerifyCompany,
+  shadowVerifySeriesChanges,
   VERIFIER_VERSION,
 } from "@/server/verify/shadowRun";
 import { prisma } from "@/server/db/client";
@@ -39,14 +40,31 @@ async function main() {
     console.log("");
   }
 
+  // The macro path, where the version question is open rather than settled by a filing identity.
+  const macro = await shadowVerifySeriesChanges();
+  if (macro.observations.length > 0) {
+    observed += macro.observations.length;
+    console.log(`Series changes — ${macro.observations.length} verifiable output(s)`);
+    for (const o of macro.observations) {
+      const cause = o.failed.length > 0 ? `  failed: ${o.failed.join(", ")}` : "";
+      console.log(`  ${o.verdict.padEnd(30)} ${o.outputId}${cause}`);
+      for (const limitation of o.limitations) console.log(`      limitation: ${limitation}`);
+      if (o.error) console.log(`      error: ${o.error}`);
+    }
+    for (const [verdict, count] of Object.entries(macro.byVerdict)) {
+      totals[verdict] = (totals[verdict] ?? 0) + count;
+    }
+    console.log("");
+  }
+
   if (observed === 0) {
-    console.log("No verifiable output. Every Filing Diff reported INSUFFICIENT_DATA.");
+    console.log("No verifiable output at all — no Filing Diff and no series with two readings.");
     return;
   }
 
   console.log("VERDICT TOTALS");
   for (const [verdict, count] of Object.entries(totals).sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${verdict.padEnd(26)} ${count}`);
+    console.log(`  ${verdict.padEnd(30)} ${count}`);
   }
   console.log(
     "\nShadow mode: nothing above changed a rendered page, and no v1 module imports the verifier.",

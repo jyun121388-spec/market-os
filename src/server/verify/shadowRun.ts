@@ -1,7 +1,11 @@
 import { prisma } from "@/server/db/client";
 import { computeCompanyXray } from "@/server/domain/companyXray";
 import { verify } from "./evaluate";
+import { computeCalendarEntry } from "@/server/domain/economicCalendar";
+import { computeChange, getRecentObservationPair } from "@/server/domain/seriesReadings";
+import { evaluateStaleness } from "@/server/domain/staleness";
 import { verificationInputFromFilingDiff } from "./fromFilingDiff";
+import { verificationInputFromSeriesChange, type ObservationEvidence } from "./fromSeriesChange";
 import type { DimensionName, Verdict } from "./types";
 
 /**
@@ -18,7 +22,7 @@ import type { DimensionName, Verdict } from "./types";
  */
 
 export interface ShadowObservation {
-  outputType: "FILING_DIFF";
+  outputType: "FILING_DIFF" | "SERIES_CHANGE";
   outputId: string;
   entityRef: string;
   sourceCode: string;
@@ -120,6 +124,116 @@ export async function shadowVerifyCompany(corpCode: string): Promise<ShadowRunRe
   const byVerdict: Record<string, number> = {};
   for (const o of observations) byVerdict[o.verdict] = (byVerdict[o.verdict] ?? 0) + 1;
 
+  return { observations, byVerdict };
+}
+
+/**
+ * Runs Verify over the real Morning Brief "What Changed" rows.
+ *
+ * Deliberately built from the SAME reads Morning Brief performs — `getRecentObservationPair` and
+ * `computeChange`, called rather than reimplemented. A verifier fed its own reconstruction of the
+ * data verifies the reconstruction, and the two can diverge silently; this project has already
+ * shipped one defect where two call sites derived "which row is current" independently.
+ *
+ * The previous value is NOT derived by subtracting the claimed change from the current one. That
+ * would make `calculation_integrity` recompute the claim from the claim, which passes always and
+ * proves nothing. Both sides come from the observation pair.
+ */
+export async function shadowVerifySeriesChanges(now: Date = new Date()): Promise<ShadowRunResult> {
+  const observations: ShadowObservation[] = [];
+  const series = await prisma.series.findMany({
+    include: { source: { select: { code: true } } },
+    orderBy: { externalId: "asc" },
+  });
+
+  for (const s of series) {
+    const outputId = `seriesChange:${s.source.code}:${s.externalId}`;
+    try {
+      const pair = await getRecentObservationPair(s.id);
+      // Fewer than two distinct dates is Morning Brief correctly showing nothing. There is no
+      // claim, and inventing a verdict for an absent output would be assurance about nothing.
+      if (!pair) continue;
+
+      const change = computeChange(pair, s.unit);
+      const calendar = await computeCalendarEntry(s.id);
+      const staleness =
+        calendar.status === "PROJECTED" &&
+        calendar.lastObservedDate !== undefined &&
+        calendar.medianIntervalDays !== undefined
+          ? evaluateStaleness(
+              {
+                lastObservedDate: calendar.lastObservedDate,
+                medianIntervalDays: calendar.medianIntervalDays,
+              },
+              now,
+            )
+          : null;
+
+      const evidence = (row: typeof pair.current): ObservationEvidence => ({
+        observationDate: row.observationDate,
+        releaseDate: row.releaseDate,
+        retrievedAt: row.retrievedAt,
+        value: Number(row.value.toString()),
+        isRevision: row.isRevision,
+      });
+
+      // Read the row the current reading superseded, where it superseded one. Only fetched when
+      // `revisionOf` names one — an absent supersession and an unfetched one are different states
+      // and the adapter is built so they cannot be confused.
+      const superseded = pair.current.revisionOf
+        ? await prisma.observation.findUnique({ where: { id: pair.current.revisionOf } })
+        : null;
+
+      const result = verify(
+        verificationInputFromSeriesChange({
+          seriesName: s.name,
+          externalId: s.externalId,
+          unit: s.unit,
+          sourceCode: s.source.code,
+          current: evidence(pair.current),
+          previous: evidence(pair.previous),
+          supersededByCurrent: superseded ? evidence(superseded) : null,
+          claimedAbsoluteChange: change.absoluteChange,
+          claimedPercentChange: change.percentChange,
+          staleness: staleness?.status ?? "UNKNOWN",
+          daysSinceLastObservation: staleness?.daysSinceLastObservation ?? null,
+          observationCount: await prisma.observation.count({ where: { seriesId: s.id } }),
+        }),
+      );
+
+      observations.push({
+        outputType: "SERIES_CHANGE",
+        outputId: result.outputId,
+        entityRef: s.externalId,
+        sourceCode: s.source.code,
+        verdict: result.verdict,
+        failed: result.failed,
+        limitations: result.limitations,
+        dimensions: Object.fromEntries(
+          Object.entries(result.dimensions).map(([name, d]) => [name, d.status]),
+        ),
+        // No macro provider states how many observations a series should have, which is the same
+        // position SEC leaves companyfacts in.
+        completeness: "UNCONFIRMED",
+      });
+    } catch (error) {
+      observations.push({
+        outputType: "SERIES_CHANGE",
+        outputId,
+        entityRef: s.externalId,
+        sourceCode: s.source.code,
+        verdict: "SHADOW_VERIFY_ERROR",
+        failed: [],
+        limitations: [],
+        dimensions: {},
+        completeness: "UNKNOWN",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const byVerdict: Record<string, number> = {};
+  for (const o of observations) byVerdict[o.verdict] = (byVerdict[o.verdict] ?? 0) + 1;
   return { observations, byVerdict };
 }
 

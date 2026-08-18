@@ -161,6 +161,16 @@ function semanticConsistency(input: VerificationInput): DimensionResult {
     };
   }
 
+  // Two instants, not two spans. A macro observation is a value AT a date with no duration, so
+  // reporting "equal null-month spans" would be nonsense dressed as a finding — and would read as
+  // though a span had been checked when there was none to check.
+  if (current.period.months === null && previous.period.months === null) {
+    return pass(
+      `Same concept and unit, two readings at a point in time: ${previous.period.end} then ` +
+        `${current.period.end}.`,
+    );
+  }
+
   return pass(
     `Same concept and unit, equal ${current.period.months}-month spans, ending ` +
       `${previous.period.end} then ${current.period.end}.`,

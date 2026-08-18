@@ -187,6 +187,34 @@ evidence and produces a `VerificationResult`.
 observations. **Verify is its generalisation, not its replacement** — that module becomes the
 `calculation_integrity` and `provenance_integrity` evaluators.
 
+## What the shadow run actually reports
+
+Two adapters exist, against two genuinely different real output shapes. The second one is the
+important one: until it existed, every dimension had only ever been exercised by Filing Diff, which
+is the fixture-realism failure this project keeps finding, pointed at the verifier itself.
+
+| Adapter                             | Output                          | Shape                                     |
+| ----------------------------------- | ------------------------------- | ----------------------------------------- |
+| `verificationInputFromFilingDiff`   | Company X-Ray period comparison | Spans, with an accession naming each side |
+| `verificationInputFromSeriesChange` | Morning Brief "What Changed"    | Instants, with nothing naming the version |
+
+Against the real database, `npm run verify:shadow` currently reports:
+
+```
+VERIFIED_WITH_LIMITATION       8    (SEC filing diffs — completeness unconfirmable, correctness fine)
+SEMANTIC_REVISION_UNRESOLVED   3    (macro readings — no provider evidence of which version is current)
+STALE                          3    (macro readings past their own cadence)
+```
+
+Three verdicts across two shapes is the result worth having. A verifier that returns one answer for
+everything has told you nothing, and this layer has produced exactly that twice during its own
+construction — once on completeness, once on advice-shape. The distribution is the control.
+
+The macro adapter is built from the SAME reads Morning Brief performs, `getRecentObservationPair`
+and `computeChange`, called rather than reimplemented. The previous value is never derived by
+subtracting the claimed change from the current one: that would recompute the claim from the claim
+and pass unconditionally. A test feeds it a wrong claim over right data and requires a `REJECTED`.
+
 ## Shadow mode plan
 
 1. Implement the evaluators as pure functions over `VerificationInput`. Pure means testable against

@@ -271,7 +271,10 @@ Propagated through all four layers in shadow only:
   `SEMANTIC_REVISION_UNRESOLVED`. Applicability is derived from the figures: where both name the
   filing they came from, the version question is already settled by that identity, which is why the
   8 real Apple outputs are unchanged at VERIFIED_WITH_LIMITATION rather than collapsing to one
-  uniform verdict.
+  uniform verdict. A second adapter followed, over Morning Brief's "What Changed" rows — the
+  first output shape where the version question is genuinely open. The real run now reports three
+  distinct verdicts across two shapes: 8 VERIFIED_WITH_LIMITATION, 3 SEMANTIC_REVISION_UNRESOLVED,
+  3 STALE.
 - **Evolution** — two new weakness categories, both clustering at 2 instances. `SEMANTIC_RECENCY`
   joins IR-021 to the E2E pass that was served by a pre-fix dev server; `EVIDENCE_FABRICATION`
   joins the Codex reviewer that quoted a reproduction it never ran to the four local-model findings
@@ -287,7 +290,7 @@ capability table records them `NOT_VERIFIED` and a test forbids upgrading that t
 live response. One key (HG-002) closes the largest open item in this design.
 
 TESTS
-554 / 554 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+562 / 562 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real

@@ -43,3 +43,19 @@ Tracks Codex reviews that are pending, deferred, or resulted in an unresolved di
 | M28       | User-facing stale-data marking — CLOSED                                                                        | Added `src/server/domain/staleness.ts` (`evaluateStaleness`, reusing `economicCalendar.ts`'s existing cadence projection) and wired it into `buildMorningBrief`'s `whatChanged` entries plus a visible "STALE" badge on `/today`. A series with too little history to project a cadence is UNKNOWN, never falsely marked FRESH — see DECISIONS.md                                                                                                                                                                                                                                                                                                                                                                                                                                               | DONE               |
 | M16       | Filing Diff cannot show an original-vs-restated comparison                                                     | Deliberate, recorded 2026-08-18 so it is not mistaken for the +233% bug returning. A period-over-period change now requires a DIFFERENT period end, which by construction excludes a restatement of the same period (same length, same end, different accession). That exclusion is correct: a restatement is not a period-over-period change and showing it in that section would be the same category error the +233% defect was. But it does mean restatements are currently invisible in the UI even though both rows are stored and provenance is intact. A "this figure was later restated" surface would be a real feature; it is not built, and is not being built speculatively                                                                                                        | PENDING            |
 | M11       | Unit strings are matched exactly and case-sensitively                                                          | `computeChange` branches on `unit === "percent"` to decide whether basis points are meaningful, and a series declared "Percent"/"pct"/"%" would silently return `bpsChange: null` while every other number stayed correct. No such typo exists today. `tests/unitVocabulary.test.ts` pins every tracked series to a known unit vocabulary so the next one fails at test time; a stricter type-level unit would be the fuller fix and is not warranted at five units                                                                                                                                                                                                                                                                                                                             | MITIGATED          |
+
+## IR-028 — Ask Market name matching (raised 2026-08-18, deferred by the freeze)
+
+`Apple revenue`, `Apple net income` and `What did Apple report?` all return `NOT_FOUND` against a
+database holding 2240 Apple filings and 1431 Apple facts, while `Apple` and `Apple Inc revenue`
+both work. `mentionsEachOther` scores `overlap / smaller.size` at a 0.6 threshold, and `Apple Inc.`
+tokenises to `{apple, inc}` — the legal suffix is a full token in the denominator, so one shared
+token out of two scores 0.5.
+
+Severity **P2**: the output is honest, just empty. Not fixed, because v1 is frozen except for
+reproduced P0/P1 and the minimal fix — a legal-suffix stoplist on the corp-name side — changes
+matching for every query and needs its own round with must-match and must-not-match fixtures.
+
+Full reproduction matrix in `docs/INTERIM_REVIEW_FINDINGS.md` IR-028. **Flagged as a
+release-critical candidate**: whether the flagship query returning nothing blocks a release is the
+release owner's decision, not an autonomous one.

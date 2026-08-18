@@ -184,13 +184,13 @@ Clusters the detector reports over the current backfill, worst severity first wi
 
 | Category               | Instances | Worst | The recurring cause                                          |
 | ---------------------- | --------- | ----- | ------------------------------------------------------------ |
-| `IDENTITY_MODELLING`   | 5         | P0    | A key asked to carry more than it can                        |
+| `IDENTITY_MODELLING`   | 9         | P0    | A key asked to carry more than it can                        |
+| `GUARDRAIL_COVERAGE`   | 7         | P1    | A rule expressed in one language, order or path only         |
+| `FIXTURE_REALISM`      | 5         | P0    | Fixtures hold one of something the world has many of         |
 | `PROVIDER_ASSUMPTION`  | 5         | P1    | A documented shape believed over an observed response        |
-| `GUARDRAIL_COVERAGE`   | 5         | P1    | A rule expressed in one language, order or path only         |
 | `CONCURRENCY`          | 4         | P1    | A read-then-write sequence treated as atomic                 |
-| `FIXTURE_REALISM`      | 4         | P1    | Fixtures hold one of something the world has many of         |
+| `SILENT_DEGRADATION`   | 4         | P1    | Failure by returning less, with no signal                    |
 | `PROVENANCE`           | 3         | P1    | A value shown without what it came from                      |
-| `SILENT_DEGRADATION`   | 3         | P1    | Failure by returning less, with no signal                    |
 | `ENVIRONMENT_DRIFT`    | 3         | P2    | A check made on surface text rather than what it resolves to |
 | `SEMANTIC_RECENCY`     | 2         | P1    | Freshness inferred from when it was observed, not what       |
 | `EVIDENCE_FABRICATION` | 2         | P2    | A confident claim taken for a verified one                   |
@@ -217,6 +217,21 @@ than new ones — which is the detector working as intended:
 - `GC-01` (GUARDRAIL_COVERAGE) — an audit record that refused to log a DENIED action as EXECUTED
   but accepted a conditionally-permitted one with the condition unmentioned. A guard written for
   the obvious violation, with the adjacent one left open.
+
+**Eight entries added 2026-08-18 after a ledger-completeness audit (`gpt-5.6-luna`).** Luna
+checked all 28 existing entries against `INTERIM_REVIEW_FINDINGS.md` and `DECISIONS.md`, found
+**zero fabrications**, and found eight documented defects with no entry (`VF-01`..`VF-08`).
+
+Every one of the eight is a defect in **Verify itself**, found while building the layer whose job
+is finding defects — an empty CALCULATION verifying clean, a contract with no entity identifier, a
+tolerance that vanished where the value was smallest. They were left out because they felt like
+construction noise rather than history. They are the ledger's most direct evidence that a verifier
+is not exempt from the failure modes it verifies against, and leaving them out was under-counting
+`IDENTITY_MODELLING` by four.
+
+The audit is also why the ledger's own completeness is worth checking periodically: a ledger with
+gaps under-reports exactly the clusters it exists to find, and nothing in the detector can notice
+an entry that was never written.
 
 ## Storage
 

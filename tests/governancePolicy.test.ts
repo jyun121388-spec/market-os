@@ -39,7 +39,10 @@ describe("Governance — replay of decisions a human actually made", () => {
       expected: "DEFERRED_HUMAN_GATE",
     },
     { gate: "HG-006 paid provider", kind: "CALL_PAID_PROVIDER", expected: "DEFERRED_HUMAN_GATE" },
-    { gate: "buy AI credits", kind: "PURCHASE_AI_CREDITS", expected: "DEFERRED_HUMAN_GATE" },
+    // DENIED, not a gate. Corrected after a fidelity audit (`gpt-5.6-luna`): both cited documents
+    // prohibit buying credits outright and prescribe USAGE_LIMIT_PAUSE instead, so encoding it as
+    // a question a human answers in the moment was looser than the policy it claimed to encode.
+    { gate: "buy AI credits", kind: "PURCHASE_AI_CREDITS", expected: "DENIED" },
     {
       gate: "git safety — force push",
       kind: "GIT_HISTORY_REWRITE",
@@ -270,10 +273,12 @@ describe("Governance — corrections from independent review", () => {
     });
     expect(evaluation.decision).toBe("AUTO_ALLOWED");
     expect(evaluation.execution).toBe("BLOCKED_USAGE_LIMIT");
-    // The distinction that matters: nothing here asks a human to authorise spending. Purchasing
-    // has its own action kind, and it is that one — never this — that raises a gate.
+    // The distinction that matters: nothing here asks a human to authorise spending, and nothing
+    // here is refused. The review is permitted; it just cannot run at this moment.
     expect(evaluation.gate).toBeUndefined();
-    expect(evaluateAction({ kind: "PURCHASE_AI_CREDITS" }).decision).toBe("DEFERRED_HUMAN_GATE");
+    // Buying a way past the limit is a separate action and is DENIED outright, which is why an
+    // exhausted quota must surface here as an execution blocker rather than as a decision.
+    expect(evaluateAction({ kind: "PURCHASE_AI_CREDITS" }).decision).toBe("DENIED");
   });
 
   it("never turns an execution blocker into a question for a human", () => {

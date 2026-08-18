@@ -328,7 +328,33 @@ Propagated:
   CAP-DEBT proposals and one CAP-CEILING. No CAP-DEBT-SEC_EDGAR exists, which is the control: a
   generator that raises one per provider is not reading anything.
 
-INDEPENDENT REVIEW OF THE SHADOW LAYERS (2026-08-18, `gpt-5.6-terra`)
+INDEPENDENT REVIEW OF THE SHADOW LAYERS (2026-08-18)
+
+Two reviews were run once Codex became available, routed per the standing rules. **Terra** for the
+cross-file work, **Luna** for the bounded fidelity audit. Sol remains unspent, reserved for the
+final Release Candidate pass and for any v1 P0/P1.
+
+`gpt-5.6-luna` — governance rule-vs-citation fidelity and ledger completeness:
+
+- **IR-029** — `PURCHASE_AI_CREDITS` was `DEFERRED_HUMAN_GATE`, looser than both documents it
+  cites, which prohibit buying credits outright and prescribe `USAGE_LIMIT_PAUSE` instead. Now
+  `DENIED`. Note the direction: the previous fidelity correction made a rule less strict, this one
+  makes it stricter. Corrections that only ever loosen would be a pattern to distrust.
+- **Ledger: 28 entries checked, zero fabrications**, eight documented defects with no entry. All
+  eight now recorded as `VF-01`..`VF-08` — every one a defect in **Verify itself**, left out
+  because they felt like construction noise. They are the ledger's most direct evidence that a
+  verifier is not exempt from the failure modes it verifies against, and omitting them was
+  under-counting `IDENTITY_MODELLING` by four. That cluster now stands at 9 instances, P0.
+
+**IR-028 — found by probing, not by a model, and NOT fixed.** `Apple revenue`, `Apple net income`
+and `What did Apple report?` all return `NOT_FOUND` against 2240 Apple filings and 1431 Apple
+facts, while `Apple` and `Apple Inc revenue` both work. `mentionsEachOther` scores
+`overlap / smaller.size` at 0.6, and `Apple Inc.` tokenises to `{apple, inc}` — the legal suffix is
+a full token in the denominator. P2, so the freeze holds: the output is honest, just empty.
+Recorded as a **release-critical candidate** for the release owner to decide, with the full
+reproduction matrix in IR-028.
+
+`gpt-5.6-terra` — cross-file review of the shadow layers:
 Codex became available again and one cross-file review was run over `b6eb8fd..HEAD`, scoped to the
 v2 shadow layers. **Five findings, all five reproduced before any change, all five valid, all
 fixed** — recorded as IR-022..IR-026. Terra was the right routing: the target was interactions

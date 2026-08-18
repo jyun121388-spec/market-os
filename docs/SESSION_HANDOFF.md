@@ -42,14 +42,24 @@ against it, Governance reads reality state, Evolution generates proposals from i
 
 ## Independent review
 
-Codex became available mid-session. `gpt-5.6-terra` reviewed the shadow layers cross-file over
-`b6eb8fd..HEAD` and returned five findings; **all five reproduced and all five were valid**
-(IR-022..IR-026), which is a sharp contrast with the previous two rounds and did not make the
-reproduction step optional. Separately, investigating the ECOS shadow disagreement produced IR-027:
-no v1 defect, but a real fixture gap now closed.
+Codex became available mid-session. Two reviews were run and routed per the standing rules.
 
-Independent review of Governance and Evolution specifically has NOT been run; Sol remains reserved
-for the final Release Candidate pass and for any v1 P0/P1.
+**`gpt-5.6-terra`** — cross-file review of the shadow layers over `b6eb8fd..HEAD`. Five findings,
+**all five reproduced and all five valid** (IR-022..IR-026). A sharp contrast with the previous two
+rounds, and it did not make the reproduction step optional — running them is what established these
+were real and what rejected the others.
+
+**`gpt-5.6-luna`** — bounded fidelity audit of Governance and the Evolution ledger. One rule
+looser than its citation (IR-029, `PURCHASE_AI_CREDITS` now DENIED); 28 ledger entries checked with
+zero fabrications and eight documented defects missing, now added as `VF-01`..`VF-08`.
+
+**Sol remains unspent**, reserved for the final Release Candidate adversarial pass and for any v1
+P0/P1.
+
+Two findings came from probing rather than from a model. **IR-027**: the ECOS shadow disagreement
+led to a revision whose `retrievedAt` precedes its own parent's — v1 handles it, the fixtures did
+not cover it, now they do. **IR-028**: Ask Market returns NOT_FOUND for `Apple revenue`. P2, not
+fixed under the freeze, flagged as a release-critical candidate.
 
 ## Shadow run against the real database
 

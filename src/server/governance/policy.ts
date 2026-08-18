@@ -376,17 +376,31 @@ const RULES: Record<ActionKind, Rule> = {
     },
   },
   PURCHASE_AI_CREDITS: {
-    decision: "DEFERRED_HUMAN_GATE",
-    citations: ["docs/AI_RESOURCE_POLICY.md", "CLAUDE.md — absolute rules (HUMAN GATE)"],
+    // Corrected after a bounded fidelity audit (`gpt-5.6-luna`): this was DEFERRED_HUMAN_GATE,
+    // which is LOOSER than either document it cites. AI_RESOURCE_POLICY.md says "Zero additional
+    // AI spend beyond the Claude Max 20x subscription. No Anthropic usage credits, no API PAYG
+    // ..., no auto top-up", and on exhaustion "stop, write USAGE_LIMIT_PAUSE ... do not switch to
+    // a paid fallback". CLAUDE.md's absolute rules say "Never activate paid ... usage, buy
+    // credits, or use a PAYG key." Neither offers a question a human answers in the moment; both
+    // prescribe an action.
+    //
+    // The old rationale — that an exhausted quota is a routing event and purchasing is the user's
+    // call to make — is a good argument about what the policy SHOULD be. It is not what the cited
+    // documents say, and an engine that quietly upgrades an argument into a rule is not encoding
+    // policy, it is having opinions. The user changes this by changing the document.
+    //
+    // Note the direction. The last fidelity correction (CALL_PAID_PROVIDER) made a rule less
+    // strict to match its citation; this one makes a rule stricter to match its citation.
+    // Corrections that only ever loosen would be a pattern worth distrusting.
+    decision: "DENIED",
+    citations: [
+      "docs/AI_RESOURCE_POLICY.md — 'Zero additional AI spend ... no auto top-up'",
+      "CLAUDE.md — absolute rules, 'Never ... buy credits'",
+    ],
     rationale:
-      "An exhausted quota is a routing event, not a purchasing event — route to another included " +
-      "model or to deterministic verification. Purchasing remains the user's decision to make, " +
-      "not the agent's to foreclose.",
-    gate: {
-      id: "HG-AI-CREDITS",
-      question: "Purchase additional AI usage?",
-      recommendedDefault: "No. Route to an included model or to deterministic verification.",
-    },
+      "Both governing documents prohibit this outright and prescribe what to do instead: stop and " +
+      "record USAGE_LIMIT_PAUSE. An exhausted quota is a routing event — route to another " +
+      "included model or to deterministic verification.",
   },
   LOCAL_MODEL_HYPOTHESIS: {
     decision: "AUTO_ALLOWED",

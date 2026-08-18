@@ -406,6 +406,99 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "SEMANTIC_RECENCY",
   },
 
+  // Added after a bounded ledger-completeness audit (`gpt-5.6-luna`, 2026-08-18) found eight
+  // documented defects with no entry — every one of them a defect in VERIFY ITSELF, found while
+  // building the layer whose job is finding defects. That is not an embarrassment to bury; it is
+  // the most direct evidence the ledger has that a verifier is not exempt from the failure modes
+  // it verifies against. Luna checked all 28 existing entries and found zero fabrications.
+  {
+    id: "VF-01",
+    ledger: "FALSE_GREEN",
+    subsystem: "verify/evaluate",
+    severity: "P0",
+    summary: "A CALCULATION carrying no calculation returned VERIFIED.",
+    lesson:
+      "Every calculation-shaped dimension returned NOT_APPLICABLE for an empty input, nothing " +
+      "failed, and the absence of a subject read as a clean subject.",
+    category: "FIXTURE_REALISM",
+  },
+  {
+    id: "VF-02",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify/types",
+    severity: "P0",
+    summary: "CalculationInput had no entity identifier at all.",
+    lesson:
+      "A comparison between two different companies was not merely unchecked but unrepresentable, " +
+      "and a field that does not exist cannot be checked by any amount of logic downstream.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "VF-03",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify/evaluate",
+    severity: "P1",
+    summary: "Verdict precedence let a truncation failure speak for an incorrect calculation.",
+    lesson:
+      "A coverage failure outranked a correctness failure, so a fabricated number was reported " +
+      "as a data-coverage task.",
+    category: "SILENT_DEGRADATION",
+  },
+  {
+    id: "VF-04",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify/evaluate",
+    severity: "P1",
+    summary: "Two unnamed quantities passed the concept check by skipping it.",
+    lesson: "An optional field made its own check optional, so absence of data read as agreement.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+  {
+    id: "VF-05",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify/evaluate",
+    severity: "P1",
+    summary: "A purely relative percent epsilon rejected a correct +0.0000049% change.",
+    lesson:
+      "A tolerance scaled to the magnitude of the value ignored the fixed rounding already " +
+      "applied at storage, so it vanished exactly where the value was smallest.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "VF-06",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify/evaluate",
+    severity: "P1",
+    summary:
+      "Refusing every concept change made a legitimate ASC 606 reconciliation unrepresentable.",
+    lesson:
+      "A rule written against one real defect forbade the correct case as well, because the " +
+      "difference between them was never given a way to be expressed.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+  {
+    id: "VF-07",
+    ledger: "FALSE_GREEN",
+    subsystem: "filingDiff / companyXray",
+    severity: "P1",
+    summary: "A same-day amendment displayed the original under a banner asserting it was amended.",
+    lesson:
+      "Two call sites derived 'which row is current' independently, so two individually correct " +
+      "changes combined into a false statement about a financial figure.",
+    category: "IDENTITY_MODELLING",
+  },
+  {
+    id: "VF-08",
+    ledger: "REVIEW_FINDING",
+    subsystem: "companyXray",
+    severity: "P1",
+    summary: "Completeness could flip between COMPLETE and KNOWN_INCOMPLETE across requests.",
+    lesson:
+      "'Most recent run per target' was resolved with an ordering the database was free to break " +
+      "ties in, so the same data answered differently on different reads.",
+    category: "IDENTITY_MODELLING",
+  },
+
   // From the independent review of the shadow layers (`gpt-5.6-terra`, 2026-08-18). Both land in
   // clusters that already existed, which is the detector working rather than a new category.
   {

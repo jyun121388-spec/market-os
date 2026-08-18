@@ -752,6 +752,83 @@ whose retrieval order is the exact reverse of its semantic order, and the write 
 next revision to the right parent. Not exotic: a backfill ingesting recent data first, a retried
 job from an earlier queue, or a stale CDN page all produce it.
 
+## IR-028 — Ask Market cannot find Apple when you say what you want about Apple — **VALID, reported not fixed (freeze)**
+
+|           |                                                                           |
+| --------- | ------------------------------------------------------------------------- |
+| Found by  | direct probing of the real database while building the Verify adapter     |
+| Subsystem | `src/server/domain/askMarket.ts` — `mentionsEachOther`                    |
+| Severity  | **P2** — the answer is NOT_FOUND, which is honest; nothing wrong is shown |
+| Status    | **VALID, reproduced. NOT FIXED — v1 is frozen and this is not a P0/P1.**  |
+
+The flagship dataset is 2240 Apple filings and 1431 Apple financial facts. Against the real
+database:
+
+| Query                        | Result                  |
+| ---------------------------- | ----------------------- |
+| `Apple`                      | FACTORS_FOUND, 10 facts |
+| `Apple Inc`                  | FACTORS_FOUND, 10 facts |
+| `Apple Inc.`                 | FACTORS_FOUND, 10 facts |
+| `Apple Inc revenue`          | FACTORS_FOUND, 10 facts |
+| **`Apple revenue`**          | **NOT_FOUND**           |
+| **`Apple net income`**       | **NOT_FOUND**           |
+| **`Apple financials`**       | **NOT_FOUND**           |
+| **`What did Apple report?`** | **NOT_FOUND**           |
+
+**Root cause, exactly.** `mentionsEachOther` scores token overlap as `overlap / smaller.size` with
+a 0.6 threshold. The stored `corpName` is `Apple Inc.`, which tokenises to `{apple, inc}` — the
+legal suffix is a full token carrying no identifying information. `Apple revenue` tokenises to
+`{apple, revenue}`. Both sets are size 2, the overlap is 1, and 1/2 = 0.5 fails the threshold. Add
+`Inc` back and the smaller set becomes `{apple, inc}` against `{apple, inc, revenue}` — overlap
+2/2 = 1.0, and it matches.
+
+So the rule is: **the company name alone works, and the company name plus any word fails unless you
+also type the legal suffix.** "Apple revenue" is about the most natural query this product will
+ever receive.
+
+This is the ledger's `IDENTITY_MODELLING` cause again — a corporate legal suffix treated as a
+content word, in a denominator — and it is the second time a name-versus-identifier confusion has
+cost this feature something.
+
+**Why it is not fixed here.** It is P2: the output is `NOT_FOUND`, which is honest rather than
+wrong, and v1 is frozen except for reproduced P0/P1. The minimal fix is a suffix stoplist
+(`inc`, `inc.`, `corp`, `co`, `ltd`, `plc`, `주식회사`, `㈜`) applied to the corp-name side before
+scoring — small, but it changes matching behaviour for every query, so it needs its own round with
+must-match and must-not-match fixtures rather than a hurried edit under a freeze.
+
+**Recorded as a release-critical CANDIDATE.** Whether a flagship query returning nothing blocks a
+release is the release owner's call, not an autonomous one. The reproduction above is what that
+decision needs.
+
+## IR-029 — `PURCHASE_AI_CREDITS` was encoded looser than the policy it cited — **VALID, fixed**
+
+|           |                                                                     |
+| --------- | ------------------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-luna`, bounded fidelity audit of the Governance rule table |
+| Subsystem | `src/server/governance/policy.ts`                                   |
+| Severity  | P2 (shadow; the engine enforces nothing)                            |
+| Status    | **VALID — fixed**                                                   |
+
+The rule was `DEFERRED_HUMAN_GATE`. Both documents it cites prohibit the action outright and
+prescribe what to do instead. `docs/AI_RESOURCE_POLICY.md`: "Zero additional AI spend beyond the
+Claude Max 20x subscription. No Anthropic usage credits, no API PAYG ..., no auto top-up", and on
+exhaustion "stop, write `USAGE_LIMIT_PAUSE` ... do not switch to a paid fallback". CLAUDE.md's
+absolute rules: "Never activate paid ... usage, buy credits, or use a PAYG key."
+
+The old rationale — an exhausted quota is a routing event, and purchasing is the user's call to
+make rather than the agent's to foreclose — is a good argument about what the policy _should_ be.
+It is not what the cited documents say, and an engine that quietly upgrades an argument into a rule
+is not encoding policy. Now `DENIED`, with no gate.
+
+**Worth noting the direction.** The previous fidelity correction (`CALL_PAID_PROVIDER`, Terra) made
+a rule _less_ strict to match its citation. This one makes a rule _more_ strict. Corrections that
+only ever loosen would be a pattern to distrust.
+
+Luna also audited the ledger: **28 entries checked, zero fabrications**, and eight documented
+defects with no entry. All eight are now recorded as `VF-01`..`VF-08` — every one of them a defect
+in Verify itself, which is the ledger's most direct evidence that a verifier is not exempt from the
+failure modes it verifies against.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

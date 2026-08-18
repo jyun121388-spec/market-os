@@ -217,7 +217,7 @@ describe("the scheduler cannot do anything", () => {
 });
 
 describe("against the real ledger and capability matrix", () => {
-  it("finds startable work and correctly defers what needs a provider key", () => {
+  it("has converged: nothing startable, five items gated on provider keys", () => {
     const queue = scheduleNextWork({
       context: {
         verificationGreen: true,
@@ -227,12 +227,11 @@ describe("against the real ledger and capability matrix", () => {
       },
     });
 
-    // Real state after six clusters were worked and recorded: three startable remain, and the
-    // three provider-key items plus the two clusters whose countermeasure needs a live call stay
-    // deferred. The queue converging is the point — before COMPLETED_WORK existed it returned the
-    // same nine items forever.
-    expect(queue.actionable.length).toBeGreaterThanOrEqual(1);
-    expect(queue.actionable.length).toBeLessThan(9);
+    // Real state after every cluster and capability proposal was worked and recorded: nothing
+    // startable remains, and the five items needing a provider key stay deferred. The queue
+    // CONVERGING is the point — before COMPLETED_WORK existed it returned the same nine items
+    // forever, and a queue that never empties can never make "exhausted" mean anything.
+    expect(queue.actionable.length).toBe(0);
     expect(queue.deferred.map((w) => w.proposal.id)).toEqual(
       expect.arrayContaining(["CAP-DEBT-FRED", "CAP-DEBT-ECOS", "CAP-DEBT-OPENDART"]),
     );
@@ -267,7 +266,25 @@ describe("the stop sentinel", () => {
    * startable is not a finished project, however tidy the report reads.
    */
   it("refuses while anything is startable", () => {
-    const queue = scheduleNextWork({ context: { verificationGreen: true } });
+    // Constructed rather than taken from the live queue, which has since converged. The property
+    // under test is the sentinel's, not the ledger's, and tying it to real data would make it pass
+    // or fail for reasons that have nothing to do with the sentinel.
+    const queue = scheduleNextWork({
+      proposals: [
+        {
+          id: "SOMETHING-STARTABLE",
+          observation: "a startable item",
+          evidence: [{ standing: "OBSERVED", statement: "seen", source: "test fixture" }],
+          systemicWeakness: null,
+          hypothesis: "h",
+          proposedChange: "c",
+          expectedBenefit: "b",
+          expectedRisk: "a stated cost, long enough to satisfy the shape checks elsewhere",
+          requiredVerify: ["a test"],
+          requiredGovernance: ["ADD_TEST"],
+        },
+      ],
+    });
     expect(queue.actionable.length).toBeGreaterThan(0);
     expect(evaluateStopSentinel({ queue, ...full }).mayStop).toBe(false);
   });
@@ -281,7 +298,7 @@ describe("the stop sentinel", () => {
     "refuses when %s was never established",
     (field) => {
       const input: Parameters<typeof evaluateStopSentinel>[0] = { queue: empty, ...full };
-      delete (input as Record<string, unknown>)[field];
+      delete (input as unknown as Record<string, unknown>)[field];
       const sentinel = evaluateStopSentinel(input);
       expect(sentinel.mayStop).toBe(false);
       expect(sentinel.conditions.find((c) => !c.satisfied)?.detail).toContain("never established");

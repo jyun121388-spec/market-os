@@ -323,6 +323,26 @@ export const COMPLETED_WORK: CompletedWork[] = [
       "versus Linux behaviour is still only observed on Windows, because CI is the only Linux " +
       "runner and nothing compares the two.",
   },
+  {
+    proposalId: "CAP-CEILING-SEC_EDGAR",
+    commit: "4f19eee",
+    evidence:
+      "Checked the generalized invariant — provider response success is not a complete dataset " +
+      "— across the remaining provider abstractions, and found IR-038: EDGAR derived truncation " +
+      "from its own page cap, so 101 held against 501 declared reported complete. Reproduced and " +
+      "fixed on the live path.",
+  },
+  {
+    proposalId: "CLUSTER-EVIDENCE_FABRICATION",
+    commit: "recorded with this entry",
+    evidence:
+      "Turned the discipline into an instrument. tests/documentedCounts.test.ts checks the suite " +
+      "size PROJECT_STATE claims against the files that exist, requires the headline to record a " +
+      "passing run rather than a partial one, and requires the figures a reader cannot re-run to " +
+      "carry a date. It caught its own file on the first run — 87 exist, the document said 86.",
+    remaining:
+      'Only the numeric claims are instrumented. A prose claim in a state document — "verified", "complete", "reviewed" — is still unfalsifiable from inside the repository.',
+  },
 ];
 
 /**

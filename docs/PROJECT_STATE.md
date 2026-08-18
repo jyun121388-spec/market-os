@@ -552,8 +552,33 @@ Not fixed under the freeze — nothing wrong is displayed, both figures carry th
 answer is simply not guaranteed to be the same twice. The deferred pair is held in a list checked in
 BOTH directions, so a new undecided ordering fails and so does an entry that has since been fixed.
 
+PHASE — JOIN-KEY ENUMERATION (2026-08-18), the second half of the same countermeasure
+The orderings pass covered `orderBy`. This covers the joins, and the one it found is
+`IngestRun.target`: a key that five ingest scripts write with five separate string literals and one
+reader reconstructs two of by guessing.
+
+```
+edgar        padCik(company.cik)
+edgar-xbrl   xbrl: + padCik(company.cik)
+dart         company.corpCode
+ecos         statCode:itemCode1
+fred         series.seriesId
+```
+
+`assessCompleteness` finds a company's runs with `target: { in: [corpCode, "xbrl:" + corpCode] }`.
+It works — 37 Apple runs resolve, 19 filings and 18 XBRL — and it works because five literals happen
+to agree with one reader's guess about two of them. That is `RF-02` exactly: a join key written in
+display form on one side and storage form on the other, which last time cost a completeness lookup
+that returned UNKNOWN forever and read as missing data rather than as a mismatched key.
+
+Under the freeze the answer is not to refactor five scripts. `tests/ingestTargetConvention.test.ts`
+makes the convention CHECKED — every script must be recorded, must still write the shape it is
+recorded as writing, and the reader must still reconstruct exactly the two EDGAR forms. A sixth
+script with a new shape, or a change to either side, now fails here instead of silently detaching a
+page from its evidence.
+
 TESTS
-709 / 709 PASS across 80 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+713 / 713 PASS across 81 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

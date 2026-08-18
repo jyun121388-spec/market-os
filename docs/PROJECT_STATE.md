@@ -614,8 +614,26 @@ opposite. Both fixtures already carry the missing-value marker they were reporte
 Writing that up would have produced a confident, well-formed, wrong finding from a script rather
 than a model, which is not a meaningful difference. Pinned by a test named for what it is.
 
+PHASE — SILENT DEGRADATION (2026-08-18), the scheduler's fourth item
+Countermeasure: make every path that can return a subset report the size of the subset AND the size
+it expected. Enumerated the subset-returning paths in the domain layer; the one that matters is Ask
+Market.
+
+**IR-035 — `findCompanyFacts` caps at ten and `findSeriesFactors` at five. Asking about Apple
+returns 10 of 1428 held facts**, and nothing in the result or on `/ask` says the other 1418 exist.
+A limit is a reasonable product decision; an undisclosed limit is this cluster's definition, and the
+same shape as 1000 of 2240 filings reading as a complete history.
+
+P2, so not fixed in v1 — no figure shown is wrong, and disclosing it means changing the answer
+surface. **Closed in shadow instead**: the Verify adapter now carries the shortfall, and the real
+shadow run reports both Ask Market answers as **TRUNCATED** with `data_completeness` failing. The
+gap is measured and visible in a verdict before it is visible on a page.
+
+Controls both ways: an answer showing everything held is not flagged, and absent holdings report
+INSUFFICIENT_EVIDENCE rather than becoming "complete".
+
 TESTS
-761 / 761 PASS across 83 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+764 / 764 PASS across 83 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

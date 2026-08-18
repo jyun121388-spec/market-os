@@ -166,3 +166,46 @@ describe("adversarial_resilience, finally doing something", () => {
     expect(result.dimensions.adversarial_resilience.status).toBe("PASS");
   });
 });
+
+describe("the shortfall nobody was told about", () => {
+  /**
+   * Ask Market caps company facts at ten and matching series at five. Against the real database
+   * that is ten of 1428 held facts — a 99.3% shortfall with nothing on the page saying so.
+   *
+   * A limit is a reasonable product decision. An UNDISCLOSED limit is the SILENT_DEGRADATION
+   * cluster in miniature: failure by returning less, with no signal, which is how 1000 of 2240
+   * filings once read as a complete filing history. Verify has a dimension for exactly this, and
+   * the adapter had been passing it nothing — so the verdict said nothing either.
+   *
+   * This is the shortfall we impose, not one a provider imposes, which makes it the one kind of
+   * incompleteness entirely within our power to disclose.
+   */
+  it("reports TRUNCATED when the answer shows a fraction of what is held", () => {
+    const input = verificationInputFromAskMarket(answer(), {
+      companyFactsHeld: 1428,
+      seriesMatchesHeld: 0,
+    })!;
+    expect(input.completeness).toEqual({ providerTotal: 1428, fetched: 1, truncated: true });
+
+    const result = verify(input);
+    expect(result.dimensions.data_completeness.status).toBe("FAIL");
+    expect(result.verdict).toBe("TRUNCATED");
+  });
+
+  it("does not cry truncation when the answer shows everything held", () => {
+    // The control. Most answers are small, and a permanent truncation warning on every one of
+    // them would be worth exactly as much as no warning at all.
+    const result = verify(
+      verificationInputFromAskMarket(answer(), { companyFactsHeld: 1, seriesMatchesHeld: 0 })!,
+    );
+    expect(result.dimensions.data_completeness.status).not.toBe("FAIL");
+    expect(result.verdict).not.toBe("TRUNCATED");
+  });
+
+  it("says nothing about completeness when the caller could not count", () => {
+    // Absent holdings must not become "complete". An adapter with no evidence reports no evidence.
+    const input = verificationInputFromAskMarket(answer())!;
+    expect(input.completeness).toBeUndefined();
+    expect(verify(input).dimensions.data_completeness.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+});

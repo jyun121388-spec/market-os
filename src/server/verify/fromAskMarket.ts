@@ -50,7 +50,29 @@ function renderedText(result: AskMarketResult): string[] {
   return lines;
 }
 
-export function verificationInputFromAskMarket(result: AskMarketResult): VerificationInput | null {
+/**
+ * How much of the available evidence the answer actually shows.
+ *
+ * Supplied by the caller, because the adapter cannot count what it was not given. Ask Market caps
+ * company facts at ten and matching series at five, and against the real database that is **ten of
+ * 1428 held facts** — a 99.3% shortfall with nothing on the page saying so.
+ *
+ * A limit is a reasonable product decision. An UNDISCLOSED limit is the SILENT_DEGRADATION cluster
+ * in miniature: failure by returning less, with no signal, which is how 1000 of 2240 filings read
+ * as a complete history. Verify has a dimension for exactly this and the adapter was passing it
+ * nothing, so the verdict said nothing.
+ */
+export interface AskMarketHoldings {
+  /** Company facts stored for the matched company, not the ten that were shown. */
+  companyFactsHeld: number;
+  /** Series matching the topic, not the five that were shown. */
+  seriesMatchesHeld: number;
+}
+
+export function verificationInputFromAskMarket(
+  result: AskMarketResult,
+  holdings?: AskMarketHoldings,
+): VerificationInput | null {
   // NOT_FOUND puts no figure in front of anyone. There is no claim to verify, and manufacturing
   // one would invent a subject — the same reason the Filing Diff adapter skips INSUFFICIENT_DATA.
   if (result.status === "NOT_FOUND") return null;
@@ -69,6 +91,18 @@ export function verificationInputFromAskMarket(result: AskMarketResult): Verific
     // what `provenance_integrity` exists to catch.
     claimType: "FACT",
     sourceCodes,
+    completeness: holdings
+      ? {
+          // What the reader is shown, against what was available to show. Not a provider total —
+          // this shortfall is ours, which makes it the one kind of incompleteness that is entirely
+          // within our power to disclose.
+          providerTotal: holdings.companyFactsHeld + holdings.seriesMatchesHeld,
+          fetched: result.companyFacts.length + result.seriesFactors.length,
+          truncated:
+            result.companyFacts.length + result.seriesFactors.length <
+            holdings.companyFactsHeld + holdings.seriesMatchesHeld,
+        }
+      : undefined,
     advice: {
       shape: result.status === "PERSONALIZED_ADVICE_REDIRECTED" ? "REFUSAL" : "FACTOR_LIST",
       renderedText: renderedText(result),

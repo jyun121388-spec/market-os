@@ -119,3 +119,24 @@ change to the path that selects which financial figures a user sees.
 The fix is two tiebreaks. `tests/orderingDeterminism.test.ts` holds the pair in a
 `DEFERRED_BY_FREEZE` list checked in both directions — a new undecided ordering fails, and so does
 an entry here that has been fixed, so the list cannot become a place where defects are parked.
+
+## IR-035 — Ask Market shows ten of 1428 facts and says nothing (raised 2026-08-18, deferred)
+
+From the `SILENT_DEGRADATION` countermeasure — make every path that can return a subset report the
+size of the subset AND the size it expected, so "fewer rows" is a value rather than an absence.
+
+`findCompanyFacts` caps at `take: 10` and `findSeriesFactors` at `.slice(0, 5)`. Against the real
+database, asking about Apple returns **10 of 1428 held facts**. Nothing in `AskMarketResult`, and
+nothing on `/ask`, indicates that 1418 were not mentioned.
+
+A limit is a reasonable product decision. An undisclosed limit is this cluster's definition, and
+the same shape as 1000 of 2240 filings reading as a complete history.
+
+**P2 and not fixed in v1.** No figure shown is wrong, and disclosing the shortfall means adding
+fields to `AskMarketResult` and rendering them — a change to the answer surface, which the freeze
+reserves for P0/P1.
+
+**Closed in shadow instead**, which is where the directive points for exactly this case. The Verify
+adapter now carries the shortfall, so the real shadow run reports Ask Market answers as
+**TRUNCATED** with `data_completeness` failing. The gap is measured and visible in the verdict
+before it is visible on the page; promoting it to the page is a v1 decision.

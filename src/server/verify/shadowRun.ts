@@ -291,7 +291,30 @@ export async function shadowVerifyAskMarket(): Promise<ShadowRunResult> {
   for (const { query, sourceCode } of queries) {
     try {
       const answer = await askMarket(query);
-      const input = verificationInputFromAskMarket(answer);
+
+      // Count what COULD have been shown, so the shortfall is a number rather than an absence.
+      // Ask Market caps company facts at ten and series matches at five, and nothing on the page
+      // says so — against the real database that is ten of 1428 held facts.
+      const source = await prisma.source.findFirst({ where: { code: sourceCode } });
+      const companyFactsHeld =
+        source && answer.companyFacts.length > 0
+          ? await prisma.financialFact.count({
+              where: {
+                sourceId: source.id,
+                corpCode: (
+                  await prisma.filing.findFirst({
+                    where: { sourceId: source.id, corpName: answer.matchedTopic ?? "" },
+                    select: { corpCode: true },
+                  })
+                )?.corpCode,
+              },
+            })
+          : answer.companyFacts.length;
+
+      const input = verificationInputFromAskMarket(answer, {
+        companyFactsHeld,
+        seriesMatchesHeld: answer.seriesFactors.length,
+      });
       // NOT_FOUND shows the reader nothing, so there is no claim. Emitting a verdict would imply
       // one was evaluated.
       if (!input) continue;

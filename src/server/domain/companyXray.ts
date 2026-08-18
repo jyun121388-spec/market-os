@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db/client";
-import { computeFilingDiff, type FilingDiffResult } from "./filingDiff";
+import { compareFactCurrency, computeFilingDiff, type FilingDiffResult } from "./filingDiff";
 
 /**
  * Company X-Ray (docs/ROADMAP.md M15, M16) — the read model behind `/company/[corpCode]`.
@@ -195,11 +195,13 @@ export async function computeCompanyXray(corpCode: string): Promise<CompanyXray 
     }),
   ]);
 
-  // One figure per (concept, period length). Rows arrive newest-first, so the first of each key
-  // is the most recent.
+  // One figure per (concept, period length), using THE SAME comparator `filingDiff` uses to pick
+  // the figure it compares. Ordering these independently is what let the figures table show one
+  // value while the changes table compared another — including, on a same-day amendment, showing
+  // the original under a banner saying the amended value was shown.
   const seen = new Set<string>();
   const latestFigures: ReportedFigure[] = [];
-  for (const f of facts) {
+  for (const f of [...facts].sort(compareFactCurrency)) {
     const months = periodLengthMonths(f.periodStart, f.periodEnd);
     const key = `${f.concept}|${f.unit}|${months ?? "instant"}`;
     if (seen.has(key)) continue;

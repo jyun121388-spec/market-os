@@ -131,16 +131,7 @@ export async function computeFinancialFactDiff(
   // trap as the observation revision chain. Break the tie explicitly on the SHORTEST period:
   // the quarterly figure is the natural subject of a period-over-period comparison, and a
   // reader asking "what changed" means the latest quarter, not the year to date.
-  const facts = [...rows].sort((a, b) => {
-    const byEnd = b.periodEnd.getTime() - a.periodEnd.getTime();
-    if (byEnd !== 0) return byEnd;
-    const aMonths = periodLengthMonths(a.periodStart, a.periodEnd) ?? 0;
-    const bMonths = periodLengthMonths(b.periodStart, b.periodEnd) ?? 0;
-    if (aMonths !== bMonths) return aMonths - bMonths;
-    const byFiled = b.filedDate.getTime() - a.filedDate.getTime();
-    if (byFiled !== 0) return byFiled;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+  const facts = [...rows].sort(compareFactCurrency);
 
   const current = facts[0];
   const currentMonths = periodLengthMonths(current.periodStart, current.periodEnd);
@@ -204,6 +195,66 @@ export async function computeFinancialFactDiff(
     currentIsRestatement: restatedCount(current) > 1,
     previousIsRestatement: restatedCount(previous) > 1,
   };
+}
+
+/**
+ * True for an amended SEC form — `10-K/A`, `10-Q/A`, `8-K/A`. SEC's convention is a `/A` suffix.
+ */
+function isAmendedForm(form: string | null | undefined): boolean {
+  return typeof form === "string" && /\/A$/i.test(form.trim());
+}
+
+/**
+ * Which of two facts is more current, most-current first.
+ *
+ * EXPORTED AND SHARED because two places need this answer and they must not derive it
+ * independently. `companyXray.latestFigures` picks the figure a reader sees in the figures table;
+ * this module picks the one the changes table compares. When those disagreed, the page showed one
+ * number and compared another for the same company.
+ *
+ * The amendment tiebreak is the subtle part. On a same-`filedDate` tie an id-ascending order
+ * favours the row created first — the ORIGINAL — while `currentIsRestatement` was reporting a
+ * restatement and the page was saying "the amended value is shown". Each rule was defensible
+ * alone; together they made the page state something false about a financial figure (final
+ * adversarial audit, `gpt-5.6-sol`, 2026-08-18). An amended form now wins that tie, so the claim
+ * and the value agree.
+ */
+export function compareFactCurrency(
+  a: {
+    periodEnd: Date;
+    periodStart: Date | null;
+    filedDate: Date;
+    form?: string | null;
+    id: string;
+  },
+  b: {
+    periodEnd: Date;
+    periodStart: Date | null;
+    filedDate: Date;
+    form?: string | null;
+    id: string;
+  },
+): number {
+  const byEnd = b.periodEnd.getTime() - a.periodEnd.getTime();
+  if (byEnd !== 0) return byEnd;
+
+  // Shortest period first: the quarterly figure is the natural subject of a period-over-period
+  // comparison, not the year to date reported beside it.
+  const aMonths = periodLengthMonths(a.periodStart, a.periodEnd) ?? 0;
+  const bMonths = periodLengthMonths(b.periodStart, b.periodEnd) ?? 0;
+  if (aMonths !== bMonths) return aMonths - bMonths;
+
+  const byFiled = b.filedDate.getTime() - a.filedDate.getTime();
+  if (byFiled !== 0) return byFiled;
+
+  // Filed the same day: the amendment supersedes the original.
+  const aAmended = isAmendedForm(a.form);
+  const bAmended = isAmendedForm(b.form);
+  if (aAmended !== bAmended) return aAmended ? -1 : 1;
+
+  // Fully tied. Deterministic so the answer is stable between requests and between the two
+  // callers, rather than left to whatever order the database happened to return.
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /** Exact span in days, or null for an instant concept. */

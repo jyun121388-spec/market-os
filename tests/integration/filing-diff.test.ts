@@ -449,4 +449,67 @@ describeIfDb("computeFinancialFactDiff (integration)", () => {
     expect(diff.currentIsRestatement).toBe(false);
     expect(diff.previousIsRestatement).toBe(false);
   });
+  it("does not claim the amended value is shown when it picked the original", async () => {
+    // Interaction between two of my own fixes, found by a final adversarial pass (``gpt-5.6-sol``).
+    //
+    // The same-filedDate tiebreak orders by id ASCENDING so the figures table and the changes
+    // table agree. cuids are roughly monotonic, so ascending id means the EARLIER row - the
+    // original. Meanwhile currentIsRestatement is true whenever two rows cover the period, and
+    // the page says "the amended value is shown". On a same-day amendment those two facts
+    // contradict: we show the original and claim it is the amendment.
+    //
+    // Each fix is correct alone. Together they produce a false statement about a financial figure.
+    const concept = "SameDayAmendment";
+    const common = {
+      sourceId,
+      corpCode: CORP_CODE,
+      taxonomy: "us-gaap",
+      concept,
+      unit: "USD",
+      raw: {},
+    };
+    const filedSameDay = new Date("2026-11-02T00:00:00.000Z");
+    await prisma.financialFact.createMany({
+      data: [
+        {
+          ...common,
+          periodStart: new Date("2024-09-29T00:00:00.000Z"),
+          periodEnd: new Date("2025-09-27T00:00:00.000Z"),
+          accessionNumber: "SD-PRIOR",
+          filedDate: new Date("2025-11-02T00:00:00.000Z"),
+          form: "10-K",
+          value: "90000000000",
+        },
+        {
+          ...common,
+          periodStart: new Date("2025-09-28T00:00:00.000Z"),
+          periodEnd: new Date("2026-09-26T00:00:00.000Z"),
+          accessionNumber: "SD-ORIGINAL",
+          filedDate: filedSameDay,
+          form: "10-K",
+          value: "100000000000",
+        },
+        {
+          ...common,
+          periodStart: new Date("2025-09-28T00:00:00.000Z"),
+          periodEnd: new Date("2026-09-26T00:00:00.000Z"),
+          accessionNumber: "SD-AMENDED",
+          filedDate: filedSameDay,
+          form: "10-K/A",
+          value: "97000000000",
+        },
+      ],
+    });
+
+    const diff = await computeFinancialFactDiff(sourceId, CORP_CODE, concept, "USD");
+    expect(diff.status).toBe("COMPUTED");
+    expect(diff.currentIsRestatement).toBe(true);
+
+    // Whichever row the tiebreak picks, the claim and the figure must agree: if we report a
+    // restatement, the value shown has to be the amendment.
+    expect(diff.currentAccession).toBe("SD-AMENDED");
+    expect(diff.currentValue).toBe(97000000000);
+
+    await prisma.financialFact.deleteMany({ where: { sourceId, concept } });
+  });
 });

@@ -44,6 +44,9 @@ describeIfDb("FRED adapter ingest (integration)", () => {
       inserted: 4,
       revised: 0,
       unchanged: 0,
+      // Counted, not dropped: a provider replaying a value this chain already superseded is
+      // refused by the rollback guard, and an operator needs to see that it happened.
+      stale_ignored: 0,
       skippedMissing: 1,
       count: 5,
       requestsMade: 1,

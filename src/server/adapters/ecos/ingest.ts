@@ -54,7 +54,11 @@ export async function ingestEcosSeries(
     StatisticSearch: { list_total_count: page.totalCount, row: page.rows },
   });
 
-  const counts = { inserted: 0, revised: 0, unchanged: 0 };
+  // `stale_ignored` is counted, not dropped. It means the provider replayed a figure this
+  // chain already superseded and the rollback guard refused to apply it — a fact an operator
+  // needs, and a silent zero would be the "silence where there should be a signal" pattern
+  // that produced most of this project's real defects.
+  const counts = { inserted: 0, revised: 0, unchanged: 0, stale_ignored: 0 };
   for (const obs of observations) {
     const status = await upsertRevisionAwareObservation({
       seriesId: series.id,

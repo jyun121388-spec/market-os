@@ -3,7 +3,15 @@ import { prisma } from "@/server/db/client";
 import { findRevisionChainTail } from "@/server/domain/revisionChain";
 import { Prisma } from "@/generated/prisma/client";
 
-export type ObservationIngestStatus = "inserted" | "revised" | "unchanged";
+export type ObservationIngestStatus =
+  | "inserted"
+  | "revised"
+  | "unchanged"
+  /**
+   * The incoming value replays a figure this chain already superseded, so it was NOT applied.
+   * See the rollback guard in `upsertRevisionAwareObservation`.
+   */
+  | "stale_ignored";
 
 export interface ObservationIngestInput {
   seriesId: string;
@@ -70,7 +78,10 @@ export async function upsertRevisionAwareObservation(
   // An original already exists (created by this call's own prior attempt in a previous run, or
   // by a concurrent writer that won the race above). Fall through to the revision path.
   for (let attempt = 0; attempt < MAX_REVISION_RETRIES; attempt++) {
-    const latest = await loadRevisionChainTail(input.seriesId, input.observationDate);
+    const { rows: chain, tail: latest } = await loadRevisionChain(
+      input.seriesId,
+      input.observationDate,
+    );
 
     // tryInsertOriginal just told us an original exists (DO NOTHING fired), so this should
     // never be null — but if it somehow is (e.g. the original was deleted between the two
@@ -83,6 +94,39 @@ export async function upsertRevisionAwareObservation(
 
     if (Number(latest.value.toString()) === Number(input.value)) {
       return "unchanged";
+    }
+
+    // ROLLBACK GUARD.
+    //
+    // The comparison above asks only "does this differ from the tail?", which quietly assumes
+    // that whatever arrived last is the truth. It is not: a provider CDN serving a stale cached
+    // response, a lagging read replica, or a retried job from an earlier queue all deliver an OLD
+    // value at a NEW time. Reproduced end to end — original 100, a legitimate revision to 110,
+    // then a replay of 100 — and the replay became the chain tail, so the read path served users
+    // a figure the provider had already superseded (`gpt-5.6-sol` proposed it; the reproduction
+    // is tests/integration/revision-rollback.test.ts).
+    //
+    // A value that already appears EARLIER in this chain is the signature of exactly that replay.
+    // It is not applied, and it is logged rather than swallowed.
+    //
+    // KNOWN LIMITATION, deliberate: a provider genuinely re-correcting back to a previously
+    // reported figure looks identical, and is also ignored. Distinguishing the two needs the
+    // provider's own vintage — FRED publishes `realtime_start` for precisely this, and
+    // `Observation.releaseDate` exists to hold it — but no adapter populates it yet and no key
+    // is available to verify the real semantics, so ordering on it now would be inventing
+    // behaviour rather than implementing it. Refusing to regress a published figure is the safer
+    // of the two available errors: this one is visible in the log, the other is silent.
+    const supersededValues = chain
+      .filter((row) => row.id !== latest.id)
+      .map((row) => Number(row.value.toString()));
+    if (supersededValues.includes(Number(input.value))) {
+      console.warn(
+        `[observationIngest] series ${input.seriesId} on ` +
+          `${input.observationDate.toISOString().slice(0, 10)}: incoming value ${input.value} ` +
+          `replays a figure this chain already superseded (current is ${latest.value.toString()}). ` +
+          "Not applied — see the rollback guard in observationIngest.ts.",
+      );
+      return "stale_ignored";
     }
 
     try {
@@ -124,13 +168,13 @@ export async function upsertRevisionAwareObservation(
  * both places, and having one implementation is what stops them drifting apart again. See that
  * module for why the clock cannot answer this question.
  */
-async function loadRevisionChainTail(seriesId: string, observationDate: Date) {
+async function loadRevisionChain(seriesId: string, observationDate: Date) {
   const rows = await prisma.observation.findMany({
     where: { seriesId, observationDate },
     // Only a tiebreaker for a chain that should be impossible — correctness does not depend on it.
     orderBy: [{ retrievedAt: "desc" }, { id: "desc" }],
   });
-  return findRevisionChainTail(rows);
+  return { rows, tail: findRevisionChainTail(rows) };
 }
 
 /**

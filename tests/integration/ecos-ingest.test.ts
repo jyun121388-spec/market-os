@@ -45,6 +45,9 @@ describeIfDb("ECOS adapter ingest (integration)", () => {
       inserted: 3,
       revised: 0,
       unchanged: 0,
+      // Counted, not dropped: a provider replaying a value this chain already superseded is
+      // refused by the rollback guard, and an operator needs to see that it happened.
+      stale_ignored: 0,
       skippedMissing: 1,
       // Request-level window walking is covered in tests/adapters/pagination.test.ts — it is a
       // property of the client, and proving it here meant writing thousands of synthetic rows.

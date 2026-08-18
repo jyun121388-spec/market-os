@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **774 / 774** across 85 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **780 / 780** across 86 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -117,36 +117,19 @@ known-fresh server on port 3100.
 The full suite takes 95-206s across runs on the same tree. The `~25s` recorded in PROJECT_STATE for
 several rounds was stale; the variance is integration files contending for one Postgres.
 
-## One unresolved observation: a single flaky run
+## The flake, identified and fixed (IR-039)
 
-On 2026-08-18 the full suite failed once — `1 failed | 640 passed`, in a run that took **291s**
-against the usual 95–160s — and passed twice immediately afterwards at 641/641. The failing test's
-name was lost with the output before it was captured, and two subsequent clean runs did not
-reproduce it.
+Resolved on 2026-08-19 by capturing full output on a failing run instead of rerunning green ones.
+Eight reruns were never going to find it: the run that failed had its output piped through `tail`,
+so only the summary survived.
 
-Recorded rather than dismissed. This project's worst defects were non-deterministic: an original
-and its revision sharing a `timestamp(3)`, a completeness verdict that could flip between requests.
-"It passed the next two times" is exactly what those looked like too.
+`tests/integration/watchlist-actions.test.ts` — `beforeAll` exceeds vitest's default 10s hook
+timeout under database contention, leaving `userAId` and `userBId` unset, and `afterAll` then calls
+`user.delete({ where: { id: undefined } })` and throws. **The teardown's error is the one that gets
+reported**, which is exactly why three write-ups could not name the test.
 
-**Update, same day: six clean runs, still unexplained.** Three further full runs were captured
-deliberately — 654/654 each, at 182s, 90s and 115s. Six consecutive clean runs since the single
-failure, and the failing test was never identified because its name was lost with the output.
+Fixed: the teardown skips unassigned ids, the hook gets 60s. Deliberately NOT `deleteMany`, which
+reads `undefined` as "no condition" and would delete every user.
 
-The wide duration spread (90–230s across the session, on an unchanged tree) is real and supports
-the contention hypothesis, but a hypothesis is all it is. Left open rather than closed: one
-unreproduced failure is not the same as no failure, and this project has twice shipped defects
-whose symptom was intermittent rather than constant. Any future run that fails should have its
-output captured before anything else is done.
-The 291s duration points at database contention rather than at logic — the integration files share
-one PostgreSQL instance and `fileParallelism` is already off — but that is a hypothesis, not a
-finding. **Next session: run the suite several times and capture full output, and if it recurs,
-identify the test before doing anything else.**
-
-**Second follow-up: six clean runs total, and one self-inflicted failure worth not misreading.**
-Three more captured runs: 658/658, 658/658, then a failure — which was mine. I was editing
-`askMarket.ts` while run 6 executed, so the failing assertion was against a half-applied change,
-not the mystery flake. Recorded because a failure in a flake hunt is exactly the kind of thing that
-gets counted as evidence when it is nothing of the sort. **Do not edit source while a hunt is
-running.**
-
-Standing at eight clean full runs since the original single failure, which remains unidentified.
+The exposure is not unique to that file — around twenty integration files delete by an id a failed
+setup would leave undefined. Recorded as `EN-04`.

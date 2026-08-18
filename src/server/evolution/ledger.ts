@@ -640,6 +640,20 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "SILENT_DEGRADATION",
   },
 
+  {
+    id: "EN-04",
+    ledger: "INCIDENT",
+    subsystem: "test harness / watchlist-actions",
+    severity: "P2",
+    summary:
+      "A beforeAll timeout left ids unset, and the afterAll that dereferenced them threw the " +
+      "error that got reported, hiding the cause through eight reruns.",
+    lesson:
+      "A teardown that can itself fail reports ITS error instead of the one that matters, so the " +
+      "cheapest diagnostic improvement is making cleanup tolerant of a setup that never ran.",
+    category: "ENVIRONMENT_DRIFT",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

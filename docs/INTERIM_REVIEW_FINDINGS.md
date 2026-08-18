@@ -1089,6 +1089,43 @@ Why it survived IR-030: that finding named three clients and the fix went to tho
 went where the defect had been looked for, which is the same lesson as `RF-04` and `RF-06` and now
 the third time it has been recorded.
 
+## IR-039 — The flake, found: a teardown that buried its own setup failure — **VALID, fixed**
+
+|           |                                                                         |
+| --------- | ----------------------------------------------------------------------- |
+| Found by  | capturing full output on a failing run rather than rerunning green ones |
+| Subsystem | `tests/integration/watchlist-actions.test.ts`                           |
+| Severity  | P2 (test infrastructure), but it cost the previous eight reruns         |
+| Status    | **VALID — reproduced with captured output, then fixed.**                |
+
+The unidentified intermittent failure recorded across three earlier rounds. Eight clean reruns
+never reproduced it because rerunning was never going to: the run that failed had its output piped
+through `tail`, so only the summary survived.
+
+**What actually happens.** `beforeAll` exceeds vitest's default 10-second hook timeout under
+database contention — eight sequential statements against a Postgres shared with the rest of the
+suite. `userAId` and `userBId` are then never assigned, and `afterAll` calls
+`user.delete({ where: { id: undefined } })`, which throws a Prisma validation error.
+
+**That second error is the one that gets reported.** The timeout is the cause and the cleanup
+crash is what appears on screen, which is precisely why eight reruns and three write-ups failed to
+name the test: the visible error belonged to the teardown.
+
+**Two fixes, both test-only.** The teardown now skips an id the setup never assigned, and the hook
+gets 60 seconds — the work genuinely takes longer when the database is busy, and a hook that fails
+for being slow produces a failure nobody can act on.
+
+**The obvious fix would have been a disaster.** Replacing `delete` with `deleteMany` looks like the
+tolerant choice and is the opposite: Prisma reads `undefined` in a filter as "no condition", so
+`deleteMany({ where: { id: undefined } })` is `deleteMany({})` — every user in the database. The
+explicit guard is used instead, and the reason is recorded at the call site so nobody
+"simplifies" it later.
+
+**The transferable lesson**, and the reason this is in the ledger rather than just fixed: a
+teardown that can fail will report ITS error instead of the one that matters. Twenty other
+integration files delete by an id a failed setup would leave undefined. They have the same
+exposure, and the next unexplained failure in any of them will be equally unreadable.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

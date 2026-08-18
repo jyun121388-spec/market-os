@@ -74,10 +74,26 @@ describeIfDb("watchlist server actions (integration)", () => {
     userBId = userB.id;
     tokenA = (await createSession(userAId)).id;
     tokenB = (await createSession(userBId)).id;
-  });
+    // Vitest's default 10s hook timeout is not enough for eight sequential statements against a
+    // Postgres shared with the rest of the suite. This hook has exceeded it under load, and the
+    // timeout was not evidence of a defect — the work genuinely takes longer when the database is
+    // busy, and a hook that fails for being slow produces a failure nobody can act on.
+  }, 60_000);
 
   afterAll(async () => {
     for (const id of [userAId, userBId]) {
+      // Skip an id the setup never assigned.
+      //
+      // When `beforeAll` timed out under database contention, these were undefined, and
+      // `user.delete({ where: { id: undefined } })` threw a Prisma validation error — which became
+      // the REPORTED failure and buried the timeout that actually caused it. That is why an
+      // earlier intermittent failure in this suite went unidentified through eight clean reruns:
+      // the error on screen was the cleanup's, not the cause's.
+      //
+      // Deliberately NOT `deleteMany`, which is the obvious-looking fix and is far worse: Prisma
+      // reads `undefined` in a filter as "no condition", so `deleteMany({ where: { id: undefined } })`
+      // is `deleteMany({})` and would delete every user in the database.
+      if (!id) continue;
       await prisma.watchlistItem.deleteMany({ where: { userId: id } });
       await prisma.session.deleteMany({ where: { userId: id } });
       await prisma.user.delete({ where: { id } });

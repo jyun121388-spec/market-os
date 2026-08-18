@@ -710,8 +710,27 @@ rewiring, and that every integration file gates on one identical idiom so the re
 them. Remove either and CI would create a test database, migrate it, then skip everything that would
 use it while reporting green.
 
+PHASE — CAP-CEILING / GENERALIZED COMPLETENESS + THE FLAKE (2026-08-19)
+Two findings, both P1-or-cause and both reproduced.
+
+**IR-038 — EDGAR reported complete from its own page cap.** IR-030 fixed FRED, ECOS and DART, each
+deriving `truncated` from why its loop stopped. EDGAR was not in that finding and had the identical
+line: `truncated: overflowFiles.length > MAX_OVERFLOW_FILES` — a statement about OUR page cap, not
+about holding what SEC says exists. `providerTotal` was computed two lines above, carefully, and
+never compared. Reproduced: declared 501, held 101, reported complete. **This is the live path** —
+EDGAR is the only provider with real data. Fixed; checked against the real runs first
+(`providerTotal=2240, fetched=2240`), so live behaviour is unchanged and the fix fires only on a
+genuine disagreement.
+
+**IR-039 — the flake, identified.** Found by capturing full output on a failing run instead of
+rerunning green ones; eight reruns were never going to find it, because the failing run's output had
+been piped through `tail`. `watchlist-actions`'s `beforeAll` exceeds the 10s hook timeout under
+contention, leaving ids unset, and the `afterAll` that dereferences them throws — **and the
+teardown's error is the one that gets reported.** Fixed with a guard and a 60s hook. Deliberately
+not `deleteMany`, which reads `undefined` as "no condition" and would delete every user.
+
 TESTS
-778 / 778 PASS across 86 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+780 / 780 PASS across 86 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

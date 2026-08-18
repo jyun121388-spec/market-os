@@ -191,7 +191,7 @@ Clusters the detector reports over the current backfill, worst severity first wi
 | `CONCURRENCY`          | 5         | P1    | A read-then-write sequence treated as atomic                 |
 | `SILENT_DEGRADATION`   | 6         | P1    | Failure by returning less, with no signal                    |
 | `PROVENANCE`           | 4         | P1    | A value shown without what it came from                      |
-| `ENVIRONMENT_DRIFT`    | 3         | P2    | A check made on surface text rather than what it resolves to |
+| `ENVIRONMENT_DRIFT`    | 4         | P2    | A check made on surface text rather than what it resolves to |
 | `SEMANTIC_RECENCY`     | 2         | P1    | Freshness inferred from when it was observed, not what       |
 | `EVIDENCE_FABRICATION` | 2         | P2    | A confident claim taken for a verified one                   |
 

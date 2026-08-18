@@ -82,6 +82,7 @@ export async function removeWatchlistItem(
 export async function listWatchlist(userId: string, itemType?: WatchlistItemType) {
   return prisma.watchlistItem.findMany({
     where: { userId, ...(itemType ? { itemType } : {}) },
+    // ORDERING_WAIVER: the user's own list, newest first. Two items added in the same millisecond may appear in either order, which is invisible and harmless.
     orderBy: { addedAt: "desc" },
   });
 }

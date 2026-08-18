@@ -68,11 +68,13 @@ export async function buildMorningBrief(
   const [events, filings, series, regime, calendar] = await Promise.all([
     prisma.event.findMany({
       where: { latestUpdateAt: { gte: since } },
+      // ORDERING_WAIVER: a display list of recent events. Two events updated in the same millisecond may appear in either order, which changes nothing a reader relies on.
       orderBy: { latestUpdateAt: "desc" },
       take: 10,
     }),
     prisma.filing.findMany({
       where: { receiptDate: { gte: since } },
+      // ORDERING_WAIVER: a display list of recent filings. Position carries no meaning and no figure is read from the first row.
       orderBy: { receiptDate: "desc" },
       take: 10,
       include: { source: true },

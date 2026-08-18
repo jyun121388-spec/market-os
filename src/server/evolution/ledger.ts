@@ -569,6 +569,20 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "IDENTITY_MODELLING",
   },
 
+  {
+    id: "RF-06",
+    ledger: "REVIEW_FINDING",
+    subsystem: "askMarket",
+    severity: "P2",
+    summary:
+      "Two orderings select a company and its figures on columns that tie, in the one read path " +
+      "the periodEnd fix was never applied to.",
+    lesson:
+      "A defect fixed in two places was left in a third, because the fix was applied where the " +
+      "defect had been SEEN rather than everywhere the same pattern was written.",
+    category: "IDENTITY_MODELLING",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

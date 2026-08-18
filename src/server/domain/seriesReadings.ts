@@ -29,6 +29,7 @@ export interface ObservationPair {
 export async function getRecentObservationPair(seriesId: string): Promise<ObservationPair | null> {
   const recentDates = await prisma.observation.findMany({
     where: { seriesId },
+    // ORDERING_WAIVER: distinct on observationDate and ordered by the same column, so the two rows returned differ on the ordering key by construction. Which ROW wins within a date is decided structurally afterwards, by walking the revision chain.
     orderBy: { observationDate: "desc" },
     distinct: ["observationDate"],
     select: { observationDate: true },

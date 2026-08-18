@@ -116,6 +116,7 @@ export async function computeFinancialFactDiff(
   const [rows, source] = await Promise.all([
     prisma.financialFact.findMany({
       where: { sourceId, corpCode, concept, unit },
+      // ORDERING_WAIVER: this ordering does not decide anything. Every row is re-sorted in memory by compareFactCurrency, which ends on id and is therefore total; the database order is a convenience, not the answer.
       orderBy: [{ periodEnd: "desc" }, { filedDate: "desc" }],
     }),
     prisma.source.findUnique({ where: { id: sourceId }, select: { code: true } }),

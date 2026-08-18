@@ -78,9 +78,11 @@ const RECENT_RUN_LIMIT = 25;
 
 async function computeSystemHealthUncached(): Promise<SystemHealth> {
   const [sources, unresolvedDataConflicts, runs] = await Promise.all([
+    // ORDERING_WAIVER: Source.code is unique at the database level, so this ordering is already total.
     prisma.source.findMany({ orderBy: { code: "asc" } }),
     prisma.dataConflict.count({ where: { resolved: false } }),
     prisma.ingestRun.findMany({
+      // ORDERING_WAIVER: the recent-runs panel. Two runs starting in the same millisecond may appear in either order; nothing downstream reads the first element as an answer.
       orderBy: { startedAt: "desc" },
       take: RECENT_RUN_LIMIT,
       include: { source: { select: { code: true } } },

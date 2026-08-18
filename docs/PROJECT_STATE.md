@@ -526,8 +526,34 @@ first run contradicted a judgement made minutes earlier in the same session — 
 the remaining work as gated, and the scheduler found nine startable items from the same evidence.
 A queue derived from the ledger is harder to fool than a summary written from memory.
 
+PHASE — ORDERING ENUMERATION (2026-08-18), chosen by the scheduler itself
+The meta-loop's first output was `CLUSTER-IDENTITY_MODELLING`, whose countermeasure reads:
+enumerate every ordering in `src/server/domain`, state the scope each is unique within, and the
+mismatches are the next instances before they happen. Done, as a test rather than a document.
+
+`tests/orderingDeterminism.test.ts` parses every `orderBy` in the domain layer by bracket matching
+and requires each to be total — ending on `id` — or to carry an `ORDERING_WAIVER:` saying why ties
+cannot matter there. The waiver must be a real sentence, because an escape hatch that costs nothing
+becomes the default.
+
+**Twelve sites. Ten genuinely safe**, each now carrying its reason: `Source.code` is unique;
+`distinct` on the ordering column leaves nothing to tie; `filingDiff` re-sorts everything through
+the total `compareFactCurrency` so the database order decides nothing; the rest are display lists
+where position carries no meaning.
+
+**Two are not safe, both in Ask Market, and both deferred (IR-033, P2).** One decides which company
+answers a topic; the other selects ten financial facts ordered only by `periodEnd`, where Apple has
+**nine** rows sharing `2026-06-27` — including a nine-month NetIncomeLoss of 101.5B and a quarterly
+one of 29.8B. `companyXray` and `filingDiff` both fixed this class; this path was missed by both,
+which is the cluster's own lesson arriving on schedule: the fix went where the defect had been seen
+rather than everywhere the pattern was written.
+
+Not fixed under the freeze — nothing wrong is displayed, both figures carry their period, and the
+answer is simply not guaranteed to be the same twice. The deferred pair is held in a list checked in
+BOTH directions, so a new undecided ordering fails and so does an entry that has since been fixed.
+
 TESTS
-705 / 705 PASS across 79 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+709 / 709 PASS across 80 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

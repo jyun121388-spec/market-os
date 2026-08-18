@@ -154,6 +154,7 @@ export async function listCompanySources(corpCode: string): Promise<string[]> {
     where: { corpCode },
     distinct: ["sourceId"],
     select: { source: { select: { code: true } } },
+    // ORDERING_WAIVER: distinct on sourceId and ordered by it, so every row differs on the ordering key. There is nothing left to tie.
     orderBy: { sourceId: "asc" },
   });
   return rows.map((r) => r.source.code).sort();
@@ -179,6 +180,7 @@ export async function computeCompanyXray(
 
   const anyFiling = await prisma.filing.findFirst({
     where: { corpCode, source: { code: resolvedSourceCode } },
+    // ORDERING_WAIVER: scoped to one source, and only the company's NAME, ticker and source code are read from it. Two filings from one provider on one day carry the same company identity, so a tie changes nothing that is displayed.
     orderBy: { receiptDate: "desc" },
     include: { source: { select: { code: true } } },
   });
@@ -216,6 +218,7 @@ export async function computeCompanyXray(
     }),
     prisma.filing.findMany({
       where: scope,
+      // ORDERING_WAIVER: a display list of recent filings. Two filings received on the same day may appear in either order, and no downstream value is read from position.
       orderBy: { receiptDate: "desc" },
       take: 10,
       select: { reportName: true, receiptNo: true, receiptDate: true },

@@ -91,3 +91,31 @@ edit at the end of a long session. Found by `gpt-5.6-terra`, packet target A11.
 The same collapse exists one layer up in the shadow Verify run (`companiesWithFilings()`
 deduplicates on `corpCode`; output ids read `filingDiff:<corpCode>:...`). Shadow code is not
 frozen, but fixing the copy while the original stands would be the wrong order.
+
+## IR-033 — Two Ask Market orderings that can tie (raised 2026-08-18, deferred by the freeze)
+
+From the ordering enumeration the Evolution scheduler ranked first — twelve `orderBy` sites in
+`src/server/domain`, ten of which turned out to be genuinely safe and now carry an
+`ORDERING_WAIVER:` saying why. Two are not safe:
+
+**`askMarket.ts` — which company answers.** `filing.findMany({ orderBy: { receiptDate: "desc" } })`
+followed by `.find(corpName matches topic)`. With two companies matching one topic, which one
+answers depends on an order the database is free to choose. Same class as IR-032, in the query
+rather than the route.
+
+**`askMarket.ts` — which figures reach the reader.**
+`financialFact.findMany({ orderBy: [{ periodEnd: "desc" }], take: 10 })`. Apple has **nine** facts
+sharing the periodEnd `2026-06-27`, among them a nine-month `NetIncomeLoss` of 101.5B and a
+quarterly one of 29.8B. Nine is under the limit today, so all of them come back; at ten or more,
+which figures reach the reader becomes unspecified. `companyXray` fixed this with
+`[periodEnd, filedDate, id]` and `filingDiff` with the shared `compareFactCurrency` — this path was
+missed by both.
+
+**P2, and not fixed.** Nothing wrong is displayed: both figures carry their period, so a reader can
+tell the nine-month from the quarter. The answer is simply not guaranteed to be the same answer
+twice. v1 is frozen except for reproduced P0/P1, and a determinism-only ordering change is still a
+change to the path that selects which financial figures a user sees.
+
+The fix is two tiebreaks. `tests/orderingDeterminism.test.ts` holds the pair in a
+`DEFERRED_BY_FREEZE` list checked in both directions — a new undecided ordering fails, and so does
+an entry here that has been fixed, so the list cannot become a place where defects are parked.

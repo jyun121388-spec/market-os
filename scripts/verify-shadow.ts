@@ -10,6 +10,7 @@
 import {
   companiesWithFilings,
   shadowVerifyCompany,
+  shadowVerifyAskMarket,
   shadowVerifySeriesChanges,
   VERIFIER_VERSION,
 } from "@/server/verify/shadowRun";
@@ -37,6 +38,23 @@ async function main() {
       if (o.error) console.log(`      error: ${o.error}`);
     }
     for (const [verdict, count] of Object.entries(byVerdict)) {
+      totals[verdict] = (totals[verdict] ?? 0) + count;
+    }
+    console.log("");
+  }
+
+  // The Ask Market path, the only one whose output could read as advice.
+  const ask = await shadowVerifyAskMarket();
+  if (ask.observations.length > 0) {
+    observed += ask.observations.length;
+    console.log(`Ask Market — ${ask.observations.length} verifiable answer(s)`);
+    for (const o of ask.observations) {
+      const cause = o.failed.length > 0 ? `  failed: ${o.failed.join(", ")}` : "";
+      console.log(`  ${o.verdict.padEnd(30)} ${o.outputId}${cause}`);
+      console.log(`      advice: ${o.dimensions.adversarial_resilience}`);
+      if (o.error) console.log(`      error: ${o.error}`);
+    }
+    for (const [verdict, count] of Object.entries(ask.byVerdict)) {
       totals[verdict] = (totals[verdict] ?? 0) + count;
     }
     console.log("");

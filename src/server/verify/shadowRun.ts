@@ -1,9 +1,11 @@
 import { prisma } from "@/server/db/client";
 import { computeCompanyXray } from "@/server/domain/companyXray";
 import { verify } from "./evaluate";
+import { askMarket } from "@/server/domain/askMarket";
 import { computeCalendarEntry } from "@/server/domain/economicCalendar";
 import { computeChange, getRecentObservationPair } from "@/server/domain/seriesReadings";
 import { evaluateStaleness } from "@/server/domain/staleness";
+import { verificationInputFromAskMarket } from "./fromAskMarket";
 import { verificationInputFromFilingDiff } from "./fromFilingDiff";
 import { verificationInputFromSeriesChange, type ObservationEvidence } from "./fromSeriesChange";
 import type { DimensionName, Verdict, VerificationResult } from "./types";
@@ -22,7 +24,7 @@ import type { DimensionName, Verdict, VerificationResult } from "./types";
  */
 
 export interface ShadowObservation {
-  outputType: "FILING_DIFF" | "SERIES_CHANGE";
+  outputType: "FILING_DIFF" | "SERIES_CHANGE" | "ASK_MARKET";
   outputId: string;
   entityRef: string;
   sourceCode: string;
@@ -241,6 +243,72 @@ export async function shadowVerifySeriesChanges(now: Date = new Date()): Promise
         outputId,
         entityRef: s.externalId,
         sourceCode: s.source.code,
+        verdict: "SHADOW_VERIFY_ERROR",
+        failed: [],
+        limitations: [],
+        dimensions: {},
+        evidenceGaps: {},
+        completeness: "UNKNOWN",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const byVerdict: Record<string, number> = {};
+  for (const o of observations) byVerdict[o.verdict] = (byVerdict[o.verdict] ?? 0) + 1;
+  return { observations, byVerdict };
+}
+
+/**
+ * Runs Verify over real Ask Market answers.
+ *
+ * The queries are DERIVED from the corp names actually stored, plus an advice-framed variant of
+ * each. Hard-coding a question list would make this a test of the questions I happened to think
+ * of; deriving them means the run covers whatever this database actually holds, and the advice
+ * variant is the only path in the product where `adversarial_resilience` has anything to bite on.
+ */
+export async function shadowVerifyAskMarket(): Promise<ShadowRunResult> {
+  const observations: ShadowObservation[] = [];
+  const companies = await prisma.filing.findMany({
+    distinct: ["corpName"],
+    select: { corpName: true, source: { select: { code: true } } },
+    orderBy: { corpName: "asc" },
+  });
+
+  const queries = companies.flatMap((c) => [
+    { query: c.corpName, sourceCode: c.source.code },
+    { query: `Should I buy ${c.corpName}?`, sourceCode: c.source.code },
+  ]);
+
+  for (const { query, sourceCode } of queries) {
+    try {
+      const answer = await askMarket(query);
+      const input = verificationInputFromAskMarket(answer);
+      // NOT_FOUND shows the reader nothing, so there is no claim. Emitting a verdict would imply
+      // one was evaluated.
+      if (!input) continue;
+
+      const result = verify(input);
+      observations.push({
+        outputType: "ASK_MARKET",
+        outputId: result.outputId,
+        entityRef: query,
+        sourceCode,
+        verdict: result.verdict,
+        failed: result.failed,
+        limitations: result.limitations,
+        dimensions: Object.fromEntries(
+          Object.entries(result.dimensions).map(([name, d]) => [name, d.status]),
+        ),
+        evidenceGaps: collectEvidenceGaps(result),
+        completeness: "UNKNOWN",
+      });
+    } catch (error) {
+      observations.push({
+        outputType: "ASK_MARKET",
+        outputId: `askMarket:${query}`,
+        entityRef: query,
+        sourceCode,
         verdict: "SHADOW_VERIFY_ERROR",
         failed: [],
         limitations: [],

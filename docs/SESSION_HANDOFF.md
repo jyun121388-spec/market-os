@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **616 / 616** across 73 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **635 / 635** across 75 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -94,10 +94,17 @@ None was faked closed. None blocked other work.
    response — never on the strength of the harness having run.
 2. **If ECOS or OpenDART**, same procedure. Expect drift: EDGAR's live check found four real
    divergences on its first run, and these three adapters were written the same way.
-3. **If no key**, continue in shadow. A third Verify adapter is the open item; Ask Market is the
-   interesting target because its output is prose rather than a number, and
-   `adversarial_resilience` has never been exercised on anything that could genuinely read as
-   advice.
+3. **If no key**, continue in shadow. The three real output shapes now all have adapters. The
+   open items, in rough order of value:
+   - **Macro Regime axes** are the one remaining v1 output with no Verify adapter. Five of them
+     currently report `NOT_TRACKED` because they need FRED, so this is partly gated — but the two
+     that are tracked would exercise `cross_source_consistency` on something other than a single
+     source, which nothing has done yet.
+   - **IR-028** (Ask Market name matching) is written up with a full reproduction matrix and is
+     waiting on a release-critical decision, not on engineering.
+   - The Evolution detector still stops at clustering. Proposals are generated from the capability
+     matrix only; a second generator over the ledger clusters would make each cluster falsifiable
+     rather than merely counted.
 
 ## Two operational notes
 

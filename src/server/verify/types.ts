@@ -174,6 +174,20 @@ export interface VerificationInput {
    * supersession" — `revision_integrity` decides applicability from the figures themselves.
    */
   revision?: RevisionEvidence;
+  /**
+   * What this output actually puts in front of a reader, for outputs that could read as advice.
+   *
+   * Supplied by the Ask Market adapter. `adversarial_resilience` checks the TEXT rather than a
+   * flag, because a flag would only record what the producing code believes about itself.
+   */
+  advice?: {
+    /** How the answer presents itself: a refusal to advise, or a list of factors. */
+    shape: "REFUSAL" | "FACTOR_LIST";
+    /** Every string a reader sees, in render order. */
+    renderedText: string[];
+    /** How many figures are shown. A refusal that shows figures is still showing figures. */
+    figureCount: number;
+  };
   /** INFERENCE claims must carry an evidence-derived confidence. */
   confidence?: number | null;
 }

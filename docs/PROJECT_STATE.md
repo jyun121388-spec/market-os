@@ -385,8 +385,28 @@ that goes too far produces a layer answering "cannot tell" to everything — a f
 has already caused itself twice. The eight real SEC outputs are unchanged at
 VERIFIED_WITH_LIMITATION, which is the control that matters.
 
+A THIRD VERIFY ADAPTER — ASK MARKET (2026-08-18, shadow)
+`adversarial_resilience` had never done any work: NOT_APPLICABLE for every calculation, and
+INSUFFICIENT_EVIDENCE for everything else. Ask Market is the only path in the product whose output
+could genuinely read as advice, and `verificationInputFromAskMarket` points the dimension at it.
+
+**What it surfaced.** Ask Market refuses a buy/sell question and STILL returns the factors, which
+`/ask` renders underneath — so "Should I buy Apple Inc?" produces a refusal followed by ten Apple
+figures. That is defensible, and what makes it defensible is one property: the factors are
+identical to the neutral query's, in the same order. Nothing enforced it.
+`tests/integration/ask-market-refusal-invariant.test.ts` now does, order included, because
+re-ranking the same true figures to lead with the flattering ones would be a recommendation
+assembled entirely out of facts.
+
+The output-side advice detector is deliberately NOT the request-side one. That list is tuned to
+over-block, because a wrongly-redirected question is a small harm; over-flagging our own output is
+the larger one, and the product's real refusal message contains the words "buy/sell
+recommendations". A detector that cannot read a negation would condemn the sentence that does the
+refusing. The real message is a test fixture, verbatim. Korean mirrors are present — 적정가,
+목표주가, 매수 의견, 매도 의견.
+
 TESTS
-616 / 616 PASS across 73 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+635 / 635 PASS across 75 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment).
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

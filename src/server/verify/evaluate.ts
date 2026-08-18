@@ -506,7 +506,73 @@ function crossSourceConsistency(input: VerificationInput): DimensionResult {
  * INSUFFICIENT_EVIDENCE and reproduced the uniform-answer failure this layer exists to avoid.
  * Fail-open and fail-useless are both failures; the fix for one must not create the other.
  */
+/**
+ * Output-side advice patterns.
+ *
+ * Deliberately NOT the same list as `askMarket.detectPersonalizedAdviceRequest`, which scans what
+ * the USER asked. This scans what the PRODUCT said, and the two need opposite properties: the
+ * request detector is tuned to over-block, because a wrongly-redirected factual question is a
+ * small harm. Over-flagging our own output would be a large one — the product's actual refusal
+ * message contains the words "buy/sell recommendations", and a detector that cannot read a
+ * negation would condemn the very sentence that does the refusing.
+ *
+ * So every pattern requires an AFFIRMATIVE recommendation: an action addressed to the reader, a
+ * price target, a rating, or a guarantee. Mentioning what the product does not do is not advice.
+ */
+const ADVICE_OUTPUT_PATTERNS: RegExp[] = [
+  /\byou (should|ought to|must) (buy|sell|hold|short|avoid)\b/i,
+  /\bwe (recommend|advise|suggest) (buying|selling|holding|shorting)\b/i,
+  /\b(consider|time to) (buying|selling|shorting)\b/i,
+  /\b(target price|price target|fair value)\b/i,
+  /\b(strong buy|strong sell|overweight|underweight|outperform|underperform)\b/i,
+  /\b(buy|sell|hold) rating\b/i,
+  /\bguaranteed (return|profit|gain)/i,
+  // The `$` is escaped deliberately. Unescaped it is an end-of-string anchor inside the group, so
+  // the alternation could match an empty string and the pattern would fire on any sentence
+  // containing "will rise" — including a neutral one describing what a series did last month.
+  /\bwill (rise|fall|reach|hit) (to|\$)/i,
+  // Korean mirrors, following the rule the request-side guardrail list learned the hard way: an
+  // English pattern with no Korean counterpart is a hole, not a simplification. No `\b` here — it
+  // is defined on ASCII word characters and does nothing useful against Hangul.
+  /적정\s?가/,
+  /목표\s?주가/,
+  /매수\s?(의견|추천)/,
+  /매도\s?(의견|추천)/,
+];
+
+function adviceResilience(advice: NonNullable<VerificationInput["advice"]>): DimensionResult {
+  const offending = advice.renderedText.filter((line) =>
+    ADVICE_OUTPUT_PATTERNS.some((pattern) => pattern.test(line)),
+  );
+  if (offending.length > 0) {
+    return fail(
+      `Rendered output reads as a recommendation: ${offending.length} line(s) match an ` +
+        `advice pattern, beginning "${offending[0].slice(0, 80)}".`,
+    );
+  }
+
+  if (advice.shape === "REFUSAL") {
+    // A refusal that still shows figures is the normal path, and it is defensible: the redirect
+    // says it is offering a factor analysis for the reader to interpret. What would make it
+    // advice-by-arrangement is the FACTORS being chosen for the buy/sell framing, and that is a
+    // property of two answers rather than one — pinned by an integration test, not here.
+    return pass(
+      `Declines to advise and shows ${advice.figureCount} reported figure(s) instead. No line ` +
+        "recommends an action, names a target price, or states a rating.",
+    );
+  }
+
+  return pass(
+    `${advice.figureCount} reported figure(s), none of which recommends an action, names a target ` +
+      "price, or states a rating.",
+  );
+}
+
 function adversarialResilience(input: VerificationInput): DimensionResult {
+  // Real evaluation where the output could actually read as advice, rather than a claim about
+  // whether the question applies. This is the only path in the product that produces one.
+  if (input.advice) return adviceResilience(input.advice);
+
   if (input.claimType === "CALCULATION" && input.calculation) {
     return na(
       "A period-over-period change between two reported figures is not advice-shaped output: it " +

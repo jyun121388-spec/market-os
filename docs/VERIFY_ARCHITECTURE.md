@@ -210,26 +210,66 @@ evidence and produces a `VerificationResult`.
 observations. **Verify is its generalisation, not its replacement** — that module becomes the
 `calculation_integrity` and `provenance_integrity` evaluators.
 
+### `adversarial_resilience`, and the third adapter
+
+The dimension named after this project's largest legal risk had never done any work. It returned
+NOT_APPLICABLE for every calculation — correctly, a period-over-period change recommends nothing —
+and INSUFFICIENT_EVIDENCE for everything else. Technically honest, and it had never once been
+pointed at output that could actually carry the risk.
+
+Ask Market is the only path that can, and `verificationInputFromAskMarket` is the third adapter.
+It takes a free-text question and answers with a curated set of figures, and the question can be
+"should I buy this".
+
+**What the adapter found.** Ask Market refuses a buy/sell question by setting
+`PERSONALIZED_ADVICE_REDIRECTED` and attaching a redirect message — and it still returns the
+factors, which `/ask` renders underneath. A user asking "Should I buy Apple Inc?" sees a refusal
+followed by ten Apple figures. Confirmed against the populated database.
+
+That is defensible, and the redirect message says exactly what it is doing: a factor analysis "for
+you to interpret yourself". What makes it defensible rather than advice-by-arrangement is one
+property — **the factors are identical to what the neutral query returns, in the same order.** The
+advice detector and the factor selection are orthogonal, so the framing changes nothing. Nothing
+enforced that; `findCompanyFacts` could start ranking on relevance to the question and the refusal
+would quietly become the thing it refuses. `tests/integration/ask-market-refusal-invariant.test.ts`
+now pins it, order included, because re-ranking the same true figures to lead with the flattering
+ones would be a recommendation assembled entirely out of facts.
+
+**The output-side detector is deliberately not the request-side one.**
+`detectPersonalizedAdviceRequest` scans what the USER asked and is tuned to over-block: a
+wrongly-redirected factual question is a small harm. This scans what the PRODUCT said, where
+over-flagging is the larger harm — and the product's own refusal message contains the words
+"buy/sell recommendations". A detector that cannot read a negation would condemn the exact sentence
+that does the refusing, and the fix for that would be to weaken the detector, which is how a
+guardrail becomes decorative. So every pattern requires an affirmative recommendation: an action
+addressed to the reader, a price target, a rating, or a guarantee. The real redirect message is a
+test fixture, verbatim.
+
+Korean mirrors are present for the same reason the request-side list has them — 적정가, 목표주가,
+매수 의견, 매도 의견. An English pattern with no Korean counterpart is a hole, not a simplification.
+
 ## What the shadow run actually reports
 
-Two adapters exist, against two genuinely different real output shapes. The second one is the
-important one: until it existed, every dimension had only ever been exercised by Filing Diff, which
-is the fixture-realism failure this project keeps finding, pointed at the verifier itself.
+Three adapters exist, against three genuinely different real output shapes. Each one earned its
+place by exercising something the previous ones could not — until the second existed, every
+dimension had only ever been seen against Filing Diff, which is the fixture-realism failure this
+project keeps finding, pointed at the verifier itself.
 
 | Adapter                             | Output                          | Shape                                     |
 | ----------------------------------- | ------------------------------- | ----------------------------------------- |
 | `verificationInputFromFilingDiff`   | Company X-Ray period comparison | Spans, with an accession naming each side |
 | `verificationInputFromSeriesChange` | Morning Brief "What Changed"    | Instants, with nothing naming the version |
+| `verificationInputFromAskMarket`    | Ask Market answer               | Not arithmetic at all: prose plus figures |
 
 Against the real database, `npm run verify:shadow` currently reports:
 
 ```
 VERIFIED_WITH_LIMITATION       8    (SEC filing diffs — completeness unconfirmable, correctness fine)
-SEMANTIC_REVISION_UNRESOLVED   3    (macro readings — no provider evidence of which version is current)
+SEMANTIC_REVISION_UNRESOLVED   5    (macro readings and Ask Market answers — no version evidence)
 STALE                          3    (macro readings past their own cadence)
 ```
 
-Three verdicts across two shapes is the result worth having. A verifier that returns one answer for
+Three verdicts across three shapes is the result worth having. A verifier that returns one answer for
 everything has told you nothing, and this layer has produced exactly that twice during its own
 construction — once on completeness, once on advice-shape. The distribution is the control.
 

@@ -8,8 +8,8 @@ been restored by a plan upgrade (`docs/AI_REVIEW_RUNTIME_STATE.md`) and the firs
 independent review of this branch has now run — IR-009 through IR-011 below came from it. The
 earlier entries still want independent eyes; they are marked `Codex re-review: YES`.
 
-Verification at the close of this round: **522/522** tests across 65 files against real
-PostgreSQL 16.10; **30/30** E2E in a real browser against the production build; **67/67** live
+Verification at the close of this round: **532/532** tests across 66 files against real
+PostgreSQL 16.10; **33/33** E2E in a real browser against a freshly rebuilt production build; **67/67** live
 EDGAR contract checks; lint, typecheck, format and build clean. The real dev database still holds
 2240 filings and 1428 facts, verified by re-ingest after every suite run.
 
@@ -570,6 +570,62 @@ clustered/isolated input.
 categories (Luna identified five), and single-category clustering will split or merge those
 wrongly. Supporting secondary categories changes what "instance count" means, so it is a design
 decision rather than a patch.
+
+---
+
+# Final Release Candidate adversarial audit — `gpt-5.6-sol`, 2026-08-18
+
+Run over the full `9b34f8b..HEAD` range, read-only, after every other reviewer. It was asked
+specifically for what the others missed: interactions between fixes, regressions caused by fixes,
+and pages that drop what the domain layer attached.
+
+## IR-017 — The page claimed an amended figure while showing the original — **VALID, fixed**
+
+The finding I asked for by name: **two fixes, each correct alone, wrong together.**
+
+The same-`filedDate` tiebreak orders by `id` ascending so the figures table and the changes table
+agree. cuids are roughly monotonic, so ascending id picks the earlier row — the **original**.
+Separately, `currentIsRestatement` is true whenever two rows cover one period, and the page says
+"the amended value is shown". On a same-day amendment the page therefore displayed the original
+under a banner asserting it was the amendment.
+
+Reproduced (`SD-ORIGINAL` selected with the restatement flag set), then fixed at the root: the two
+call sites were deriving "which row is current" independently, which is what let them diverge at
+all. One exported `compareFactCurrency` now serves both, and an amended form (SEC's `/A` suffix)
+wins a same-day tie.
+
+## IR-018 — Completeness ordering was nondeterministic — **VALID, fixed**
+
+`assessCompleteness` ordered runs by `startedAt` alone, a `timestamp(3)`. Two runs starting in the
+same millisecond — which two ingest scripts launched together routinely do — are indistinguishable,
+so "the most recent run per target" could flip between COMPLETE and KNOWN_INCOMPLETE across
+requests. **The same millisecond-resolution trap as the observation revision chain, in a third
+place.** Deterministic `id` tiebreak added.
+
+## IR-019 — `/today` dropped provenance the domain layer had attached — **VALID, fixed**
+
+Macro Regime axes rendered `name: value (direction)` — no source, no date — while every other
+section on the page names both. `SeriesReading` already carried `sourceCode` and `asOfDate`; the
+page simply discarded them. Same class as IR-007/IR-008, in the one place those did not reach.
+
+## IR-020 — "Every date shifts one day backward outside UTC" — **REJECTED**
+
+Reported **P1**, with the claim that it had been _"reproduced against the populated database"_ and
+a quoted Company X-Ray output of `2026-03-28 → 2026-06-26`.
+
+It had not been reproduced. Running the real path under Asia/Seoul returns
+`2026-06-27T00:00:00.000Z` — exactly midnight UTC — rendering `2026-06-27`. That also matches
+IR-004, which checked all 1431 facts for a non-midnight offset and found zero.
+
+Recorded because it is the most useful kind of rejection: **a confident reproduction claim from
+the strongest available model, which was simply false.** No code was changed. The standing rule —
+reproduce before modifying — is what stopped this becoming a day of chasing a timezone bug that
+does not exist.
+
+## Still open from this audit
+
+`A delayed older ingest can become the newest revision` (P1) — not yet reproduced, and not acted
+on. Recorded as an unverified hypothesis rather than a finding.
 
 ## Rejected local-AI findings
 

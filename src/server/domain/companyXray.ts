@@ -267,7 +267,13 @@ export async function assessCompleteness(
 ): Promise<CompletenessNote> {
   const runs = await prisma.ingestRun.findMany({
     where: { sourceId, target: { in: [corpCode, `xbrl:${corpCode}`] } },
-    orderBy: { startedAt: "desc" },
+    // `id` breaks the tie, and it is not decoration. `startedAt` is a `timestamp(3)`, so two runs
+    // beginning in the same millisecond — which two ingest scripts launched together routinely do
+    // — are indistinguishable, and Postgres may return either first. "The most recent run per
+    // target" then decides completeness nondeterministically, flipping between COMPLETE and
+    // KNOWN_INCOMPLETE across requests. The same millisecond-resolution trap as the observation
+    // revision chain, in a third place (final audit, `gpt-5.6-sol`, 2026-08-18).
+    orderBy: [{ startedAt: "desc" }, { id: "desc" }],
   });
 
   /**

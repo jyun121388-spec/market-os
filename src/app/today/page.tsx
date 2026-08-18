@@ -79,10 +79,20 @@ export default async function TodayPage() {
             <li key={axis.axis} className="rounded border border-zinc-200 p-3 dark:border-zinc-800">
               <div className="font-medium">{axis.axis}</div>
               <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                {/*
+                  `SeriesReading` already carries sourceCode and asOfDate; this rendered neither,
+                  so the regime axes showed bare numbers with no provider and no date while every
+                  other section on the page names both. The domain layer had attached the
+                  provenance and the page was dropping it (final audit, `gpt-5.6-sol`).
+                */}
                 {axis.status === "DATA_AVAILABLE"
                   ? axis.readings
                       .filter((r) => r.status === "COMPUTED")
-                      .map((r) => `${r.seriesName}: ${r.value} (${r.direction})`)
+                      .map(
+                        (r) =>
+                          `${r.seriesName}: ${r.value} (${r.direction}, ${r.sourceCode}` +
+                          `${r.asOfDate ? ` as of ${r.asOfDate}` : ""})`,
+                      )
                       .join(" · ")
                   : "Insufficient data"}
               </div>

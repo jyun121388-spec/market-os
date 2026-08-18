@@ -237,27 +237,63 @@ independent-review packet rather than waiting for a reviewer:
     release directive: stop loss, entry/exit price, portfolio percentage, allocation, roleplay,
     "if you were me", quoted advisor, and mixed Korean/English forms.
 
-META ARCHITECTURE V2 — DESIGN ONLY, DOES NOT AFFECT V1
+META ARCHITECTURE V2 — SHADOW MODE, DOES NOT AFFECT V1
 Contracts drafted 2026-08-18 while v1 is frozen: `docs/META_ARCHITECTURE_V2.md` (start here),
 `WORLD_DATA_FABRIC.md`, `VERIFY_ARCHITECTURE.md`, `GOVERNANCE_OS.md`, `EVOLUTION_ENGINE.md`,
-`EVOLUTION_LEDGERS.md`. **No implementation exists and no v1 source file was touched.** Every
-layer is specified to start in shadow mode — computing and logging beside v1, never blocking or
-mutating — with a written promotion criterion each.
+`EVOLUTION_LEDGERS.md`. Four layers now have running implementations under `src/server/fabric`,
+`verify`, `governance` and `evolution` — all read-only, none imported by any v1 file, and
+`tests/architectureBoundary.test.ts` proves both properties rather than asserting them.
 
 The finding worth carrying: most of the Reality Fabric is already built, just scattered and
 unnamed. `Observation` already separates observedAt / releasedAt / retrievedAt; `IngestRun`
 already records `providerTotal` vs `fetched` and `truncated`; `DataConflict`, `SourceTier`,
 `staleness.ts` and the Claim Ledger already exist. What is missing is one vocabulary — three
 places currently decide what "stale" means with no shared type and no guarantee they agree. The
-first shadow deliverable is a read-only projection that runs all three and reports disagreements,
-because each disagreement is a v1 defect hypothesis.
+first shadow deliverable was a read-only projection that runs all three and reports disagreements,
+because each disagreement is a v1 defect hypothesis. It currently reports 8 against real data.
+
+**Provider vintage and semantic recency** (2026-08-18, `src/server/fabric/vintage.ts`). The concept
+IR-021 forced into existence, and the answer to the question that finding left open. v1 decides
+which of two values is current by asking which arrived last; the replay guard added for IR-021 is a
+heuristic standing in for evidence no provider currently gives us. The contract models that evidence
+provider-neutrally — `providerVintageAt`, `sourceReleasedAt`, `providerRevisionId` — with an
+availability state per field (`KNOWN` / `UNKNOWN` / `NOT_PROVIDED` / `NOT_VERIFIED`) so an absence
+says WHY it is absent and whether anything can be done about it. `compareVintage` orders by vintage,
+then by release, then stops at `UNRESOLVED`. **`retrievedAt` is deliberately not a rung**, and a
+negative control test fails if it ever becomes one.
+
+Propagated through all four layers in shadow only:
+
+- **Fabric** — `SeriesFabricRow` carries `vintage` and `revisionCount`, and raises a
+  `REVISED_WITHOUT_VINTAGE` disagreement where a series has actually been revised with no provider
+  evidence saying which version won. Fires for `ECOS:722Y001:0101000` against the real database.
+- **Verify** — a tenth dimension, `revision_integrity`, and a new verdict
+  `SEMANTIC_REVISION_UNRESOLVED`. Applicability is derived from the figures: where both name the
+  filing they came from, the version question is already settled by that identity, which is why the
+  8 real Apple outputs are unchanged at VERIFIED_WITH_LIMITATION rather than collapsing to one
+  uniform verdict.
+- **Evolution** — two new weakness categories, both clustering at 2 instances. `SEMANTIC_RECENCY`
+  joins IR-021 to the E2E pass that was served by a pre-fix dev server; `EVIDENCE_FABRICATION`
+  joins the Codex reviewer that quoted a reproduction it never ran to the four local-model findings
+  that survived nothing.
+- **Governance** — `ExecutionStatus` gains `BLOCKED_PROVIDER_KEY` and `BLOCKED_USAGE_LIMIT`, so a
+  free-but-uncallable provider and an exhausted included quota are recorded as environmental
+  blockers rather than policy positions. Two invariants are now enforced across the whole table by
+  test: an execution blocker never coincides with `DENIED`, and never raises a gate.
+
+FRED is where this becomes actionable. `realtime_start`/`realtime_end` are exactly the fields the
+contract wants, they are already declared in `fred/types.ts`, and no adapter reads them — so the
+capability table records them `NOT_VERIFIED` and a test forbids upgrading that to `KNOWN` without a
+live response. One key (HG-002) closes the largest open item in this design.
 
 TESTS
-538 / 538 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
-`npm run e2e` 30/30 checks in a real browser against the **production build** (up from 12) — the
+554 / 554 PASS against a real local PostgreSQL 16.10 (up from 209 in the cloud environment).
+`npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real
-data.sec.gov. Lint / typecheck / format / production build all clean. Full suite ~25s.
+data.sec.gov. Lint / typecheck / format / production build all clean. Full suite 136-206s against a live
+database across two runs on the same tree — the variance is real and is the integration files
+contending for one Postgres, not noise worth averaging away.
 
 Tests run against a disposable database, enforced fail-closed. With no database at all, 350 unit
 tests pass and the integration suite skips cleanly (30 files) — a path that is now actually
@@ -287,7 +323,14 @@ End-to-end verification on a genuinely fresh database: all 16 migrations applied
 live contract checks. Every migration added in these rounds was also applied to a POPULATED
 database, not just an empty one — the H1 discipline.
 
-Note on the suite runtime: it briefly reached ~137s when pagination was first tested by pushing
+Note on the suite runtime: the 14,000-row pagination test that once dominated it was moved to
+the client level, but the figure did NOT come back down — measured again on 2026-08-18 it is
+136-206s, and the ~25s recorded here for several rounds was stale. The cost is the integration
+files, each of which sets up and tears down against a real database. Recorded rather than
+quietly corrected, because a performance number that only ever moves when someone notices it
+is a number nobody is measuring.
+
+The original note, kept for the reasoning: it reached ~137s when pagination was first tested by pushing
 14,000 synthetic rows through the real ingest. That was moved to client-level tests, which is
 where the behaviour actually lives — the assertion is about how many requests an adapter makes
 and when it stops, and the database round trip proved nothing extra.

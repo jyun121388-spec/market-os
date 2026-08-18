@@ -139,6 +139,69 @@ export interface FabricStatus {
 }
 ```
 
+## Provider vintage and semantic recency
+
+`TemporalStamp` answers WHEN. It does not answer WHICH VERSION, and IR-021 is what that gap costs:
+a replayed stale figure became the current value of a series because it arrived last, and every
+one of the three timestamps was recorded correctly while it happened.
+
+**Retrieval order is not semantic recency.** `retrievedAt` records when we asked. It says nothing
+about which answer is truer, and it is always available — which is exactly what makes it dangerous
+as a tiebreak.
+
+```ts
+/** Why a piece of vintage evidence is or is not available. Four states, because each implies a
+ *  different action, and collapsing them turns "we never asked" into "there is nothing to find". */
+export type EvidenceAvailability =
+  | "KNOWN" // the provider stated it and we captured it
+  | "UNKNOWN" // the provider publishes it; this record predates our capturing it — go and fetch
+  | "NOT_PROVIDED" // the provider does not publish this concept; nothing to fetch
+  | "NOT_VERIFIED"; // we believe it is published but have never confirmed against a live response
+
+export interface ProviderVintage {
+  providerRevisionId: VintageField<string>; // the provider's own id for this version
+  providerVintageAt: VintageField<string>; // when this version became the provider's answer
+  sourceReleasedAt: VintageField<string>; // when the provider published it
+  sourceEffectiveAt: VintageField<string>; // when it took effect in the world it describes
+  retrievedAt: string; // when WE fetched it — never on its own a reason to prefer a value
+}
+```
+
+`compareVintage()` orders two values by `providerVintageAt`, then by `sourceReleasedAt`, and then
+**stops**. There is no third rung. `retrievedAt` is deliberately excluded, and `providerRevisionId`
+is excluded too: ordering on an identifier requires proving the identifiers are ordered, which is
+true of an SEC accession sequence and false of a UUID, so an adapter that can prove it for its own
+provider should decide that rather than have the contract assume it. When no rung applies the
+verdict is `UNRESOLVED`, and the caller has to decide what to do about not knowing — which is the
+behaviour that was missing.
+
+### What each provider actually offers
+
+Recorded as `NOT_VERIFIED` wherever it comes from documentation rather than a live response. SEC is
+the only provider whose real shape has been confirmed, and the reason this project distrusts
+documented shapes is that SEC's real responses differed from them in four separate ways.
+
+| Provider  | Revision id  | Vintage      | Note                                                          |
+| --------- | ------------ | ------------ | ------------------------------------------------------------- |
+| SEC_EDGAR | KNOWN        | NOT_PROVIDED | Accession + `/A` suffix confirmed live; no per-figure vintage |
+| FRED      | NOT_VERIFIED | NOT_VERIFIED | `realtime_start` is the natural source; HG-002 blocks a check |
+| ECOS      | NOT_VERIFIED | NOT_VERIFIED | No vintage concept identified; HG-003 blocks a check          |
+| OPENDART  | NOT_VERIFIED | NOT_PROVIDED | Receipt number identifies a filing, not a figure version      |
+
+FRED is the one worth watching. `realtime_start`/`realtime_end` are exactly the fields this
+contract wants and they are already declared in `fred/types.ts` — and no adapter reads them and no
+key exists to confirm what they mean in a real response. Marking them KNOWN would be the fabricated
+certainty the whole contract exists to prevent, so they stay `NOT_VERIFIED` until a live call
+proves otherwise.
+
+### Where it shows up in the projection
+
+`SeriesFabricRow` now carries a `vintage` and a `revisionCount`, and a `REVISED_WITHOUT_VINTAGE`
+disagreement is raised for the population where it matters: a series whose values have actually
+been superseded, with no provider evidence saying which version won. A series that has never been
+revised has no version question to answer and is not reported. Against the real database this
+currently fires for `ECOS:722Y001:0101000`.
+
 ## Canonical entity identity
 
 The IR-001 / IR-002 / IR-007 / IR-008 findings are all one thing: **a business identifier means

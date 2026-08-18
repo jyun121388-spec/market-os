@@ -7,6 +7,7 @@ import type {
   VerificationResult,
   Verdict,
 } from "./types";
+import { compareVintage } from "../fabric/vintage";
 
 /**
  * Verify — SHADOW MODE evaluators (docs/VERIFY_ARCHITECTURE.md).
@@ -314,6 +315,66 @@ function temporalIntegrity(input: VerificationInput): DimensionResult {
   return pass("Period bounds ordered correctly and no staleness reported.");
 }
 
+/**
+ * Whether the version of the value being shown is the provider's current one.
+ *
+ * IR-021 is the whole reason this dimension exists. A replayed stale figure became the head of a
+ * revision chain because it arrived last, and every other dimension would have passed it: the
+ * number was well-formed, correctly attributed, internally consistent and arithmetically sound.
+ * It was simply the wrong VERSION. No amount of checking a value tells you whether a better one
+ * has already superseded it.
+ *
+ * Applicability is decided from the figures, not assumed. Where both sides name the provider
+ * filing they were read out of, the version question is already answered by that identity — which
+ * is why SEC-sourced comparisons pass through here rather than piling up as unknowns.
+ */
+function revisionIntegrity(input: VerificationInput): DimensionResult {
+  const rev = input.revision;
+  if (rev) {
+    const decision = compareVintage(rev.superseded, rev.applied);
+    switch (decision.verdict) {
+      case "CANDIDATE_IS_NEWER":
+        return pass(`The applied value is the provider's newer version — ${decision.rationale}`);
+      case "CANDIDATE_IS_OLDER":
+        return fail(
+          `The displayed value is an OLDER provider version than the one it replaced — ` +
+            `${decision.rationale} A superseded figure is being presented as current.`,
+        );
+      case "SAME_VINTAGE":
+        return fail(
+          `A value was replaced by a different value carrying the same provider vintage — ` +
+            `${decision.rationale} One vintage cannot have two answers, so either the provider ` +
+            "contradicted itself or the two were never the same series.",
+        );
+      case "UNRESOLVED":
+        return unknown(
+          `${decision.rationale}` +
+            (rev.valueRepeatsEarlierInChain
+              ? " The applied value also repeats one seen earlier in this chain, which is the " +
+                "signature of a stale replay AND of a provider correcting back to a figure it " +
+                "published before. Those are opposite situations and no held evidence separates " +
+                "them."
+              : ""),
+        );
+    }
+  }
+
+  const calc = input.calculation;
+  if (calc?.current.accessionNumber && calc.previous.accessionNumber) {
+    return na(
+      `Both figures are bound to a named provider filing (${calc.previous.accessionNumber} then ` +
+        `${calc.current.accessionNumber}). Which version of a figure is shown follows from the ` +
+        "filing it was read out of, not from the order our ingests happened to arrive.",
+    );
+  }
+
+  return unknown(
+    "No figure here names the provider filing or revision it came from, and no vintage evidence " +
+      "was supplied, so whether a later ingest silently replaced a newer value cannot be " +
+      "established. Retrieval order is not semantic recency.",
+  );
+}
+
 function provenanceIntegrity(input: VerificationInput): DimensionResult {
   if (input.claimType === "INFERENCE") {
     if (input.confidence === undefined || input.confidence === null) {
@@ -438,6 +499,9 @@ function decide(dimensions: Dimensions): {
     "calculation_integrity",
     "source_integrity",
     "provenance_integrity",
+    // A figure that is provably a rollback to a superseded version is not a coverage gap. It is a
+    // wrong number wearing the label "current", which is exactly what REJECTED is for.
+    "revision_integrity",
   ]);
   if (failed.some((name) => CORRECTNESS.has(name))) {
     return { verdict: "REJECTED", failed, limitations };
@@ -450,6 +514,21 @@ function decide(dimensions: Dimensions): {
   }
   if (failed.length > 0) {
     return { verdict: "REJECTED", failed, limitations };
+  }
+  // Ranked above the generic unknown rather than requiring it to be the only one.
+  //
+  // The first draft fired only when revision_integrity was the sole open dimension, mirroring the
+  // STALE rule above — and the verdict then turned out to be unreachable in practice, because a
+  // FACT always leaves adversarial_resilience open too. A verdict no real input can produce is
+  // worse than none: it reads as a capability the system does not have.
+  //
+  // Ranking it is also the right answer on the merits. The other unknowns are questions about
+  // COVERAGE — did we check enough, did we reconcile against a second source. This one is a
+  // question about the number on the page: it may be the wrong VERSION of the right figure. That
+  // is closer to incorrect than to unchecked, so it gets to name the verdict. Every other open
+  // dimension stays visible and unaltered in `dimensions`.
+  if (unresolved.includes("revision_integrity")) {
+    return { verdict: "SEMANTIC_REVISION_UNRESOLVED", failed, limitations };
   }
   if (unresolved.length > 0) {
     return { verdict: "INSUFFICIENT_EVIDENCE", failed, limitations };
@@ -469,6 +548,7 @@ export function verify(input: VerificationInput): VerificationResult {
     calculation_integrity: calculationIntegrity(input),
     provenance_integrity: provenanceIntegrity(input),
     temporal_integrity: temporalIntegrity(input),
+    revision_integrity: revisionIntegrity(input),
     // These two were blanket NOT_APPLICABLE, which is a fail-open: it asserts the check does not
     // apply, without ever establishing that. The distinction §6 of the operating directive draws
     // is exactly this — missing evidence must not become "not applicable" merely because it is

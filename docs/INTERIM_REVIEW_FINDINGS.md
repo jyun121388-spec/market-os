@@ -665,6 +665,18 @@ counts; the other is silent. Resolving it properly is **PROVIDER_KEY_REQUIRED**.
 reinstate the defect); a genuinely new value still applies, so the guard cannot wedge the chain; a
 repeat of the current value is still `unchanged`, so re-ingestion stays idempotent.
 
+**Follow-up, 2026-08-18 — the concept now exists, in shadow.** `src/server/fabric/vintage.ts`
+models the missing evidence provider-neutrally: `providerVintageAt`, `sourceReleasedAt`,
+`providerRevisionId`, each with an availability state (`KNOWN` / `UNKNOWN` / `NOT_PROVIDED` /
+`NOT_VERIFIED`) so an absence records WHY it is absent. `compareVintage` orders by vintage, then by
+release, then returns `UNRESOLVED` — `retrievedAt` is deliberately not a rung, and a negative
+control fails if it becomes one. Verify gains a `revision_integrity` dimension and a
+`SEMANTIC_REVISION_UNRESOLVED` verdict; the Fabric projection raises `REVISED_WITHOUT_VINTAGE` for
+any series that has actually been revised without provider evidence, which currently fires for
+`ECOS:722Y001:0101000`. None of this changes v1 behaviour — the heuristic guard above is still what
+runs. It is still **PROVIDER_KEY_REQUIRED**; what changed is that the shape of the answer is now
+written down and tested, so the key is the only thing missing rather than the key and the design.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

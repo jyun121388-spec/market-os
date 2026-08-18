@@ -36,6 +36,7 @@ export type ActionKind =
   | "CALL_FREE_PROVIDER"
   | "CALL_PAID_PROVIDER"
   | "PURCHASE_AI_CREDITS"
+  | "RUN_INDEPENDENT_AI_REVIEW"
   | "LOCAL_MODEL_HYPOTHESIS"
   | "LOCAL_MODEL_AS_VERIFIER"
   | "DEPLOY_PRODUCTION"
@@ -66,6 +67,10 @@ export interface ActionDescriptor {
     withinDocumentedRateLimit?: boolean;
     /** Whether a usable GitHub credential exists on this machine. */
     credentialsAvailable?: boolean;
+    /** Whether the provider API key this call needs is present in the environment. */
+    providerKeyAvailable?: boolean;
+    /** Whether an INCLUDED model still has quota. Never a reason to buy more. */
+    includedModelQuotaAvailable?: boolean;
   };
 }
 
@@ -75,7 +80,29 @@ export interface GateRequirement {
   recommendedDefault: string;
 }
 
-export type ExecutionStatus = "READY" | "BLOCKED_MISSING_CREDENTIAL";
+/**
+ * Why an action that policy PERMITS still cannot run right now.
+ *
+ * Every member names an environmental condition, never a policy one, and each is drawn from a
+ * blocker this project has actually hit. That restraint is deliberate: outcome states such as
+ * EXECUTED or FAILED were considered and left out, because a `PolicyEvaluation` is produced
+ * BEFORE the action and would never legitimately carry one. A status no evaluation can hold reads
+ * as a capability the engine does not have — the same trap as an unreachable verdict.
+ */
+export type ExecutionStatus =
+  | "READY"
+  /** No usable GitHub credential on this machine (HG-001). */
+  | "BLOCKED_MISSING_CREDENTIAL"
+  /** The provider is free to call but issues no key to call it with (HG-002..HG-004). */
+  | "BLOCKED_PROVIDER_KEY"
+  /**
+   * An included model's quota is exhausted.
+   *
+   * Explicitly an EXECUTION status and never a decision. The rule this encodes is that an
+   * exhausted quota is a routing event, not a purchasing event: the review is still permitted,
+   * and the response is to route to another included model or to deterministic verification.
+   */
+  | "BLOCKED_USAGE_LIMIT";
 
 export interface PolicyEvaluation {
   action: ActionDescriptor;
@@ -266,9 +293,28 @@ const RULES: Record<ActionKind, Rule> = {
       "Free to call, but the policy authorises it only WITHIN the provider's documented rate " +
       "limit — so an unproven rate limit is a precondition, not a detail.",
     requiredVerification: ["call is within the provider's documented rate limit"],
+    refine: (action, base) => {
+      // Two independent questions, answered separately and in this order. "Free to call" and
+      // "callable" are not the same claim: FRED, ECOS and OpenDART are all free and all
+      // unreachable here, and recording that as anything other than an execution blocker would
+      // misfile a standing environmental gap as a policy position.
+      const withKey: PolicyEvaluation =
+        action.context?.providerKeyAvailable === false
+          ? { ...base, execution: "BLOCKED_PROVIDER_KEY" }
+          : base;
+      return action.context?.withinDocumentedRateLimit === true
+        ? { ...withKey, decision: "AUTO_ALLOWED", requiredVerification: [] }
+        : withKey;
+    },
+  },
+  RUN_INDEPENDENT_AI_REVIEW: {
+    decision: "AUTO_ALLOWED",
+    citations: ["docs/AI_RESOURCE_POLICY.md", "docs/TEST_STRATEGY.md — Codex review"],
+    rationale:
+      "Review by an INCLUDED model costs nothing extra and is required by the development loop.",
     refine: (action, base) =>
-      action.context?.withinDocumentedRateLimit === true
-        ? { ...base, decision: "AUTO_ALLOWED", requiredVerification: [] }
+      action.context?.includedModelQuotaAvailable === false
+        ? { ...base, execution: "BLOCKED_USAGE_LIMIT" }
         : base,
   },
   CALL_PAID_PROVIDER: {

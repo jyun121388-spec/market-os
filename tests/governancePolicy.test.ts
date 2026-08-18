@@ -250,6 +250,51 @@ describe("Governance — corrections from independent review", () => {
     expect(evaluation.gate).toBeUndefined();
   });
 
+  it("records a missing provider key as an execution blocker, not a policy refusal", () => {
+    // FRED, ECOS and OpenDART are all free to call and all uncallable here. The policy on free
+    // providers has not changed because a key is absent; only the ability to act has.
+    const evaluation = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      context: { providerKeyAvailable: false, withinDocumentedRateLimit: true },
+    });
+    expect(evaluation.decision).toBe("AUTO_ALLOWED");
+    expect(evaluation.execution).toBe("BLOCKED_PROVIDER_KEY");
+    expect(evaluation.gate).toBeUndefined();
+  });
+
+  it("treats an exhausted included quota as a routing event, not a purchasing one", () => {
+    const evaluation = evaluateAction({
+      kind: "RUN_INDEPENDENT_AI_REVIEW",
+      context: { includedModelQuotaAvailable: false },
+    });
+    expect(evaluation.decision).toBe("AUTO_ALLOWED");
+    expect(evaluation.execution).toBe("BLOCKED_USAGE_LIMIT");
+    // The distinction that matters: nothing here asks a human to authorise spending. Purchasing
+    // has its own action kind, and it is that one — never this — that raises a gate.
+    expect(evaluation.gate).toBeUndefined();
+    expect(evaluateAction({ kind: "PURCHASE_AI_CREDITS" }).decision).toBe("DEFERRED_HUMAN_GATE");
+  });
+
+  it("never turns an execution blocker into a question for a human", () => {
+    // The generalisation of the two cases above, across the whole table. A gate raised because
+    // the environment is incomplete would put a standing limitation in front of the user as
+    // though it were a decision they could make.
+    const blocked = {
+      credentialsAvailable: false,
+      providerKeyAvailable: false,
+      includedModelQuotaAvailable: false,
+    };
+    for (const kind of GOVERNED_ACTIONS) {
+      const evaluation = evaluateAction({ kind, context: blocked });
+      if (evaluation.execution !== "READY") {
+        expect(
+          evaluation.gate,
+          `${kind} raised a gate for an environmental blocker`,
+        ).toBeUndefined();
+      }
+    }
+  });
+
   it.each<ActionKind>(["CREDENTIAL_CHANGE", "BULK_MESSAGING"])(
     "%s is representable and deferred",
     (kind) => {

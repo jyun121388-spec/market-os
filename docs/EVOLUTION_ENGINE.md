@@ -60,7 +60,9 @@ export interface Weakness {
     | "CONCURRENCY"
     | "PROVENANCE"
     | "GUARDRAIL_COVERAGE"
-    | "ENVIRONMENT_DRIFT";
+    | "ENVIRONMENT_DRIFT"
+    | "SEMANTIC_RECENCY" // freshness inferred from when it was observed, not what was observed
+    | "EVIDENCE_FABRICATION"; // a confident claim taken for a verified one
   /** What this predicts will break next. The test of whether the lesson is real. */
   prediction: string;
 }
@@ -112,14 +114,16 @@ export interface ExperimentResult {
 Seeded from real history — these are observations, not hypotheses, and they are what the Engine
 would have been built to notice:
 
-| Category              | Instances                                                                                                                          | Predicts                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `FIXTURE_REALISM`     | +233% diff; 168 facts discarded on missing `periodStart`; IR-001/002 single-provider fixtures                                      | Any test family whose fixtures contain one of something real-world has many  |
-| `IDENTITY_MODELLING`  | padded vs unpadded CIK; `periodStart` absent from fact identity; `corpCode` without `sourceId`; same-millisecond revision ordering | Keys assembled from display values rather than storage values                |
-| `SILENT_DEGRADATION`  | EDGAR 1000-cap; FRED/ECOS/DART pagination; `unit === "percent"` case sensitivity; skipped suite reading as green                   | Any code path whose failure mode is returning less, not throwing             |
-| `PROVIDER_ASSUMPTION` | `fy: null`; ECOS and DART returning HTTP 200 for auth failure; `filings.files[]` overflow                                          | Every unverified adapter — FRED/ECOS/DART success paths are still unverified |
-| `GUARDRAIL_COVERAGE`  | 28 + 21 Ask Market bypasses; English patterns with no Korean mirror                                                                | Any rule expressed in one language, format or word order only                |
-| `PROVENANCE`          | IR-001, IR-002, IR-007, IR-008                                                                                                     | Any output assembled from more than one table                                |
+| Category               | Instances                                                                                                                          | Predicts                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `FIXTURE_REALISM`      | +233% diff; 168 facts discarded on missing `periodStart`; IR-001/002 single-provider fixtures                                      | Any test family whose fixtures contain one of something real-world has many  |
+| `IDENTITY_MODELLING`   | padded vs unpadded CIK; `periodStart` absent from fact identity; `corpCode` without `sourceId`; same-millisecond revision ordering | Keys assembled from display values rather than storage values                |
+| `SILENT_DEGRADATION`   | EDGAR 1000-cap; FRED/ECOS/DART pagination; `unit === "percent"` case sensitivity; skipped suite reading as green                   | Any code path whose failure mode is returning less, not throwing             |
+| `PROVIDER_ASSUMPTION`  | `fy: null`; ECOS and DART returning HTTP 200 for auth failure; `filings.files[]` overflow                                          | Every unverified adapter — FRED/ECOS/DART success paths are still unverified |
+| `GUARDRAIL_COVERAGE`   | 28 + 21 Ask Market bypasses; English patterns with no Korean mirror                                                                | Any rule expressed in one language, format or word order only                |
+| `PROVENANCE`           | IR-001, IR-002, IR-007, IR-008                                                                                                     | Any output assembled from more than one table                                |
+| `SEMANTIC_RECENCY`     | IR-021 stale replay became the current reading; an E2E pass served by a pre-fix dev server                                         | Anywhere arrival time is the only available ordering evidence                |
+| `EVIDENCE_FABRICATION` | A Codex reviewer quoting a reproduction it never ran; four local-model findings, none valid                                        | Any reviewer output accepted on its form rather than re-run                  |
 
 The `PROVIDER_ASSUMPTION` row is the actionable one right now: it predicts that FRED, ECOS and
 OpenDART will each reveal drift on first real contact, exactly as EDGAR did. That is a concrete,

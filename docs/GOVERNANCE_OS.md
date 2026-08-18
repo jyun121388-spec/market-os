@@ -76,6 +76,35 @@ export type ActionKind =
   | "USER_FACING_FINANCIAL_OUTPUT";
 ```
 
+## Execution status — separate from the decision
+
+A policy decision answers "is this permitted?". Whether it can actually be carried out right now is
+a different question with a different answer, and the two must not be collapsed. Recording a
+missing credential as `DEFERRED_HUMAN_GATE` would put a standing environmental limitation in front
+of the user as though it were a decision they could make — and would teach a later reader that
+policy forbids something it permits.
+
+```ts
+export type ExecutionStatus =
+  | "READY"
+  | "BLOCKED_MISSING_CREDENTIAL" // no usable GitHub credential on this machine (HG-001)
+  | "BLOCKED_PROVIDER_KEY" // the provider is free to call but issues no key (HG-002..HG-004)
+  | "BLOCKED_USAGE_LIMIT"; // an included model's quota is exhausted
+```
+
+Every member names an environmental condition and each is drawn from a blocker this project has
+actually hit. Outcome states such as `EXECUTED` or `FAILED` were considered and deliberately left
+out: a `PolicyEvaluation` is produced BEFORE the action and could never legitimately carry one, and
+a status no evaluation can hold advertises a capability the engine does not have.
+
+`BLOCKED_USAGE_LIMIT` carries a rule worth stating on its own. **An exhausted quota is a routing
+event, not a purchasing event.** The review is still `AUTO_ALLOWED`; the response is to route to
+another included model or to deterministic verification. Purchasing has its own action kind and it
+is that one — never this — that raises a gate.
+
+Two invariants are enforced by test across the whole table: an execution blocker never coincides
+with `DENIED`, and an execution blocker never raises a `gate`.
+
 ## The policy table
 
 Derived from the existing documents. Each row cites its origin; none of it is invented here.

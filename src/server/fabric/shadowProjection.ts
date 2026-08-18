@@ -2,6 +2,7 @@ import { prisma } from "@/server/db/client";
 import { computeCalendarEntry } from "@/server/domain/economicCalendar";
 import { evaluateStaleness } from "@/server/domain/staleness";
 import { assessCompleteness } from "@/server/domain/companyXray";
+import { knownVintage, vintageUnavailable, type ProviderVintage } from "./vintage";
 
 /**
  * Reality Fabric — READ-ONLY SHADOW PROJECTION (docs/WORLD_DATA_FABRIC.md).
@@ -43,7 +44,11 @@ export interface TemporalStamp {
 }
 
 export type DisagreementKind =
-  "FRESHNESS_BASIS" | "COMPLETENESS_HISTORY" | "CADENCE_UNKNOWN_BUT_RETRIEVED" | "NO_RUN_RECORDED";
+  | "FRESHNESS_BASIS"
+  | "COMPLETENESS_HISTORY"
+  | "CADENCE_UNKNOWN_BUT_RETRIEVED"
+  | "NO_RUN_RECORDED"
+  | "REVISED_WITHOUT_VINTAGE";
 
 export interface Disagreement {
   kind: DisagreementKind;
@@ -65,6 +70,16 @@ export interface SeriesFabricRow {
   /** `economicCalendar.ts` — whether a cadence could be projected at all. */
   calendarStatus: "PROJECTED" | "INSUFFICIENT_DATA";
   medianIntervalDays: number | null;
+  /**
+   * What the provider says about WHICH VERSION of the latest value this is.
+   *
+   * The fourth question, alongside the three in `TemporalStamp`. Those three ask WHEN; this one
+   * asks WHICH — and IR-021 is what happens when only the first three are available and the
+   * newest arrival is taken for the newest version.
+   */
+  vintage: ProviderVintage;
+  /** Observations in this series that superseded an earlier value. */
+  revisionCount: number;
   /** Days since anything for this series was last RETRIEVED, which is a different question. */
   daysSinceLastRetrieval: number | null;
   observationCount: number;
@@ -118,7 +133,7 @@ export async function computeFabricProjection(now: Date = new Date()): Promise<F
     const datasetKey = `${s.source.code}:${s.externalId}`;
     const calendar = await computeCalendarEntry(s.id);
 
-    const [latestObservation, retrievalAgg, observationCount] = await Promise.all([
+    const [latestObservation, retrievalAgg, observationCount, revisionCount] = await Promise.all([
       prisma.observation.findFirst({
         where: { seriesId: s.id },
         orderBy: { observationDate: "desc" },
@@ -126,6 +141,7 @@ export async function computeFabricProjection(now: Date = new Date()): Promise<F
       }),
       prisma.observation.aggregate({ where: { seriesId: s.id }, _max: { retrievedAt: true } }),
       prisma.observation.count({ where: { seriesId: s.id } }),
+      prisma.observation.count({ where: { seriesId: s.id, isRevision: true } }),
     ]);
 
     const staleness =
@@ -144,6 +160,20 @@ export async function computeFabricProjection(now: Date = new Date()): Promise<F
     const lastRetrieval = retrievalAgg._max.retrievedAt ?? null;
     const daysSinceLastRetrieval = lastRetrieval ? daysBetween(lastRetrieval, now) : null;
 
+    // A release date, where the provider gave one, IS vintage evidence — the weaker rung, but
+    // real. Everything else is reported at whatever the capability table says is honest for this
+    // provider, so the projection never implies we hold evidence we do not.
+    const baseVintage = vintageUnavailable(s.source.code, lastRetrieval ? iso(lastRetrieval) : "");
+    const vintage: ProviderVintage = latestObservation?.releaseDate
+      ? {
+          ...baseVintage,
+          sourceReleasedAt: knownVintage(
+            latestObservation.releaseDate.toISOString(),
+            `${s.source.code}: Observation.releaseDate as stored`,
+          ),
+        }
+      : baseVintage;
+
     const stalenessVerdict = staleness?.status ?? "UNKNOWN";
     const state: FabricState =
       stalenessVerdict === "STALE" ? "STALE" : stalenessVerdict === "FRESH" ? "FRESH" : "UNKNOWN";
@@ -161,10 +191,32 @@ export async function computeFabricProjection(now: Date = new Date()): Promise<F
       daysSinceLastObservation: staleness?.daysSinceLastObservation ?? null,
       calendarStatus: calendar.status,
       medianIntervalDays: calendar.medianIntervalDays ?? null,
+      vintage,
+      revisionCount,
       daysSinceLastRetrieval,
       observationCount,
       state,
     });
+
+    // D5 — this series has had a value replaced, and nothing on record says which version won.
+    //
+    // Reported for the population where it MATTERS rather than for every series, because a series
+    // that has never been revised has no version question to answer. Where one has, the ordering
+    // rests on arrival time, which IR-021 proved is not the same claim.
+    if (revisionCount > 0 && vintage.providerVintageAt.availability !== "KNOWN") {
+      disagreements.push({
+        kind: "REVISED_WITHOUT_VINTAGE",
+        datasetKey,
+        answers: {
+          "observationIngest (by arrival)": `${revisionCount} revision(s) applied in ingest order`,
+          "provider vintage": `${vintage.providerVintageAt.availability} — ${vintage.providerVintageAt.basis ?? "no basis recorded"}`,
+        },
+        note:
+          "A stored value here was superseded, and which version is current rests on which " +
+          "ingest arrived last. The replay guard in observationIngest limits the damage but " +
+          "cannot distinguish a stale replay from a genuine re-correction.",
+      });
+    }
 
     // D1 — the two questions "is the DATA current?" and "did we FETCH recently?" are different,
     // and a reader of /admin sees only the second. A series can be freshly retrieved and badly

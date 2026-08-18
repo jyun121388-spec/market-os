@@ -22,6 +22,7 @@ export type Verdict =
   | "INSUFFICIENT_EVIDENCE" // cannot be judged — NOT the same as wrong
   | "STALE" // was supportable; underlying data is past its cadence
   | "TRUNCATED" // computed over a knowably partial dataset
+  | "SEMANTIC_REVISION_UNRESOLVED" // which version of the value is current cannot be established
   | "UNVERIFIED" // no verification attempted (shadow default, honest placeholder)
   | "REJECTED"; // a dimension failed in a way that makes the output misleading
 ```
@@ -29,6 +30,11 @@ export type Verdict =
 `INSUFFICIENT_EVIDENCE` and `REJECTED` are deliberately distinct. "We cannot tell" and "this is
 wrong" have different consequences, and collapsing them is how a system starts either crying wolf
 or hiding uncertainty.
+
+`SEMANTIC_REVISION_UNRESOLVED` was added with the provider-vintage contract. It says the value may
+be a superseded VERSION of the right figure and that nothing on record can settle it — a narrower
+and more actionable statement than `INSUFFICIENT_EVIDENCE`, with a known remedy. See
+`revision_integrity` below.
 
 ## Dimensions
 
@@ -58,6 +64,7 @@ export interface VerificationResult {
     calculation_integrity: DimensionResult;
     provenance_integrity: DimensionResult;
     temporal_integrity: DimensionResult;
+    revision_integrity: DimensionResult;
     cross_source_consistency: DimensionResult;
     adversarial_resilience: DimensionResult;
   };
@@ -68,21 +75,59 @@ export interface VerificationResult {
 
 ### What each dimension checks, and the real defect it would have caught
 
-| Dimension                  | Checks                                                                                            | Would have caught                                                |
-| -------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `structural_validity`      | Shape, types, required fields, units present and from the known vocabulary                        | A `unit: "Percent"` typo silently disabling basis points         |
-| `source_integrity`         | Every figure traces to a stored `Source`; tier recorded                                           | **IR-007/IR-008** — figures rendered with no provenance at all   |
-| `data_completeness`        | `IngestRun.providerTotal` vs `fetched`; `truncated` false                                         | EDGAR's 1000-filing cap presenting 45% of history as complete    |
-| `semantic_consistency`     | Compared quantities are like-for-like: same period length, unit, currency, taxonomy               | **The +232.9985% nine-month-vs-quarter comparison**              |
-| `calculation_integrity`    | Recompute from stored inputs; result must match to stated precision                               | A correct formula fed the wrong two rows                         |
-| `provenance_integrity`     | Claim type is honest — no INFERENCE rendered as FACT; source scoping intact                       | **IR-001/IR-002** — cross-provider pooling under one attribution |
-| `temporal_integrity`       | `observedAt` ≤ `releasedAt` ≤ `retrievedAt`; no future dates; revision chain resolved to its tail | Same-millisecond revision ordering ambiguity                     |
-| `cross_source_consistency` | Where two sources cover one fact, values within tolerance; else `CONFLICTED`                      | Silent divergence between providers                              |
-| `adversarial_resilience`   | Output does not constitute prohibited advice under `LEGAL_GUARDRAILS.md`                          | The 21 Ask Market guardrail bypasses                             |
+| Dimension                  | Checks                                                                                            | Would have caught                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `structural_validity`      | Shape, types, required fields, units present and from the known vocabulary                        | A `unit: "Percent"` typo silently disabling basis points           |
+| `source_integrity`         | Every figure traces to a stored `Source`; tier recorded                                           | **IR-007/IR-008** — figures rendered with no provenance at all     |
+| `data_completeness`        | `IngestRun.providerTotal` vs `fetched`; `truncated` false                                         | EDGAR's 1000-filing cap presenting 45% of history as complete      |
+| `semantic_consistency`     | Compared quantities are like-for-like: same period length, unit, currency, taxonomy               | **The +232.9985% nine-month-vs-quarter comparison**                |
+| `calculation_integrity`    | Recompute from stored inputs; result must match to stated precision                               | A correct formula fed the wrong two rows                           |
+| `provenance_integrity`     | Claim type is honest — no INFERENCE rendered as FACT; source scoping intact                       | **IR-001/IR-002** — cross-provider pooling under one attribution   |
+| `temporal_integrity`       | `observedAt` ≤ `releasedAt` ≤ `retrievedAt`; no future dates; revision chain resolved to its tail | Same-millisecond revision ordering ambiguity                       |
+| `revision_integrity`       | Whether the value shown is the provider's current VERSION, from provider vintage evidence         | **IR-021** — a replayed stale figure rolling a correction backward |
+| `cross_source_consistency` | Where two sources cover one fact, values within tolerance; else `CONFLICTED`                      | Silent divergence between providers                                |
+| `adversarial_resilience`   | Output does not constitute prohibited advice under `LEGAL_GUARDRAILS.md`                          | The 21 Ask Market guardrail bypasses                               |
 
 `semantic_consistency` is the dimension this project most needs and the one no test suite naturally
 provides. It is the difference between "the subtraction is right" and "these two numbers were
 comparable in the first place".
+
+### `revision_integrity` — is this the current VERSION of the value?
+
+Added after IR-021, and the only dimension that asks about the value's version rather than the
+value itself. The replayed stale figure that reached users would have passed every other dimension
+here: it was well-formed, correctly attributed, internally consistent and arithmetically sound. It
+was simply the wrong version, and no amount of checking a number tells you whether a better one has
+already superseded it.
+
+It reads `ProviderVintage` evidence (`docs/WORLD_DATA_FABRIC.md`) through `compareVintage`:
+
+| Vintage comparison | Status                | Meaning                                           |
+| ------------------ | --------------------- | ------------------------------------------------- |
+| CANDIDATE_IS_NEWER | PASS                  | The applied value is the provider's newer version |
+| CANDIDATE_IS_OLDER | FAIL                  | A superseded figure is being presented as current |
+| SAME_VINTAGE       | FAIL                  | Two different values claim one vintage            |
+| UNRESOLVED         | INSUFFICIENT_EVIDENCE | Nothing on record orders the two                  |
+
+**Applicability is earned from the input, never assumed.** Where both figures name the provider
+filing they were read out of — an SEC accession, say — the version question is already answered by
+that identity, and the dimension is `NOT_APPLICABLE` for a stated reason. That is what keeps
+SEC-sourced comparisons from piling up as unknowns; without the rule, every Filing Diff output
+would return the same verdict, which is the uniform-answer failure this layer has already produced
+twice during its own construction.
+
+`SEMANTIC_REVISION_UNRESOLVED` is the verdict when the version question is open. It is ranked above
+the generic `INSUFFICIENT_EVIDENCE` rather than requiring it to be the sole unknown — the first
+draft required that, and the verdict turned out to be unreachable in practice because a FACT always
+leaves `adversarial_resilience` open too. A verdict no real input can produce is worse than none: it
+advertises a capability the system does not have. Ranking it is also right on the merits. The other
+unknowns are questions about coverage; this one says the number on the page may be the wrong version
+of the right figure, which is nearer to incorrect than to unchecked.
+
+Today, with no adapter populating any vintage field, every macro observation resolves to
+`SEMANTIC_REVISION_UNRESOLVED` and every SEC comparison to `NOT_APPLICABLE`. That is the honest
+picture, and it is also the work item: the verdict disappears from the macro path the moment a
+provider vintage is captured.
 
 ## Evidence model
 

@@ -14,6 +14,8 @@
  * Nothing in v1 imports this. It computes verdicts and blocks nothing.
  */
 
+import type { ProviderVintage } from "../fabric/vintage";
+
 export type Verdict =
   | "VERIFIED" // every applicable dimension passed
   | "VERIFIED_WITH_LIMITATION" // supportable, with a caveat the reader must see
@@ -21,6 +23,7 @@ export type Verdict =
   | "INSUFFICIENT_EVIDENCE" // cannot be judged — deliberately NOT the same as wrong
   | "STALE" // was supportable; the underlying data is past its cadence
   | "TRUNCATED" // computed over a knowably partial dataset
+  | "SEMANTIC_REVISION_UNRESOLVED" // which version of the value is current cannot be established
   | "UNVERIFIED" // not evaluated (honest placeholder, the shadow default)
   | "REJECTED"; // a dimension failed in a way that makes the output misleading
 
@@ -40,6 +43,7 @@ export type DimensionName =
   | "calculation_integrity"
   | "provenance_integrity"
   | "temporal_integrity"
+  | "revision_integrity"
   | "cross_source_consistency"
   | "adversarial_resilience";
 
@@ -86,6 +90,26 @@ export interface CalculationInput {
   accessionNumber?: string;
 }
 
+/**
+ * What is known about a value having superseded an earlier one.
+ *
+ * IR-021 in contract form: a replayed stale figure became the chain tail purely because it
+ * arrived last, and the guard that now stops it is a heuristic standing in for evidence nobody
+ * supplies. This is the shape of the evidence that would settle it properly.
+ */
+export interface RevisionEvidence {
+  /** Provider version evidence for the value now displayed. */
+  applied: ProviderVintage;
+  /** Provider version evidence for the value it replaced. */
+  superseded: ProviderVintage;
+  /**
+   * Whether the applied value repeats one already present earlier in the same chain — the
+   * signature of a stale replay, and equally the signature of a provider genuinely correcting
+   * back to a figure it published before. Indistinguishable without vintage, which is the point.
+   */
+  valueRepeatsEarlierInChain?: boolean;
+}
+
 export interface VerificationInput {
   outputId: string;
   claimType: "FACT" | "CALCULATION" | "INFERENCE";
@@ -118,6 +142,13 @@ export interface VerificationInput {
     state: "FRESH" | "STALE" | "UNKNOWN";
     daysSinceLastObservation: number | null;
   };
+  /**
+   * Provider version evidence for a value that REPLACED an earlier one (IR-021).
+   *
+   * Supplied only where a supersession actually happened. Its absence is not read as "no
+   * supersession" — `revision_integrity` decides applicability from the figures themselves.
+   */
+  revision?: RevisionEvidence;
   /** INFERENCE claims must carry an evidence-derived confidence. */
   confidence?: number | null;
 }

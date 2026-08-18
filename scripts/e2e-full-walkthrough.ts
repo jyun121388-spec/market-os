@@ -5,13 +5,19 @@
  * lockout); this exercises them together in one continuous session, the way an actual user
  * would move through the app, asserting on real rendered content at each step.
  *
- * Prerequisites: `npm run dev` running on http://localhost:3000, DATABASE_URL set.
+ * Prerequisites: a server running on `E2E_BASE_URL` (default http://localhost:3000), and
+ * DATABASE_URL set.
  * Usage: DATABASE_URL=... npx tsx scripts/e2e-full-walkthrough.ts
+ *
+ * The port is overridable because a leftover server on 3000 once served a green 33/33 for code
+ * that had not been built yet, and the run was reported as evidence about the current tree. Being
+ * able to start a known-fresh server on a free port removes the collision instead of relying on
+ * whoever is running this to remember (`SR-02` in the Evolution ledger).
  */
 import { chromium } from "playwright";
 import { prisma } from "../src/server/db/client";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const TEST_EMAIL = "e2e-walkthrough@example.com";
 const PASSWORD = "correct-horse-battery-staple";
 

@@ -180,19 +180,32 @@ running total should stay at zero, and the ledger is how that is demonstrable ra
 The Engine reads across all ten and groups by `lesson` similarity, `subsystem`, and category. A
 cluster with ≥ 2 instances becomes a `Weakness`.
 
-Clusters already visible in the backfill:
+Clusters the detector reports over the current backfill, worst severity first within each count:
 
-| Cluster                                               | Ledgers spanned             | Instances |
-| ----------------------------------------------------- | --------------------------- | --------- |
-| Fixtures contain one of something real-world has many | False Green                 | 4         |
-| Identity keys that cannot bear their weight           | False Green, Review Finding | 4         |
-| Failure by returning less, without a signal           | False Green, Provider Drift | 4         |
-| A rule expressed in only one language or order        | Security Finding            | 3         |
-| Documentation believed over observed behaviour        | Provider Drift              | 4         |
+| Category               | Instances | Worst | The recurring cause                                          |
+| ---------------------- | --------- | ----- | ------------------------------------------------------------ |
+| `PROVIDER_ASSUMPTION`  | 5         | P1    | A documented shape believed over an observed response        |
+| `IDENTITY_MODELLING`   | 4         | P0    | A key asked to carry more than it can                        |
+| `CONCURRENCY`          | 4         | P1    | A read-then-write sequence treated as atomic                 |
+| `FIXTURE_REALISM`      | 4         | P1    | Fixtures hold one of something the world has many of         |
+| `GUARDRAIL_COVERAGE`   | 4         | P1    | A rule expressed in one language, order or path only         |
+| `PROVENANCE`           | 3         | P1    | A value shown without what it came from                      |
+| `SILENT_DEGRADATION`   | 3         | P1    | Failure by returning less, with no signal                    |
+| `ENVIRONMENT_DRIFT`    | 3         | P2    | A check made on surface text rather than what it resolves to |
+| `SEMANTIC_RECENCY`     | 2         | P1    | Freshness inferred from when it was observed, not what       |
+| `EVIDENCE_FABRICATION` | 2         | P2    | A confident claim taken for a verified one                   |
 
-Five clusters, every one derived from history already written down. That is the argument for
-building the ledgers before anything else in the Engine: **the data to make it useful already
-exists in this repository**, scattered across prose. The work is structuring it, not generating it.
+Every one is derived from history already written down. That is the argument for building the
+ledgers before anything else in the Engine: **the data to make it useful already exists in this
+repository**, scattered across prose. The work is structuring it, not generating it.
+
+The last two were added while designing the provider-vintage contract, and they are the clearest
+demonstration that the clustering earns its keep. `SEMANTIC_RECENCY` joins IR-021 (a replayed stale
+value became current because it arrived last) to an incident nobody had connected to it: an E2E
+pass reported from a dev server started before the fix under test. Different subsystems, no shared
+code, one cause — a clock standing in for provenance. `EVIDENCE_FABRICATION` joins a Codex reviewer
+quoting a reproduction it never ran to four local-model findings that survived nothing. Both were
+recorded as one-off embarrassments at the time; only the ledger makes them a pattern.
 
 ## Storage
 

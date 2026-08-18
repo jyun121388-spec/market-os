@@ -33,7 +33,24 @@ export type WeaknessCategory =
   | "CONCURRENCY"
   | "PROVENANCE"
   | "GUARDRAIL_COVERAGE"
-  | "ENVIRONMENT_DRIFT";
+  | "ENVIRONMENT_DRIFT"
+  /**
+   * Freshness inferred from WHEN something was observed rather than from WHAT was observed.
+   *
+   * Distinct from IDENTITY_MODELLING, which is about keys lacking the precision asked of them.
+   * This cause is about a clock standing in for provenance: the observation is recent, therefore
+   * the thing observed is current. Both instances below were invisible to every test, because the
+   * value under test was correct — it was the VERSION that was wrong.
+   */
+  | "SEMANTIC_RECENCY"
+  /**
+   * A confident claim treated as a verified one because nothing in its form distinguished them.
+   *
+   * Named separately from PROVENANCE because the fabricated evidence here came from a REVIEWER
+   * rather than a data provider, which is the harder case: the whole purpose of a reviewer is to
+   * be believed.
+   */
+  | "EVIDENCE_FABRICATION";
 
 export interface LedgerEntry {
   id: string;
@@ -361,5 +378,60 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
       "A format check was mistaken for a validity check, so a well-shaped but non-existent value " +
       "was accepted and quietly changed.",
     category: "PROVIDER_ASSUMPTION",
+  },
+
+  // The SEMANTIC_RECENCY cluster, added while designing the provider-vintage contract. Both
+  // entries predate the contract and neither was recognised as the same cause at the time, which
+  // is precisely the kind of connection the detector exists to make.
+  {
+    id: "SR-01",
+    ledger: "REVIEW_FINDING",
+    subsystem: "observationIngest",
+    severity: "P1",
+    summary: "A replayed stale value became the current reading because it arrived last.",
+    lesson:
+      "Which version of a value is current was decided by ingest order, because the provider " +
+      "publishes no vintage and arrival time was the only ordering evidence on hand.",
+    category: "SEMANTIC_RECENCY",
+  },
+  {
+    id: "SR-02",
+    ledger: "INCIDENT",
+    subsystem: "e2e / dev server",
+    severity: "P2",
+    summary: "An E2E pass was reported from a server process started before the fix under test.",
+    lesson:
+      "A fresh result was taken as evidence about fresh code, without establishing that the " +
+      "process producing it was running that code.",
+    category: "SEMANTIC_RECENCY",
+  },
+
+  // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
+  // defects, and they belong here for the same reason the others do: they recur.
+  {
+    id: "MC-01",
+    ledger: "PREDICTION_ERROR",
+    subsystem: "review / gpt-5.6-sol",
+    severity: "P2",
+    summary:
+      "A reviewer reported a P1 as reproduced against the real database, quoting an output it " +
+      "had never produced.",
+    lesson:
+      "A claim of reproduction was formatted identically to a real one, so only re-running the " +
+      "code separated them. Reviewer confidence carries no evidential weight of its own.",
+    category: "EVIDENCE_FABRICATION",
+  },
+  {
+    id: "MC-02",
+    ledger: "PREDICTION_ERROR",
+    subsystem: "review / local models",
+    severity: "P2",
+    summary:
+      "Four local-model findings, none valid; one stated the same behaviour as both expected " +
+      "and observed.",
+    lesson:
+      "Fluent defect reports were produced with no reference to the code shown, and the blind " +
+      "calibration harness rather than the reports themselves is what revealed it.",
+    category: "EVIDENCE_FABRICATION",
   },
 ];

@@ -99,8 +99,23 @@ describeIfDb("Verify shadow run (integration)", () => {
       expect(o.outputType).toBe("FILING_DIFF");
       expect(o.entityRef).toBe(CORP_CODE);
       expect(o.sourceCode).toBe(SOURCE_CODE);
-      // A uniform verdict with no breakdown is indistinguishable from a broken verifier.
-      expect(Object.keys(o.dimensions).length).toBe(9);
+      // A uniform verdict with no breakdown is indistinguishable from a broken verifier, so
+      // every dimension must be present by name rather than merely counted — a bare count passes
+      // just as happily when one dimension is silently swapped for another.
+      expect(Object.keys(o.dimensions).sort()).toEqual(
+        [
+          "adversarial_resilience",
+          "calculation_integrity",
+          "cross_source_consistency",
+          "data_completeness",
+          "provenance_integrity",
+          "revision_integrity",
+          "semantic_consistency",
+          "source_integrity",
+          "structural_validity",
+          "temporal_integrity",
+        ].sort(),
+      );
     });
   });
 

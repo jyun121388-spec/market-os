@@ -205,10 +205,21 @@ once for English.
 - Which tests prove a helper but never exercise the actual request path? The Watchlist domain
   module once had zero callers, so cross-user isolation had never been tested through a request.
 
-### A14 — v2 architecture contracts (design only, no implementation)
+### A14 — v2 shadow layers (implemented 2026-08-18; this target was written when they were design-only)
 
-`docs/META_ARCHITECTURE_V2.md` and its five companions. **No code exists**; zero v1 source files
-were touched. Review as design:
+`docs/META_ARCHITECTURE_V2.md` and its five companions **now have running implementations** under
+`src/server/fabric`, `src/server/verify`, `src/server/governance` and `src/server/evolution`. All
+read-only, none imported by any v1 file, with `tests/architectureBoundary.test.ts` proving both
+rather than asserting them. Reviewed cross-file by `gpt-5.6-terra` on 2026-08-18 — five findings,
+all reproduced, all valid, all fixed (IR-022..IR-026).
+
+What is worth reviewing now is the implementation, not the design:
+
+- Can any shadow layer reach a write, directly or through a v1 function it calls?
+- Does any Verify dimension return PASS or NOT_APPLICABLE without earning it from the input?
+- Does the capability matrix claim SUPPORTED or NOT_SUPPORTED anywhere without a live response?
+
+The original design questions, still open:
 
 - Are the promotion criteria genuine negative controls, or do they only test for false negatives?
 - Does the Reality Fabric contract miss a reality state that this project has already encountered?
@@ -219,8 +230,8 @@ were touched. Review as design:
 
 ```bash
 export TEST_DATABASE_URL="postgresql://postgres:devpassword@127.0.0.1:55432/market_os_test?schema=public"
-npm run test          # 302 tests
-npm run e2e           # needs `npm run start`; 30 checks against the production build
+npm run test          # 658 tests across 76 files
+npm run e2e           # needs a fresh server; set E2E_BASE_URL; 33 checks against the production build
 npm run verify:live:edgar   # 67 live contract checks; needs EDGAR_USER_AGENT
 npx prisma migrate deploy
 ```

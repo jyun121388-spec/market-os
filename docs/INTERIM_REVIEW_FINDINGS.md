@@ -1310,3 +1310,54 @@ variable reference, not a value. A true over-flag, and the more instructive fail
 shape of a request is how a transport problem gets explained at all, and a screen that forbids it
 pushes the description into some channel with no screen. Placeholder and variable-reference forms
 are now excluded, with both directions pinned.
+
+### IR-045 — the loop's own yield could only be measured for two thirds of its history (P2, no defect, gap recorded)
+
+**Found by:** meta-loop quality audit. **Outcome:** no defect in the loop; a measurement gap in the
+record it keeps.
+
+Measured over the 35 recorded findings:
+
+| metric                 | value                                      |
+| ---------------------- | ------------------------------------------ |
+| confirmed-defect yield | 0.83 (of findings with a recorded verdict) |
+| false-positive rate    | 0.09                                       |
+| measurable share       | 0.66                                       |
+
+The yield is good and the third number is why it should be read carefully. **A third of the
+history carries no verdict at all.** The convention of stating the outcome in the finding header
+began around IR-020; the first nineteen record what was learned and not whether the claim survived
+reproduction. Those are `UNKNOWN` and are counted as `UNKNOWN` — a yield computed by assuming
+unrecorded findings were valid would be the loop flattering itself with numbers it did not earn,
+which is precisely the failure the audit exists to detect.
+
+**The extraction produced its own finding.** The first pass scanned finding BODIES for verdict
+words and reported IR-022..IR-026 and IR-029 as rejected. All six were valid; the word had appeared
+in surrounding discussion. Two errors in thirty-five, every one in the direction of understating
+yield, from a script that read entirely reasonably. The verdict lives in the header and nowhere
+else. Fourth instance of the standing rule that a script's output is a claim, not evidence.
+
+**The structural result, which is the useful one.** Classifying each cluster by spread —
+subsystems over instances — gives five clusters at 1.00 and one below 0.7:
+
+| cluster              | inst | spread | type                |
+| -------------------- | ---- | ------ | ------------------- |
+| `GUARDRAIL_COVERAGE` | 12   | 0.67   | local fixes failing |
+| `IDENTITY_MODELLING` | 11   | 1.00   | invariant missing   |
+| `SILENT_DEGRADATION` | 6    | 1.00   | invariant missing   |
+| `FIXTURE_REALISM`    | 5    | 1.00   | invariant missing   |
+| `PROVENANCE`         | 4    | 1.00   | invariant missing   |
+| `ENVIRONMENT_DRIFT`  | 4    | 1.00   | invariant missing   |
+
+The project's dominant failure mode is not defects recurring where they were fixed. It is the same
+conceptual error arriving somewhere new, five separate times over. Every local fix held. Only
+`IDENTITY_MODELLING` has since been given a global invariant, which leaves four clusters whose next
+instance will land in a subsystem nobody is watching — and the audit says so without being able to
+say where.
+
+**Two no-findings worth recording as no-findings.** The scheduler does not let key-blocked work
+crowd out startable local work, because deferred items are a structurally separate list rather
+than a low-priority tail. And `CALL_PAID_PROVIDER` is a Human Gate while `PURCHASE_AI_CREDITS` is
+DENIED — the audit's first assertion had them both DENIED and the policy table was right:
+CLAUDE.md makes zero extra AI cost absolute but paid external services "not without explicit human
+approval", which is a question someone may answer.

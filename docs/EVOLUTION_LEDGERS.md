@@ -182,18 +182,18 @@ cluster with ≥ 2 instances becomes a `Weakness`.
 
 Clusters the detector reports over the current backfill, worst severity first within each count:
 
-| Category               | Instances | Worst | The recurring cause                                          |
-| ---------------------- | --------- | ----- | ------------------------------------------------------------ |
-| `IDENTITY_MODELLING`   | 11        | P0    | A key asked to carry more than it can                        |
-| `GUARDRAIL_COVERAGE`   | 9         | P1    | A rule expressed in one language, order or path only         |
-| `FIXTURE_REALISM`      | 5         | P0    | Fixtures hold one of something the world has many of         |
-| `PROVIDER_ASSUMPTION`  | 5         | P1    | A documented shape believed over an observed response        |
-| `CONCURRENCY`          | 5         | P1    | A read-then-write sequence treated as atomic                 |
-| `SILENT_DEGRADATION`   | 6         | P1    | Failure by returning less, with no signal                    |
-| `PROVENANCE`           | 4         | P1    | A value shown without what it came from                      |
-| `ENVIRONMENT_DRIFT`    | 4         | P2    | A check made on surface text rather than what it resolves to |
-| `SEMANTIC_RECENCY`     | 2         | P1    | Freshness inferred from when it was observed, not what       |
-| `EVIDENCE_FABRICATION` | 3         | P2    | A confident claim taken for a verified one                   |
+| Category               | Instances | Worst | The recurring cause                                           |
+| ---------------------- | --------- | ----- | ------------------------------------------------------------- |
+| `IDENTITY_MODELLING`   | 11        | P0    | A key asked to carry more than it can                         |
+| `GUARDRAIL_COVERAGE`   | 12        | P1    | A rule expressed in one language, grammar, order or path only |
+| `FIXTURE_REALISM`      | 5         | P0    | Fixtures hold one of something the world has many of          |
+| `PROVIDER_ASSUMPTION`  | 5         | P1    | A documented shape believed over an observed response         |
+| `CONCURRENCY`          | 5         | P1    | A read-then-write sequence treated as atomic                  |
+| `SILENT_DEGRADATION`   | 6         | P1    | Failure by returning less, with no signal                     |
+| `PROVENANCE`           | 4         | P1    | A value shown without what it came from                       |
+| `ENVIRONMENT_DRIFT`    | 4         | P2    | A check made on surface text rather than what it resolves to  |
+| `SEMANTIC_RECENCY`     | 2         | P1    | Freshness inferred from when it was observed, not what        |
+| `EVIDENCE_FABRICATION` | 3         | P2    | A confident claim taken for a verified one                    |
 
 Every one is derived from history already written down. That is the argument for building the
 ledgers before anything else in the Engine: **the data to make it useful already exists in this
@@ -215,8 +215,18 @@ than new ones — which is the detector working as intended:
   across two readers will be wrong in both places at once, and the fix is one shared function
   rather than two corrected copies.
 - `GC-01` (GUARDRAIL_COVERAGE) — an audit record that refused to log a DENIED action as EXECUTED
-  but accepted a conditionally-permitted one with the condition unmentioned. A guard written for
-  the obvious violation, with the adjacent one left open.
+
+**Sub-pattern, named after three instances in one pass (GC-10, GC-11, GC-12).** Each was a
+guardrail that existed, was tested, and covered one axis of the thing it guarded: one grammatical
+person, one language's negation, one enumerated channel. None was absent and none was broken —
+every one of them passed its own tests, because its tests were written from the same partial
+picture as the rule. The generalisation is that a guardrail's coverage must be enumerated along the
+dimension the ADVERSARY varies, not the dimension the author happened to think in, and that the
+enumeration is worth writing down where the rule lives. GC-12 is the sharpest form: the type system
+proved the table complete over the kinds it knew, which is a proof about the list rather than about
+the world.
+but accepted a conditionally-permitted one with the condition unmentioned. A guard written for
+the obvious violation, with the adjacent one left open.
 
 **Eight entries added 2026-08-18 after a ledger-completeness audit (`gpt-5.6-luna`).** Luna
 checked all 28 existing entries against `INTERIM_REVIEW_FINDINGS.md` and `DECISIONS.md`, found

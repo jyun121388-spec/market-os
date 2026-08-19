@@ -599,6 +599,48 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
   },
 
   {
+    id: "GC-10",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify / advice scanner",
+    severity: "P2",
+    summary:
+      "Every pattern in the output-side advice scanner was second-person, so 'Investors should " +
+      "buy long-duration bonds now' verified clean.",
+    lesson:
+      "The guardrail was written in the grammar of the person writing it, not the grammar of the " +
+      "text it screens — financial prose recommends in the third person almost exclusively.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+
+  {
+    id: "GC-11",
+    ledger: "REVIEW_FINDING",
+    subsystem: "verify / advice scanner",
+    severity: "P2",
+    summary:
+      "The Korean advice patterns flagged the product's own refusal, because 매수 추천 sits " +
+      "unchanged inside 매수 추천을 제공하지 않습니다.",
+    lesson:
+      "Negation-safety was designed in by requiring affirmative English constructions, and that " +
+      "design does not survive translation into a predicate-final language.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+
+  {
+    id: "GC-12",
+    ledger: "REVIEW_FINDING",
+    subsystem: "governance / escalation",
+    severity: "P1",
+    summary:
+      "Posting to the public escalation issue — the only action that sends data off this machine " +
+      "— had no ActionKind, consulted no policy and screened no content.",
+    lesson:
+      "A Record<Kind, Rule> proves the table covers every kind and says nothing about whether the " +
+      "kinds cover the system; the uncovered action is invisible rather than missing.",
+    category: "GUARDRAIL_COVERAGE",
+  },
+
+  {
     id: "CC-05",
     ledger: "REVIEW_FINDING",
     subsystem: "auth",

@@ -250,3 +250,38 @@ diffs, and it needs no migration during a release freeze.
 
 Promotion to tables happens only when the Engine actually queries them — and not before, because a
 schema written ahead of its first real query is a guess.
+
+## Recurrence analysis by spread, 2026-08-19
+
+Instance counts rank clusters. They do not say what KIND of recurrence a cluster has, and the two
+largest turn out to be opposites. Measuring spread — distinct subsystems divided by instances —
+separates them:
+
+| cluster               | instances | subsystems | P0/P1 | spread |
+| --------------------- | --------- | ---------- | ----- | ------ |
+| `GUARDRAIL_COVERAGE`  | 12        | 8          | 8     | 0.67   |
+| `IDENTITY_MODELLING`  | 11        | 11         | 9     | 1.00   |
+| `SILENT_DEGRADATION`  | 6         | 6          | 4     | 1.00   |
+| `FIXTURE_REALISM`     | 5         | 5          | 4     | 1.00   |
+| `PROVIDER_ASSUMPTION` | 5         | 4          | 3     | 0.80   |
+| `CONCURRENCY`         | 5         | 4          | 3     | 0.80   |
+
+`GUARDRAIL_COVERAGE` at 0.67 comes back to places it has already been fixed, along an axis nobody
+enumerated — a new grammatical person, a second language's negation, an unlisted channel. Local
+fixes are the right response; the lesson is to enumerate axes where the rule lives.
+
+`IDENTITY_MODELLING` at 1.00 has never recurred in the same subsystem once. Eleven instances,
+eleven places, nine of them P0 or P1 — the project's largest producer of serious defects, and every
+fix has been correct and local, which is precisely why the next one lands somewhere new. **A
+cluster at spread 1.00 is not being fixed; it is being outrun.** Local correctness cannot converge
+on it, because the failure is not in any of the eleven places — it is in the absence of a rule
+covering all of them.
+
+Acted on rather than noted: `tests/identityInvariant.test.ts` enumerates every domain clause
+filtering on a field that names an entity without identifying it, and requires a discriminator or a
+recorded waiver. The enumeration found **no defect** — the domain layer is already correct at every
+site, with three clauses cross-source by intent. The guard exists so the twelfth instance cannot
+arrive silently in a subsystem nobody is watching, which is how all eleven arrived.
+
+`CONCURRENCY` and `PROVIDER_ASSUMPTION` sit at 0.80 with one repeat each, and are worth re-measuring
+rather than acting on: one repeat is a coincidence at this sample size.

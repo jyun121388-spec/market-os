@@ -367,6 +367,19 @@ export interface StopSentinelInput {
   unhandledReviewFindings?: number;
   /** Escalations posted and not yet answered. NOT a stop condition — recorded, not obeyed. */
   openEscalations?: number;
+  /**
+   * Candidates found by looking past the queue: second-order checklist, evidence clusters, and
+   * work a state document names as next but nothing has scheduled.
+   *
+   * Required, and the reason for it is a contradiction this sentinel actually shipped:
+   * SESSION_HANDOFF said financial semantics were unworked while the sentinel reported
+   * `mayStop: true`, because an empty queue was allowed to answer on its own. An empty queue is a
+   * statement about the QUEUE. Discovery has to have been run and come back empty before it is a
+   * statement about the work.
+   */
+  discoveryCandidates?: number;
+  /** Work named as next in a state document but absent from the queue with no reason recorded. */
+  orphanedDocumentedWork?: number;
 }
 
 export interface StopSentinel {
@@ -400,6 +413,14 @@ export function evaluateStopSentinel(input: StopSentinelInput): StopSentinel {
     {
       name: "no review finding left unhandled",
       ...unknown("unhandled review findings", input.unhandledReviewFindings),
+    },
+    {
+      name: "second-order discovery ran and found nothing",
+      ...unknown("discovery candidates", input.discoveryCandidates),
+    },
+    {
+      name: "no documented work orphaned outside the queue",
+      ...unknown("orphaned documented tasks", input.orphanedDocumentedWork),
     },
     {
       // Deliberately always satisfied. An open escalation is an asynchronous request for a

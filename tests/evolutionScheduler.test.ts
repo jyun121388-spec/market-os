@@ -254,7 +254,16 @@ describe("against the real ledger and capability matrix", () => {
 
 describe("the stop sentinel", () => {
   const empty = { actionable: [], deferred: [] };
-  const full = { unresolvedFailures: 0, advanceableBlockers: 0, unhandledReviewFindings: 0 };
+  // Every count the sentinel needs, all established. Discovery is in here because an empty queue
+  // must no longer answer on its own — the sentinel shipped a contradiction where SESSION_HANDOFF
+  // named unworked areas while mayStop was true.
+  const full = {
+    unresolvedFailures: 0,
+    advanceableBlockers: 0,
+    unhandledReviewFindings: 0,
+    discoveryCandidates: 0,
+    orphanedDocumentedWork: 0,
+  };
 
   it("permits stopping only when every condition is satisfied", () => {
     const sentinel = evaluateStopSentinel({ queue: empty, ...full });
@@ -294,16 +303,19 @@ describe("the stop sentinel", () => {
    * finding, so a caller that does not say blocks the sentinel rather than being assumed fine —
    * unknown is not success, applied to the thing that decides whether to stop.
    */
-  it.each(["unresolvedFailures", "advanceableBlockers", "unhandledReviewFindings"])(
-    "refuses when %s was never established",
-    (field) => {
-      const input: Parameters<typeof evaluateStopSentinel>[0] = { queue: empty, ...full };
-      delete (input as unknown as Record<string, unknown>)[field];
-      const sentinel = evaluateStopSentinel(input);
-      expect(sentinel.mayStop).toBe(false);
-      expect(sentinel.conditions.find((c) => !c.satisfied)?.detail).toContain("never established");
-    },
-  );
+  it.each([
+    "unresolvedFailures",
+    "advanceableBlockers",
+    "unhandledReviewFindings",
+    "discoveryCandidates",
+    "orphanedDocumentedWork",
+  ])("refuses when %s was never established", (field) => {
+    const input: Parameters<typeof evaluateStopSentinel>[0] = { queue: empty, ...full };
+    delete (input as unknown as Record<string, unknown>)[field];
+    const sentinel = evaluateStopSentinel(input);
+    expect(sentinel.mayStop).toBe(false);
+    expect(sentinel.conditions.find((c) => !c.satisfied)?.detail).toContain("never established");
+  });
 
   /**
    * An escalation is a question waiting for an answer, not a halt. If one could stop the sentinel,
@@ -313,6 +325,28 @@ describe("the stop sentinel", () => {
     const sentinel = evaluateStopSentinel({ queue: empty, ...full, openEscalations: 3 });
     expect(sentinel.mayStop).toBe(true);
     expect(sentinel.conditions.find((c) => c.name.includes("escalation"))?.detail).toContain("3");
+  });
+
+  /**
+   * The contradiction that prompted this. An empty queue used to be enough for mayStop, so the
+   * sentinel reported that stopping was fine while SESSION_HANDOFF named two unworked areas in
+   * plain text. An empty queue is a statement about the queue.
+   */
+  it("refuses on an empty queue when discovery has not been run", () => {
+    const sentinel = evaluateStopSentinel({
+      queue: empty,
+      unresolvedFailures: 0,
+      advanceableBlockers: 0,
+      unhandledReviewFindings: 0,
+      // discoveryCandidates and orphanedDocumentedWork deliberately absent
+    });
+    expect(sentinel.mayStop).toBe(false);
+  });
+
+  it("refuses when a document names work the queue does not carry", () => {
+    const sentinel = evaluateStopSentinel({ queue: empty, ...full, orphanedDocumentedWork: 2 });
+    expect(sentinel.mayStop).toBe(false);
+    expect(sentinel.conditions.find((c) => c.name.includes("orphaned"))?.detail).toContain("2");
   });
 
   it("says what remains even when it permits stopping", () => {

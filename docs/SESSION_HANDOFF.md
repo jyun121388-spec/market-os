@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                    |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
 | Working tree                        | clean                                                                    |
-| Full suite                          | **814 / 814** across 88 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **830 / 830** across 90 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
 | Migrations                          | **17**                                                                   |
@@ -39,9 +39,19 @@ shortfall was detected" for completeness statuses where nothing had looked. A co
 statement about the queue.
 
 Second-order checklist coverage this session: identity, ordering, completeness, guardrail concepts,
-provenance, concurrency, environment modes, test realism. Financial-semantics items (fiscal vs
-calendar period, cross-currency) were **not** worked and are the obvious place for the next pass to
-start.
+provenance, concurrency, environment modes, test realism, and — as of the following phase —
+financial semantics.
+
+**Financial semantics: audited, no defect.** `tests/financialSemanticCompatibility.test.ts` records
+it. Comparisons run on real dates and durations and never on `fiscalYear`/`fiscalPeriod`, which
+matters because SEC returns those null and Apple's fiscal Q3 ends on a calendar Q2 date; where a
+fiscal label is displayed, the actual period is rendered beneath it. Cross-currency is safe by
+construction rather than by assertion — `computeFinancialFactDiff` takes `unit` as a query
+parameter, so two currencies never enter the same comparison — and that construction is now pinned,
+because a protection made of query shape disappears in a refactor without anything going red.
+
+No `currency_compatibility` dimension was added: no output path compares across currencies, so one
+would be architecture symmetry rather than a response to evidence.
 
 ## What this round did
 

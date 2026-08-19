@@ -270,6 +270,11 @@ describe("the stop sentinel", () => {
     // never the asking, and pretending otherwise would make a missing credential look like a
     // reason to keep working forever.
     trueIdleEscalation: "QUEUED" as const,
+    // And again with the control bus. Each of these went red the moment its condition landed,
+    // which is the intended shape — a new sentinel input existing callers can ignore is one that
+    // defaults to satisfied, and a condition that defaults to satisfied is not a condition.
+    receivedDecisions: 0,
+    controlBusWatcher: "ALIVE" as const,
   };
 
   it("permits stopping only when every condition is satisfied", () => {

@@ -87,6 +87,8 @@ describe("a Human Gate defers its own action and nothing else", () => {
       discoveryCandidates: 0,
       orphanedDocumentedWork: 0,
       trueIdleEscalation: "POSTED",
+      receivedDecisions: 0,
+      controlBusWatcher: "ALIVE",
       openEscalations: 4,
     });
     const escalationCondition = sentinel.conditions.find((c) =>
@@ -105,6 +107,11 @@ describe("the loop may not idle without having asked", () => {
     unhandledReviewFindings: 0,
     discoveryCandidates: 0,
     orphanedDocumentedWork: 0,
+    // Added with the control bus: a decision can arrive without anyone here discovering it, and a
+    // stopped watcher means the next one is never read. Both fail closed, so these existing tests
+    // had to say which world they describe.
+    receivedDecisions: 0,
+    controlBusWatcher: "ALIVE" as const,
   };
 
   it("refuses to stop when the true-idle escalation state is unknown", () => {

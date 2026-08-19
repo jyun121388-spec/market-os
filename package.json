@@ -31,7 +31,11 @@
     "verify:live:edgar": "tsx scripts/verify-edgar-live.ts",
     "verify:live:fred": "tsx scripts/verify-fred-live.ts",
     "verify:live:ecos": "tsx scripts/verify-ecos-live.ts",
-    "verify:live:dart": "tsx scripts/verify-dart-live.ts"
+    "verify:live:dart": "tsx scripts/verify-dart-live.ts",
+    "control-bus:start": "tsx scripts/control-bus.ts start",
+    "control-bus:status": "tsx scripts/control-bus.ts status",
+    "control-bus:stop": "tsx scripts/control-bus.ts stop",
+    "control-bus:once": "tsx scripts/control-bus.ts once"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

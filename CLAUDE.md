@@ -91,6 +91,21 @@ are staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and posted unchange
 - `ESCALATION_PENDING != PROJECT_STOPPED`.
 - `REMOTE_POST_NOT_CONFIRMED => CHATGPT_NOT_YET_NOTIFIED` — only read-back proves transmission.
 
+### Control bus (`src/server/controlbus/`, `npm run control-bus:start|status|stop|once`)
+
+- `GITHUB_CONTROL_BUS => ASYNC_DECISION_TRANSPORT` — issue #2 is a rendezvous, not an authority.
+- `WATCHER_POLL => 30_60_SECONDS_WHILE_LOCAL_RUNTIME_ALIVE` — 45s at rest, bounded backoff to 8min.
+- `REMOTE_DECISION => DURABLE_INBOX_BEFORE_CURSOR_ADVANCE` — reversed, a crash loses a decision.
+- `DECISION_RECEIVED => VALIDATE_GOVERNANCE_BEFORE_APPLY` — a comment cannot authorise what policy
+  denies; `TEST-` ids never authorise anything.
+- `DECISION_PENDING => CONTINUE_OTHER_WORK`, and elapsed time never becomes implicit approval.
+- `TRUE_IDLE => WATCHER_REMAINS_ALIVE` — a stopped watcher is a task, not rest.
+- `DECISION_ARRIVAL => AUTO_UNBLOCK_AND_RESCHEDULE`.
+- `TRANSPORT_FAILURE != ENGINEERING_STOP`.
+
+The watcher polls from this machine only: if Windows sleeps or powers off it stops reading, and
+nothing may describe it as always-on.
+
 Escalations carry a decision packet (one decision, options, recommended default, what continues
 meanwhile), never a progress report. Everything outbound passes `screenPublicComment` first; issue
 #2 is publicly readable. Do not re-post "still idle" — only a materially changed state earns

@@ -393,6 +393,23 @@ export interface StopSentinelInput {
    * NONE does not, and neither does silence, which fails closed like every other input here.
    */
   trueIdleEscalation?: "POSTED" | "QUEUED" | "NONE";
+  /**
+   * Decisions on the control bus that have arrived and not yet been consumed.
+   *
+   * A received decision IS startable work — it is the one kind that appears without anybody here
+   * discovering it. Counting it separately from `discoveryCandidates` matters because discovery is
+   * something this process does and this is something done TO it.
+   */
+  receivedDecisions?: number;
+  /**
+   * Whether the control-bus watcher is running.
+   *
+   * Idle means the engineering queue is empty and the watcher is alive. It does not mean the
+   * process is gone — that is not idleness, it is deafness, and the difference decides whether a
+   * decision posted an hour from now ever arrives. A stopped watcher is therefore not a reason to
+   * stop; it is a task, and the sentinel says so by refusing to be satisfied.
+   */
+  controlBusWatcher?: "ALIVE" | "STOPPED";
 }
 
 export interface StopSentinel {
@@ -434,6 +451,18 @@ export function evaluateStopSentinel(input: StopSentinelInput): StopSentinel {
     {
       name: "no documented work orphaned outside the queue",
       ...unknown("orphaned documented tasks", input.orphanedDocumentedWork),
+    },
+    {
+      name: "no received decision waiting to be consumed",
+      ...unknown("received decisions", input.receivedDecisions),
+    },
+    {
+      name: "the control-bus watcher is alive to receive one",
+      satisfied: input.controlBusWatcher === "ALIVE",
+      detail:
+        input.controlBusWatcher === undefined
+          ? "Watcher state was never established, and unknown is not alive."
+          : `Control-bus watcher: ${input.controlBusWatcher}. A stopped watcher is a task, not a stop.`,
     },
     {
       name: "true idle has been escalated, not merely reached",

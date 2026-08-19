@@ -55,26 +55,49 @@ describe("every governed action is classified, and every action performed is gov
     expect(blocked.execution).toBe("BLOCKED_MISSING_CREDENTIAL");
   });
 
-  it("keeps the escalation module the only writer to an external surface", () => {
-    // The enumeration that produced this finding, pinned so it stays true. If a second module
-    // learns to post outward, it needs its own classification and this is where that surfaces.
+  it("keeps every module touching GitHub governed, and every WRITE in the escalation module", () => {
+    // This guard did its job one phase after it was written. The control bus added a second module
+    // that reaches api.github.com and the original assertion — "only escalation may touch GitHub"
+    // — went red on it.
+    //
+    // The test was coarser than the invariant, rather than the code being wrong. Reading a public
+    // issue and posting to one are different actions with different governance: CONTROL_BUS_READ
+    // is AUTO_ALLOWED, CONTROL_BUS_PUBLIC_WRITE is AUTO_ALLOWED_WITH_VERIFY behind the content
+    // screen. Collapsing them would have forced a read-only poller through the outbound-message
+    // path purely to satisfy an assertion, which is the tail wagging the dog.
+    //
+    // So: any module may READ GitHub if it lives somewhere classified to, and nothing may WRITE
+    // outside the escalation module, which is where the screen is.
     const serverDir = join(process.cwd(), "src/server");
-    const offenders: string[] = [];
+    const touchers: string[] = [];
+    const writers: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) walk(path);
         else if (entry.name.endsWith(".ts")) {
           const source = readFileSync(path, "utf8");
-          if (/\bfetch\(\s*["'`]https:\/\/api\.github\.com/.test(source)) offenders.push(path);
+          if (!/api\.github\.com/.test(source)) continue;
+          touchers.push(path);
+          // A write is a method, not a URL. Anything that is not a plain GET counts.
+          if (/method:\s*["'`](POST|PATCH|PUT|DELETE)/i.test(source)) writers.push(path);
         }
       }
     };
     walk(serverDir);
-    for (const path of offenders) {
-      expect(path, `${path} posts to GitHub without going through the escalation module`).toContain(
-        "escalation",
-      );
+
+    expect(touchers.length, "nothing reaches GitHub — has the module moved?").toBeGreaterThan(0);
+    for (const path of touchers) {
+      expect(
+        /escalation|controlbus/.test(path),
+        `${path} reaches GitHub from outside the two modules classified to do so`,
+      ).toBe(true);
+    }
+    for (const path of writers) {
+      expect(
+        path,
+        `${path} writes to GitHub without going through the escalation module`,
+      ).toContain("escalation");
     }
   });
 });

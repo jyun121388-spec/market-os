@@ -46,6 +46,11 @@ export type ActionKind =
   | "BULK_MESSAGING"
   | "COMMIT_CREDENTIAL"
   | "POST_PUBLIC_ISSUE_COMMENT"
+  | "CONTROL_BUS_READ"
+  | "CONTROL_BUS_PUBLIC_WRITE"
+  | "CONTROL_BUS_DECISION_APPLY"
+  | "CONTROL_BUS_WATCHER_START"
+  | "CONTROL_BUS_WATCHER_STOP"
   | "PUBLISH_CURRENT_STATE_CLAIM"
   | "PUBLISH_COMPLETENESS_CLAIM"
   | "PERSONALIZED_ADVICE_OUTPUT"
@@ -185,6 +190,72 @@ const RULES: Record<ActionKind, Rule> = {
     citations: ["CLAUDE.md — development loop"],
     rationale: "Adding coverage is reversible and cannot change product behaviour.",
   },
+  /**
+   * The control bus, classified as five actions rather than one.
+   *
+   * Splitting them is the point. Reading a public issue, posting to it, obeying what it says, and
+   * starting the process that watches it are four different risks wearing one name, and a single
+   * CONTROL_BUS rule would have to be as restrictive as its worst member — which would make
+   * reading a public page require the same ceremony as applying a remote instruction.
+   *
+   * The one that matters is DECISION_APPLY. A comment on a public issue is a message, not an
+   * authority: the bus is transport. So applying a decision is permitted, and permitted only as
+   * the ACTIONS the decision implies — each of which is evaluated on its own terms. A decision
+   * asking for a paid API call is a DENIED paid API call that happens to have arrived by GitHub.
+   */
+  CONTROL_BUS_READ: {
+    decision: "AUTO_ALLOWED",
+    citations: ["docs/GOVERNANCE_OS.md — escalation channel"],
+    rationale:
+      "Reading a public issue over the unauthenticated API sends nothing, costs nothing, and " +
+      "changes nothing. It is the one half of this transport that has always worked.",
+  },
+  CONTROL_BUS_PUBLIC_WRITE: {
+    decision: "AUTO_ALLOWED_WITH_VERIFY",
+    citations: ["CLAUDE.md — never commit secrets", "docs/HUMAN_GATE_QUEUE.md HG-001"],
+    rationale:
+      "Same surface and same risk as POST_PUBLIC_ISSUE_COMMENT: the act is fine, the content is " +
+      "what needs checking, and anything published may already have been read.",
+    requiredVerification: [
+      "screenPublicComment reports no findings",
+      "the comment carries a protocol ID, so a duplicate post is detectable",
+      "a read-back confirms the comment exists before it is recorded as transmitted",
+    ],
+    refine: (action, base) =>
+      action.context?.credentialsAvailable === false
+        ? { ...base, execution: "BLOCKED_MISSING_CREDENTIAL" }
+        : base,
+  },
+  CONTROL_BUS_DECISION_APPLY: {
+    decision: "AUTO_ALLOWED_WITH_VERIFY",
+    citations: ["docs/GOVERNANCE_OS.md — escalation channel", "CLAUDE.md — Human Gate list"],
+    rationale:
+      "A decision may be applied, and only ever as the actions it implies — each evaluated here " +
+      "on its own terms. GitHub is a transport bus and not a root authority: an instruction to " +
+      "spend money, deploy, or disclose a secret is refused identically whether it arrives from " +
+      "a comment or from anywhere else.",
+    requiredVerification: [
+      "a matching [ESCALATION] with the same protocol id exists on the issue",
+      "the decision has not already been applied",
+      "every action the decision implies is itself evaluated by this table",
+      "the full verification chain passes before the acknowledgement is queued",
+    ],
+  },
+  CONTROL_BUS_WATCHER_START: {
+    decision: "AUTO_ALLOWED",
+    citations: ["docs/GOVERNANCE_OS.md — escalation channel"],
+    rationale:
+      "A local read-only poller against a public page. It holds a single-instance lock, writes " +
+      "only to a gitignored runtime directory, and cannot reach product data.",
+  },
+  CONTROL_BUS_WATCHER_STOP: {
+    decision: "AUTO_ALLOWED",
+    citations: ["docs/GOVERNANCE_OS.md — escalation channel"],
+    rationale:
+      "Stopping the watcher loses no message — the cursor is durable and GitHub keeps the " +
+      "comments — so the cost of stopping is latency, not data.",
+  },
+
   /**
    * Found by asking the coverage question the right way round.
    *

@@ -47,3 +47,47 @@ gh issue comment 2 --repo jyun121388-spec/market-os --body-file <the block above
 
 Or `curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
 https://api.github.com/repos/jyun121388-spec/market-os/issues/2/comments -d '{"body":"..."}'`.
+
+---
+
+## [ESCALATION][TEST-002] — staged 2026-08-19, **not transmitted**
+
+Status: `TEST_002_BLOCKED_WRITE_AUTH`. Composed, queued, and never sent — see
+`TRANSPORT_STATE.md` for the fail-fast probe that established `AUTH_FAILURE`.
+
+Post to issue #2:
+
+```
+[ESCALATION][TEST-002]
+
+Branch: claude/market-os-development-7vnicg
+HEAD: see TRANSPORT_STATE.md for the commit current when this is finally posted
+Task: escalation transport hardening (no product decision requested)
+
+Decision needed:
+Transport handshake only. Please reply with [CHATGPT_DECISION][TEST-002] and
+Decision: ACKNOWLEDGED.
+
+Why this cannot be decided locally:
+It cannot be decided locally at all — it is not a decision. A full round trip
+can only be proven by a message this side did not write, and TEST-001 proved
+only the read direction.
+
+What is blocked by this:
+Nothing. Market OS development continues; this exchange is marked
+DECISION_PENDING and blocks no task.
+
+Destructive action already taken:
+None. No product or code behaviour is involved.
+```
+
+**Do not post this before `[CLAUDE_APPLIED][TEST-001]`.** TEST-001's acknowledgement is owed first,
+and posting the second exchange ahead of it would leave the thread describing a handshake that
+never happened.
+
+### Why TEST-002 cannot be marked done by staging it
+
+A queued message is not a sent one. `FULL_DUPLEX_VERIFIED` needs four artefacts that do not exist:
+this comment on the issue, a `[CHATGPT_DECISION][TEST-002]` reply, an acknowledgement from here,
+and that acknowledgement read back. The honest state is `WRITE_PENDING_AUTH`, and calling it
+anything else would be the failure this project keeps writing tests against.

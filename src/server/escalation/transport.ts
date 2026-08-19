@@ -16,6 +16,8 @@
  * Nothing here may invent a decision, and a transport failure is never read as approval.
  */
 
+import { screenPublicComment } from "./screen";
+
 /** The three message kinds the channel carries, and nothing else. */
 export type ProtocolKind = "ESCALATION" | "CHATGPT_DECISION" | "CLAUDE_APPLIED";
 
@@ -213,6 +215,21 @@ export function queuePendingComment(
   candidate: PendingComment,
   channel: ChannelState,
 ): PendingComment[] {
+  // Screened at the queue boundary rather than at the post, because the queue is durable: a
+  // comment that reaches it is written to `docs/escalation/PENDING_COMMENTS.md` and committed,
+  // so a credential in the body is published to the repository whether or not the post ever
+  // happens. Checking at the last moment would be checking after the leak.
+  //
+  // Throwing rather than dropping. A silently discarded escalation is a question nobody knows was
+  // asked, and the caller composed this text believing it would be sent.
+  const screened = screenPublicComment(candidate.body);
+  if (screened.length > 0) {
+    throw new Error(
+      `Refusing to queue ${candidate.kind}[${candidate.id}] for a public channel: ` +
+        screened.map((f) => `line ${f.line} — ${f.reason}`).join("; "),
+    );
+  }
+
   const alreadyQueued = queue.some((p) => p.kind === candidate.kind && p.id === candidate.id);
   const alreadyPosted = channel.exchanges.some(
     (e) => e.id === candidate.id && candidate.kind === "CLAUDE_APPLIED" && e.ackPosted,

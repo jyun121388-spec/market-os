@@ -1273,3 +1273,40 @@ negation elsewhere in the paragraph cannot launder a recommendation — `매수�
 
 Both findings are in the v2 shadow layer. No v1 source was modified, and the real Ask Market
 refusal for "Should I buy Apple Inc.?" verifies PASS before and after.
+
+### IR-044 — the only action that leaves this machine was ungoverned (P1, FIXED)
+
+**Cluster:** GUARDRAIL_COVERAGE. **Found by:** governance action classification coverage pass.
+
+The coverage question had been asked one way round only. `RULES` is typed
+`Record<ActionKind, Rule>`, so the compiler proves every action KIND has a rule — and proves
+nothing about whether every action the system performs has a kind. An action that was never named
+is not an uncovered rule; it is an invisible one, and no type system can find it.
+
+Enumerating what this system can actually do surfaced exactly one: the escalation channel posts
+comments to an issue on a publicly readable repository. It is the only code path that sends data
+off this machine. It had no `ActionKind`, consulted no policy, and screened no content. The
+prohibition on posting keys, credentials, private user data or internal secrets to that channel
+existed solely as prose in an operator's instructions — enforced by whoever happened to be reading.
+
+Fixed in three parts:
+
+1. `POST_PUBLIC_ISSUE_COMMENT`, classified `AUTO_ALLOWED_WITH_VERIFY`. Not a human gate: an
+   asynchronous decision channel that stops for approval on every message is not asynchronous.
+   The risk is the content, not the act, and content is checkable. A missing credential reports as
+   `BLOCKED_MISSING_CREDENTIAL` — an execution state, never a refusal.
+2. `src/server/escalation/screen.ts`, which matches shapes rather than values. Nothing loads a real
+   secret to compare against, because a screen that read the environment to detect a secret would
+   put the secret in the screening process.
+3. The screen wired into `queuePendingComment`, which throws rather than dropping. It screens at
+   the QUEUE, not at the post, because the queue is durable: a comment that reaches it is written
+   to `docs/escalation/PENDING_COMMENTS.md` and committed, so a credential in the body reaches the
+   repository whether or not the post ever happens. Screening at the post is screening after the
+   leak.
+
+Run against the staged backlog immediately, which is the part worth keeping. It flagged
+`Authorization: Bearer $GITHUB_TOKEN` in the queue's own worked example of how to post — a shell
+variable reference, not a value. A true over-flag, and the more instructive failure: describing the
+shape of a request is how a transport problem gets explained at all, and a screen that forbids it
+pushes the description into some channel with no screen. Placeholder and variable-reference forms
+are now excluded, with both directions pinned.

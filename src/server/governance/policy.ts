@@ -45,6 +45,7 @@ export type ActionKind =
   | "CREDENTIAL_CHANGE"
   | "BULK_MESSAGING"
   | "COMMIT_CREDENTIAL"
+  | "POST_PUBLIC_ISSUE_COMMENT"
   | "PUBLISH_CURRENT_STATE_CLAIM"
   | "PUBLISH_COMPLETENESS_CLAIM"
   | "PERSONALIZED_ADVICE_OUTPUT"
@@ -183,6 +184,46 @@ const RULES: Record<ActionKind, Rule> = {
     decision: "AUTO_ALLOWED",
     citations: ["CLAUDE.md — development loop"],
     rationale: "Adding coverage is reversible and cannot change product behaviour.",
+  },
+  /**
+   * Found by asking the coverage question the right way round.
+   *
+   * `RULES` is typed `Record<ActionKind, Rule>`, so the compiler already proves the table covers
+   * every kind. That proves nothing about the kinds: an action the system performs but never
+   * NAMED is not an uncovered rule, it is an invisible one, and no type can catch it.
+   *
+   * The escalation channel was exactly that. It writes to a GitHub issue on a publicly readable
+   * repository — the only action in this system that sends anything off this machine — and it had
+   * no classification, consulted no policy, and screened no content. The prohibition on posting
+   * credentials there existed solely as prose in an operator's instructions, which is to say it
+   * was enforced by whoever happened to be reading at the time. That is the condition this whole
+   * engine exists to end.
+   *
+   * Not DEFERRED_HUMAN_GATE. Asking a human to approve each comment would defeat an ASYNCHRONOUS
+   * decision channel whose entire purpose is to keep working while nobody is present. The risk
+   * here is not the act of posting, it is the CONTENT posted, and content is checkable — so this
+   * is AUTO_ALLOWED_WITH_VERIFY with the screen as the verification, and the screen fails closed.
+   */
+  POST_PUBLIC_ISSUE_COMMENT: {
+    decision: "AUTO_ALLOWED_WITH_VERIFY",
+    citations: [
+      "CLAUDE.md — never commit secrets",
+      "docs/GOVERNANCE_OS.md — escalation channel",
+      "docs/HUMAN_GATE_QUEUE.md HG-001",
+    ],
+    rationale:
+      "An escalation comment is a technical question posted to a public surface. Posting is " +
+      "reversible in the weak sense that a comment can be deleted, and irreversible in the sense " +
+      "that matters: anything published may already have been read, cached or indexed. The " +
+      "verification is therefore on the text, before it leaves.",
+    requiredVerification: [
+      "screenPublicComment reports no findings",
+      "the comment carries a protocol ID, so a duplicate post is detectable",
+    ],
+    refine: (action, base) =>
+      action.context?.credentialsAvailable === false
+        ? { ...base, execution: "BLOCKED_MISSING_CREDENTIAL" }
+        : base,
   },
   EDIT_DOCS: {
     decision: "AUTO_ALLOWED",

@@ -1235,3 +1235,41 @@ No code was changed in response to any of these. Zero local-AI findings survived
    that a cross-file reviewer (Terra) is better suited to than a bounded one.
 3. The interim period had **no independent review**. Local AI produced zero valid findings and two
    demonstrably false ones, so treat this range as reviewed by the author only.
+
+### IR-042 — the output-side advice scanner was second-person only (P2, FIXED)
+
+**Cluster:** GUARDRAIL_COVERAGE. **Found by:** Verify dimension reachability pass, not by review.
+
+`ADVICE_OUTPUT_PATTERNS` scans what the product renders, as a second line of defence behind the
+request-side refusal. Every English pattern in it required the reader as the grammatical subject —
+`you should buy`, `we recommend buying`. Fed `Investors should buy long-duration bonds now`, the
+dimension returned PASS.
+
+Third person is how financial prose gives advice. A sell-side note says "investors should reduce
+exposure"; it does not address the reader directly. The scanner was watching the one phrasing least
+likely to appear in the output it exists to catch.
+
+Fixed by naming the subjects explicitly — investors, traders, shareholders, holders, clients,
+readers — rather than by a wildcard, because `\w+ should buy` also matches a sentence explaining
+that nobody should read the page as a recommendation, and a guardrail that condemns the disclaimer
+gets switched off.
+
+### IR-043 — the Korean advice patterns flagged the product's own refusal (P2, FIXED)
+
+**Cluster:** GUARDRAIL_COVERAGE. **Found by:** the negative control written for IR-042.
+
+`매수 추천을 제공하지 않습니다` — a Korean rendering of the refusal — matched `/매수\s?(의견|추천)/`
+and produced FAIL. The scanner condemning the sentence that does the refusing is precisely the
+failure the pattern list's own comment claims to have designed against, and it had been designed
+against in English only: each English pattern requires an affirmative construction, so
+"we do not recommend buying" fails to match by construction.
+
+Korean cannot work that way. It is predicate-final, so the negation lands at the end of the clause
+and never intervenes in the noun phrase the pattern matches.
+
+Fixed with a clause-final negation check, scoped per sentence rather than per line so that a
+negation elsewhere in the paragraph cannot launder a recommendation — `매수해야 합니다. 위험은
+없습니다.` still offends on its first sentence, and that case is pinned.
+
+Both findings are in the v2 shadow layer. No v1 source was modified, and the real Ask Market
+refusal for "Should I buy Apple Inc.?" verifies PASS before and after.

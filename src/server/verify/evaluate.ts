@@ -520,7 +520,16 @@ function crossSourceConsistency(input: VerificationInput): DimensionResult {
  * price target, a rating, or a guarantee. Mentioning what the product does not do is not advice.
  */
 const ADVICE_OUTPUT_PATTERNS: RegExp[] = [
-  /\byou (should|ought to|must) (buy|sell|hold|short|avoid)\b/i,
+  // The subject list is not decoration. Every pattern here was second-person until a reachability
+  // pass fed the scanner "Rates are falling, so investors should buy long-duration bonds now" and
+  // it returned PASS. Third-person is how financial prose actually gives advice — a sell-side note
+  // says "investors should reduce exposure", never "you should" — so the second-person-only
+  // scanner was checking for the one phrasing least likely to appear.
+  //
+  // Named subjects rather than a wildcard, deliberately. `\w+ should buy` would also match a
+  // sentence explaining that nobody should read this as a recommendation, and a guardrail that
+  // condemns the disclaimer gets switched off.
+  /\b(you|investors?|traders?|shareholders?|holders?|clients?|readers?) (should|ought to|must) (buy|sell|hold|short|avoid|reduce|increase)\b/i,
   /\bwe (recommend|advise|suggest) (buying|selling|holding|shorting)\b/i,
   /\b(consider|time to) (buying|selling|shorting)\b/i,
   /\b(target price|price target|fair value)\b/i,
@@ -538,12 +547,42 @@ const ADVICE_OUTPUT_PATTERNS: RegExp[] = [
   /목표\s?주가/,
   /매수\s?(의견|추천)/,
   /매도\s?(의견|추천)/,
+  // The same third-person hole in Korean, where it is wider: Korean routinely drops the subject
+  // altogether, so "매수해야 합니다" is a recommendation with nobody named in it. The 의견/추천
+  // patterns above only catch the noun forms.
+  /(매수|매도|보유|손절|익절)\s?해야/,
 ];
 
+/**
+ * Korean clause-final negation, which the advice patterns above cannot see.
+ *
+ * The English patterns encode their own negation-safety: each requires an affirmative construction,
+ * so "we do not recommend buying" simply fails to match. Korean cannot work that way. It is
+ * predicate-final, so the negation lands at the END of the clause, arbitrarily far from the noun —
+ * and 매수 추천 sits inside 매수 추천을 제공하지 않습니다 unchanged.
+ *
+ * That is not hypothetical over-caution. "매수 추천을 제공하지 않습니다" is a Korean rendering of the
+ * product's own refusal, and the scanner condemned it: the guardrail flagging the sentence that
+ * does the refusing, which is the exact failure the pattern list's comment claims to have designed
+ * against. It was designed against in English only.
+ *
+ * Scoped per sentence rather than per line, so a negation elsewhere in the paragraph cannot launder
+ * a recommendation — "매수 추천합니다. 위험은 없습니다." still offends on its first sentence.
+ */
+const KOREAN_NEGATION = /(않|없|아닙|아니|금지|불가)/;
+const SENTENCE_BREAK = /(?<=[.!?。])\s+|(?<=니다)\s+/;
+
 function adviceResilience(advice: NonNullable<VerificationInput["advice"]>): DimensionResult {
-  const offending = advice.renderedText.filter((line) =>
-    ADVICE_OUTPUT_PATTERNS.some((pattern) => pattern.test(line)),
-  );
+  const offends = (line: string) =>
+    line
+      .split(SENTENCE_BREAK)
+      .some(
+        (sentence) =>
+          ADVICE_OUTPUT_PATTERNS.some((pattern) => pattern.test(sentence)) &&
+          !KOREAN_NEGATION.test(sentence),
+      );
+
+  const offending = advice.renderedText.filter(offends);
   if (offending.length > 0) {
     return fail(
       `Rendered output reads as a recommendation: ${offending.length} line(s) match an ` +

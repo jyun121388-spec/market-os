@@ -69,5 +69,25 @@ export function verificationInputFromRegimeAxis(
       truncated: computed.length < configuredCount,
     },
     freshness: evidence.freshness,
+    // The axis's rendered lines, so `adversarial_resilience` EVALUATES this output instead of
+    // reporting that it could not tell.
+    //
+    // A reachability pass over the real shadow run found this dimension returning
+    // INSUFFICIENT_EVIDENCE for every regime axis — not because anything was uncertain, but
+    // because the adapter passed nothing for it to look at. A dimension that shrugs is worth
+    // slightly less than one that is honestly NOT_APPLICABLE, and much less than one that checks.
+    //
+    // The axis is a list of reported readings with directions derived from arithmetic. It names no
+    // price, recommends nothing, and deliberately produces no composite score — but that is a
+    // claim about the output, and this makes it a checkable one rather than an asserted one.
+    advice: {
+      shape: "FACTOR_LIST",
+      renderedText: computed.map(
+        (r) =>
+          `${r.seriesName ?? r.externalId}: ${r.value} (${r.direction}, ${r.sourceCode}` +
+          `${r.asOfDate ? ` as of ${r.asOfDate}` : ""})`,
+      ),
+      figureCount: computed.length,
+    },
   };
 }

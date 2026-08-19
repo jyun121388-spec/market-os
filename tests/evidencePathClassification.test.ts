@@ -30,10 +30,16 @@ import { isEvidenceOnlyPath } from "@/server/release/preflight";
  * Recorded as IR-076 and kept as a heuristic on purpose: proving the negative needs call-graph
  * analysis, and the cost of that is a test nobody maintains. What the heuristic catches is the
  * realistic case — somebody adds a straightforward read — and what it cannot catch is now written
- * down instead of implied. The allowlist itself fails closed regardless, so the exposure is a
- * future unnoticed reader rather than a release that closes on a stale review.
+ * down instead of implied.
  *
- * The wholesale-directory case is checked separately below, because that one is cheap to catch.
+ * The exposure that leaves is narrow but real, and the earlier wording overstated it as "the
+ * allowlist fails closed regardless": a dynamically constructed reader would make an evidence
+ * document behavioural while its edits stayed review-exempt. The allowlist fails closed against
+ * unclassified PATHS, which is a different guarantee from failing closed against unnoticed
+ * READERS, and only the first one is actually held.
+ *
+ * The wholesale-directory case is checked separately below — and only for a literal `docs`
+ * inside a `readdirSync` call, which is the common spelling and not all of them.
  */
 
 const ROOTS = ["src", "tests", "scripts", "prisma"];
@@ -97,7 +103,7 @@ describe("evidence-only paths are read only by the evidence reporter", () => {
     const external = readers.filter(
       (file) =>
         !file.endsWith("evidencePathClassification.test.ts") &&
-        !PERMITTED_READERS.some((permitted) => normalise(file).endsWith(permitted)),
+        !PERMITTED_READERS.includes(normalise(relative(process.cwd(), file))),
     );
     expect(
       external.map((f) => relative(process.cwd(), f)),

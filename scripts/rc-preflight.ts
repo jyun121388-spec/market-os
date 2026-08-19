@@ -31,7 +31,6 @@ try {
   pushedToRemote = false;
 }
 
-const findings = readFileSync(join(process.cwd(), "docs/INTERIM_REVIEW_FINDINGS.md"), "utf8");
 const debt = existsSync("docs/REVIEW_DEBT.md")
   ? readFileSync(join(process.cwd(), "docs/REVIEW_DEBT.md"), "utf8")
   : "";
@@ -89,25 +88,27 @@ const pending = existsSync("docs/escalation/PENDING_COMMENTS.md")
     ].length
   : 0;
 
-/**
- * Evidence this script CANNOT establish, and therefore does not supply.
- *
- * The suite, typecheck, lint, format, build, E2E and migration evidence all come from actually
- * running those things, and this script deliberately does not run them. Passing them as absent is
- * the honest input; the operator supplies them by running the chain and re-running this with the
- * results, or the verdict correctly reports EVIDENCE_INSUFFICIENT.
- *
- * The temptation is to shell out to `npm test` here and report the result. That would make the
- * preflight always green about evidence it generated a moment earlier, which measures nothing.
- */
+/** The abbreviated form git would print, so string equality against `head` means what it says. */
+function resolveShort(sha: string): string {
+  try {
+    return git("rev-parse", "--short", sha);
+  } catch {
+    return sha;
+  }
+}
+
 /**
  * Review evidence, read from the attestation rather than inferred from prose.
  *
- * The previous version pattern-matched the findings document for a phrase, which made the review
- * status a property of how a sentence was worded. The attestation is a structured record naming
- * the exact commit reviewed, so freshness becomes a comparison instead of a guess.
+ * The previous version pattern-matched the findings document for a phrase, which made review
+ * status a property of how a sentence was worded. The attestation names the exact commit reviewed,
+ * so freshness becomes a comparison instead of a guess.
  *
- * Absent or unparseable attestation yields no fields at all, which the preflight reads as MISSING.
+ * An absent or unparseable attestation yields no fields, which the preflight reads as MISSING.
+ *
+ * The suite, typecheck, lint, build, E2E and migration evidence are NOT gathered here and are
+ * passed as absent on purpose. Shelling out to `npm test` would make the preflight permanently
+ * green about evidence it had generated moments earlier, which measures nothing.
  */
 function reviewEvidence(): {
   finalReviewDone?: boolean;
@@ -118,8 +119,22 @@ function reviewEvidence(): {
   if (!existsSync(attestationPath)) return {};
   const text = readFileSync(attestationPath, "utf8");
   const sha = /REVIEWED_CODE_SHA:\s*`?([0-9a-f]{7,40})`?/.exec(text)?.[1];
-  const clean = /REVIEW_VERDICT:\s*`?CLEAN`?/.test(text);
+  // Anchored. Without the boundary, `CLEANISH` matched and a verdict nobody wrote was accepted —
+  // the review found it, and it is the kind of thing a typo produces rather than an attacker.
+  const clean = /REVIEW_VERDICT:\s*`?CLEAN`?\s*$/m.test(text);
   if (!sha) return {};
+
+  // The reviewed commit must be an ANCESTOR of HEAD.
+  //
+  // Without this the mechanism is unsound in the most direct way available: attest a DESCENDANT
+  // commit, and the diff from it back to HEAD contains only the attestation, so a review of code
+  // that does not exist yet is accepted as covering the code that does. A freshness rule built on
+  // a diff has to establish direction, and a diff has none.
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], { cwd: process.cwd() });
+  } catch {
+    return { finalReviewDone: false, finalReviewCommit: sha };
+  }
 
   // Paths changed between the reviewed commit and HEAD, straight from git. Not supplied by the
   // attestation itself, deliberately: a document asserting which files changed since it was
@@ -136,8 +151,12 @@ function reviewEvidence(): {
 
   return {
     finalReviewDone: clean,
-    finalReviewCommit: sha,
-    // An empty diff means the reviewed commit IS head, which the preflight handles by equality.
+    // Resolved to the same form as `head`, because the preflight compares them as strings and the
+    // attestation may carry a full SHA while `head` is abbreviated. That mismatch reported a
+    // review of the CURRENT commit as stale — failing closed, but on a false premise, and a
+    // freshness check that cannot recognise its own commit is not much of one.
+    finalReviewCommit: resolveShort(sha),
+    // An empty diff means the reviewed commit is HEAD, which the preflight handles by equality.
     changedPathsSinceReview: changed.length > 0 ? changed : undefined,
   };
 }

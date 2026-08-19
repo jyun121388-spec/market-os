@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { isEvidenceOnlyPath } from "@/server/release/preflight";
 
 /**
- * A file is evidence-only if nothing reads it. That is checkable, so it is checked.
+ * A file is evidence-only if nothing but the evidence reporter reads it. That is checkable,
+ * approximately, so it is checked — and the approximation is stated rather than glossed.
  *
  * The review-freshness rule needs a set of paths whose contents a code review is not evidence
  * about — otherwise recording a review creates a commit, that commit moves HEAD, and the review is
@@ -16,10 +17,23 @@ import { isEvidenceOnlyPath } from "@/server/release/preflight";
  * parsed by the orphan check. `CLAUDE.md` is operating policy. Editing any of them changes what
  * the system does, and a review is precisely evidence about what the system does.
  *
- * So membership is not a judgement recorded once in a comment. It is a property this file
- * verifies: an evidence-only path may not be referenced by any source or test file. If someone
- * later teaches the code to read the attestation, this goes red and the classification has to be
- * argued for again rather than inherited.
+ * So membership is checked rather than asserted — but the check is a HEURISTIC and this docstring
+ * used to claim more. It said the file "verifies that nothing reads" an evidence path. It does
+ * not. It detects a literal mention of the path or its basename alongside a read call, and a
+ * review found the evasion in one line:
+ *
+ *     const p = join("docs", "REVIEW_" + "ATTESTATION.md"); readFileSync(p);
+ *
+ * That was reproduced and it passes. Dynamic enumeration of `docs/`, a path imported from another
+ * module, and `fs.promises.readFile` evade it too.
+ *
+ * Recorded as IR-076 and kept as a heuristic on purpose: proving the negative needs call-graph
+ * analysis, and the cost of that is a test nobody maintains. What the heuristic catches is the
+ * realistic case — somebody adds a straightforward read — and what it cannot catch is now written
+ * down instead of implied. The allowlist itself fails closed regardless, so the exposure is a
+ * future unnoticed reader rather than a release that closes on a stale review.
+ *
+ * The wholesale-directory case is checked separately below, because that one is cheap to catch.
  */
 
 const ROOTS = ["src", "tests", "scripts", "prisma"];
@@ -41,13 +55,31 @@ const sourceFiles = ROOTS.filter((r) => {
   }
 }).flatMap((r) => walk(join(process.cwd(), r)));
 
+/**
+ * The one file allowed to read an evidence path, and why that is not a loophole.
+ *
+ * "Read by nothing" was too strict and the guard proved it by going red on the evidence REPORTER —
+ * the preflight script whose entire job is to read evidence. Taken literally the rule made the
+ * two-SHA mechanism impossible: an attestation nothing may read cannot inform a verdict.
+ *
+ * The honest rule is that an evidence path may be read only by the designated reporter, and the
+ * reporter is itself review-invalidating. `scripts/rc-preflight.ts` is not on the evidence-only
+ * list, so any change to it makes the review stale — which means the reader is always reviewed
+ * even though the data it reads is not. That is the property that matters, and the exemption is
+ * checked below rather than trusted.
+ */
+const PERMITTED_READERS = ["scripts/rc-preflight.ts"];
+
+/** Compare paths on forward slashes; this machine produces backslashes. */
+const normalise = (path: string) => path.split("\\").join("/");
+
 /** The paths the preflight will treat as not invalidating a review. */
 const CLAIMED_EVIDENCE_ONLY = [
   "docs/REVIEW_ATTESTATION.md",
   "docs/escalation/PENDING_PR_UPDATE.md",
 ];
 
-describe("evidence-only paths are read by nothing", () => {
+describe("evidence-only paths are read only by the evidence reporter", () => {
   it("has files to search, so a green result means something", () => {
     expect(sourceFiles.length).toBeGreaterThan(50);
   });
@@ -62,13 +94,38 @@ describe("evidence-only paths are read by nothing", () => {
       // the path and performs a read, which is the shape that makes the contents behavioural.
       return /readFileSync|readFile\(|existsSync|createReadStream|import\(/.test(source);
     });
-    const external = readers.filter((file) => !file.endsWith("evidencePathClassification.test.ts"));
+    const external = readers.filter(
+      (file) =>
+        !file.endsWith("evidencePathClassification.test.ts") &&
+        !PERMITTED_READERS.some((permitted) => normalise(file).endsWith(permitted)),
+    );
     expect(
       external.map((f) => relative(process.cwd(), f)),
       `${evidencePath} is classified as evidence-only but is referenced in code. Either it ` +
         "affects behaviour — in which case it invalidates a review and must leave the list — or " +
         "the reference is incidental and should be removed.",
     ).toEqual([]);
+  });
+
+  it("catches a reader that enumerates the docs directory wholesale", () => {
+    // The one evasion cheap enough to close. Reading every file under `docs/` picks up the
+    // attestation without ever naming it, and unlike constructed paths it has a distinctive shape.
+    const offenders = sourceFiles.filter((file) => {
+      const source = readFileSync(file, "utf8");
+      return /readdirSync\(\s*[^)]*["'`][^"'`]*docs/.test(source);
+    });
+    expect(
+      offenders.map((f) => relative(process.cwd(), f)),
+      "a file enumerates docs/ and would read the attestation without naming it",
+    ).toEqual([]);
+  });
+
+  it("keeps the permitted reader itself review-invalidating", () => {
+    // The whole exemption rests on this. If `rc-preflight.ts` were ever classified evidence-only,
+    // the reader and the data would both be outside review and the mechanism would be circular.
+    for (const reader of PERMITTED_READERS) {
+      expect(isEvidenceOnlyPath(reader)).toBe(false);
+    }
   });
 
   it("agrees with the preflight's own classification", () => {

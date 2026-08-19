@@ -100,6 +100,48 @@ const pending = existsSync("docs/escalation/PENDING_COMMENTS.md")
  * The temptation is to shell out to `npm test` here and report the result. That would make the
  * preflight always green about evidence it generated a moment earlier, which measures nothing.
  */
+/**
+ * Review evidence, read from the attestation rather than inferred from prose.
+ *
+ * The previous version pattern-matched the findings document for a phrase, which made the review
+ * status a property of how a sentence was worded. The attestation is a structured record naming
+ * the exact commit reviewed, so freshness becomes a comparison instead of a guess.
+ *
+ * Absent or unparseable attestation yields no fields at all, which the preflight reads as MISSING.
+ */
+function reviewEvidence(): {
+  finalReviewDone?: boolean;
+  finalReviewCommit?: string;
+  changedPathsSinceReview?: string[];
+} {
+  const attestationPath = join(process.cwd(), "docs", "REVIEW_ATTESTATION.md");
+  if (!existsSync(attestationPath)) return {};
+  const text = readFileSync(attestationPath, "utf8");
+  const sha = /REVIEWED_CODE_SHA:\s*`?([0-9a-f]{7,40})`?/.exec(text)?.[1];
+  const clean = /REVIEW_VERDICT:\s*`?CLEAN`?/.test(text);
+  if (!sha) return {};
+
+  // Paths changed between the reviewed commit and HEAD, straight from git. Not supplied by the
+  // attestation itself, deliberately: a document asserting which files changed since it was
+  // written would be marking its own homework.
+  let changed: string[] = [];
+  try {
+    changed = git("diff", "--name-only", `${sha}..HEAD`)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch {
+    return { finalReviewDone: clean, finalReviewCommit: sha };
+  }
+
+  return {
+    finalReviewDone: clean,
+    finalReviewCommit: sha,
+    // An empty diff means the reviewed commit IS head, which the preflight handles by equality.
+    changedPathsSinceReview: changed.length > 0 ? changed : undefined,
+  };
+}
+
 const input: PreflightInput = {
   head,
   changesSinceEvidence: [],
@@ -109,11 +151,7 @@ const input: PreflightInput = {
   openP1: 0,
   openP2,
   unhandledReviewFindings: 0,
-  finalReviewDone: /Sol has not been used at all|final Release Candidate adversarial/i.test(
-    findings + gatesDoc,
-  )
-    ? false
-    : undefined,
+  ...reviewEvidence(),
   openHumanGates,
   unverifiedProviders: ["FRED", "ECOS", "OPENDART"],
   queuedEscalations: pending + (busState?.outbox?.length ?? 0),

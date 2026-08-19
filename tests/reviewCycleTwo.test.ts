@@ -110,6 +110,20 @@ describe("the lock actually excludes", () => {
     expect(readLock(paths)).toBeNull();
   });
 
+  it("does not destroy a live lock while clearing a stale one", () => {
+    // The third cycle's critical. Clearing by pathname deletes whatever is there, including the
+    // live lock a competitor legitimately created in between:
+    //   A reads stale S · B reads S, clears, claims · A clears B's LIVE lock · A claims.
+    // `wx` only arbitrates the creation, and by then the damage is done. Removal is now a rename
+    // to a name only one caller can have chosen, so exactly one racer wins and the loser never
+    // touches what the winner put back.
+    const ancient = new Date(Date.now() - 10 * 60_000).toISOString();
+    writeFileSync(paths.lock, JSON.stringify(rec("dead", ancient)), "utf8");
+    expect(acquireLock(paths, rec("B"), 1_000).acquired).toBe(true);
+    expect(acquireLock(paths, rec("A"), 1_000).acquired).toBe(false);
+    expect(readLock(paths)?.nonce).toBe("B");
+  });
+
   it("treats a heartbeat from the future as stale rather than eternal", () => {
     // `nowMs - started` goes negative, so a lock stamped 2099 stayed "current" for decades — a
     // dead watcher holding the channel shut with a typo.

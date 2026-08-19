@@ -116,8 +116,17 @@ describe("an action nobody classified is never applied automatically", () => {
   });
 
   it("allows the two classes that survive a crash of unknown outcome", () => {
-    expect(mayAutoApply("EDIT_DOCS").allowed).toBe(true);
+    expect(mayAutoApply("CONTROL_BUS_READ").allowed).toBe(true);
     expect(mayAutoApply("POST_PUBLIC_ISSUE_COMMENT").class).toBe("RECONCILABLE");
+  });
+
+  it("does not call a whole action CATEGORY idempotent", () => {
+    // EDIT_DOCS and ADD_TEST were marked IDEMPOTENT and the third review removed them in a
+    // sentence: appending a paragraph and crashing before the marker lands means recovery appends
+    // it again. "Editing a document" is a family of operations, not one, and a retry-blind
+    // classification at that granularity promises something the category cannot deliver.
+    expect(mayAutoApply("EDIT_DOCS").allowed).toBe(false);
+    expect(mayAutoApply("ADD_TEST").allowed).toBe(false);
   });
 
   it("classifies every governed action, or names it UNKNOWN rather than omitting it", () => {
@@ -146,13 +155,24 @@ describe("crash recovery is decided by the action, not by the journal", () => {
     expect(recoverFrom(record("APPLIED", "EDIT_DOCS")).action).toBe("NOTHING_TO_DO");
   });
 
-  it("retries a reservation that never started", () => {
-    // Nothing was attempted, so no effect can have occurred — safe regardless of class.
+  it("retries a reservation that never started, when the action may be auto-applied", () => {
+    // Nothing was attempted, so no duplicate effect is possible — and the action still has to be
+    // one that may run at all.
     expect(recoverFrom(record("RESERVED", "GIT_COMMIT")).action).toBe("RETRY");
   });
 
   it("retries an idempotent effect that may or may not have happened", () => {
-    expect(recoverFrom(record("STARTED", "EDIT_DOCS")).action).toBe("RETRY");
+    expect(recoverFrom(record("STARTED", "CONTROL_BUS_READ")).action).toBe("RETRY");
+  });
+
+  it("does not treat a reservation as authorization", () => {
+    // Safe with respect to duplication is not safe with respect to authorization. A persisted
+    // RESERVED row for DEPLOY_PRODUCTION returned RETRY, so a restart path trusting recovery would
+    // have carried out a Human Gate action because a crashed process wrote a row. A journal entry
+    // records intent; it grants nothing.
+    const recovery = recoverFrom(record("RESERVED", "DEPLOY_PRODUCTION"));
+    expect(recovery.action).toBe("ESCALATE_INDETERMINATE");
+    expect(recovery.reason).toContain("does not authorise");
   });
 
   it("goes and looks for a reconcilable one instead of guessing", () => {

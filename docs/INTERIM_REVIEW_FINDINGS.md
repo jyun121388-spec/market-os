@@ -1452,3 +1452,39 @@ fix as broken: one wrote an empty lock file and read the recovery as a double ac
 treated `readLock() === null` as "deleted" when it equally means "unreadable", and one printed a
 verdict when the property under test was what had been extracted. Every one was caught by checking
 against the source rather than believing the output.
+
+## IR-065..IR-068 — Third review cycle, bounded (`gpt-5.6-terra`) — **two critical, two lesser, all four reproduced and fixed**
+
+Scope: only what cycle two changed, plus `application.ts`. Three questions, one of which came back
+clean — recorded because a no-finding from an adversarial pass is evidence and is usually the
+first thing dropped from a report.
+
+**Q2 (gate reordering): no issue found.** The reviewer traced the actual order — TEST, trusted
+author, already applied, matching escalation, extract, governance, prose, staleness — and confirmed
+that moving governance ahead of staleness changes rejection REASONS and admits nothing new.
+
+- **IR-065, critical.** `acquireLock` cleared a stale record with `unlinkSync(path)`, which deletes
+  whatever is at that path — including the live lock a competitor legitimately created in between.
+  `A reads stale S · B reads S, clears, claims · A clears B's LIVE lock · A claims`, and both hold
+  it. The `wx` create only arbitrates creation, and by then the damage is done. The comment sitting
+  above it claimed the opposite outcome. Removal is now a rename to a name only one caller can have
+  chosen: exactly one racer wins, and the loser never touches what the winner put back.
+- **IR-066, critical, mitigated not closed.** `heartbeat` and `releaseLock` remain read-then-write.
+  Plain files have no compare-and-swap, so the window cannot be closed without a different
+  primitive. `heartbeat` now reads back and returns false when the nonce is no longer its own, so a
+  displaced watcher stops after one cycle instead of running indefinitely. **Detected and brief,
+  not prevented** — recorded that way rather than described as safe.
+- **IR-067, high.** `ADD_TEST` and `EDIT_DOCS` were classified `IDEMPOTENT`. Appending a paragraph
+  and crashing before the marker lands means recovery appends it again. An action KIND is a
+  category, not an operation, and a kind may only be called idempotent when every effect it could
+  name is. Both reclassified `NON_IDEMPOTENT`; the idempotent list is now three read-only kinds.
+- **IR-068, medium.** `recoverFrom` returned `RETRY` for any `RESERVED` entry "regardless of class",
+  including `DEPLOY_PRODUCTION`. Safe against duplication is not safe against AUTHORIZATION: a
+  restart path trusting it would have carried out a Human Gate action because a crashed process
+  wrote a row. A journal entry records intent and grants nothing.
+
+**Convergence.** Three cycles, 19 findings, all reproduced before any change. Cycle one found
+defects beneath comments claiming the opposite; cycle two found fixes reproducing the defect they
+fixed one boundary further out; cycle three found the same shape once more in the takeover path.
+Under the bounded-convergence rule this is the last cycle: the remaining known residual is IR-066,
+which is documented, detected at runtime, and requires a primitive change rather than another pass.

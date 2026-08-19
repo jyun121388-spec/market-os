@@ -53,12 +53,21 @@ export type IdempotencyClass =
   | "UNKNOWN";
 
 const CLASSIFICATION: Partial<Record<ActionKind, IdempotencyClass>> = {
-  // Writing the same local record twice leaves the same record.
-  ADD_TEST: "IDEMPOTENT",
-  EDIT_DOCS: "IDEMPOTENT",
+  // Genuinely idempotent, and the list is short on purpose. An action KIND is a category, not an
+  // effect, so a kind can only be marked idempotent when EVERY effect it could name is.
+  //
+  // ADD_TEST and EDIT_DOCS were here and the third review removed them in one sentence: appending
+  // a paragraph under EDIT_DOCS and crashing before the marker lands means recovery appends it
+  // again. "Editing a document" is not an operation, it is a family of them, and a retry-blind
+  // classification at that granularity is a promise the category cannot keep.
   CONTROL_BUS_READ: "IDEMPOTENT",
   CONTROL_BUS_WATCHER_START: "IDEMPOTENT",
   CONTROL_BUS_WATCHER_STOP: "IDEMPOTENT",
+
+  // Reclassified from IDEMPOTENT. Both are file writes whose content depends on what is already
+  // there, so whether a repeat is harmless depends on the specific edit and not on the kind.
+  ADD_TEST: "NON_IDEMPOTENT",
+  EDIT_DOCS: "NON_IDEMPOTENT",
 
   // Reconcilable: the effect is observable afterwards, so a crash of unknown outcome can be
   // resolved by looking rather than by guessing. A comment carries its protocol id, and the issue
@@ -203,7 +212,22 @@ export function recoverFrom(record: ApplicationRecord): Recovery {
     };
   }
   if (record.state === "RESERVED") {
-    // Reserved but never started: nothing was attempted, so starting is safe regardless of class.
+    // Reserved but never started, so no duplicate effect is possible — which is the only thing
+    // this function was checking, and not the only thing that matters.
+    //
+    // The third review put it precisely: safe with respect to duplication is not safe with respect
+    // to AUTHORIZATION. A persisted RESERVED record for DEPLOY_PRODUCTION returned RETRY, and any
+    // restart path treating that as permission would have carried out a Human Gate action because
+    // a crashed process had written a row. A journal entry is a record of intent, never a grant.
+    const auto = mayAutoApply(record.action);
+    if (!auto.allowed) {
+      return {
+        action: "ESCALATE_INDETERMINATE",
+        reason:
+          `Reserved for ${record.action}, which may not be auto-applied: ${auto.reason} A ` +
+          "reservation records intent and does not authorise anything.",
+      };
+    }
     return {
       action: "RETRY",
       reason: "Reserved and never started, so no effect can have occurred.",

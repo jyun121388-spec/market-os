@@ -221,14 +221,36 @@ export function acquireLock(
     }
   }
 
-  // The holder is stale or the file is unreadable. Remove it and re-claim exclusively — if another
-  // watcher removes it first and claims, our re-claim fails and we correctly report not-acquired
-  // rather than stealing it.
+  // The holder is stale or unreadable, so it has to be cleared before anyone can re-claim. Clearing
+  // it by pathname is where the third review found the remaining hole, and the comment that used to
+  // sit here claimed the opposite: "if another watcher removes it first and claims, our re-claim
+  // fails". It does not. `unlinkSync(path)` deletes whatever is at that path, including the live
+  // lock a competitor legitimately created in the meantime —
+  //
+  //   A reads stale S · B reads S, unlinks, claims · A unlinks B's LIVE lock · A claims.
+  //
+  // Both hold it. `wx` only arbitrates the creation, and by then the damage is done.
+  //
+  // So the removal is a rename to a name only this caller can have chosen. Rename of a given
+  // source path succeeds for exactly one racer; the loser's rename fails because the source is
+  // already gone, and it never touches whatever the winner put back.
+  const claimToken = `${paths.lock}.taking.${record.nonce}`;
   try {
-    unlinkSync(paths.lock);
+    renameSync(paths.lock, claimToken);
   } catch {
-    // Someone else cleared it between the read and here, which is fine: the claim below decides.
+    // Someone else took the stale record first. Whatever is at the path now is theirs.
+    return {
+      acquired: false,
+      heldBy: held ?? record,
+      reason: "another watcher cleared the stale record first and now holds the lock",
+    };
   }
+  try {
+    unlinkSync(claimToken);
+  } catch {
+    // The token is ours alone; failing to remove it leaves litter, not a correctness problem.
+  }
+
   const reclaimed = claim();
   if (reclaimed) return reclaimed;
 
@@ -259,7 +281,19 @@ export function heartbeat(paths: StorePaths, record: LockRecord, at: string): bo
   // shape as an unsupplied allowlist.
   if (!held || held.nonce !== record.nonce) return false;
   writeAtomic(paths.lock, `${JSON.stringify({ ...record, startedAt: at }, null, 2)}\n`);
-  return true;
+
+  // Read back. The check above is read-then-write, so a competitor can legitimately take a stale
+  // lock in the microseconds between them and this write will land on top of theirs.
+  //
+  // That window is NOT closed here, and saying otherwise would be the mistake this whole review
+  // chain keeps finding. Plain files have no compare-and-swap; closing it properly means a
+  // different primitive. What this does is DETECT it on the next line: the displaced watcher sees
+  // a nonce that is not its own and stops, so the overlap lasts one cycle instead of forever.
+  //
+  // Reaching it requires a watcher paused past three heartbeats resuming inside that window.
+  // Detected-and-brief, not prevented — recorded as such rather than described as safe.
+  const after = readLock(paths);
+  return after?.nonce === record.nonce;
 }
 
 export function readLock(paths: StorePaths): LockRecord | null {

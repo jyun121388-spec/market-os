@@ -42,6 +42,9 @@ const allGreen = (head: string): PreflightInput => ({
   openP0: 0,
   openP1: 0,
   openP2: 5,
+  // Both added in review cycle two: an unsupplied count read as a satisfied zero, and the P2
+  // detail claimed the register was documented when nobody had counted it.
+  reviewDebtItems: 0,
   unhandledReviewFindings: 0,
   finalReviewDone: true,
   // Tied to the commit as of IR-055 — a boolean survived a change of HEAD and reported a review

@@ -192,6 +192,8 @@ describe("IR-053, IR-054, IR-055 — the preflight overstated readiness three wa
     verifyCoverage: green(head),
     openP0: 0,
     openP1: 0,
+    openP2: 13,
+    reviewDebtItems: 3,
     unhandledReviewFindings: 0,
     finalReviewDone: true,
     finalReviewCommit: head,

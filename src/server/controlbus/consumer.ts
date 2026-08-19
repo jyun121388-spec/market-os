@@ -82,7 +82,18 @@ export interface ConsumerContext {
  * and it is the correct place for the burden to sit.
  */
 export function impliedActions(body: string, known: ActionKind[]): ActionKind[] {
-  return known.filter((kind) => new RegExp(`\\b${kind}\\b`).test(body));
+  return known.filter((kind) => {
+    // A negated mention is not a declaration. "Do not CONTROL_BUS_READ" extracted the token and
+    // returned APPLICABLE — granting something the decision explicitly declined. Harmless for a
+    // DENIED kind, which is refused either way; wrong for an allowed one, which is the case that
+    // matters because it is the one that proceeds.
+    const negated = new RegExp(
+      `\\b(?:do not|don't|never|no|without|avoid|refrain from)\\s+${kind}\\b`,
+      "i",
+    );
+    if (negated.test(body)) return false;
+    return new RegExp(`\\b${kind}\\b`).test(body);
+  });
 }
 
 /**
@@ -148,40 +159,14 @@ export function assessDecision(
   // A decision that names a commit is a decision about that commit. If HEAD has moved past it, the
   // reasoning may no longer hold, and guessing whether it still does is exactly the judgement a
   // decision was requested for in the first place.
-  const namedHead = /\b([0-9a-f]{7,40})\b/.exec(
-    entry.body.match(/HEAD[:\s]+([0-9a-f]{7,40})/)?.[1] ?? "",
-  );
-  if (namedHead && context.currentHead && !context.currentHead.startsWith(namedHead[1])) {
-    return {
-      ...base,
-      verdict: "STALE_AGAINST_HEAD",
-      reason:
-        `Written against ${namedHead[1]}, which is not the current HEAD. Reply ` +
-        "[ESCALATION_REFRESH_REQUIRED] with the difference rather than guessing.",
-    };
-  }
-
   const actions = impliedActions(entry.body, knownActions);
 
-  // A decision whose prose describes doing something, without naming the action, previously
-  // extracted nothing and sailed through as APPLICABLE — "Purchase the required API credits and
-  // deploy to production" named neither enum token, so Governance was never consulted at all.
+  // Governance runs BEFORE staleness, which is the reverse of the first version.
   //
-  // The original reasoning was sound and the conclusion was wrong. Paraphrase detection IS unsafe
-  // in the permissive direction, but the answer to "we cannot reliably read intent from prose" is
-  // to refuse the prose, not to approve it. A decision that wants a governed action declares it;
-  // one that reads like it wants something and declares nothing is sent back.
-  if (actions.length === 0 && ACTION_SHAPED_PROSE.test(entry.body)) {
-    return {
-      protocolId: entry.protocolId,
-      impliedActions: [],
-      verdict: "ACTIONS_NOT_DECLARED",
-      reason:
-        "The decision describes an action without naming which governed action it is, so nothing " +
-        "was evaluated. Restate it naming the ActionKind, or it authorises nothing.",
-    };
-  }
-
+  // Both refuse, so nothing was ever wrongly applied — but the REASON reported decides what
+  // happens next, and reporting a forbidden decision as merely stale invites a refresh and a
+  // retry, at which point the same forbidden instruction arrives looking fresh. A decision that
+  // policy will never permit should be named as such the first time and not queued for rework.
   const forbidden = actions.filter((kind) => {
     const evaluation = evaluateAction({ kind, context: context.governanceContext });
     return evaluation.decision === "DENIED" || evaluation.decision === "DEFERRED_HUMAN_GATE";
@@ -196,6 +181,39 @@ export function assessDecision(
         `The decision names ${forbidden.join(", ")}, which policy does not permit an agent to ` +
         "carry out. GitHub is a transport bus and not a root authority, so arriving by comment " +
         "changes nothing about the rule.",
+    };
+  }
+
+  // The prose gate now runs on the body with the DECLARED tokens removed, rather than only when
+  // nothing was declared at all.
+  //
+  // The second review found the hole in one sentence: "CONTROL_BUS_READ; also deploy to
+  // production" declared one harmless action, which made `actions` non-empty, which skipped the
+  // gate entirely and returned APPLICABLE. Declaring something is not declaring everything, and a
+  // gate that switches off at the first declaration rewards burying an instruction behind a benign
+  // one.
+  const undeclared = actions.reduce((text, kind) => text.replaceAll(kind, " "), entry.body);
+  if (ACTION_SHAPED_PROSE.test(undeclared)) {
+    return {
+      protocolId: entry.protocolId,
+      impliedActions: actions,
+      verdict: "ACTIONS_NOT_DECLARED",
+      reason:
+        "The decision describes an action it does not name, so nothing evaluated it. Restate it " +
+        "naming every ActionKind involved, or it authorises nothing.",
+    };
+  }
+
+  const namedHead = /\b([0-9a-f]{7,40})\b/.exec(
+    entry.body.match(/HEAD[:\s]+([0-9a-f]{7,40})/)?.[1] ?? "",
+  );
+  if (namedHead && context.currentHead && !context.currentHead.startsWith(namedHead[1])) {
+    return {
+      ...base,
+      verdict: "STALE_AGAINST_HEAD",
+      reason:
+        `Written against ${namedHead[1]}, which is not the current HEAD. Reply ` +
+        "[ESCALATION_REFRESH_REQUIRED] with the difference rather than guessing.",
     };
   }
 

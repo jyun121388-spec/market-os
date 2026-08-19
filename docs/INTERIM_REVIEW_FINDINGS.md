@@ -1406,3 +1406,49 @@ A fifth instance of the heredoc backslash trap occurred during the fix and is wo
 IR-047 guard silently matched nothing. It looked correct in every editor and in the Read tool. It
 was caught because the reproduction script re-ran Sol's trigger and the verdict had not changed —
 not by inspection.
+
+## IR-056..IR-064 — Second review cycle: the fixes, reviewed (`gpt-5.6-terra`) — **one P0, five P1, three P2, all nine reproduced and fixed**
+
+|          |                                                                               |
+| -------- | ----------------------------------------------------------------------------- |
+| Reviewer | `gpt-5.6-terra`, read-only, the six modules changed by cycle one              |
+| Question | not "is this correct" but "what does this fix ASSUME, and where does it fail" |
+| Outcome  | nine issues, every one reproduced before anything was touched                 |
+
+Sol refused the first attempt — the prompt was written in attack language and its provider flagged
+it. The same review with defensive framing and narrower groups ran normally. Recorded because the
+refusal looked exactly like a tool failure and was not one.
+
+**Cycle one found defects beneath comments claiming the opposite. Cycle two found the fixes
+reproducing the defects they fixed, one boundary further out.**
+
+- **IR-056, P0.** `acquireLock` was `existsSync`-then-write. `writeAtomic` makes the file CONTENTS
+  atomic, which sounds like it covers acquisition and does not: two watchers both see no lock, both
+  write, both return `acquired: true`. Replaced with an exclusive `wx` create — the primitive that
+  actually decides a winner — with stale takeover preserved as a negative control.
+- **IR-057, P1.** The pagination loop, written to remove a silent truncation, silently truncated at
+  its own ceiling: a full page at page 50 returned normally and the watcher reported a healthy
+  poll. Now throws into `READ_FAILED`, where the cursor does not move and it retries.
+- **IR-058 and IR-059, P1.** `heartbeat` and `releaseLock` tested for a nonce MISMATCH, so a corrupt
+  lock — which reads as `null` — passed as "not somebody else's" and was overwritten or deleted by
+  a process that could not have owned it. Absence of a mismatch is not proof of a match: the same
+  fail-open shape as an unsupplied allowlist.
+- **IR-060, P1.** The prose gate switched off the moment ANY action was declared, so
+  `CONTROL_BUS_READ; also deploy to production` named one harmless action and bought silence for
+  the rest of the sentence. The gate now strips declared tokens and scans the remainder.
+- **IR-061, P1.** A negated mention counted as a declaration: `Do not CONTROL_BUS_READ` extracted
+  the token and granted what the decision declined.
+- **IR-062, P1.** `openP2` absent reported PASS with the sentence "0 deferred P2, each recorded with
+  a reason" — a claim about a register nobody had opened. Not blocking and not measured are
+  different things.
+- **IR-063, P2.** `reviewDebtItems` was declared and never checked: a field that looks like coverage
+  and is not.
+- **IR-064, P2.** `changesSinceEvidence` was required at runtime while the file claimed every input
+  optional; omitting it threw a `TypeError` instead of returning a verdict. Also: missing evidence
+  now outranks stale evidence, because stale says "it passed, elsewhere" and missing says nothing.
+
+Three of my own probes were wrong during this round, each in the direction of reporting a working
+fix as broken: one wrote an empty lock file and read the recovery as a double acquisition, one
+treated `readLock() === null` as "deleted" when it equally means "unreadable", and one printed a
+verdict when the property under test was what had been extracted. Every one was caught by checking
+against the source rather than believing the output.

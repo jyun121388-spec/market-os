@@ -55,8 +55,19 @@ const INVALIDATED_BY: Record<string, ChangeKind[]> = {
 
 export interface PreflightInput {
   head: string;
-  /** Commits between the evidence and HEAD, by what they changed. Empty means evidence is current. */
-  changesSinceEvidence: ChangeKind[];
+  /**
+   * What changed between the evidence and HEAD, by kind.
+   *
+   * Optional, and the three states are distinct. Omitted means nobody established it, which is
+   * unknown. An empty array means "nothing changed" only when the evidence commit already equals
+   * HEAD; against a different commit an empty array is still unknown, because a caller who has not
+   * classified the intervening commits cannot assert that none of them mattered.
+   *
+   * It was required at runtime while the file claimed every input was optional, and omitting it
+   * threw a TypeError instead of returning EVIDENCE_INSUFFICIENT — a preflight that crashes gives
+   * no verdict at all, which is worse than an unhelpful one.
+   */
+  changesSinceEvidence?: ChangeKind[];
   treeClean: boolean;
   /** Whether HEAD exists on the remote. A release candidate that exists only locally is not one. */
   pushedToRemote: boolean;
@@ -126,16 +137,15 @@ function evidenceState(
   if (evidence.state === "FAIL") return "FAIL";
   if (evidence.commit === input.head) return "PASS";
 
-  // Evidence from another commit, and nothing declared about what changed. The adversarial review
+  // Evidence from another commit, and nothing declared about what changed. The first review
   // (IR-053) found this returning PASS: an empty change list was read as "nothing changed" when it
   // equally means "nobody said". Those are the two readings this whole module exists to keep
-  // apart, and it got them backwards on its own inputs.
-  if (input.changesSinceEvidence.length === 0) return "STALE";
+  // apart, and it had them backwards on its own inputs.
+  const changes = input.changesSinceEvidence ?? [];
+  if (changes.length === 0) return "STALE";
 
   const invalidating = INVALIDATED_BY[name] ?? [];
-  return input.changesSinceEvidence.some((change) => invalidating.includes(change))
-    ? "STALE"
-    : "PASS";
+  return changes.some((change) => invalidating.includes(change)) ? "STALE" : "PASS";
 }
 
 export function preflight(input: PreflightInput): PreflightReport {
@@ -151,7 +161,8 @@ export function preflight(input: PreflightInput): PreflightReport {
         state === "MISSING"
           ? `No ${name} evidence for this HEAD. Absent is not passing.`
           : state === "STALE"
-            ? `${name} passed at ${evidence?.commit}, invalidated by ${input.changesSinceEvidence.join(", ")}.`
+            ? `${name} passed at ${evidence?.commit}, not ${input.head}` +
+              `${(input.changesSinceEvidence ?? []).length > 0 ? ` (${(input.changesSinceEvidence ?? []).join(", ")})` : " and no change classification was supplied"}.`
             : state === "FAIL"
               ? (evidence?.detail ?? `${name} failed.`)
               : `${name} passed at ${evidence?.commit}.`,
@@ -184,14 +195,30 @@ export function preflight(input: PreflightInput): PreflightReport {
   counted("open P1", input.openP1, "INTERNAL");
   counted("unhandled review findings", input.unhandledReviewFindings, "INTERNAL");
 
-  // P2 is deliberately not a gate. Every deferred P2 here is recorded with a reason and pinned by
-  // a test that fails if it is fixed silently; blocking a release on them would either stop it
-  // forever or create pressure to reclassify them, and the second is worse.
+  // P2 is deliberately not a BLOCKER. It is still evidence, and the first version conflated the
+  // two: an omitted count reported PASS with the sentence "0 deferred P2, each recorded with a
+  // reason" — a claim about a register nobody had looked at. Not blocking and not measured are
+  // different, and only the first is a decision.
   checks.push({
     name: "open P2",
     kind: "INTERNAL",
-    state: "PASS",
-    detail: `${input.openP2 ?? 0} deferred P2, each recorded with a reason. Not a release gate.`,
+    state: input.openP2 === undefined ? "MISSING" : "PASS",
+    detail:
+      input.openP2 === undefined
+        ? "The deferred-P2 register was never counted, so nothing here can vouch for it."
+        : `${input.openP2} deferred P2, each recorded with a reason. Not a release gate.`,
+  });
+
+  // Declared and then ignored, which is its own small failure: a field that looks like a check and
+  // is not one reads as coverage that does not exist. Non-blocking like P2, and measured.
+  checks.push({
+    name: "review debt",
+    kind: "INTERNAL",
+    state: input.reviewDebtItems === undefined ? "MISSING" : "PASS",
+    detail:
+      input.reviewDebtItems === undefined
+        ? "Review debt was never counted, and an unread register is not an empty one."
+        : `${input.reviewDebtItems} review-debt item(s) recorded. Not a release gate.`,
   });
 
   checks.push({
@@ -292,11 +319,18 @@ export function preflight(input: PreflightInput): PreflightReport {
   checks.push({
     name: "control bus watching",
     kind: "EXTERNAL",
-    state: input.controlBusWatcher === "ALIVE" ? "PASS" : "FAIL",
+    state:
+      input.controlBusWatcher === undefined
+        ? "MISSING"
+        : input.controlBusWatcher === "ALIVE"
+          ? "PASS"
+          : "FAIL",
     detail:
-      input.controlBusWatcher === "ALIVE"
-        ? "Watcher alive; a decision would be read."
-        : "Watcher not running, so a decision posted now would not be seen.",
+      input.controlBusWatcher === undefined
+        ? "Watcher state was never established, which is not the same as knowing it is down."
+        : input.controlBusWatcher === "ALIVE"
+          ? "Watcher alive; a decision would be read."
+          : "Watcher not running, so a decision posted now would not be seen.",
   });
 
   // Order matters and encodes the precedence. A failing internal check outranks a stale one,
@@ -320,13 +354,10 @@ export function preflight(input: PreflightInput): PreflightReport {
       rationale: `Blocked by ${name(failing)} — defects, not waiting.`,
     };
   }
-  if (stale.length > 0) {
-    return {
-      verdict: "EVIDENCE_STALE",
-      checks,
-      rationale: `${name(stale)} passed against an earlier commit and the change since could have invalidated it.`,
-    };
-  }
+  // Missing outranks stale, which is the reverse of the first version. Stale evidence says "it
+  // passed, elsewhere"; missing says nothing at all, and the weaker claim should decide the
+  // verdict. Reporting EVIDENCE_STALE while a check was never run describes the better half of
+  // the situation.
   if (missing.length > 0 || externalMissing.length > 0) {
     return {
       verdict: "EVIDENCE_INSUFFICIENT",
@@ -334,6 +365,13 @@ export function preflight(input: PreflightInput): PreflightReport {
       rationale:
         `Never established for this HEAD: ${name([...missing, ...externalMissing])}. ` +
         "Absent evidence is not passing evidence.",
+    };
+  }
+  if (stale.length > 0) {
+    return {
+      verdict: "EVIDENCE_STALE",
+      checks,
+      rationale: `${name(stale)} passed against an earlier commit; the change since could have invalidated it.`,
     };
   }
   if (external.length > 0) {

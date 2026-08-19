@@ -148,6 +148,13 @@ export type LockOutcome =
 export function lockIsStale(record: LockRecord, heartbeatAgeMs: number, nowMs: number): boolean {
   const started = Date.parse(record.startedAt);
   if (Number.isNaN(started)) return true;
+
+  // A heartbeat in the future is not a fresh one. The subtraction goes negative and the record
+  // stays "current" until wall time catches up, so a lock stamped 2099 would block acquisition for
+  // decades — a dead watcher holding the channel shut with a typo. Small skew is tolerated because
+  // clocks do drift; a heartbeat a full interval ahead is a broken record, not a fast clock.
+  if (started - nowMs > heartbeatAgeMs) return true;
+
   // Three missed heartbeats. Two is within the noise of a slow poll on a loaded machine.
   return nowMs - started > heartbeatAgeMs * 3;
 }
@@ -162,35 +169,74 @@ export function processAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Claims the lock by creating the file exclusively.
+ *
+ * The first version was `existsSync` then write, which is not acquisition at all — the second
+ * review found the interleaving in one line: two watchers both see no lock, both write, both
+ * return `acquired: true`. `writeAtomic` made the CONTENTS atomic and said nothing about
+ * ownership, and the distinction is easy to miss because "atomic write" sounds like it covers it.
+ *
+ * `wx` is the primitive that actually decides: the OS creates the file or fails with EEXIST, and
+ * exactly one caller can win. Everything else here is about what to do when it fails.
+ */
 export function acquireLock(
   paths: StorePaths,
   record: LockRecord,
   staleAfterMs: number,
 ): LockOutcome {
   ensureRuntimeDir(paths);
-  if (existsSync(paths.lock)) {
-    let held: LockRecord | null = null;
+  const serialised = `${JSON.stringify(record, null, 2)}\n`;
+
+  const claim = (): LockOutcome | null => {
     try {
-      held = JSON.parse(readFileSync(paths.lock, "utf8")) as LockRecord;
+      // Exclusive create. Fails rather than truncates if anyone got here first.
+      writeFileSync(paths.lock, serialised, { encoding: "utf8", flag: "wx" });
+      return { acquired: true, record };
     } catch {
-      held = null;
+      return null;
     }
-    if (held) {
-      const stale = lockIsStale(held, staleAfterMs, Date.parse(record.startedAt));
-      const alive = processAlive(held.pid);
-      if (alive && !stale) {
-        return {
-          acquired: false,
-          heldBy: held,
-          reason: `watcher pid ${held.pid} is running and its heartbeat is current`,
-        };
-      }
-      // Alive but not heartbeating means the pid was reused by something else; taking the lock is
-      // correct and killing that process would not be.
+  };
+
+  const won = claim();
+  if (won) return won;
+
+  let held: LockRecord | null = null;
+  try {
+    held = JSON.parse(readFileSync(paths.lock, "utf8")) as LockRecord;
+  } catch {
+    held = null;
+  }
+
+  if (held) {
+    const stale = lockIsStale(held, staleAfterMs, Date.parse(record.startedAt));
+    // Alive but not heartbeating means the pid was reused by something unrelated. Taking the lock
+    // is correct; killing that process would not be.
+    if (processAlive(held.pid) && !stale) {
+      return {
+        acquired: false,
+        heldBy: held,
+        reason: `watcher pid ${held.pid} is running and its heartbeat is current`,
+      };
     }
   }
-  writeAtomic(paths.lock, `${JSON.stringify(record, null, 2)}\n`);
-  return { acquired: true, record };
+
+  // The holder is stale or the file is unreadable. Remove it and re-claim exclusively — if another
+  // watcher removes it first and claims, our re-claim fails and we correctly report not-acquired
+  // rather than stealing it.
+  try {
+    unlinkSync(paths.lock);
+  } catch {
+    // Someone else cleared it between the read and here, which is fine: the claim below decides.
+  }
+  const reclaimed = claim();
+  if (reclaimed) return reclaimed;
+
+  return {
+    acquired: false,
+    heldBy: held ?? record,
+    reason: "another watcher claimed the lock while this one was clearing a stale record",
+  };
 }
 
 /**
@@ -207,7 +253,11 @@ export function acquireLock(
  */
 export function heartbeat(paths: StorePaths, record: LockRecord, at: string): boolean {
   const held = readLock(paths);
-  if (held && held.nonce !== record.nonce) return false;
+  // Ownership must be POSITIVELY established. The first version passed when `held` was null, so a
+  // corrupt or deleted lock read as "not somebody else's" and got overwritten — the second review
+  // pointed out that absence of a mismatch is not proof of a match, which is the same fail-open
+  // shape as an unsupplied allowlist.
+  if (!held || held.nonce !== record.nonce) return false;
   writeAtomic(paths.lock, `${JSON.stringify({ ...record, startedAt: at }, null, 2)}\n`);
   return true;
 }
@@ -232,7 +282,10 @@ export function releaseLock(paths: StorePaths, record?: LockRecord): void {
   if (!existsSync(paths.lock)) return;
   if (record) {
     const held = readLock(paths);
-    if (held && held.nonce !== record.nonce) return;
+    // Same correction as the heartbeat: a corrupt lock read as null and was then deleted by a
+    // watcher that could not possibly have owned it, clearing the field while a live process was
+    // still polling. Ownership has to be shown, not merely not-disproved.
+    if (!held || held.nonce !== record.nonce) return;
   }
   unlinkSync(paths.lock);
 }

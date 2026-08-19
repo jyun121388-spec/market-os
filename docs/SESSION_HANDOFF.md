@@ -5,18 +5,18 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 
 ## Verified state at handoff
 
-|                                     |                                                                          |
-| ----------------------------------- | ------------------------------------------------------------------------ |
-| Branch                              | `claude/market-os-development-7vnicg`                                    |
-| Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force         |
-| Working tree                        | clean                                                                    |
-| Full suite                          | **993 / 993** across 99 files, real PostgreSQL 16.10, disposable test DB |
-| E2E                                 | **33 / 33** against a known-fresh production server on a controlled port |
-| Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                    |
-| Migrations                          | **17**                                                                   |
-| Lint / typecheck / prettier / build | clean                                                                    |
-| Real dev data                       | **2240 filings, 1431 facts, 33 observations** — intact after the suite   |
-| P0 / P1                             | **0 / 0**                                                                |
+|                                     |                                                                             |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| Branch                              | `claude/market-os-development-7vnicg`                                       |
+| Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force            |
+| Working tree                        | clean                                                                       |
+| Full suite                          | **1011 / 1011** across 100 files, real PostgreSQL 16.10, disposable test DB |
+| E2E                                 | **33 / 33** against a known-fresh production server on a controlled port    |
+| Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                       |
+| Migrations                          | **17**                                                                      |
+| Lint / typecheck / prettier / build | clean                                                                       |
+| Real dev data                       | **2240 filings, 1431 facts, 33 observations** — intact after the suite      |
+| P0 / P1                             | **0 / 0**                                                                   |
 
 ## Stop sentinel — evaluated, not asserted (2026-08-19)
 

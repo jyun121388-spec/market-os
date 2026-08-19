@@ -149,7 +149,17 @@ export const githubFetchComments: FetchComments = async (issueNumber) => {
     // as a transport failure rather than as an empty issue.
     if (!Array.isArray(batch)) return batch;
     all.push(...batch);
-    if (batch.length < 100) break;
+    if (batch.length < 100) return all;
+
+    // A full page at the ceiling means there is more and we are choosing not to read it. The first
+    // version returned what it had, which is the same silent truncation this pagination loop was
+    // written to remove — the fix reproducing the defect it fixed, one boundary further out.
+    //
+    // Throwing puts it through the READ_FAILED path: the cursor does not move, nothing is marked
+    // processed, and it retries. A stuck retry is loud. A quietly short answer is not.
+    if (page === 50) {
+      throw new Error("PaginationCeilingReached");
+    }
   }
   return all;
 };

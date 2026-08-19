@@ -1161,6 +1161,56 @@ protocol's rule is that a converged queue is not a finished project. This came f
 second-order checklist rather than from the queue, and it was one step short of the exact failure
 the checklist names.
 
+## IR-041 — The schema advertises a preliminary/final distinction the pipeline cannot make — **VALID, recorded**
+
+|           |                                                                  |
+| --------- | ---------------------------------------------------------------- |
+| Found by  | the provenance propagation enumeration, schema → domain → page   |
+| Subsystem | `prisma/schema.prisma`, `Observation.isPreliminary`              |
+| Severity  | P3 today, **latent P2 the moment a provider key arrives**        |
+| Status    | **VALID — recorded and tracked as a capability gap, not fixed.** |
+
+`Observation.isPreliminary` exists in the schema and **nowhere else**. No adapter sets it, no domain
+function reads it, no page renders it, and 0 of 33 stored rows carry it. It is a declared capability
+the pipeline cannot supply — structurally identical to FRED's `realtime_start`, which the capability
+matrix already records as unread.
+
+Nothing is currently wrong on screen, because there are no preliminary figures: not because they are
+handled, but because none is ever recognised as one.
+
+**Why it is worth recording rather than deleting.** Both FRED and ECOS publish provisional figures
+that are later revised — ECOS explicitly labels them 잠정치. The moment a key arrives, provisional
+values will be stored with `isPreliminary: false` regardless of what the provider said, and a
+provisional figure rendered identically to a final one is unsupported confidence about a number.
+That is the same failure as the vintage gap in IR-021, one field over.
+
+**Recorded where the other provider-evidence gaps live**, rather than as a loose note: the capability
+matrix gains a `preliminary_final_identity` axis. SEC is `NOT_SUPPORTED` from live evidence — a filed
+figure is filed, and a later restatement arrives as a new fact, which `amendment_identity` already
+covers. FRED, ECOS and OpenDART are `NOT_VERIFIED` behind their gates, which is the honest state:
+nobody has seen a real response.
+
+## What the enumeration found and dismissed
+
+`Filing.remark` (DART's 정정 correction flag) never reaches the domain layer — latent, no DART data,
+and covered by the same `amendment_identity` axis. `FinancialFact.filedDate` is not rendered, but the
+accession number that identifies the filing is, so the claim remains auditable.
+`CausalEdge.conditions` joins `evidence` in IR-037. `Claim.evidence` is not rendered because no page
+renders claims at all.
+
+## A note on the enumeration itself
+
+The first run of this audit produced a confident, plausible, **entirely wrong** list — it reported
+that `observationDate` and `accessionNumber` never reach the domain layer, which two greps disproved
+in seconds. The script had been written through a shell heredoc, which collapsed `\b` into a
+backspace character, so every word-boundary regex silently matched nothing and every field looked
+absent.
+
+Third occurrence of that trap in this session, and the first where it manufactured findings rather
+than breaking loudly. It is exactly the `EVIDENCE_FABRICATION` pattern with a script in the model's
+place, and it was caught only because the output contradicted something already known. Recorded in
+`CLAUDE.md` as an environment hazard.
+
 ## Rejected local-AI findings
 
 Recorded because they document the calibration failure, not because they have engineering value.

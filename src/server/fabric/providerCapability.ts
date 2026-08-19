@@ -79,7 +79,9 @@ export type CapabilityAxis =
   /** Enough on each record to trace it back to a specific provider artefact. */
   | "source_provenance"
   /** A version stamp for the schema or taxonomy the response is expressed in. */
-  | "schema_version_metadata";
+  | "schema_version_metadata"
+  /** Whether the provider marks a value provisional, so a preliminary figure is not read as final. */
+  | "preliminary_final_identity";
 
 export interface CapabilityEvidence {
   state: CapabilityState;
@@ -206,6 +208,14 @@ const SEC_EDGAR: ProviderCapabilityProfile = {
         "noticing that revenue moved across three us-gaap tags, which is detection by symptom.",
       provenance: "LIVE_RESPONSE",
     },
+    preliminary_final_identity: {
+      state: "NOT_SUPPORTED",
+      field: null,
+      basis:
+        "A filed figure is filed. SEC has no provisional/final distinction on a fact — a later " +
+        "restatement arrives as a new fact from a new filing, which amendment_identity covers.",
+      provenance: "LIVE_RESPONSE",
+    },
   },
 };
 
@@ -304,6 +314,12 @@ const FRED: ProviderCapabilityProfile = {
       "HG-002",
       "PROVIDER_DOCUMENTATION",
     ),
+    preliminary_final_identity: unverified(
+      null,
+      "FRED publishes provisional figures that are later revised, and the realtime pair is how a vintage is addressed — but nothing identifies a provisional FLAG. Observation.isPreliminary exists in the schema and no adapter has ever set it (IR-041).",
+      "HG-002",
+      "PROVIDER_DOCUMENTATION",
+    ),
   },
 };
 
@@ -382,6 +398,12 @@ const ECOS: ProviderCapabilityProfile = {
     schema_version_metadata: unverified(
       null,
       "No version stamp identified.",
+      "HG-003",
+      "PROVIDER_DOCUMENTATION",
+    ),
+    preliminary_final_identity: unverified(
+      null,
+      "ECOS publishes provisional statistics (잠정치) that are later confirmed, and no field carrying that distinction has been identified. Observation.isPreliminary is unpopulated (IR-041).",
       "HG-003",
       "PROVIDER_DOCUMENTATION",
     ),
@@ -467,6 +489,12 @@ const OPENDART: ProviderCapabilityProfile = {
     schema_version_metadata: unverified(
       null,
       "No version stamp identified.",
+      "HG-004",
+      "PROVIDER_DOCUMENTATION",
+    ),
+    preliminary_final_identity: unverified(
+      null,
+      "A disclosure is filed rather than provisional; the 정정 remark marks a correction, which is amendment_identity. No provisional flag identified.",
       "HG-004",
       "PROVIDER_DOCUMENTATION",
     ),

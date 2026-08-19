@@ -193,7 +193,7 @@ Clusters the detector reports over the current backfill, worst severity first wi
 | `PROVENANCE`           | 4         | P1    | A value shown without what it came from                      |
 | `ENVIRONMENT_DRIFT`    | 4         | P2    | A check made on surface text rather than what it resolves to |
 | `SEMANTIC_RECENCY`     | 2         | P1    | Freshness inferred from when it was observed, not what       |
-| `EVIDENCE_FABRICATION` | 2         | P2    | A confident claim taken for a verified one                   |
+| `EVIDENCE_FABRICATION` | 3         | P2    | A confident claim taken for a verified one                   |
 
 Every one is derived from history already written down. That is the argument for building the
 ledgers before anything else in the Engine: **the data to make it useful already exists in this

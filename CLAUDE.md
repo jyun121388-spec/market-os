@@ -83,6 +83,19 @@ with the difference rather than guessing.
 the unauthenticated REST API. Posting needs a credential this machine does not have, so replies
 are staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and posted unchanged when one exists.
 
+## Environment hazard: heredocs eat backslashes
+
+Writing a file through a shell heredoc in this environment collapses `\b` to a backspace character,
+so regexes written that way silently match nothing. It has happened three times, and the third time
+it produced a **confident, plausible, entirely wrong findings list** rather than an obvious error.
+
+Write any file containing regexes, or any analysis script whose output will be believed, with the
+Write tool. Reserve heredocs for text with no backslashes.
+
+The general rule this is a case of: **a script's output is a claim, not evidence.** Check a
+surprising result against something already known before writing it down — the wrong list was caught
+because it contradicted two greps, not because it looked wrong.
+
 ## Unknown is not success
 
 Record what was actually established: `VERIFIED`, `VERIFIED_WITH_LIMITATION`,

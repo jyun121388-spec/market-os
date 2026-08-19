@@ -654,6 +654,21 @@ export const BACKFILLED_LEDGER: LedgerEntry[] = [
     category: "ENVIRONMENT_DRIFT",
   },
 
+  {
+    id: "MC-03",
+    ledger: "PREDICTION_ERROR",
+    subsystem: "analysis tooling",
+    severity: "P2",
+    summary:
+      "An enumeration script written through a shell heredoc had every word-boundary regex " +
+      "collapsed to a backspace character, and reported a confident list of fields that were not " +
+      "missing at all.",
+    lesson:
+      "A script's output is a claim, not evidence. This one was caught only because it " +
+      "contradicted something already known, not because it looked wrong.",
+    category: "EVIDENCE_FABRICATION",
+  },
+
   // The EVIDENCE_FABRICATION cluster. Both are review-process failures rather than product
   // defects, and they belong here for the same reason the others do: they recur.
   {

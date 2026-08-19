@@ -65,7 +65,7 @@ describe("what a capability cell is allowed to claim", () => {
   });
 
   it("covers every axis for every provider, so a gap cannot hide as an absent row", () => {
-    expect(CAPABILITY_AXES.length).toBe(13);
+    expect(CAPABILITY_AXES.length).toBe(14);
     for (const profile of PROVIDER_CAPABILITIES) {
       for (const axis of CAPABILITY_AXES) {
         expect(profile.axes[axis], `${profile.sourceCode} is missing ${axis}`).toBeDefined();

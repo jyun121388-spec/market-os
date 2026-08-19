@@ -81,6 +81,7 @@ const normalise = (path: string) => path.split("\\").join("/");
 
 /** The paths the preflight will treat as not invalidating a review. */
 const CLAIMED_EVIDENCE_ONLY = [
+  "docs/REVIEW_ATTESTATION.json",
   "docs/REVIEW_ATTESTATION.md",
   "docs/escalation/PENDING_PR_UPDATE.md",
 ];

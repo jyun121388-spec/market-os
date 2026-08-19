@@ -2,145 +2,141 @@ import { describe, expect, it } from "vitest";
 import { parseAttestation } from "@/server/release/attestation";
 
 /**
- * The attestation parser, with every case an adversarial review raised.
+ * The attestation parser, and the reason it stopped reading Markdown.
  *
- * This parser decides whether the release gate believes a review happened. It spent several
- * rounds inside a script with no tests, which is how a security-relevant parser accumulates three
- * separate fail-open defects without anyone noticing: an unanchored verdict pattern that accepted
- * `CLEANISH`, per-line matching that let a later `CLEAN` override an earlier `NOT_CLEAN`, and
- * fenced examples read as real fields.
+ * Three review rounds were spent teaching a regex to find fields in prose, and each round produced
+ * another way for prose to look like data: `CLEANISH` matching an unanchored verdict, a later
+ * `CLEAN` line overriding an earlier `NOT_CLEAN`, a field inside a fenced block read as a field.
+ * Stripping fences fixed the third and immediately exposed HTML comments, tilde fences, indented
+ * blocks and unterminated fences as the same hole in different syntax.
  *
- * The last one is the most instructive. The natural way to document a format is to show it, so a
- * document explaining what an attestation should contain was itself accepted as one. Nothing about
- * that is contrived — it is what writing the documentation produces.
+ * That list has no end, because Markdown draws no boundary a regex can see between content and an
+ * illustration of content. The mistake was never a particular pattern; it was parsing a prose
+ * document as a data format.
+ *
+ * **One of the tests here was also vacuous, which is worth recording.** The fence test used
+ * `<full sha>` as its example value — invalid on its own — so it passed whether or not fence
+ * stripping existed. A test that cannot fail for the reason it names is not evidence, and this file
+ * had one sitting directly beneath a docstring claiming full coverage. Every negative case below is
+ * now built from a value that WOULD be accepted if the specific check under test were removed.
  */
 
-const valid = [
-  "# Review attestation",
-  "",
-  "REVIEWED_CODE_SHA: 0f9caeb561a5455977d14540ea44da303565d74f",
-  "REVIEW_VERDICT: CLEAN",
-  "",
-  "Some prose about the review.",
-].join("\n");
+const shaValue = "b6b4858209cb546db5aa92d8c3988fd8e75aac29";
+const valid = JSON.stringify({ reviewedCodeSha: shaValue, verdict: "CLEAN" }, null, 2);
 
 describe("a well-formed attestation parses", () => {
   it("reads both fields and reports clean", () => {
     const parsed = parseAttestation(valid);
-    expect(parsed?.reviewedCodeSha).toBe("0f9caeb561a5455977d14540ea44da303565d74f");
+    expect(parsed?.reviewedCodeSha).toBe(shaValue);
     expect(parsed?.verdict).toBe("CLEAN");
     expect(parsed?.clean).toBe(true);
   });
 
-  it("accepts a 7-character abbreviated SHA and backticked values", () => {
-    const parsed = parseAttestation("REVIEWED_CODE_SHA: `0f9caeb`\nREVIEW_VERDICT: `CLEAN`");
-    expect(parsed?.reviewedCodeSha).toBe("0f9caeb");
+  it("accepts an abbreviated SHA and ignores extra descriptive fields", () => {
+    // Extra keys are the normal shape of a real attestation — model, scope, timestamp, findings.
+    // They are recorded for humans and carry no weight here.
+    const parsed = parseAttestation(
+      JSON.stringify({
+        reviewedCodeSha: "b6b4858",
+        verdict: "CLEAN",
+        reviewModel: "gpt-5.6-sol",
+        p0Count: 0,
+      }),
+    );
+    expect(parsed?.reviewedCodeSha).toBe("b6b4858");
     expect(parsed?.clean).toBe(true);
   });
 
-  it("survives CRLF line endings", () => {
-    expect(parseAttestation(valid.split("\n").join("\r\n"))?.clean).toBe(true);
-  });
-});
-
-describe("a verdict other than CLEAN is not clean", () => {
-  it.each(["NOT_CLEAN", "CLEANISH", "BLOCKED", "PENDING", "UNKNOWN"])("%s", (verdict) => {
-    const parsed = parseAttestation(`REVIEWED_CODE_SHA: 0f9caeb\nREVIEW_VERDICT: ${verdict}`);
-    // Parsed successfully — the document is well-formed and says something other than clean, which
-    // is a different fact from being unreadable.
-    expect(parsed?.verdict).toBe(verdict);
+  it("parses NOT_CLEAN as a real result rather than a failure to read", () => {
+    // The distinction the caller depends on. Null means nobody established anything; NOT_CLEAN
+    // means somebody looked and said no. Collapsing them would let an unreadable file stand in
+    // for a failed review, or the reverse.
+    const parsed = parseAttestation(
+      JSON.stringify({ reviewedCodeSha: shaValue, verdict: "NOT_CLEAN" }),
+    );
+    expect(parsed).not.toBeNull();
     expect(parsed?.clean).toBe(false);
   });
-
-  it("does not accept CLEAN with a trailing period", () => {
-    // The value is compared, not pattern-matched, and `CLEAN.` is not the enumerated value. It
-    // fails to parse at all rather than parsing as clean.
-    expect(parseAttestation("REVIEWED_CODE_SHA: 0f9caeb\nREVIEW_VERDICT: CLEAN.")).toBeNull();
-  });
 });
 
-describe("an example of the format is not an instance of it", () => {
-  it("ignores fields inside a fenced code block", () => {
-    // The fail-open case, and the realistic one: a template showing what to write was read as
-    // what had been written.
-    const template = [
-      "# How to write an attestation",
-      "",
-      "```",
-      "REVIEWED_CODE_SHA: <full sha>",
-      "REVIEW_VERDICT: CLEAN",
-      "```",
-      "",
-      "No attestation has actually been recorded yet.",
-    ].join("\n");
-    expect(parseAttestation(template)).toBeNull();
+describe("prose cannot masquerade as a claim", () => {
+  it.each([
+    [
+      "markdown with the fields as text",
+      `# Attestation\n\nreviewedCodeSha: ${shaValue}\nverdict: CLEAN`,
+    ],
+    ["a JSON example inside a fenced block", "```json\n" + valid + "\n```"],
+    ["an HTML-commented claim", `<!--\n${valid}\n-->`],
+    ["a tilde-fenced claim", `~~~\n${valid}\n~~~`],
+    ["prose wrapped around valid JSON", `Here is what it would say:\n${valid}\nBut it does not.`],
+  ])("rejects %s", (_label, text) => {
+    // Every one of these embeds a payload that IS accepted on its own, so each fails for the
+    // reason it names rather than incidentally — the property the previous fence test lacked.
+    expect(parseAttestation(text)).toBeNull();
   });
 
-  it("reads the real fields when a fenced template sits alongside them", () => {
-    // The false-negative the exactly-one rule introduced before fences were stripped: a real
-    // attestation next to its own template counted as two and rejected the document.
-    const both = [
-      "```",
-      "REVIEWED_CODE_SHA: <sha>",
-      "REVIEW_VERDICT: CLEAN",
-      "```",
-      "",
-      valid,
-    ].join("\n");
-    expect(parseAttestation(both)?.reviewedCodeSha).toBe(
-      "0f9caeb561a5455977d14540ea44da303565d74f",
-    );
+  it("still accepts a legitimately indented document", () => {
+    // Not every "it looks embedded" case is one. A four-space indent is a Markdown code block and
+    // also just whitespace, which JSON permits — this was in the rejection list above until it
+    // failed, and the test was wrong rather than the parser. Moving to JSON retired the Markdown
+    // concept without retiring the assumption, which is its own small lesson.
+    expect(parseAttestation(valid.replace(/^/gm, "    "))).not.toBeNull();
+  });
+
+  it("confirms the embedded payload would otherwise be accepted", () => {
+    // The control that makes the cases above meaningful. Without it they could all be passing
+    // because the payload is invalid, which is exactly how the earlier vacuous test passed.
+    expect(parseAttestation(valid)).not.toBeNull();
   });
 });
 
 describe("ambiguity is refused, never resolved", () => {
-  it("rejects a document stating two verdicts", () => {
-    // What a careless edit produces: appending a correction instead of replacing the error. There
-    // is no defensible rule for which of two contradictory verdicts is the real one.
-    const two = [
-      "REVIEWED_CODE_SHA: 0f9caeb",
-      "REVIEW_VERDICT: NOT_CLEAN",
-      "",
-      "on reflection:",
-      "REVIEW_VERDICT: CLEAN",
-    ].join("\n");
+  it("rejects a document naming two verdicts", () => {
+    // JSON.parse keeps the last duplicate key silently, which turns "append a correction instead
+    // of replacing the error" into a verdict flip nobody can see in a diff of the parsed value.
+    const two = `{"reviewedCodeSha":"${shaValue}","verdict":"NOT_CLEAN","verdict":"CLEAN"}`;
+    // The payload parses as JSON and would be accepted if duplicates were tolerated.
+    expect(JSON.parse(two).verdict).toBe("CLEAN");
     expect(parseAttestation(two)).toBeNull();
   });
 
   it("rejects a document naming two commits", () => {
-    const two = [
-      "REVIEWED_CODE_SHA: 0f9caeb",
-      "REVIEWED_CODE_SHA: 8c7ccb1",
-      "REVIEW_VERDICT: CLEAN",
-    ].join("\n");
+    const two = `{"reviewedCodeSha":"${shaValue}","reviewedCodeSha":"b6b4858","verdict":"CLEAN"}`;
     expect(parseAttestation(two)).toBeNull();
+  });
+});
+
+describe("only the enumerated verdict opens the gate", () => {
+  it.each(["CLEANISH", "clean", "CLEAN ", "CLEAN.", "BLOCKED", "PENDING", ""])(
+    "rejects the verdict %p",
+    (verdict) => {
+      expect(parseAttestation(JSON.stringify({ reviewedCodeSha: shaValue, verdict }))).toBeNull();
+    },
+  );
+
+  it.each([
+    ["a non-string verdict", { reviewedCodeSha: shaValue, verdict: true }],
+    ["a missing verdict", { reviewedCodeSha: shaValue }],
+    ["a missing sha", { verdict: "CLEAN" }],
+    ["a non-string sha", { reviewedCodeSha: 12345, verdict: "CLEAN" }],
+    ["a short sha", { reviewedCodeSha: "b6b4b", verdict: "CLEAN" }],
+    ["an uppercase sha", { reviewedCodeSha: "B6B4858", verdict: "CLEAN" }],
+    ["a non-hex sha", { reviewedCodeSha: "zzzzzzz", verdict: "CLEAN" }],
+    ["a sha with surrounding space", { reviewedCodeSha: ` ${shaValue} `, verdict: "CLEAN" }],
+  ])("rejects %s", (_label, payload) => {
+    expect(parseAttestation(JSON.stringify(payload))).toBeNull();
   });
 });
 
 describe("anything unreadable yields nothing", () => {
   it.each([
     ["empty", ""],
-    ["no fields", "# Notes\n\nnothing structured here"],
-    ["only a sha", "REVIEWED_CODE_SHA: 0f9caeb"],
-    ["only a verdict", "REVIEW_VERDICT: CLEAN"],
-    ["indented field", "  REVIEWED_CODE_SHA: 0f9caeb\n  REVIEW_VERDICT: CLEAN"],
-    ["quoted field", "> REVIEWED_CODE_SHA: 0f9caeb\n> REVIEW_VERDICT: CLEAN"],
-    ["table row", "| REVIEWED_CODE_SHA: 0f9caeb | REVIEW_VERDICT: CLEAN |"],
-    ["lowercase names", "reviewed_code_sha: 0f9caeb\nreview_verdict: CLEAN"],
-    ["uppercase sha", "REVIEWED_CODE_SHA: 0F9CAEB\nREVIEW_VERDICT: CLEAN"],
-    ["short sha", "REVIEWED_CODE_SHA: 0f9ca\nREVIEW_VERDICT: CLEAN"],
-    ["non-hex sha", "REVIEWED_CODE_SHA: zzzzzzz\nREVIEW_VERDICT: CLEAN"],
-  ])("returns null for %s", (_label, markdown) => {
-    expect(parseAttestation(markdown)).toBeNull();
-  });
-
-  it("distinguishes unreadable from negative", () => {
-    // The distinction the caller depends on. Null means MISSING — nobody established anything —
-    // whereas a parsed NOT_CLEAN is a real result. Collapsing them would let an unreadable file
-    // stand in for a failed review, or worse, the reverse.
-    expect(parseAttestation("garbage")).toBeNull();
-    expect(
-      parseAttestation("REVIEWED_CODE_SHA: 0f9caeb\nREVIEW_VERDICT: NOT_CLEAN"),
-    ).not.toBeNull();
+    ["not JSON", "{ not json"],
+    ["a JSON array", "[]"],
+    ["a JSON string", '"CLEAN"'],
+    ["JSON null", "null"],
+    ["a number", "42"],
+  ])("returns null for %s", (_label, text) => {
+    expect(parseAttestation(text)).toBeNull();
   });
 });

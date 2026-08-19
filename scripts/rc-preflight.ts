@@ -116,7 +116,7 @@ function reviewEvidence(): {
   finalReviewCommit?: string;
   changedPathsSinceReview?: string[];
 } {
-  const attestationPath = join(process.cwd(), "docs", "REVIEW_ATTESTATION.md");
+  const attestationPath = join(process.cwd(), "docs", "REVIEW_ATTESTATION.json");
   if (!existsSync(attestationPath)) return {};
   const parsed = parseAttestation(readFileSync(attestationPath, "utf8"));
   if (!parsed) return {};

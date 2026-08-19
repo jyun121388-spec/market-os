@@ -1540,3 +1540,41 @@ carelessness in the code but confidence in the comment: each round the claim gre
 stayed false — including one round where the mitigation was deliberately weakened to "detected, not
 prevented" and _that_ was still untrue. It stopped when the primitive changed rather than the
 wording.
+
+### IR-077 — the watcher's documented poll cadence exceeds the rate limit it polls under (P1, found in production state)
+
+**Found by:** reading the running watcher's own degraded health, not by review.
+
+`npm run control-bus:status` reported `NETWORK_DEGRADED` with a fresh heartbeat and three
+consecutive read failures. The cause was not the network:
+
+```
+core remaining: 0 / 60   reset in 476 s
+```
+
+GitHub's **unauthenticated** rate limit is 60 requests per hour. The watcher polls every 45
+seconds, which is **80 requests per hour**, and the pagination loop can issue more than one request
+per cycle. The documented cadence — `WATCHER_POLL => 30_60_SECONDS`, recorded as an invariant in
+`CLAUDE.md` — is arithmetically unachievable against the endpoint it targets. At any rate in that
+band the watcher exhausts its budget and spends most of each hour rate-limited.
+
+**What makes this the SILENT_DEGRADATION shape rather than an outage.** Nothing crashes. The
+watcher stays alive, heartbeats correctly, logs a failure per cycle, and reports itself degraded —
+and the bounded backoff then rescues it by accident: at the 8-minute ceiling it makes 7.5 requests
+an hour, comfortably inside the limit. So the channel does work, at eight-minute latency instead of
+forty-five seconds, and every document describing it says forty-five.
+
+Two further problems this exposed, both mine:
+
+- **The error class is logged and the status code is not.** `githubFetchComments` throws
+  `new Error("HTTP 403")`, whose `name` is `"Error"`, and the log records only the name — a
+  deliberate choice, because a fetch error can carry a URL with a token in it. The consequence is a
+  log reading `read failed: Error` three times with no indication that the cause was a rate limit.
+  A status code carries no secret and should be kept.
+- **`control-bus:status` judges liveness by PID alone**, printing `alive (pid 11884)` without
+  consulting the heartbeat — the exact distinction the lock was rebuilt around three times, absent
+  from the diagnostic that reports it. Here the heartbeat happened to be fresh, so the answer was
+  right by luck rather than by method.
+
+Not yet fixed: the current candidate is frozen pending its bounded review, and this is executable
+change in a different module.

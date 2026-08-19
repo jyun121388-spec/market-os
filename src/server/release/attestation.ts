@@ -1,62 +1,72 @@
 /**
- * Parsing a review attestation, which is a small security-relevant parser and was living in a
- * script with no tests.
+ * Parsing a review attestation, which is the document the release gate believes.
  *
- * The attestation is the document that says "this exact commit was independently reviewed and
- * found clean". The release gate reads it. A parser that is too generous here does not produce a
- * wrong number on a dashboard — it closes a release on a review that did not happen.
+ * **It is JSON, and that is the finding rather than a preference.** Three rounds were spent making
+ * a regex read fields out of Markdown, and each round the reviewer found another way for prose to
+ * look like data: an unanchored verdict matched `CLEANISH`; a later `CLEAN` line overrode an
+ * earlier `NOT_CLEAN`; a field inside a fenced block was read as a field. Stripping fences fixed
+ * the third and immediately exposed HTML comments, tilde fences, indented blocks and unterminated
+ * fences as the same hole wearing different syntax.
  *
- * Four properties, each of which was a defect first:
+ * There is no end to that list, because Markdown has no boundary between "content" and "an
+ * illustration of content" that a regex can see. The mistake was never a particular pattern — it
+ * was treating a prose document as a data format. A machine-readable claim belongs in a
+ * machine-readable file, and the prose that explains it belongs beside it where nothing parses it.
  *
- * - **Fenced blocks are not fields.** A field line inside ``` is an example OF the format, and the
- *   parser read it as an instance of it, so a document merely showing what an attestation looks
- *   like was accepted as one. The natural way to document a format is to show it, which makes this
- *   the realistic case rather than a contrived one.
- * - **Exactly one of each field.** `REVIEW_VERDICT: NOT_CLEAN` followed by `REVIEW_VERDICT: CLEAN`
- *   was read as clean, because a per-line match is satisfied by the friendlier line. That is what a
- *   careless edit produces — appending a correction instead of replacing the error. Ambiguity is
- *   refused rather than resolved: there is no defensible rule for which of two contradictory
- *   verdicts is real, so a document stating both states nothing.
- * - **The verdict is compared, not matched.** An unanchored pattern accepted `CLEANISH`.
- * - **Anything unparseable yields nothing at all**, which the gate reads as MISSING rather than as
- *   a negative result. "We could not read it" and "it said no" are different, and only one of them
- *   is evidence about the code.
+ * What survives from those rounds, because each was a real defect:
  *
- * Pure: no filesystem, no git, no clock. Direction and identity of the commit are established by
- * the caller against the commit graph, because a document cannot be evidence for its own scope.
+ * - **Exactly one verdict.** JSON cannot express two values for one key, but a hand-edited file
+ *   can contain the key twice and `JSON.parse` silently keeps the last — which is precisely the
+ *   "append a correction instead of replacing the error" case. Duplicates are detected and refused.
+ * - **The verdict is compared, not matched.** Only the enumerated value opens the gate.
+ * - **Unreadable is not negative.** A file nobody can parse yields null, which the gate reads as
+ *   MISSING. "We could not read it" and "it said no" are different facts and only one is evidence.
+ *
+ * Pure: no filesystem, no git, no clock. The commit's identity and direction are established by the
+ * caller against the commit graph, because a document cannot be evidence for its own scope.
  */
+
+export type AttestationVerdict = "CLEAN" | "NOT_CLEAN";
 
 export interface ParsedAttestation {
   reviewedCodeSha: string;
-  verdict: string;
-  /** True only for the exact enumerated value. Every other verdict, including unknown ones. */
+  verdict: AttestationVerdict;
+  /** True only for the exact enumerated clean value. */
   clean: boolean;
 }
 
-/** Removes fenced code blocks, so an illustration of the format is never read as the format. */
-function withoutFencedBlocks(markdown: string): string {
-  return markdown.replace(/^```[\s\S]*?^```/gm, "");
-}
+const SHA = /^[0-9a-f]{7,40}$/;
 
 /**
- * Reads the two required fields, or returns null.
+ * Whether a key appears more than once in the raw text.
  *
- * Null covers every failure — absent, duplicated, malformed, indented, wrong case — deliberately.
- * A caller that could distinguish "malformed" from "says NOT_CLEAN" would be tempted to treat the
- * first as recoverable, and it is not: an attestation nobody can read is not an attestation.
+ * `JSON.parse` resolves a duplicate key by keeping the last occurrence, silently. For ordinary
+ * data that is a curiosity; for a verdict it is the difference between `NOT_CLEAN` and `CLEAN`,
+ * decided by which line someone happened to append. Refusing is the only honest answer, because
+ * there is no defensible rule for which of two contradictory claims is the real one.
  */
-export function parseAttestation(markdown: string): ParsedAttestation | null {
-  const prose = withoutFencedBlocks(markdown);
+function appearsTwice(raw: string, key: string): boolean {
+  const matches = raw.match(new RegExp(`"${key}"\\s*:`, "g"));
+  return (matches?.length ?? 0) > 1;
+}
 
-  const shaMatches = [...prose.matchAll(/^REVIEWED_CODE_SHA:\s*`?([0-9a-f]{7,40})`?\s*$/gm)];
-  const verdictMatches = [...prose.matchAll(/^REVIEW_VERDICT:\s*`?([A-Z_]+)`?\s*$/gm)];
+export function parseAttestation(raw: string): ParsedAttestation | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
 
-  if (shaMatches.length !== 1 || verdictMatches.length !== 1) return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
 
-  const verdict = verdictMatches[0][1];
-  return {
-    reviewedCodeSha: shaMatches[0][1],
-    verdict,
-    clean: verdict === "CLEAN",
-  };
+  if (appearsTwice(raw, "reviewedCodeSha") || appearsTwice(raw, "verdict")) return null;
+
+  const sha = record.reviewedCodeSha;
+  const verdict = record.verdict;
+  if (typeof sha !== "string" || !SHA.test(sha)) return null;
+  if (verdict !== "CLEAN" && verdict !== "NOT_CLEAN") return null;
+
+  return { reviewedCodeSha: sha, verdict, clean: verdict === "CLEAN" };
 }

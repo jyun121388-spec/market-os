@@ -46,6 +46,11 @@ describe("PROJECT_STATE's headline numbers", () => {
     const [, passed, total, files] = match!;
     // A partial pass recorded as the headline would be a worse claim than a stale one.
     expect(passed, "the headline must not record a failing suite").toBe(total);
+    // The FILE count is checked against reality below; the TEST count is not, and cannot be
+    // without running the suite from inside it. So a stated total can drift by a few while this
+    // stays green — it did, by one, when a test was added after the number was written down.
+    // Recorded rather than papered over: what this guard proves is that the headline is
+    // self-consistent and that its file count is true, not that its test count is.
     expect(Number(files), `PROJECT_STATE says ${files} test files; ${countTestFiles()} exist`).toBe(
       countTestFiles(),
     );

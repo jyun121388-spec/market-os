@@ -182,6 +182,7 @@ function evidenceState(
  * default is the whole point: this is the field somebody would widen to make a release close.
  */
 const EVIDENCE_ONLY_PATHS: readonly string[] = [
+  "docs/REVIEW_ATTESTATION.json",
   "docs/REVIEW_ATTESTATION.md",
   "docs/escalation/PENDING_PR_UPDATE.md",
 ];

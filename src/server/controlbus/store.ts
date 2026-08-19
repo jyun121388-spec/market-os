@@ -274,26 +274,57 @@ export function acquireLock(
  * writing the shared cursor.
  */
 export function heartbeat(paths: StorePaths, record: LockRecord, at: string): boolean {
-  const held = readLock(paths);
-  // Ownership must be POSITIVELY established. The first version passed when `held` was null, so a
-  // corrupt or deleted lock read as "not somebody else's" and got overwritten — the second review
-  // pointed out that absence of a mismatch is not proof of a match, which is the same fail-open
-  // shape as an unsupplied allowlist.
-  if (!held || held.nonce !== record.nonce) return false;
-  writeAtomic(paths.lock, `${JSON.stringify({ ...record, startedAt: at }, null, 2)}\n`);
+  // Rename-verify-recreate, the same mutex the acquisition path uses.
+  //
+  // The previous version read, wrote, then read back, and called that "detected, not prevented".
+  // The confirmation review showed even the weaker claim did not hold: a competitor can take the
+  // lock AFTER the read-back, so the caller returns true while somebody else owns it.
+  //
+  // The rename is what makes this decidable. Exactly one caller can move a given path, so whoever
+  // wins the rename holds the record exclusively while deciding what to do with it — and a
+  // competitor arriving mid-sequence finds nothing at the lock path and takes the acquisition
+  // route instead, which is correct.
+  const token = `${paths.lock}.beat.${record.nonce}`;
+  try {
+    renameSync(paths.lock, token);
+  } catch {
+    // Gone or already claimed by someone else's rename. Either way this caller does not hold it.
+    return false;
+  }
 
-  // Read back. The check above is read-then-write, so a competitor can legitimately take a stale
-  // lock in the microseconds between them and this write will land on top of theirs.
-  //
-  // That window is NOT closed here, and saying otherwise would be the mistake this whole review
-  // chain keeps finding. Plain files have no compare-and-swap; closing it properly means a
-  // different primitive. What this does is DETECT it on the next line: the displaced watcher sees
-  // a nonce that is not its own and stops, so the overlap lasts one cycle instead of forever.
-  //
-  // Reaching it requires a watcher paused past three heartbeats resuming inside that window.
-  // Detected-and-brief, not prevented — recorded as such rather than described as safe.
-  const after = readLock(paths);
-  return after?.nonce === record.nonce;
+  let held: LockRecord | null = null;
+  try {
+    held = JSON.parse(readFileSync(token, "utf8")) as LockRecord;
+  } catch {
+    held = null;
+  }
+
+  if (!held || held.nonce !== record.nonce) {
+    // Not ours. Put it back exactly as found rather than destroying a record we do not own.
+    try {
+      renameSync(token, paths.lock);
+    } catch {
+      // The path is occupied again, which means a live holder recreated it. Discard our copy.
+      try {
+        unlinkSync(token);
+      } catch {
+        // Litter, not a correctness problem.
+      }
+    }
+    return false;
+  }
+
+  writeAtomic(
+    paths.lock,
+    `${JSON.stringify({ ...record, startedAt: at }, null, 2)}
+`,
+  );
+  try {
+    unlinkSync(token);
+  } catch {
+    // Litter, not a correctness problem.
+  }
+  return true;
 }
 
 export function readLock(paths: StorePaths): LockRecord | null {
@@ -314,12 +345,50 @@ export function readLock(paths: StorePaths): LockRecord | null {
  */
 export function releaseLock(paths: StorePaths, record?: LockRecord): void {
   if (!existsSync(paths.lock)) return;
-  if (record) {
-    const held = readLock(paths);
-    // Same correction as the heartbeat: a corrupt lock read as null and was then deleted by a
-    // watcher that could not possibly have owned it, clearing the field while a live process was
-    // still polling. Ownership has to be shown, not merely not-disproved.
-    if (!held || held.nonce !== record.nonce) return;
+
+  if (!record) {
+    // Unconditional release, used only where the caller has no record to prove ownership with.
+    try {
+      unlinkSync(paths.lock);
+    } catch {
+      // Already gone.
+    }
+    return;
   }
-  unlinkSync(paths.lock);
+
+  // Same rename mutex as the heartbeat, for the same reason: read-then-unlink let a displaced
+  // watcher delete the live lock of the watcher that replaced it. Winning the rename is what makes
+  // the ownership check meaningful, because nothing else can be looking at the record by then.
+  const token = `${paths.lock}.release.${record.nonce}`;
+  try {
+    renameSync(paths.lock, token);
+  } catch {
+    return;
+  }
+
+  let held: LockRecord | null = null;
+  try {
+    held = JSON.parse(readFileSync(token, "utf8")) as LockRecord;
+  } catch {
+    held = null;
+  }
+
+  if (!held || held.nonce !== record.nonce) {
+    try {
+      renameSync(token, paths.lock);
+    } catch {
+      try {
+        unlinkSync(token);
+      } catch {
+        // Litter, not a correctness problem.
+      }
+    }
+    return;
+  }
+
+  try {
+    unlinkSync(token);
+  } catch {
+    // Litter, not a correctness problem.
+  }
 }

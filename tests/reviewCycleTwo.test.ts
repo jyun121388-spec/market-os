@@ -124,6 +124,24 @@ describe("the lock actually excludes", () => {
     expect(readLock(paths)?.nonce).toBe("B");
   });
 
+  it("does not let a displaced watcher delete or refresh its replacement's lock", () => {
+    // The confirmation review's two failing claims, both the same read-then-write shape that
+    // acquireLock had already been fixed for. heartbeat read, wrote, read back, and a competitor
+    // arriving after the read-back still won; releaseLock read then unlinked. Both now take the
+    // record by rename first, which is what makes the ownership check mean anything: exactly one
+    // caller can move a given path, so nothing else is looking at the record while it decides.
+    const a = rec("A");
+    acquireLock(paths, a, 45_000);
+    // B legitimately replaces a stale A.
+    writeFileSync(paths.lock, JSON.stringify(rec("B")), "utf8");
+
+    expect(heartbeat(paths, a, new Date().toISOString())).toBe(false);
+    expect(readLock(paths)?.nonce, "A refreshed B's lock").toBe("B");
+
+    releaseLock(paths, a);
+    expect(readLock(paths)?.nonce, "A deleted B's lock").toBe("B");
+  });
+
   it("treats a heartbeat from the future as stale rather than eternal", () => {
     // `nowMs - started` goes negative, so a lock stamped 2099 stayed "current" for decades — a
     // dead watcher holding the channel shut with a typo.

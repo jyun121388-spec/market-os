@@ -1469,11 +1469,14 @@ that moving governance ahead of staleness changes rejection REASONS and admits n
   it. The `wx` create only arbitrates creation, and by then the damage is done. The comment sitting
   above it claimed the opposite outcome. Removal is now a rename to a name only one caller can have
   chosen: exactly one racer wins, and the loser never touches what the winner put back.
-- **IR-066, critical, mitigated not closed.** `heartbeat` and `releaseLock` remain read-then-write.
-  Plain files have no compare-and-swap, so the window cannot be closed without a different
-  primitive. `heartbeat` now reads back and returns false when the nonce is no longer its own, so a
-  displaced watcher stops after one cycle instead of running indefinitely. **Detected and brief,
-  not prevented** — recorded that way rather than described as safe.
+- **IR-066, critical, now closed — but only after a fourth pass caught the mitigation lying.**
+  `heartbeat` and `releaseLock` were read-then-write. The first attempt added a read-back and
+  described it as "detected, not prevented", which was an honest-sounding claim and still false: a
+  confirmation review showed a competitor taking the lock AFTER the read-back, leaving the caller
+  returning `true` while somebody else owned it. Weakening a claim is not the same as making it
+  true. Both now take the record by rename before inspecting it, the same mutex `acquireLock` uses:
+  exactly one caller can move a given path, so nothing else can be looking at the record while it
+  decides, and a record that turns out not to be ours is renamed back rather than destroyed.
 - **IR-067, high.** `ADD_TEST` and `EDIT_DOCS` were classified `IDEMPOTENT`. Appending a paragraph
   and crashing before the marker lands means recovery appends it again. An action KIND is a
   category, not an operation, and a kind may only be called idempotent when every effect it could

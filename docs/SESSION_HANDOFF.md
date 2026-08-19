@@ -18,6 +18,31 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Real dev data                       | **2240 filings, 1431 facts, 33 observations** — intact after the suite   |
 | P0 / P1                             | **0 / 0**                                                                |
 
+## Stop sentinel — evaluated, not asserted (2026-08-19)
+
+```
+mayStop: true
+  ok  no startable task — 0 startable, 5 deferred
+  ok  no unresolved failing check — 0
+  ok  no blocker advanceable by code, tests, docs or analysis — 0
+  ok  no review finding left unhandled — 0
+  ok  open escalations do not block — 1 open; independent work continues
+```
+
+**This means nothing is startable here, not that Market OS is finished.** All five remaining items
+are gated on provider credentials (HG-002/003/004), and the sentinel reports them by name rather
+than dropping them.
+
+The queue converged for the first time this session. Worth knowing for the next one: after it
+converged, the protocol's second-order checklist still produced IR-040 — Verify claiming "no
+shortfall was detected" for completeness statuses where nothing had looked. A converged queue is a
+statement about the queue.
+
+Second-order checklist coverage this session: identity, ordering, completeness, guardrail concepts,
+provenance, concurrency, environment modes, test realism. Financial-semantics items (fiscal vs
+calendar period, cross-currency) were **not** worked and are the obvious place for the next pass to
+start.
+
 ## What this round did
 
 Three commits, continuing directly from the provider-vintage contract.

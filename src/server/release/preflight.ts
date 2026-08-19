@@ -166,14 +166,29 @@ function evidenceState(
 }
 
 /**
- * Paths whose contents a code review is not evidence about.
+ * The only paths whose contents a code review is not evidence about.
  *
- * Deliberately narrow. Documentation and the review record itself; nothing under `src`, `tests`,
- * `prisma`, `scripts` or any configuration, because a reviewer's conclusions about behaviour stop
- * applying the moment behaviour can change. `docs/` is included and `CLAUDE.md` is NOT — the
- * operating rules are executable in every sense that matters here.
+ * An explicit list, not a prefix. The first version was `^docs/` and that was too generous by a
+ * wide margin: `PROJECT_STATE.md` is read by a test, `HUMAN_GATE_QUEUE.md` supplies the preflight
+ * its gate list, `SESSION_HANDOFF.md` is parsed by the orphan check, and `CLAUDE.md` is operating
+ * policy. Editing any of them changes what the system does, which is exactly what a review is
+ * evidence about.
+ *
+ * A file earns its place here only by being read by nothing — enforced by
+ * `tests/evidencePathClassification.test.ts`, which fails if any source or test file references
+ * one. Membership is a property that can be checked, rather than a judgement recorded once.
+ *
+ * Anything not on this list invalidates the review, including paths nobody has classified. That
+ * default is the whole point: this is the field somebody would widen to make a release close.
  */
-const NON_INVALIDATING = /^docs\//;
+const EVIDENCE_ONLY_PATHS: readonly string[] = [
+  "docs/REVIEW_ATTESTATION.md",
+  "docs/escalation/PENDING_PR_UPDATE.md",
+];
+
+export function isEvidenceOnlyPath(path: string): boolean {
+  return EVIDENCE_ONLY_PATHS.includes(path.split("\\").join("/"));
+}
 
 function reviewCoversHead(input: PreflightInput): boolean {
   if (input.finalReviewCommit === input.head) return true;
@@ -181,7 +196,7 @@ function reviewCoversHead(input: PreflightInput): boolean {
   // An empty list with a different commit means nobody classified the intervening changes, not
   // that there were none — the same distinction the evidence checks make.
   if (input.changedPathsSinceReview.length === 0) return false;
-  return input.changedPathsSinceReview.every((path) => NON_INVALIDATING.test(path));
+  return input.changedPathsSinceReview.every(isEvidenceOnlyPath);
 }
 
 function finalReviewState(input: PreflightInput): EvidenceState {

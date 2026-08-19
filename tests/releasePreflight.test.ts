@@ -223,7 +223,13 @@ describe("the report is auditable", () => {
   it("cannot act on its own conclusion", () => {
     // The preflight is read-only by construction, not by convention. If it ever imports something
     // that can merge, push or deploy, this is where that shows up.
-    const source = readFileSync(join(process.cwd(), "src/server/release/preflight.ts"), "utf8");
+    // Comments are stripped before scanning. The guard fired on the word "prisma" inside a doc
+    // comment that lists the paths a code review covers — a guard reading prose as code is the
+    // over-flagging failure this project has now hit three times, and it is the failure that gets
+    // guards switched off rather than fixed.
+    const source = readFileSync(join(process.cwd(), "src/server/release/preflight.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
     expect(source).not.toMatch(/child_process|\bexecSync\b|\bfetch\(|prisma/);
   });
 });

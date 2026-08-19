@@ -347,7 +347,17 @@ const HEARTBEAT_STALE_MS = 45_000;
  */
 function lockWrittenRecently(lockPath: string, nowMs: number): boolean {
   try {
-    return nowMs - statSync(lockPath).mtimeMs < 1_000;
+    const age = nowMs - statSync(lockPath).mtimeMs;
+    // Bounded on BOTH sides. Without a lower bound a future mtime gives a negative age, which is
+    // also "under a second", so a clock rollback would hold acquisition off until wall time caught
+    // up — the same shape as the future-heartbeat bug one function up.
+    //
+    // The lower bound is a full second rather than zero, and that is not slack for its own sake:
+    // `nowMs` comes from an ISO string truncated to milliseconds while `mtimeMs` carries
+    // sub-millisecond precision, so a genuinely-just-written file reads as fractionally in the
+    // future. A strict `age >= 0` rejected exactly the case this function exists to catch, which
+    // its own test caught immediately.
+    return age > -1_000 && age < 1_000;
   } catch {
     return false;
   }
@@ -375,6 +385,22 @@ function removeIfPresent(path: string): void {
  * Runs `body` while holding the exclusive right to mutate the lock, or returns null.
  *
  * The right is a `wx` create of a second file, which is what makes it a right rather than a hope.
+ *
+ * **Known residual, stated rather than papered over.** A lease can expire while its holder is
+ * paused mid-function, after which a successor legitimately takes the right and both can act. The
+ * fencing check narrows the window to the gap between the check and the write; it does not remove
+ * it, because check-and-act is two operations and plain files offer no way to make it one.
+ *
+ * Reaching it needs two watchers racing AND one suspended past the lease mid-operation — and
+ * `control-bus:start` refuses while a live lock exists, so it takes deliberate concurrent starts
+ * plus a machine suspend. Recorded as IR-075.
+ *
+ * The real fix is a different primitive, and it is named here so the next attempt does not
+ * rediscover the same three dead ends: hold the lock file OPEN for the process lifetime. On
+ * Windows an open handle cannot be deleted or renamed by another process, so exclusion is enforced
+ * by the OS rather than inferred from timestamps, and liveness stops being a guess — a dead
+ * holder's handle is released by the kernel. That is a rewrite with its own review cycle, not a
+ * patch, which is why it is recorded instead of attempted here.
  * It expires, because a process that dies holding it would wedge the channel — and a deadlock is
  * not an improvement on a race.
  */

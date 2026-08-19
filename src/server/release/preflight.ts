@@ -96,6 +96,23 @@ export interface PreflightInput {
    */
   finalReviewDone?: boolean;
   finalReviewCommit?: string;
+  /**
+   * Paths changed between the reviewed commit and HEAD.
+   *
+   * This is what stops the review chain becoming a perpetual motion machine. Recording a review
+   * creates a commit, that commit moves HEAD, and a naive freshness rule then declares the review
+   * stale the instant it is written down — so the review can never be current and the release can
+   * never close, no matter how clean the code is.
+   *
+   * The resolution is that not every commit invalidates a review. A review is evidence about
+   * EXECUTABLE CODE. A commit touching only the attestation and the findings record changes
+   * nothing the reviewer looked at.
+   *
+   * Undefined means nobody established it, and that is stale — the same fail-closed rule as
+   * everywhere else here, and the important one, because this is precisely the field somebody
+   * would be tempted to leave out to make a release close.
+   */
+  changedPathsSinceReview?: string[];
 
   /** Human Gates still open, by id. Each is external by definition. */
   openHumanGates?: string[];
@@ -146,6 +163,51 @@ function evidenceState(
 
   const invalidating = INVALIDATED_BY[name] ?? [];
   return changes.some((change) => invalidating.includes(change)) ? "STALE" : "PASS";
+}
+
+/**
+ * Paths whose contents a code review is not evidence about.
+ *
+ * Deliberately narrow. Documentation and the review record itself; nothing under `src`, `tests`,
+ * `prisma`, `scripts` or any configuration, because a reviewer's conclusions about behaviour stop
+ * applying the moment behaviour can change. `docs/` is included and `CLAUDE.md` is NOT — the
+ * operating rules are executable in every sense that matters here.
+ */
+const NON_INVALIDATING = /^docs\//;
+
+function reviewCoversHead(input: PreflightInput): boolean {
+  if (input.finalReviewCommit === input.head) return true;
+  if (input.changedPathsSinceReview === undefined) return false;
+  // An empty list with a different commit means nobody classified the intervening changes, not
+  // that there were none — the same distinction the evidence checks make.
+  if (input.changedPathsSinceReview.length === 0) return false;
+  return input.changedPathsSinceReview.every((path) => NON_INVALIDATING.test(path));
+}
+
+function finalReviewState(input: PreflightInput): EvidenceState {
+  if (input.finalReviewDone === undefined) return "MISSING";
+  if (!input.finalReviewDone) return "FAIL";
+  return reviewCoversHead(input) ? "PASS" : "STALE";
+}
+
+function finalReviewDetail(input: PreflightInput): string {
+  if (input.finalReviewDone === undefined) {
+    return "Never established. A reviewer's absence is not a clean review.";
+  }
+  if (!input.finalReviewDone) return "Final adversarial review has not run against this HEAD.";
+  if (input.finalReviewCommit === input.head) {
+    return `Final adversarial review completed against ${input.head}.`;
+  }
+  if (reviewCoversHead(input)) {
+    return (
+      `Reviewed at ${input.finalReviewCommit}; every change since is non-executable ` +
+      `(${input.changedPathsSinceReview?.join(", ")}), so the review still describes this code.`
+    );
+  }
+  return (
+    `Review was of ${input.finalReviewCommit ?? "an unnamed commit"}, not ${input.head}, and the ` +
+    "change since is either executable or unclassified."
+  );
 }
 
 export function preflight(input: PreflightInput): PreflightReport {
@@ -240,22 +302,8 @@ export function preflight(input: PreflightInput): PreflightReport {
   checks.push({
     name: "final independent review",
     kind: "INTERNAL",
-    state:
-      input.finalReviewDone === undefined
-        ? "MISSING"
-        : !input.finalReviewDone
-          ? "FAIL"
-          : input.finalReviewCommit === input.head
-            ? "PASS"
-            : "STALE",
-    detail:
-      input.finalReviewDone === undefined
-        ? "Never established. A reviewer's absence is not a clean review."
-        : !input.finalReviewDone
-          ? "Final adversarial review has not run against this HEAD."
-          : input.finalReviewCommit === input.head
-            ? `Final adversarial review completed against ${input.head}.`
-            : `Review was of ${input.finalReviewCommit ?? "an unnamed commit"}, not ${input.head}.`,
+    state: finalReviewState(input),
+    detail: finalReviewDetail(input),
   });
 
   // External conditions. Real, and categorically different from a defect — they cannot be fixed by

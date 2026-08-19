@@ -1,3 +1,8 @@
+> **All packets in this file have been transmitted and read back as of 2026-08-20.**
+> `[CLAUDE_APPLIED][TEST-001]` is comment 5349296642, `[ESCALATION][TEST-002]` is 5349417717,
+> and `[ESCALATION][ESC-009]` is 5349422884. The staged text is kept as the record of what was
+> queued while the channel was believed one-way; nothing here is still owed.
+
 # Escalation comments awaiting a GitHub credential
 
 `https://github.com/jyun121388-spec/market-os/issues/2` — the AI escalation channel.

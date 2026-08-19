@@ -84,3 +84,40 @@ work, git writes work, protocol writes do not. `TEST-001`'s acknowledgement, `TE
 **Nothing may report these as delivered.** ChatGPT has not seen them. The retry condition is
 narrowed accordingly — not "a credential appears", which has now happened without helping, but a
 credential usable against the REST API.
+
+## FULL DUPLEX VERIFIED, 2026-08-20
+
+| Capability                     | State                                                                                        |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `GIT_REMOTE_WRITE`             | **VERIFIED**                                                                                 |
+| `GITHUB_ISSUE_API_READ`        | **VERIFIED** — authenticated `gh api`                                                        |
+| `GITHUB_ISSUE_API_WRITE`       | **VERIFIED** — `gh issue comment --body-file`, read back                                     |
+| `CONTROL_BUS_TRANSPORT_DUPLEX` | **VERIFIED** — TEST-001 round trip complete and approved                                     |
+| `CONTROL_BUS_DECISION_LOOP`    | **PARTIAL** — verified for a decision that pre-existed; TEST-002 tests the reverse direction |
+
+Remote thread as reconciled at posting time:
+
+| id         | message                                              |
+| ---------- | ---------------------------------------------------- |
+| 5335242139 | `[CHATGPT_DECISION][TEST-001]`                       |
+| 5341554970 | `[CHATGPT_TRANSPORT_STATUS][TEST-001]`               |
+| 5349296642 | `[CLAUDE_APPLIED][TEST-001]`                         |
+| 5349301611 | `[CHATGPT_REVIEW_POLICY][v1]`                        |
+| 5349388665 | `[CHATGPT_VERIFIED][TEST-001]` — Status: APPROVED    |
+| 5349417717 | `[ESCALATION][TEST-002]` — posted, awaiting decision |
+| 5349422884 | `[ESCALATION][ESC-009]` — posted, awaiting decision  |
+
+**What was wrong for most of a session.** Write was recorded as blocked on HG-001. `gh` was
+installed and authenticated throughout. The probe was `command -v gh && gh auth status || echo "not
+installed"`, and `gh auth status` exits non-zero when logged out, so the fallback branch fired and
+"unauthenticated" was recorded as "absent". Git remote authentication and GitHub REST
+authentication genuinely are separate capabilities — the distinction was right, the inference from
+that probe was not. Check each capability positively, with its own result.
+
+**A malformed comment was posted and deleted.** `gh api -f body=@file` does not expand `@`, so the
+literal string `@./ack.tmp.md` went up as a comment body. The read-back caught it, it was deleted,
+and the acknowledgement was reposted with `--body-file`. Only `--body-file` is used now. The
+read-back is the sole reason this was caught, which is the argument for requiring one.
+
+**Still not delivered:** nothing. Both queued packets are transmitted and read back. TEST-002 and
+ESC-009 now await decisions, and neither blocks any other work.

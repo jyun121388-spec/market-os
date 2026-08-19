@@ -255,7 +255,14 @@ decided autonomously and recorded in `docs/DECISIONS.md`.
 
 ## HG-009 — Login lockout threat-model decision
 
-**Status**: `HUMAN_GATE_DEFERRED_UNTIL_USER_RETURN` · raised 2026-08-18 · severity P2
+**Status**: `DEFERRED_HUMAN_GATE` · `ESCALATION_QUEUED_NOT_TRANSMITTED` as `ESC-009` ·
+raised 2026-08-18 · escalated 2026-08-19 · severity P2
+
+The earlier status was `HUMAN_GATE_DEFERRED_UNTIL_USER_RETURN`, which is the shape the
+escalate-before-idle rule exists to remove: a question that waits for someone to come back is
+a question nobody was asked. The decision packet is composed, screened and queued in
+`docs/escalation/PENDING_COMMENTS.md`; it has NOT been transmitted, because posting needs a
+REST API credential this machine does not have. Only HG-009 waits on it.
 
 **Decision required**: whether to keep the current account-targeted login lockout, and if not,
 which replacement to accept.

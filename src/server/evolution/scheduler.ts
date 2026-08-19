@@ -380,6 +380,19 @@ export interface StopSentinelInput {
   discoveryCandidates?: number;
   /** Work named as next in a state document but absent from the queue with no reason recorded. */
   orphanedDocumentedWork?: number;
+  /**
+   * Whether the true-idle decision packet has actually left, or been durably queued to leave.
+   *
+   * Idling is itself a decision, and one nobody outside this machine can see being taken. A loop
+   * that establishes it has nothing safe left and then simply stops has converted an asynchronous
+   * question into a silent one: the gates that would unblock it are exactly the things a human
+   * could act on, and nobody was told they had become the only remaining work.
+   *
+   * So the last thing the sentinel requires is evidence that the question was asked. QUEUED counts
+   * — a missing GitHub credential is HG-001 and blocks the transmission, not the asking — but
+   * NONE does not, and neither does silence, which fails closed like every other input here.
+   */
+  trueIdleEscalation?: "POSTED" | "QUEUED" | "NONE";
 }
 
 export interface StopSentinel {
@@ -421,6 +434,14 @@ export function evaluateStopSentinel(input: StopSentinelInput): StopSentinel {
     {
       name: "no documented work orphaned outside the queue",
       ...unknown("orphaned documented tasks", input.orphanedDocumentedWork),
+    },
+    {
+      name: "true idle has been escalated, not merely reached",
+      satisfied: input.trueIdleEscalation === "POSTED" || input.trueIdleEscalation === "QUEUED",
+      detail:
+        input.trueIdleEscalation === undefined
+          ? "No true-idle escalation state supplied. Stopping without having asked is a silent stop."
+          : `True-idle escalation: ${input.trueIdleEscalation}.`,
     },
     {
       // Deliberately always satisfied. An open escalation is an asynchronous request for a

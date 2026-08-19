@@ -91,3 +91,58 @@ A queued message is not a sent one. `FULL_DUPLEX_VERIFIED` needs four artefacts 
 this comment on the issue, a `[CHATGPT_DECISION][TEST-002]` reply, an acknowledgement from here,
 and that acknowledgement read back. The honest state is `WRITE_PENDING_AUTH`, and calling it
 anything else would be the failure this project keeps writing tests against.
+
+---
+
+## `[ESCALATION][ESC-009]` — queued 2026-08-19, not transmitted
+
+`ESCALATION_QUEUED_NOT_TRANSMITTED`. Retry condition: `CREDENTIAL_STATE_CHANGED` — specifically, a
+credential usable for the **GitHub REST API**. Git push authentication became available on
+2026-08-19 and is not sufficient: posting a comment needs an API credential, and obtaining one from
+the git credential helper would mean extracting a helper secret, which is prohibited.
+
+Composed through `src/server/escalation/packet.ts` and passed `screenPublicComment` with no
+findings. Post verbatim; do not re-compose.
+
+```text
+[ESCALATION][ESC-009]
+
+PROJECT:
+Market OS
+
+TYPE:
+SECURITY_DECISION
+
+SEVERITY:
+P2
+
+CURRENT STATE:
+Failed sign-ins are counted per normalised email and the lock is checked before the password is verified (src/server/domain/auth.ts, isLoginLocked). Five wrong guesses against a known address lock that account for 15 minutes, with no session and no victim interaction. Found by independent review (gpt-5.6-terra) and reproduced by reading the implementation. The behaviour is unchanged and recorded as HG-009 / IR-014; no fix has been attempted, because every candidate replacement trades one denial-of-service shape for another.
+
+DECISION REQUIRED:
+Keep the current account-targeted lockout, or replace it with one of the options below.
+
+WHY HUMAN DECISION IS REQUIRED:
+This is a threat-model choice, not a defect with a correct answer. Each option protects a different party at the other's expense, and Governance classifies a security posture change as DEFERRED_HUMAN_GATE precisely because an agent must not pick its own threat model.
+
+OPTIONS:
+A. Keep account-targeted lockout — Strongest against credential stuffing on one account. Accepts that anyone knowing an address can lock it for 15 minutes.
+B. Move the counter to the source address — Removes the victim-targeted lock. Weaker against a distributed attacker, and can penalise many users behind one NAT or proxy.
+C. Count both, lock neither — Escalating delay plus a CAPTCHA-equivalent challenge instead of a hard lock. No third-party lockout, but it needs a challenge mechanism this product does not have.
+
+RECOMMENDED DEFAULT:
+Keep the current lockout for now. It is the only option that needs no new dependency, the exposure is a 15-minute denial of service against a single account rather than any loss of confidentiality, and there are no real users yet — so the cost of deciding later is close to zero and the cost of guessing wrong is a security posture nobody chose.
+
+IMPACT IF DEFERRED:
+Only HG-009 waits. The behaviour stays as it is and stays recorded. No release is gated on it, because the product has not shipped.
+
+WORK THAT WILL CONTINUE:
+- Evolution recurrence analysis and the meta-loop quality audit
+- Release-candidate preflight automation and evidence freshness rules
+- Verify and Fabric gap discovery, none of which touches authentication
+
+EVIDENCE:
+- docs/INTERIM_REVIEW_FINDINGS.md IR-014
+- docs/HUMAN_GATE_QUEUE.md HG-009
+- src/server/domain/auth.ts (isLoginLocked)
+```

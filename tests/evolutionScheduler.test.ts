@@ -263,6 +263,13 @@ describe("the stop sentinel", () => {
     unhandledReviewFindings: 0,
     discoveryCandidates: 0,
     orphanedDocumentedWork: 0,
+    // Added when idling became something the loop has to ASK about rather than merely reach.
+    // These two tests failed the moment that condition landed, which is the right way round: the
+    // sentinel fails closed on an input it was never given, so every existing caller had to say
+    // whether the question had been sent. QUEUED, not POSTED — HG-001 blocks the transmission and
+    // never the asking, and pretending otherwise would make a missing credential look like a
+    // reason to keep working forever.
+    trueIdleEscalation: "QUEUED" as const,
   };
 
   it("permits stopping only when every condition is satisfied", () => {

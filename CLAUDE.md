@@ -83,6 +83,19 @@ with the difference rather than guessing.
 the unauthenticated REST API. Posting needs a credential this machine does not have, so replies
 are staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and posted unchanged when one exists.
 
+### Invariants (`src/server/escalation/packet.ts` is the machinery)
+
+- `HUMAN_GATE => ESCALATE_ASYNC_AND_CONTINUE` — a gate defers its own action and nothing else.
+- `TRUE_IDLE => ESCALATE_BEFORE_IDLE` — idling without having asked is a silent stop.
+- `WRITE_AUTH_BLOCKED => QUEUE_ESCALATION_AND_CONTINUE` — never retry on unchanged credential state.
+- `ESCALATION_PENDING != PROJECT_STOPPED`.
+- `REMOTE_POST_NOT_CONFIRMED => CHATGPT_NOT_YET_NOTIFIED` — only read-back proves transmission.
+
+Escalations carry a decision packet (one decision, options, recommended default, what continues
+meanwhile), never a progress report. Everything outbound passes `screenPublicComment` first; issue
+#2 is publicly readable. Do not re-post "still idle" — only a materially changed state earns
+another message.
+
 ## Environment hazard: heredocs eat backslashes
 
 Writing a file through a shell heredoc in this environment collapses `\b` to a backspace character,

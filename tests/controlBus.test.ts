@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -403,8 +403,24 @@ describe("single instance", () => {
     expect(outcome.acquired).toBe(true);
   });
 
-  it("treats an unparseable lock file as absent rather than as held forever", () => {
+  it("waits out an unreadable lock that was written moments ago", () => {
+    // This test previously asserted the opposite, and the final review explained why that was the
+    // bug rather than the feature: `wx` creates the directory entry before the contents land, so a
+    // competitor acquiring RIGHT NOW is briefly an empty file. Reading that as "corrupt, take it
+    // over" let both callers acquire.
     writeFileSync(paths.lock, "{ corrupt", "utf8");
+    expect(acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000).acquired).toBe(
+      false,
+    );
+  });
+
+  it("takes over an unreadable lock that has been there a while", () => {
+    // The other half, and the reason the first is safe to do: a genuinely corrupt record must not
+    // hold the channel shut. Age comes from the filesystem, because by definition there is no
+    // timestamp inside the record to read.
+    writeFileSync(paths.lock, "{ corrupt", "utf8");
+    const old = Date.now() - 60_000;
+    utimesSync(paths.lock, new Date(old), new Date(old));
     expect(acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000).acquired).toBe(
       true,
     );

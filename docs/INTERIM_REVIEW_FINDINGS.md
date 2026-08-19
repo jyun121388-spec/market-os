@@ -1491,3 +1491,52 @@ defects beneath comments claiming the opposite; cycle two found fixes reproducin
 fixed one boundary further out; cycle three found the same shape once more in the takeover path.
 Under the bounded-convergence rule this is the last cycle: the remaining known residual is IR-066,
 which is documented, detected at runtime, and requires a primitive change rather than another pass.
+
+## IR-069..IR-074 — Final candidate review, and the lock rebuilt twice more (`gpt-5.6-sol`)
+
+Two passes against the frozen candidate, scoped to `src/server/controlbus/store.ts` — the only
+executable file that had changed. Both blocked attestation, correctly.
+
+**Pass one refuted the rename mutex.** `renameSync` moves whatever is at the path, so a caller that
+had read a stale record and then renamed the lock away could relocate a competitor's freshly
+installed live lock instead, and both callers ended up holding it.
+
+That was the third attempt with the same shape: `existsSync`-then-write, then read-then-`unlink`,
+then read-then-`rename`. Each smaller than the last, each shipped with a comment asserting it was
+closed. **The mistake underneath all three is treating an operation as a mutex because it is
+atomic.** `rename` is atomic — that means the move either happens or does not, and says nothing
+about _which_ file moved.
+
+Rebuilt around exclusive create, the one operation here that arbitrates: `wx` fails when the file
+exists, so exactly one racer wins. Acquisition is a `wx` create; every other mutation takes a
+separate `wx`-created mutation right first.
+
+**Pass two refuted all five properties of that rebuild**, and three of the findings were real
+defects rather than theoretical races:
+
+- **IR-069.** A `wx`-created file is visible before its contents land, so a competitor acquiring at
+  that instant appears as an empty, unreadable record — which the code read as "corrupt, take it
+  over". Both callers acquired. An unreadable record now backs off while its filesystem mtime is
+  under a second old, which separates mid-write from corrupt without delaying a real takeover.
+- **IR-070, the one that mattered most.** The mutation lease was stamped with `record.startedAt`.
+  A watcher's record is created once at startup and never replaced, so after a few hours that is
+  hours stale — every later `.mutate` file looked as though it came from the future, nothing ever
+  expired, and **a single orphaned right would have stopped the watcher permanently.** A deadlock,
+  found while looking for a race.
+- **IR-071.** The lease could expire mid-operation, permitting two simultaneous mutators. Fenced:
+  ownership is re-verified immediately before every destructive step, and the `finally` removes the
+  right only when it is still ours. Narrowed, not closed — the remaining exposure needs a process
+  frozen mid-function for longer than the lease, and that is stated rather than papered over.
+- **IR-072.** In-place heartbeat writes left the record briefly truncated on disk. Now written
+  through a temp file, so an acquirer reading at that instant cannot see a partial record.
+- **IR-073.** `releaseLock`'s record parameter was optional and deleted unconditionally when
+  omitted — a live-lock destroyer behind a default argument, and the easiest of the whole set to
+  trigger because it needs no concurrency at all.
+- **IR-074.** `writeAtomic` carried a false claim about Windows rename semantics. It is used for the
+  cursor only, where the single writer is the lock holder, so it depends on no such thing.
+
+**Six cycles, 24 findings, every one reproduced before a change.** What recurred was not
+carelessness in the code but confidence in the comment: each round the claim grew more careful and
+stayed false — including one round where the mitigation was deliberately weakened to "detected, not
+prevented" and _that_ was still untrue. It stopped when the primitive changed rather than the
+wording.

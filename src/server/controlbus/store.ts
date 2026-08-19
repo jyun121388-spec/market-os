@@ -22,6 +22,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -218,8 +219,23 @@ export function acquireLock(
   // Fast path: nobody holds it.
   if (createExclusive(paths.lock, serialised)) return { acquired: true, record };
 
-  const held = readLock(paths);
   const nowMs = Date.parse(record.startedAt);
+  const held = readLock(paths);
+
+  // An unreadable lock is not necessarily an abandoned one. `wx` creates the directory entry
+  // before the contents land, so a competitor acquiring RIGHT NOW is briefly an empty file — and
+  // the previous version read that as "corrupt, take it over", which let both callers acquire.
+  //
+  // So an unreadable record backs off while it is still young enough to be mid-write. Its age
+  // comes from the filesystem, since by definition there is no timestamp inside it to read.
+  if (!held && lockWrittenRecently(paths.lock, nowMs)) {
+    return {
+      acquired: false,
+      heldBy: record,
+      reason: "the lock file was created moments ago and is still being written",
+    };
+  }
+
   if (held && processAlive(held.pid) && !lockIsStale(held, staleAfterMs, nowMs)) {
     return {
       acquired: false,
@@ -231,7 +247,7 @@ export function acquireLock(
   // The holder looks stale or the record is unreadable, so somebody may take over — but only one
   // somebody, and only under the mutation right.
   return (
-    withMutation(paths, record, staleAfterMs, () => {
+    withMutation(paths, record, staleAfterMs, nowMs, () => {
       // Re-read INSIDE the right. The holder may have been replaced by a live watcher while we were
       // queuing for it, and acting on the record we read outside is exactly the class of mistake
       // this rewrite exists to end.
@@ -241,6 +257,13 @@ export function acquireLock(
           acquired: false,
           heldBy: current,
           reason: `watcher pid ${current.pid} took the lock first and its heartbeat is current`,
+        };
+      }
+      if (!stillHoldsMutation(paths, record)) {
+        return {
+          acquired: false,
+          heldBy: current ?? record,
+          reason: "the mutation right expired before the lock could be replaced",
         };
       }
       removeIfPresent(paths.lock);
@@ -266,13 +289,16 @@ export function acquireLock(
  * right is racing a takeover it should let happen.
  */
 export function heartbeat(paths: StorePaths, record: LockRecord, at: string): boolean {
-  const result = withMutation(paths, record, HEARTBEAT_STALE_MS, () => {
+  const result = withMutation(paths, record, HEARTBEAT_STALE_MS, Date.parse(at), () => {
     const held = readLock(paths);
     // Positive ownership. An unreadable record is not "not somebody else's".
     if (!held || held.nonce !== record.nonce) return false;
-    // Safe to write in place: nothing else may touch the lock while the right is held, so there is
-    // no destination-replacement question to get wrong per platform.
-    writeFileSync(paths.lock, `${JSON.stringify({ ...record, startedAt: at }, null, 2)}\n`, "utf8");
+    if (!stillHoldsMutation(paths, record)) return false;
+    // Written through a temp file rather than in place. Holding the right means nothing else
+    // SHOULD be looking, but an in-place rewrite is briefly truncated on disk and an acquirer
+    // reading at that instant would see a corrupt record — the same partial-read the acquisition
+    // path just had to defend against, produced by the refresh instead of the create.
+    writeAtomic(paths.lock, `${JSON.stringify({ ...record, startedAt: at }, null, 2)}\n`);
     return true;
   });
   return result ?? false;
@@ -299,9 +325,10 @@ export function releaseLock(paths: StorePaths, record?: LockRecord): void {
   if (!existsSync(paths.lock)) return;
   if (!record) return;
 
-  withMutation(paths, record, HEARTBEAT_STALE_MS, () => {
+  withMutation(paths, record, HEARTBEAT_STALE_MS, Date.now(), () => {
     const held = readLock(paths);
     if (!held || held.nonce !== record.nonce) return false;
+    if (!stillHoldsMutation(paths, record)) return false;
     removeIfPresent(paths.lock);
     return true;
   });
@@ -309,6 +336,22 @@ export function releaseLock(paths: StorePaths, record?: LockRecord): void {
 
 /** Default staleness horizon for the mutation right, in milliseconds. */
 const HEARTBEAT_STALE_MS = 45_000;
+
+/**
+ * Whether the lock file was created too recently to be judged abandoned.
+ *
+ * Filesystem mtime, because an unreadable record has no timestamp inside it by definition. One
+ * second is far longer than the gap between `wx` creating the entry and the write completing, and
+ * far shorter than any staleness horizon, so it separates "mid-write" from "corrupt" without
+ * delaying a genuine takeover.
+ */
+function lockWrittenRecently(lockPath: string, nowMs: number): boolean {
+  try {
+    return nowMs - statSync(lockPath).mtimeMs < 1_000;
+  } catch {
+    return false;
+  }
+}
 
 /** Exclusive create. True when this caller made the file; false when it already existed. */
 function createExclusive(path: string, contents: string): boolean {
@@ -339,10 +382,18 @@ function withMutation<T>(
   paths: StorePaths,
   record: LockRecord,
   staleAfterMs: number,
+  nowMs: number,
   body: () => T,
 ): T | null {
   const mutationPath = `${paths.lock}.mutate`;
-  const stamp = `${JSON.stringify({ nonce: record.nonce, at: record.startedAt })}\n`;
+  // Stamped with the CURRENT time, not with `record.startedAt`.
+  //
+  // That was a real functional bug and not merely a race: a watcher's record is created once at
+  // startup and never replaced, so after a few hours `record.startedAt` is hours old. Using it as
+  // "now" made every later `.mutate` file look as though it came from the future, so nothing ever
+  // expired, and a single orphaned right would have stopped the watcher permanently. Found by the
+  // confirmation review as a lease-timestamp issue; the deadlock was the part that mattered.
+  const stamp = `${JSON.stringify({ nonce: record.nonce, at: new Date(nowMs).toISOString() })}\n`;
 
   if (!createExclusive(mutationPath, stamp)) {
     // Somebody holds it. Take it over only if theirs has expired.
@@ -352,7 +403,6 @@ function withMutation<T>(
     } catch {
       heldAt = Number.NaN;
     }
-    const nowMs = Date.parse(record.startedAt);
     const expired = Number.isNaN(heldAt) || nowMs - heldAt > staleAfterMs;
     if (!expired) return null;
     removeIfPresent(mutationPath);
@@ -362,6 +412,35 @@ function withMutation<T>(
   try {
     return body();
   } finally {
-    removeIfPresent(mutationPath);
+    // Only our own. Without the check, a caller whose lease expired mid-operation would remove the
+    // right that a successor legitimately took — the same class of mistake as deleting a lock by
+    // pathname, one level up.
+    if (readMutationNonce(mutationPath) === record.nonce) removeIfPresent(mutationPath);
   }
+}
+
+/** The nonce currently stamped on the mutation right, or null when absent or unreadable. */
+function readMutationNonce(mutationPath: string): string | null {
+  try {
+    return (JSON.parse(readFileSync(mutationPath, "utf8")) as { nonce: string }).nonce;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether this caller still holds the mutation right.
+ *
+ * Fencing. The lease can expire while an operation is in flight — a laptop suspending mid-function
+ * is the realistic way — and a successor may then legitimately take it. Re-checking immediately
+ * before the destructive step means the loser abandons its write instead of landing it on top of
+ * whatever the successor installed.
+ *
+ * This narrows the window rather than closing it: the check and the write are still two
+ * operations. Closing it entirely needs a lease long enough that expiry-mid-operation cannot
+ * happen, or a primitive that plain files do not have — and the honest statement is that the
+ * remaining exposure requires a process frozen mid-function for longer than the lease.
+ */
+function stillHoldsMutation(paths: StorePaths, record: LockRecord): boolean {
+  return readMutationNonce(`${paths.lock}.mutate`) === record.nonce;
 }

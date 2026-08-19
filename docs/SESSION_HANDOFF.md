@@ -10,7 +10,7 @@ throughout; every change is in the v2 shadow layers. Baseline 538 → **616** te
 | Branch                              | `claude/market-os-development-7vnicg`                                       |
 | Commits ahead of origin             | every commit after `6cb74fc` — ~128, nothing rewritten, no force            |
 | Working tree                        | clean                                                                       |
-| Full suite                          | **1085 / 1085** across 103 files, real PostgreSQL 16.10, disposable test DB |
+| Full suite                          | **1089 / 1089** across 103 files, real PostgreSQL 16.10, disposable test DB |
 | E2E                                 | **33 / 33** against a known-fresh production server on a controlled port    |
 | Live EDGAR contract                 | **67 / 67** against real data.sec.gov                                       |
 | Migrations                          | **17**                                                                      |

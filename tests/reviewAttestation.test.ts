@@ -118,13 +118,56 @@ describe("only the enumerated verdict opens the gate", () => {
     ["a non-string verdict", { reviewedCodeSha: shaValue, verdict: true }],
     ["a missing verdict", { reviewedCodeSha: shaValue }],
     ["a missing sha", { verdict: "CLEAN" }],
-    ["a non-string sha", { reviewedCodeSha: 12345, verdict: "CLEAN" }],
+    // 1234567, not 12345. The reviewer caught this one: with a five-digit number the case passes
+    // even if the `typeof sha !== "string"` check is deleted, because SHA.test coerces it to
+    // "12345" and rejects it for LENGTH. Seven digits are a valid hex length, so the only thing
+    // that can reject them is the type check — which is what the case claims to be testing.
+    // Second vacuous test found in this file, by the same question: would it fail if the check
+    // it names were removed?
+    ["a numeric sha of valid hex length", { reviewedCodeSha: 1234567, verdict: "CLEAN" }],
     ["a short sha", { reviewedCodeSha: "b6b4b", verdict: "CLEAN" }],
     ["an uppercase sha", { reviewedCodeSha: "B6B4858", verdict: "CLEAN" }],
     ["a non-hex sha", { reviewedCodeSha: "zzzzzzz", verdict: "CLEAN" }],
     ["a sha with surrounding space", { reviewedCodeSha: ` ${shaValue} `, verdict: "CLEAN" }],
   ])("rejects %s", (_label, payload) => {
     expect(parseAttestation(JSON.stringify(payload))).toBeNull();
+  });
+});
+
+describe("keys are read as keys, not as text", () => {
+  it("rejects a duplicate key written with a unicode escape", () => {
+    // The regex duplicate check searched raw text for `"verdict":`, so a second verdict spelled
+    // with an escape was invisible to it while JSON.parse decoded it and kept it — the later
+    // value winning silently, which is the exact flip the check exists to prevent.
+    const escaped = `{"reviewedCodeSha":"${shaValue}","verdict":"NOT_CLEAN","\u0076erdict":"CLEAN"}`;
+    expect(JSON.parse(escaped).verdict, "the payload really does resolve to CLEAN").toBe("CLEAN");
+    expect(parseAttestation(escaped)).toBeNull();
+  });
+
+  it("accepts a document that merely mentions a field name inside a value", () => {
+    // The same regex failed in the other direction too: the word `reviewedCodeSha` inside a notes
+    // field counted as a second key and rejected a well-formed document. Both failures have one
+    // cause — text-matching a format that contains string literals.
+    const withNotes = JSON.stringify({
+      reviewedCodeSha: shaValue,
+      verdict: "CLEAN",
+      notes: 'the template shows "reviewedCodeSha": <sha> as an example',
+    });
+    expect(parseAttestation(withNotes)?.clean).toBe(true);
+  });
+
+  it("does not count a nested key as a top-level one", () => {
+    const nested = JSON.stringify({
+      reviewedCodeSha: shaValue,
+      verdict: "CLEAN",
+      previous: { reviewedCodeSha: "b6b4858", verdict: "NOT_CLEAN" },
+    });
+    expect(parseAttestation(nested)?.clean).toBe(true);
+  });
+
+  it("refuses an input larger than any real attestation", () => {
+    const huge = `{"reviewedCodeSha":"${shaValue}","verdict":"CLEAN","pad":"${"x".repeat(70000)}"}`;
+    expect(parseAttestation(huge)).toBeNull();
   });
 });
 

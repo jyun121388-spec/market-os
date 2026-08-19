@@ -44,6 +44,9 @@ const allGreen = (head: string): PreflightInput => ({
   openP2: 5,
   unhandledReviewFindings: 0,
   finalReviewDone: true,
+  // Tied to the commit as of IR-055 — a boolean survived a change of HEAD and reported a review
+  // of an earlier tree as a review of this one.
+  finalReviewCommit: head,
   openHumanGates: [],
   unverifiedProviders: [],
   queuedEscalations: 0,

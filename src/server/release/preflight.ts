@@ -77,8 +77,14 @@ export interface PreflightInput {
   unhandledReviewFindings?: number;
   /** Review owed but not yet performed. Not a blocker on its own; it is a named debt. */
   reviewDebtItems?: number;
-  /** Whether the final independent adversarial review has run against this HEAD. */
+  /**
+   * Whether the final independent adversarial review has run, and against WHICH commit.
+   *
+   * A boolean was not enough (IR-055): it survived a change of HEAD and reported a review of an
+   * earlier tree as a review of this one. A review is evidence about the code it read.
+   */
   finalReviewDone?: boolean;
+  finalReviewCommit?: string;
 
   /** Human Gates still open, by id. Each is external by definition. */
   openHumanGates?: string[];
@@ -118,7 +124,14 @@ function evidenceState(
 ): EvidenceState {
   if (!evidence) return "MISSING";
   if (evidence.state === "FAIL") return "FAIL";
-  if (evidence.commit === input.head && input.changesSinceEvidence.length === 0) return "PASS";
+  if (evidence.commit === input.head) return "PASS";
+
+  // Evidence from another commit, and nothing declared about what changed. The adversarial review
+  // (IR-053) found this returning PASS: an empty change list was read as "nothing changed" when it
+  // equally means "nobody said". Those are the two readings this whole module exists to keep
+  // apart, and it got them backwards on its own inputs.
+  if (input.changesSinceEvidence.length === 0) return "STALE";
+
   const invalidating = INVALIDATED_BY[name] ?? [];
   return input.changesSinceEvidence.some((change) => invalidating.includes(change))
     ? "STALE"
@@ -201,45 +214,79 @@ export function preflight(input: PreflightInput): PreflightReport {
     name: "final independent review",
     kind: "INTERNAL",
     state:
-      input.finalReviewDone === undefined ? "MISSING" : input.finalReviewDone ? "PASS" : "FAIL",
+      input.finalReviewDone === undefined
+        ? "MISSING"
+        : !input.finalReviewDone
+          ? "FAIL"
+          : input.finalReviewCommit === input.head
+            ? "PASS"
+            : "STALE",
     detail:
       input.finalReviewDone === undefined
         ? "Never established. A reviewer's absence is not a clean review."
-        : input.finalReviewDone
-          ? "Final adversarial review completed against this HEAD."
-          : "Final adversarial review has not run against this HEAD.",
+        : !input.finalReviewDone
+          ? "Final adversarial review has not run against this HEAD."
+          : input.finalReviewCommit === input.head
+            ? `Final adversarial review completed against ${input.head}.`
+            : `Review was of ${input.finalReviewCommit ?? "an unnamed commit"}, not ${input.head}.`,
   });
 
   // External conditions. Real, and categorically different from a defect — they cannot be fixed by
   // working harder, and reporting them as internal failures would make a release look broken when
   // it is waiting.
-  const gates = input.openHumanGates ?? [];
+  // Every external input fails closed, which it did not until the adversarial review pointed out
+  // (IR-054) that this module states "missing evidence is never PASS" at the top of the file and
+  // then wrote `?? []` and `?? 0` for exactly these three. An unsupplied gate list was read as no
+  // gates. The rule was right and the code did not follow it.
   checks.push({
     name: "human gates",
     kind: "EXTERNAL",
-    state: gates.length === 0 ? "PASS" : "FAIL",
-    detail: gates.length === 0 ? "No open gates." : `Open: ${gates.join(", ")}.`,
+    state:
+      input.openHumanGates === undefined
+        ? "MISSING"
+        : input.openHumanGates.length === 0
+          ? "PASS"
+          : "FAIL",
+    detail:
+      input.openHumanGates === undefined
+        ? "Open gates were never enumerated, and unknown is not none."
+        : input.openHumanGates.length === 0
+          ? "No open gates."
+          : `Open: ${input.openHumanGates.join(", ")}.`,
   });
 
-  const providers = input.unverifiedProviders ?? [];
   checks.push({
     name: "provider capability verified",
     kind: "EXTERNAL",
-    state: providers.length === 0 ? "PASS" : "FAIL",
+    state:
+      input.unverifiedProviders === undefined
+        ? "MISSING"
+        : input.unverifiedProviders.length === 0
+          ? "PASS"
+          : "FAIL",
     detail:
-      providers.length === 0
-        ? "Every provider verified against a live response."
-        : `Unverified for want of a key: ${providers.join(", ")}.`,
+      input.unverifiedProviders === undefined
+        ? "Provider verification state was never established."
+        : input.unverifiedProviders.length === 0
+          ? "Every provider verified against a live response."
+          : `Unverified for want of a key: ${input.unverifiedProviders.join(", ")}.`,
   });
 
   checks.push({
     name: "escalations transmitted",
     kind: "EXTERNAL",
-    state: (input.queuedEscalations ?? 0) === 0 ? "PASS" : "FAIL",
+    state:
+      input.queuedEscalations === undefined
+        ? "MISSING"
+        : input.queuedEscalations === 0
+          ? "PASS"
+          : "FAIL",
     detail:
-      (input.queuedEscalations ?? 0) === 0
-        ? "Nothing queued untransmitted."
-        : `${input.queuedEscalations} escalation(s) queued and not transmitted.`,
+      input.queuedEscalations === undefined
+        ? "The outbound queue was never inspected."
+        : input.queuedEscalations === 0
+          ? "Nothing queued untransmitted."
+          : `${input.queuedEscalations} escalation(s) queued and not transmitted.`,
   });
 
   checks.push({
@@ -259,7 +306,10 @@ export function preflight(input: PreflightInput): PreflightReport {
   const failing = internal.filter((c) => c.state === "FAIL");
   const stale = internal.filter((c) => c.state === "STALE");
   const missing = internal.filter((c) => c.state === "MISSING");
-  const external = checks.filter((c) => c.kind === "EXTERNAL" && c.state !== "PASS");
+  const externalMissing = checks.filter((c) => c.kind === "EXTERNAL" && c.state === "MISSING");
+  const external = checks.filter(
+    (c) => c.kind === "EXTERNAL" && c.state !== "PASS" && c.state !== "MISSING",
+  );
 
   const name = (list: PreflightCheck[]) => list.map((c) => c.name).join(", ");
 
@@ -277,11 +327,13 @@ export function preflight(input: PreflightInput): PreflightReport {
       rationale: `${name(stale)} passed against an earlier commit and the change since could have invalidated it.`,
     };
   }
-  if (missing.length > 0) {
+  if (missing.length > 0 || externalMissing.length > 0) {
     return {
       verdict: "EVIDENCE_INSUFFICIENT",
       checks,
-      rationale: `Never established for this HEAD: ${name(missing)}. Absent evidence is not passing evidence.`,
+      rationale:
+        `Never established for this HEAD: ${name([...missing, ...externalMissing])}. ` +
+        "Absent evidence is not passing evidence.",
     };
   }
   if (external.length > 0) {

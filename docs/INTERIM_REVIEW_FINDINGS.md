@@ -1361,3 +1361,48 @@ than a low-priority tail. And `CALL_PAID_PROVIDER` is a Human Gate while `PURCHA
 DENIED — the audit's first assertion had them both DENIED and the policy table was right:
 CLAUDE.md makes zero extra AI cost absolute but paid external services "not without explicit human
 approval", which is a question someone may answer.
+
+## IR-046..IR-055 — Final RC adversarial review (`gpt-5.6-sol`) — **six P1 and four P2, all six P1 reproduced, six fixed**
+
+|           |                                                                     |
+| --------- | ------------------------------------------------------------------- |
+| Reviewer  | `gpt-5.6-sol`, read-only, the eight modules added this session      |
+| Subsystem | v2 control bus, escalation, release preflight — no v1 file in scope |
+| Outcome   | every P1 trigger reproduced verbatim before any change was made     |
+
+The pattern across them is the finding worth keeping: **each defect sat directly beneath a comment
+asserting the property it broke.**
+
+- `consumer.ts` opens by stating that transport must not become authority, and then accepted a
+  decision from any GitHub account at all. Every gate asked WHICH — matching escalation, not
+  already applied, governance-permitted — and none asked WHO. On a public issue, a protocol id is
+  not a credential; it is written on a page anyone can read. **IR-046, P1.**
+- `preflight.ts` opens with "missing evidence is never PASS" and then wrote `?? []` and `?? 0` for
+  three external inputs, so an unsupplied gate list read as no gates and the module returned
+  `RELEASE_CANDIDATE_READY`. **IR-054, P2.**
+- `store.ts` documents the nonce as the thing that distinguishes a live watcher from a recycled
+  pid, and never compared it. A paused watcher could resume and overwrite its replacement's lock.
+  **IR-049, P1.**
+- `watch.ts` was written to make silent degradation impossible and fetched a single page of an
+  oldest-first endpoint. Past 100 comments every new decision would have been invisible, with no
+  error and a healthy-looking poll. **IR-050, P1.**
+
+Also fixed: **IR-047** (P1) a decision describing an action in prose named no `ActionKind`, so
+Governance was never consulted and the result was `APPLICABLE` — now `ACTIONS_NOT_DECLARED`, since
+the answer to "intent cannot be read reliably from prose" is to refuse the prose, not approve it;
+**IR-048** (P1) the content screen required an uppercase unquoted variable name, so
+`"aws_secret_access_key": "…"` matched nothing; **IR-053** (P1) evidence from another commit passed
+whenever no change was declared, an empty list read as "nothing changed" when it equally means
+"nobody said"; **IR-055** (P2) a final-review boolean survived a change of HEAD.
+
+**IR-051** (P1) and **IR-052** (P2) are recorded and not fixed. Both concern crash-safe exactly-once
+application across a restart: the consumer is a pure function taking `appliedIds` from its caller,
+and no persistence layer is wired to it yet, so there is nothing today that could apply a decision
+twice. They become real the moment application is automated, and they are pinned here so that work
+cannot start without meeting them.
+
+A fifth instance of the heredoc backslash trap occurred during the fix and is worth recording:
+`ACTION_SHAPED_PROSE` was written through a shell heredoc, `\b` became a literal backspace, and the
+IR-047 guard silently matched nothing. It looked correct in every editor and in the Read tool. It
+was caught because the reproduction script re-ran Sol's trigger and the verdict had not changed —
+not by inspection.

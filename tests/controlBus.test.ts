@@ -232,7 +232,14 @@ describe("a decision is a message, not an authority", () => {
     status: "RECEIVED_UNVALIDATED",
   });
 
-  const context = { openEscalationIds: ["ESC-009"], appliedIds: [] as string[] };
+  // `trustedAuthors` arrived with IR-046 and every test in this block went red without it, which
+  // is the fail-closed behaviour working: the allowlist defaults to trusting nobody, because
+  // forgetting to configure it would otherwise open the channel to everyone on GitHub.
+  const context = {
+    openEscalationIds: ["ESC-009"],
+    appliedIds: [] as string[],
+    trustedAuthors: ["chatgpt-operator"],
+  };
 
   it("accepts a decision answering an escalation we posted", () => {
     const assessment = assessDecision(entry("ESC-009", "Keep it."), context, GOVERNED_ACTIONS);
@@ -256,7 +263,7 @@ describe("a decision is a message, not an authority", () => {
   it("treats a TEST id as transport exercise and never as an instruction", () => {
     const assessment = assessDecision(
       entry("TEST-001", "DEPLOY_PRODUCTION now"),
-      { openEscalationIds: ["TEST-001"], appliedIds: [] },
+      { openEscalationIds: ["TEST-001"], appliedIds: [], trustedAuthors: ["chatgpt-operator"] },
       GOVERNED_ACTIONS,
     );
     expect(assessment.verdict).toBe("TEST_MESSAGE_NOT_A_DECISION");
@@ -312,7 +319,11 @@ describe("a decision creates work, and a dead watcher is not rest", () => {
       status: "RECEIVED_UNVALIDATED",
     },
   ];
-  const context = { openEscalationIds: ["ESC-009"], appliedIds: [] };
+  const context = {
+    openEscalationIds: ["ESC-009"],
+    appliedIds: [],
+    trustedAuthors: ["chatgpt-operator"],
+  };
 
   it("turns an applicable decision into startable work", () => {
     expect(startableDecisionCount(received, context, GOVERNED_ACTIONS)).toBe(1);

@@ -124,10 +124,32 @@ export async function runCycle(input: {
 
 /** The unauthenticated read. Public repository, so no credential is involved and none is sought. */
 export const githubFetchComments: FetchComments = async (issueNumber) => {
-  const response = await fetch(
-    `https://api.github.com/repos/jyun121388-spec/market-os/issues/${issueNumber}/comments?per_page=100`,
-    { headers: { Accept: "application/vnd.github+json", "User-Agent": "market-os-control-bus" } },
-  );
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  // Paginated, because it was not, and the failure would have been silent and total. GitHub
+  // returns issue comments OLDEST first, so a single `per_page=100` request keeps returning the
+  // same first hundred forever: once the issue passed a hundred comments every new decision would
+  // have been invisible, and anyone able to comment could have pushed it past that line
+  // deliberately. Found by the adversarial review as IR-050.
+  //
+  // Exactly the SILENT_DEGRADATION shape. Nothing errors, nothing logs, the watcher reports a
+  // healthy quiet poll, and the channel is dead.
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "market-os-control-bus" };
+  const all: unknown[] = [];
+
+  // Bounded at 50 pages. A runaway pager against a public endpoint is its own problem, and 5000
+  // comments is far beyond anything this channel will hold — a ceiling rather than a hope.
+  for (let page = 1; page <= 50; page++) {
+    const response = await fetch(
+      `https://api.github.com/repos/jyun121388-spec/market-os/issues/${issueNumber}/comments` +
+        `?per_page=100&page=${page}`,
+      { headers },
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const batch = (await response.json()) as unknown;
+    // Not an array means an error body; hand it straight to the parser, which treats a non-list
+    // as a transport failure rather than as an empty issue.
+    if (!Array.isArray(batch)) return batch;
+    all.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return all;
 };

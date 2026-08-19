@@ -193,8 +193,23 @@ export function acquireLock(
   return { acquired: true, record };
 }
 
-export function heartbeat(paths: StorePaths, record: LockRecord, at: string): void {
+/**
+ * Refreshes the lock, but only if we still hold it.
+ *
+ * The nonce existed from the start and nothing ever compared it, which the adversarial review
+ * turned into a concrete sequence (IR-049): watcher A pauses past three heartbeats, B judges the
+ * lock stale and takes it, A resumes and blindly rewrites the lock with its own record. Two
+ * watchers, each believing it holds the lock, overwriting each other's state snapshots.
+ *
+ * Returns false when the lock has moved on. The caller stops rather than fighting for it — the
+ * replacement is the legitimate holder, and a watcher that has lost its lock has no business
+ * writing the shared cursor.
+ */
+export function heartbeat(paths: StorePaths, record: LockRecord, at: string): boolean {
+  const held = readLock(paths);
+  if (held && held.nonce !== record.nonce) return false;
   writeAtomic(paths.lock, `${JSON.stringify({ ...record, startedAt: at }, null, 2)}\n`);
+  return true;
 }
 
 export function readLock(paths: StorePaths): LockRecord | null {
@@ -206,6 +221,18 @@ export function readLock(paths: StorePaths): LockRecord | null {
   }
 }
 
-export function releaseLock(paths: StorePaths): void {
-  if (existsSync(paths.lock)) unlinkSync(paths.lock);
+/**
+ * Releases the lock, and only our own.
+ *
+ * The same defect as the heartbeat and the worse half of it: a resumed watcher deleting the lock
+ * of the watcher that replaced it leaves no lock at all while a live process is still running, so
+ * the next start sees the field clear and a third watcher joins.
+ */
+export function releaseLock(paths: StorePaths, record?: LockRecord): void {
+  if (!existsSync(paths.lock)) return;
+  if (record) {
+    const held = readLock(paths);
+    if (held && held.nonce !== record.nonce) return;
+  }
+  unlinkSync(paths.lock);
 }

@@ -83,9 +83,17 @@ const RULES: Rule[] = [
     // An assignment to a secret-sounding name with a non-placeholder value. The placeholder
     // exclusion is what keeps this usable: `.env.example` lines and documentation are the normal
     // way to DISCUSS a variable, and a screen that blocks discussing them blocks the escalation.
+    // Case-insensitive, and the quoted-key form counts. The first version required an uppercase
+    // unquoted name, so `"aws_secret_access_key": "wJalr..."` — the single most common way a
+    // credential actually appears in a pasted snippet — matched nothing at all. Found by the
+    // adversarial review as IR-048.
+    //
+    // Placeholder exclusion is still what keeps this usable: `.env.example` lines and prose about
+    // a variable are the normal content of an escalation, and a screen that blocks discussing a
+    // key blocks the escalation about the missing key.
     pattern:
-      /\b[A-Z][A-Z0-9_]*(KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL)\s*[=:]\s*(?!["']?(your|xxx|placeholder|changeme|example|<|\.\.\.|\*+|""|''|$))["']?[^\s"']{8,}/,
-    reason: "An assignment to a secret-named variable with what looks like a real value.",
+      /\b[A-Za-z][A-Za-z0-9_-]*(key|secret|token|password|passwd|credential)["']?\s*[=:]\s*(?!["']?(your|xxx|placeholder|changeme|example|redacted|<|\$|\{|\.\.\.|\*+|""|''|$))["']?[^\s"',}]{8,}/i,
+    reason: "An assignment to a secret-named field with what looks like a real value.",
   },
   {
     category: "PRIVATE_CONTACT",

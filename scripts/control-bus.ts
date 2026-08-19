@@ -55,7 +55,7 @@ async function watchForever(): Promise<void> {
 
   const shutdown = () => {
     logLine(paths, `${nowIso()} watcher stopping (pid ${process.pid})`);
-    releaseLock(paths);
+    releaseLock(paths, record);
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
@@ -75,7 +75,15 @@ async function watchForever(): Promise<void> {
 
     // The heartbeat is what makes a stale lock detectable. Written after the cycle, so a watcher
     // wedged inside a fetch stops heartbeating and is correctly judged stale.
-    heartbeat(paths, record, nowIso());
+    // Stop if the lock has moved on. A watcher that lost its lock to a replacement must not keep
+    // writing the shared cursor — that is the concurrent-writer case (IR-049) from the other side.
+    if (!heartbeat(paths, record, nowIso())) {
+      logLine(
+        paths,
+        `${nowIso()} lock taken over by another watcher; exiting (pid ${process.pid})`,
+      );
+      return;
+    }
 
     if (result.admitted.length > 0) {
       // Deliberately only a log line and a durable inbox. The watcher never applies anything —

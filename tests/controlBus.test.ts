@@ -151,6 +151,7 @@ describe("a malformed or failing read is a transport fact, not an empty issue", 
       state: before,
       paths,
       fetchComments: () => Promise.reject(new Error("socket hang up")),
+      mode: "UNAUTHENTICATED_PUBLIC_READ",
       now: NOW,
     });
     expect(result.outcome).toBe("READ_FAILED");
@@ -165,6 +166,7 @@ describe("a malformed or failing read is a transport fact, not an empty issue", 
       state: emptyState(2),
       paths,
       fetchComments: () => Promise.reject(new Error("https://x?token=ghp_SECRETVALUE0123456789")),
+      mode: "UNAUTHENTICATED_PUBLIC_READ",
       now: NOW,
     });
     expect(result.detail).not.toContain("ghp_");
@@ -200,7 +202,8 @@ describe("crash safety", () => {
     await runCycle({
       state: emptyState(2),
       paths,
-      fetchComments: () => Promise.resolve([comment(100, body)]),
+      fetchComments: () => Promise.resolve({ payload: [comment(100, body)], signals: {} }),
+      mode: "UNAUTHENTICATED_PUBLIC_READ",
       now: NOW,
     });
     // Restart: state is re-read from disk and GitHub redelivers the same page.
@@ -208,7 +211,8 @@ describe("crash safety", () => {
     const second = await runCycle({
       state: restarted,
       paths,
-      fetchComments: () => Promise.resolve([comment(100, body)]),
+      fetchComments: () => Promise.resolve({ payload: [comment(100, body)], signals: {} }),
+      mode: "UNAUTHENTICATED_PUBLIC_READ",
       now: NOW,
     });
     expect(second.admitted).toHaveLength(0);

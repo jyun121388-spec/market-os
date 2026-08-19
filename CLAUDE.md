@@ -79,9 +79,15 @@ A decision is not applied on sight. Confirm it targets this repository, matches 
 and has not gone stale against the current HEAD. If it has, reply `[ESCALATION_REFRESH_REQUIRED]`
 with the difference rather than guessing.
 
-**Reading works; writing needs HG-001.** The repository is public, so decisions can be read over
-the unauthenticated REST API. Posting needs a credential this machine does not have, so replies
-are staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and posted unchanged when one exists.
+**Both directions work.** `gh` is authenticated on this machine, so decisions are read and replies
+posted through it — the credential stays in the OS keyring and is never extracted or printed.
+
+This line previously said writing was blocked on HG-001, and it was wrong for most of a session.
+The probe was `command -v gh && gh auth status || echo "not installed"`, and `gh auth status` exits
+non-zero when logged out, so the fallback fired and "unauthenticated" was recorded as "absent". Git
+remote authentication and GitHub REST authentication genuinely are separate capabilities; that
+distinction was right, and the conclusion drawn from the probe was not. Check each capability
+positively, with its own result.
 
 ### Invariants (`src/server/escalation/packet.ts` is the machinery)
 
@@ -94,7 +100,10 @@ are staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and posted unchange
 ### Control bus (`src/server/controlbus/`, `npm run control-bus:start|status|stop|once`)
 
 - `GITHUB_CONTROL_BUS => ASYNC_DECISION_TRANSPORT` — issue #2 is a rendezvous, not an authority.
-- `WATCHER_POLL => 30_60_SECONDS_WHILE_LOCAL_RUNTIME_ALIVE` — 45s at rest, bounded backoff to 8min.
+- `WATCHER_POLL => DERIVED_FROM_BUDGET_NOT_ASSERTED` — 45s is honest only on the AUTHENTICATED
+  budget (5000/hr). Unauthenticated is 60/hr, where 45s is 80/hr and arithmetically impossible;
+  the interval comes from the response headers. The old `30_60_SECONDS` invariant was never
+  achievable against the endpoint it named (IR-077).
 - `REMOTE_DECISION => DURABLE_INBOX_BEFORE_CURSOR_ADVANCE` — reversed, a crash loses a decision.
 - `DECISION_RECEIVED => VALIDATE_GOVERNANCE_BEFORE_APPLY` — a comment cannot authorise what policy
   denies; `TEST-` ids never authorise anything.

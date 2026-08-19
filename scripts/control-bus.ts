@@ -16,7 +16,7 @@
  * on GitHub unread until it wakes. Nothing here is "always on"; it is "on while the machine is".
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { health, unprocessedDecisions } from "@/server/controlbus/state";
@@ -30,13 +30,45 @@ import {
   releaseLock,
   storePaths,
 } from "@/server/controlbus/store";
-import { githubFetchComments, runCycle } from "@/server/controlbus/watch";
+import {
+  detectAuthMode,
+  ghFetchComments,
+  githubFetchComments,
+  runCycle,
+} from "@/server/controlbus/watch";
 
 const ISSUE = 2;
 const HEARTBEAT_MS = 45_000;
 const paths = storePaths();
 
 const nowIso = () => new Date().toISOString();
+
+/**
+ * Which transport to use, decided by asking rather than by inferring.
+ *
+ * Git remote authentication and GitHub REST authentication are separate capabilities. This session
+ * spent many hours treating the API as unavailable because a probe conflated "gh is logged out"
+ * with "gh is not installed" — a compound command whose `||` branch fired on a non-zero exit. So
+ * the check is positive, its own statement, and its result is recorded rather than assumed.
+ *
+ * `gh` keeps its credential in the OS keyring and is never asked to reveal it. Using a tool that
+ * already holds a credential is not the same act as extracting one.
+ */
+function selectTransport() {
+  const gh = (args: string[]) =>
+    execFileSync("gh", args, { encoding: "utf8", cwd: process.cwd(), maxBuffer: 32 * 1024 * 1024 });
+
+  const mode = detectAuthMode(() => {
+    execFileSync("gh", ["auth", "status"], { stdio: "ignore" });
+    return true;
+  });
+
+  return mode === "AUTHENTICATED_API"
+    ? { mode, fetch: ghFetchComments(gh) }
+    : { mode, fetch: githubFetchComments };
+}
+
+const transport = selectTransport();
 
 async function watchForever(): Promise<void> {
   const record = {
@@ -68,7 +100,8 @@ async function watchForever(): Promise<void> {
     const result = await runCycle({
       state,
       paths,
-      fetchComments: githubFetchComments,
+      fetchComments: transport.fetch,
+      mode: transport.mode,
       now: nowIso(),
     });
     state = result.state;
@@ -95,6 +128,34 @@ async function watchForever(): Promise<void> {
   }
 }
 
+/**
+ * What the watcher is actually doing, from evidence rather than from a PID.
+ *
+ * `alive (pid 11884)` was the old answer, and it came from `processAlive` alone — the exact
+ * distinction the lock was rebuilt around three separate times, missing from the command that
+ * reports it. It happened to be right when I checked, which is the worst way for a check to be
+ * wrong: liveness of a pid says nothing about whether OUR watcher holds the lock, because pids are
+ * recycled, and nothing about whether it is still heartbeating.
+ */
+function watcherHealth(
+  lock: ReturnType<typeof readLock>,
+  state: { consecutiveFailures: number } | null,
+): string {
+  if (!lock) return "PROCESS_NOT_FOUND (no lock record)";
+  if (!processAlive(lock.pid)) return `PROCESS_NOT_FOUND (pid ${lock.pid} is gone)`;
+
+  const heartbeatAgeMs = Date.now() - Date.parse(lock.startedAt);
+  if (Number.isNaN(heartbeatAgeMs)) return "STALE_HEARTBEAT (unreadable timestamp)";
+  if (heartbeatAgeMs > HEARTBEAT_MS * 3) {
+    return (
+      `STALE_HEARTBEAT (pid ${lock.pid} is running but last heartbeat was ` +
+      `${Math.round(heartbeatAgeMs / 1000)}s ago; the pid may have been recycled)`
+    );
+  }
+  if ((state?.consecutiveFailures ?? 0) >= 3) return `ALIVE_BACKING_OFF (pid ${lock.pid})`;
+  return `ALIVE_POLLING (pid ${lock.pid}, heartbeat ${Math.round(heartbeatAgeMs / 1000)}s ago)`;
+}
+
 function status(): void {
   const lock = readLock(paths);
   const alive = lock !== null && processAlive(lock.pid);
@@ -109,7 +170,8 @@ function status(): void {
   console.log(
     `health              ${health({ state, watcherAlive: alive, writeAvailable: false })}`,
   );
-  console.log(`watcher             ${alive ? `alive (pid ${lock?.pid})` : "not running"}`);
+  console.log(`watcher             ${watcherHealth(lock, state)}`);
+  console.log(`api mode            ${transport.mode}`);
   console.log(`issue               #${state.issueNumber}`);
   console.log(`last remote comment ${state.lastRemoteCommentId ?? "none"}`);
   console.log(
@@ -182,10 +244,13 @@ async function once(): Promise<void> {
   const result = await runCycle({
     state,
     paths,
-    fetchComments: githubFetchComments,
+    fetchComments: transport.fetch,
+    mode: transport.mode,
     now: nowIso(),
   });
+  console.log(`mode     ${transport.mode}`);
   console.log(`${result.outcome}: ${result.detail}`);
+  console.log(`poll state ${result.pollState}`);
   console.log(`next poll would be in ${Math.round(result.nextDelayMs / 1000)}s`);
 }
 

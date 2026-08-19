@@ -142,6 +142,40 @@ describe("the lock actually excludes", () => {
     expect(readLock(paths)?.nonce, "A deleted B's lock").toBe("B");
   });
 
+  it("does not let a queued takeover replace a lock that became live meanwhile", () => {
+    // The final review's critical, and the third time the same mistake appeared one indirection
+    // out. Renaming the lock away does not arbitrate anything — it moves whatever is at the path,
+    // competitor's fresh lock included:
+    //   A and B both read stale S · B takes over and installs B · A renames B's LIVE lock away.
+    // Takeover now happens under an exclusive-create mutation right, and re-reads the record
+    // INSIDE it, so a lock that became live while queuing is seen rather than replaced.
+    const ancient = new Date(Date.now() - 10 * 60_000).toISOString();
+    writeFileSync(paths.lock, JSON.stringify(rec("dead", ancient)), "utf8");
+    expect(acquireLock(paths, rec("B"), 1_000).acquired).toBe(true);
+    // A still believes the stale record is there. It must not win.
+    expect(acquireLock(paths, rec("A"), 1_000).acquired).toBe(false);
+    expect(readLock(paths)?.nonce).toBe("B");
+  });
+
+  it("refuses to release when given no record at all", () => {
+    // The optional parameter was a live-lock destroyer behind a default argument, and the easiest
+    // of the whole set to trigger because it needs no concurrency.
+    const owner = rec("OWNER");
+    acquireLock(paths, owner, 45_000);
+    releaseLock(paths);
+    expect(readLock(paths)?.nonce).toBe("OWNER");
+  });
+
+  it("does not wedge when a mutation right is orphaned by a crash", () => {
+    // The right has to expire. A process dying while holding it would otherwise block every future
+    // takeover, and a deadlock is not an improvement on a race.
+    const owner = rec("OWNER");
+    acquireLock(paths, owner, 45_000);
+    const orphaned = new Date(Date.now() - 10 * 60_000).toISOString();
+    writeFileSync(`${paths.lock}.mutate`, JSON.stringify({ nonce: "ghost", at: orphaned }), "utf8");
+    expect(heartbeat(paths, owner, new Date().toISOString())).toBe(true);
+  });
+
   it("treats a heartbeat from the future as stale rather than eternal", () => {
     // `nowMs - started` goes negative, so a lock stamped 2099 stayed "current" for decades — a
     // dead watcher holding the channel shut with a typo.

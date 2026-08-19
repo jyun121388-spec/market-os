@@ -56,12 +56,22 @@ export function ensureRuntimeDir(paths: StorePaths): void {
   if (!existsSync(paths.root)) mkdirSync(paths.root, { recursive: true });
 }
 
-/** Temp-file-and-rename. `rename` is atomic within a filesystem on both Windows and POSIX. */
+/**
+ * Temp-file-and-rename, so a crash mid-write leaves the old file or the new one and never a
+ * half-written one.
+ *
+ * Used for `state.json` only. It gives ATOMICITY OF CONTENT and no exclusion whatsoever — the
+ * distinction the lock rewrite above is entirely about — so it is safe here precisely because the
+ * cursor has a single writer: the watcher holding the lock.
+ *
+ * The previous comment asserted that Windows `rename` fails when the destination exists. The
+ * reviewer flagged it and it does not belong in the code either way: nothing here should depend on
+ * cross-platform replacement semantics, and this function does not, because the destination is
+ * only ever written by one process.
+ */
 function writeAtomic(path: string, contents: string): void {
   const temp = `${path}.tmp`;
   writeFileSync(temp, contents, "utf8");
-  // Windows `rename` fails if the destination exists, unlike POSIX. `renameSync` handles the
-  // replace for us on Node, but the temp file must be removed if it somehow does not.
   try {
     renameSync(temp, path);
   } catch (error) {
@@ -170,15 +180,32 @@ export function processAlive(pid: number): boolean {
 }
 
 /**
- * Claims the lock by creating the file exclusively.
+ * The lock, rebuilt around the only atomic operation plain files actually give you.
  *
- * The first version was `existsSync` then write, which is not acquisition at all — the second
- * review found the interleaving in one line: two watchers both see no lock, both write, both
- * return `acquired: true`. `writeAtomic` made the CONTENTS atomic and said nothing about
- * ownership, and the distinction is easy to miss because "atomic write" sounds like it covers it.
+ * Three earlier attempts failed the same way, each time one indirection further out, and the shape
+ * is worth stating because it is genuinely easy to walk into:
  *
- * `wx` is the primitive that actually decides: the OS creates the file or fails with EEXIST, and
- * exactly one caller can win. Everything else here is about what to do when it fails.
+ * 1. `existsSync` then write — two callers both see nothing and both write.
+ * 2. Read, then `unlinkSync(path)` — deletes whatever is at the path, including the live lock a
+ *    competitor created in between.
+ * 3. Read, then `renameSync(path, token)` — MOVES whatever is at the path. A rename does not
+ *    arbitrate anything; it just relocates the file, competitor's lock included.
+ *
+ * Each fix made the window smaller and left it open, and each carried a comment asserting it was
+ * closed. The mistake underneath all three is treating an operation as a mutex because it is
+ * atomic. `rename` is atomic; that says the move either happens or does not, and nothing about
+ * WHICH file was moved.
+ *
+ * The one operation here that can arbitrate is EXCLUSIVE CREATE — `wx` fails when the file already
+ * exists, so exactly one of any number of racers succeeds. So:
+ *
+ * - Acquiring an unheld lock is a `wx` create of the lock itself.
+ * - Every other mutation — takeover, refresh, release — first `wx`-creates a separate mutation
+ *   token. Whoever wins that create holds the exclusive right to touch the lock file, and
+ *   everybody else backs off rather than guessing.
+ *
+ * The token is itself timestamped and expires, because a process that dies holding it would
+ * otherwise wedge the channel permanently — a deadlock is not an improvement on a race.
  */
 export function acquireLock(
   paths: StorePaths,
@@ -188,143 +215,67 @@ export function acquireLock(
   ensureRuntimeDir(paths);
   const serialised = `${JSON.stringify(record, null, 2)}\n`;
 
-  const claim = (): LockOutcome | null => {
-    try {
-      // Exclusive create. Fails rather than truncates if anyone got here first.
-      writeFileSync(paths.lock, serialised, { encoding: "utf8", flag: "wx" });
-      return { acquired: true, record };
-    } catch {
-      return null;
-    }
-  };
+  // Fast path: nobody holds it.
+  if (createExclusive(paths.lock, serialised)) return { acquired: true, record };
 
-  const won = claim();
-  if (won) return won;
-
-  let held: LockRecord | null = null;
-  try {
-    held = JSON.parse(readFileSync(paths.lock, "utf8")) as LockRecord;
-  } catch {
-    held = null;
-  }
-
-  if (held) {
-    const stale = lockIsStale(held, staleAfterMs, Date.parse(record.startedAt));
-    // Alive but not heartbeating means the pid was reused by something unrelated. Taking the lock
-    // is correct; killing that process would not be.
-    if (processAlive(held.pid) && !stale) {
-      return {
-        acquired: false,
-        heldBy: held,
-        reason: `watcher pid ${held.pid} is running and its heartbeat is current`,
-      };
-    }
-  }
-
-  // The holder is stale or unreadable, so it has to be cleared before anyone can re-claim. Clearing
-  // it by pathname is where the third review found the remaining hole, and the comment that used to
-  // sit here claimed the opposite: "if another watcher removes it first and claims, our re-claim
-  // fails". It does not. `unlinkSync(path)` deletes whatever is at that path, including the live
-  // lock a competitor legitimately created in the meantime —
-  //
-  //   A reads stale S · B reads S, unlinks, claims · A unlinks B's LIVE lock · A claims.
-  //
-  // Both hold it. `wx` only arbitrates the creation, and by then the damage is done.
-  //
-  // So the removal is a rename to a name only this caller can have chosen. Rename of a given
-  // source path succeeds for exactly one racer; the loser's rename fails because the source is
-  // already gone, and it never touches whatever the winner put back.
-  const claimToken = `${paths.lock}.taking.${record.nonce}`;
-  try {
-    renameSync(paths.lock, claimToken);
-  } catch {
-    // Someone else took the stale record first. Whatever is at the path now is theirs.
+  const held = readLock(paths);
+  const nowMs = Date.parse(record.startedAt);
+  if (held && processAlive(held.pid) && !lockIsStale(held, staleAfterMs, nowMs)) {
     return {
       acquired: false,
-      heldBy: held ?? record,
-      reason: "another watcher cleared the stale record first and now holds the lock",
+      heldBy: held,
+      reason: `watcher pid ${held.pid} is running and its heartbeat is current`,
     };
   }
-  try {
-    unlinkSync(claimToken);
-  } catch {
-    // The token is ours alone; failing to remove it leaves litter, not a correctness problem.
-  }
 
-  const reclaimed = claim();
-  if (reclaimed) return reclaimed;
-
-  return {
-    acquired: false,
-    heldBy: held ?? record,
-    reason: "another watcher claimed the lock while this one was clearing a stale record",
-  };
+  // The holder looks stale or the record is unreadable, so somebody may take over — but only one
+  // somebody, and only under the mutation right.
+  return (
+    withMutation(paths, record, staleAfterMs, () => {
+      // Re-read INSIDE the right. The holder may have been replaced by a live watcher while we were
+      // queuing for it, and acting on the record we read outside is exactly the class of mistake
+      // this rewrite exists to end.
+      const current = readLock(paths);
+      if (current && processAlive(current.pid) && !lockIsStale(current, staleAfterMs, nowMs)) {
+        return {
+          acquired: false,
+          heldBy: current,
+          reason: `watcher pid ${current.pid} took the lock first and its heartbeat is current`,
+        };
+      }
+      removeIfPresent(paths.lock);
+      if (createExclusive(paths.lock, serialised)) return { acquired: true, record };
+      return {
+        acquired: false,
+        heldBy: current ?? record,
+        reason: "the lock reappeared while it was being replaced",
+      };
+    }) ?? {
+      acquired: false,
+      heldBy: held ?? record,
+      reason: "another watcher holds the mutation right; not competing for it",
+    }
+  );
 }
 
 /**
- * Refreshes the lock, but only if we still hold it.
+ * Refreshes the lock, and only while holding both the mutation right and the lock itself.
  *
- * The nonce existed from the start and nothing ever compared it, which the adversarial review
- * turned into a concrete sequence (IR-049): watcher A pauses past three heartbeats, B judges the
- * lock stale and takes it, A resumes and blindly rewrites the lock with its own record. Two
- * watchers, each believing it holds the lock, overwriting each other's state snapshots.
- *
- * Returns false when the lock has moved on. The caller stops rather than fighting for it — the
- * replacement is the legitimate holder, and a watcher that has lost its lock has no business
- * writing the shared cursor.
+ * Returns false when either is missing. The caller stops rather than retrying: a watcher that has
+ * lost its lock has no business writing the shared cursor, and one that cannot get the mutation
+ * right is racing a takeover it should let happen.
  */
 export function heartbeat(paths: StorePaths, record: LockRecord, at: string): boolean {
-  // Rename-verify-recreate, the same mutex the acquisition path uses.
-  //
-  // The previous version read, wrote, then read back, and called that "detected, not prevented".
-  // The confirmation review showed even the weaker claim did not hold: a competitor can take the
-  // lock AFTER the read-back, so the caller returns true while somebody else owns it.
-  //
-  // The rename is what makes this decidable. Exactly one caller can move a given path, so whoever
-  // wins the rename holds the record exclusively while deciding what to do with it — and a
-  // competitor arriving mid-sequence finds nothing at the lock path and takes the acquisition
-  // route instead, which is correct.
-  const token = `${paths.lock}.beat.${record.nonce}`;
-  try {
-    renameSync(paths.lock, token);
-  } catch {
-    // Gone or already claimed by someone else's rename. Either way this caller does not hold it.
-    return false;
-  }
-
-  let held: LockRecord | null = null;
-  try {
-    held = JSON.parse(readFileSync(token, "utf8")) as LockRecord;
-  } catch {
-    held = null;
-  }
-
-  if (!held || held.nonce !== record.nonce) {
-    // Not ours. Put it back exactly as found rather than destroying a record we do not own.
-    try {
-      renameSync(token, paths.lock);
-    } catch {
-      // The path is occupied again, which means a live holder recreated it. Discard our copy.
-      try {
-        unlinkSync(token);
-      } catch {
-        // Litter, not a correctness problem.
-      }
-    }
-    return false;
-  }
-
-  writeAtomic(
-    paths.lock,
-    `${JSON.stringify({ ...record, startedAt: at }, null, 2)}
-`,
-  );
-  try {
-    unlinkSync(token);
-  } catch {
-    // Litter, not a correctness problem.
-  }
-  return true;
+  const result = withMutation(paths, record, HEARTBEAT_STALE_MS, () => {
+    const held = readLock(paths);
+    // Positive ownership. An unreadable record is not "not somebody else's".
+    if (!held || held.nonce !== record.nonce) return false;
+    // Safe to write in place: nothing else may touch the lock while the right is held, so there is
+    // no destination-replacement question to get wrong per platform.
+    writeFileSync(paths.lock, `${JSON.stringify({ ...record, startedAt: at }, null, 2)}\n`, "utf8");
+    return true;
+  });
+  return result ?? false;
 }
 
 export function readLock(paths: StorePaths): LockRecord | null {
@@ -339,56 +290,78 @@ export function readLock(paths: StorePaths): LockRecord | null {
 /**
  * Releases the lock, and only our own.
  *
- * The same defect as the heartbeat and the worse half of it: a resumed watcher deleting the lock
- * of the watcher that replaced it leaves no lock at all while a live process is still running, so
- * the next start sees the field clear and a third watcher joins.
+ * `record` is required in practice. The earlier signature made it optional and deleted
+ * unconditionally when omitted, which is a live-lock destroyer sitting behind a default argument —
+ * the reviewer found it as a separate finding from the races, and it is the easiest of the set to
+ * trigger because it needs no concurrency at all.
  */
 export function releaseLock(paths: StorePaths, record?: LockRecord): void {
   if (!existsSync(paths.lock)) return;
+  if (!record) return;
 
-  if (!record) {
-    // Unconditional release, used only where the caller has no record to prove ownership with.
+  withMutation(paths, record, HEARTBEAT_STALE_MS, () => {
+    const held = readLock(paths);
+    if (!held || held.nonce !== record.nonce) return false;
+    removeIfPresent(paths.lock);
+    return true;
+  });
+}
+
+/** Default staleness horizon for the mutation right, in milliseconds. */
+const HEARTBEAT_STALE_MS = 45_000;
+
+/** Exclusive create. True when this caller made the file; false when it already existed. */
+function createExclusive(path: string, contents: string): boolean {
+  try {
+    writeFileSync(path, contents, { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeIfPresent(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    // Already gone, which is the state we wanted.
+  }
+}
+
+/**
+ * Runs `body` while holding the exclusive right to mutate the lock, or returns null.
+ *
+ * The right is a `wx` create of a second file, which is what makes it a right rather than a hope.
+ * It expires, because a process that dies holding it would wedge the channel — and a deadlock is
+ * not an improvement on a race.
+ */
+function withMutation<T>(
+  paths: StorePaths,
+  record: LockRecord,
+  staleAfterMs: number,
+  body: () => T,
+): T | null {
+  const mutationPath = `${paths.lock}.mutate`;
+  const stamp = `${JSON.stringify({ nonce: record.nonce, at: record.startedAt })}\n`;
+
+  if (!createExclusive(mutationPath, stamp)) {
+    // Somebody holds it. Take it over only if theirs has expired.
+    let heldAt = Number.NaN;
     try {
-      unlinkSync(paths.lock);
+      heldAt = Date.parse((JSON.parse(readFileSync(mutationPath, "utf8")) as { at: string }).at);
     } catch {
-      // Already gone.
+      heldAt = Number.NaN;
     }
-    return;
-  }
-
-  // Same rename mutex as the heartbeat, for the same reason: read-then-unlink let a displaced
-  // watcher delete the live lock of the watcher that replaced it. Winning the rename is what makes
-  // the ownership check meaningful, because nothing else can be looking at the record by then.
-  const token = `${paths.lock}.release.${record.nonce}`;
-  try {
-    renameSync(paths.lock, token);
-  } catch {
-    return;
-  }
-
-  let held: LockRecord | null = null;
-  try {
-    held = JSON.parse(readFileSync(token, "utf8")) as LockRecord;
-  } catch {
-    held = null;
-  }
-
-  if (!held || held.nonce !== record.nonce) {
-    try {
-      renameSync(token, paths.lock);
-    } catch {
-      try {
-        unlinkSync(token);
-      } catch {
-        // Litter, not a correctness problem.
-      }
-    }
-    return;
+    const nowMs = Date.parse(record.startedAt);
+    const expired = Number.isNaN(heldAt) || nowMs - heldAt > staleAfterMs;
+    if (!expired) return null;
+    removeIfPresent(mutationPath);
+    if (!createExclusive(mutationPath, stamp)) return null;
   }
 
   try {
-    unlinkSync(token);
-  } catch {
-    // Litter, not a correctness problem.
+    return body();
+  } finally {
+    removeIfPresent(mutationPath);
   }
 }

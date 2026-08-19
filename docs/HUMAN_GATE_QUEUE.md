@@ -13,7 +13,15 @@ third party) · `RESOLVED`.
 
 ## HG-001 — GitHub push authentication
 
-**Status**: `PENDING_USER` · marker `PUSH_PENDING_AUTH`
+**Status**: `PARTIALLY_RESOLVED` · marker `API_WRITE_PENDING_AUTH` · updated 2026-08-19
+
+Git push authenticated for the first time on 2026-08-19 and the branch is being pushed
+normally, so the half of this gate that blocked backup is closed. The half that blocks the
+escalation channel is not: posting a comment goes through the REST API, the credential that
+satisfies git lives in a credential helper, and extracting a helper secret is prohibited. No
+`gh` CLI is installed. Recorded as two capabilities because they resolved separately, and
+treating the gate as closed on the strength of the first would report messages as delivered
+that nobody has seen.
 
 **Issue**: `git push` fails with `could not read Username for 'https://github.com'`. The
 credential helper is configured (`manager`) but holds no credential for github.com, `gh` CLI is

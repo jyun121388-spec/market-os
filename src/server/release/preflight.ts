@@ -1,0 +1,299 @@
+/**
+ * Release-candidate preflight: current repository evidence in, release status out.
+ *
+ * Read-only by construction. It cannot merge, push, deploy, migrate, activate anything or buy
+ * anything, and it holds no code that could — a preflight that can act on its own conclusion is a
+ * release process with no human in it.
+ *
+ * Two rules do most of the work here.
+ *
+ * **Missing evidence is never PASS.** Every input is optional and every absent one resolves toward
+ * `EVIDENCE_INSUFFICIENT`, because "we did not check" and "it passed" are different facts and only
+ * one of them is a release. This is the same fail-closed discipline as the stop sentinel, for the
+ * same reason: the convenient default is always the wrong one.
+ *
+ * **Evidence belongs to a commit.** A green suite is a statement about the tree it ran against. If
+ * HEAD has moved and the change could have invalidated it, the evidence is `EVIDENCE_STALE` rather
+ * than green — and a docs-only commit does not invalidate a build, which is the other half of the
+ * rule. Re-running everything constantly and trusting a proof forever are both failures.
+ */
+
+export type EvidenceState = "PASS" | "FAIL" | "STALE" | "MISSING";
+
+/** What changed since a piece of evidence was gathered, which decides whether it still holds. */
+export type ChangeKind =
+  | "APPLICATION_CODE"
+  | "UI_OR_REQUEST_PATH"
+  | "MIGRATION_OR_SCHEMA"
+  | "VERIFY_LAYER"
+  | "TEST_ONLY"
+  | "DOCS_ONLY";
+
+export interface Evidence {
+  /** The commit this evidence was gathered against. */
+  commit: string;
+  state: "PASS" | "FAIL";
+  detail?: string;
+}
+
+/**
+ * Which change kinds invalidate which evidence.
+ *
+ * Stated as data so the reasoning is reviewable rather than buried in conditionals, and so adding
+ * a check means deciding — once, visibly — what makes it stale.
+ */
+const INVALIDATED_BY: Record<string, ChangeKind[]> = {
+  tests: ["APPLICATION_CODE", "MIGRATION_OR_SCHEMA", "VERIFY_LAYER", "TEST_ONLY"],
+  typecheck: ["APPLICATION_CODE", "MIGRATION_OR_SCHEMA", "VERIFY_LAYER", "TEST_ONLY"],
+  lint: ["APPLICATION_CODE", "VERIFY_LAYER", "TEST_ONLY"],
+  format: ["APPLICATION_CODE", "VERIFY_LAYER", "TEST_ONLY", "DOCS_ONLY"],
+  build: ["APPLICATION_CODE", "UI_OR_REQUEST_PATH", "MIGRATION_OR_SCHEMA"],
+  e2e: ["APPLICATION_CODE", "UI_OR_REQUEST_PATH", "MIGRATION_OR_SCHEMA"],
+  migrations: ["MIGRATION_OR_SCHEMA"],
+  verifyCoverage: ["VERIFY_LAYER", "APPLICATION_CODE"],
+};
+
+export interface PreflightInput {
+  head: string;
+  /** Commits between the evidence and HEAD, by what they changed. Empty means evidence is current. */
+  changesSinceEvidence: ChangeKind[];
+  treeClean: boolean;
+  /** Whether HEAD exists on the remote. A release candidate that exists only locally is not one. */
+  pushedToRemote: boolean;
+
+  tests?: Evidence;
+  typecheck?: Evidence;
+  lint?: Evidence;
+  format?: Evidence;
+  build?: Evidence;
+  e2e?: Evidence;
+  migrations?: Evidence;
+  verifyCoverage?: Evidence;
+
+  openP0?: number;
+  openP1?: number;
+  openP2?: number;
+  /** Findings recorded but never reproduced, accepted or rejected. */
+  unhandledReviewFindings?: number;
+  /** Review owed but not yet performed. Not a blocker on its own; it is a named debt. */
+  reviewDebtItems?: number;
+  /** Whether the final independent adversarial review has run against this HEAD. */
+  finalReviewDone?: boolean;
+
+  /** Human Gates still open, by id. Each is external by definition. */
+  openHumanGates?: string[];
+  /** Providers whose capabilities remain unverified for want of a key. */
+  unverifiedProviders?: string[];
+  /** Escalations composed and not yet transmitted. External, and not an internal defect. */
+  queuedEscalations?: number;
+  controlBusWatcher?: "ALIVE" | "STOPPED";
+}
+
+export type ReleaseVerdict =
+  | "RELEASE_CANDIDATE_READY"
+  | "RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES"
+  | "RELEASE_CANDIDATE_BLOCKED_INTERNAL"
+  | "EVIDENCE_STALE"
+  | "EVIDENCE_INSUFFICIENT";
+
+export interface PreflightCheck {
+  name: string;
+  state: EvidenceState;
+  detail: string;
+  /** Whether failing this is something the team can fix, or something the world must supply. */
+  kind: "INTERNAL" | "EXTERNAL";
+}
+
+export interface PreflightReport {
+  verdict: ReleaseVerdict;
+  checks: PreflightCheck[];
+  /** Why the verdict is what it is, naming the checks that decided it. */
+  rationale: string;
+}
+
+function evidenceState(
+  name: string,
+  evidence: Evidence | undefined,
+  input: PreflightInput,
+): EvidenceState {
+  if (!evidence) return "MISSING";
+  if (evidence.state === "FAIL") return "FAIL";
+  if (evidence.commit === input.head && input.changesSinceEvidence.length === 0) return "PASS";
+  const invalidating = INVALIDATED_BY[name] ?? [];
+  return input.changesSinceEvidence.some((change) => invalidating.includes(change))
+    ? "STALE"
+    : "PASS";
+}
+
+export function preflight(input: PreflightInput): PreflightReport {
+  const checks: PreflightCheck[] = [];
+
+  const gate = (name: string, evidence: Evidence | undefined) => {
+    const state = evidenceState(name, evidence, input);
+    checks.push({
+      name,
+      state,
+      kind: "INTERNAL",
+      detail:
+        state === "MISSING"
+          ? `No ${name} evidence for this HEAD. Absent is not passing.`
+          : state === "STALE"
+            ? `${name} passed at ${evidence?.commit}, invalidated by ${input.changesSinceEvidence.join(", ")}.`
+            : state === "FAIL"
+              ? (evidence?.detail ?? `${name} failed.`)
+              : `${name} passed at ${evidence?.commit}.`,
+    });
+  };
+
+  gate("tests", input.tests);
+  gate("typecheck", input.typecheck);
+  gate("lint", input.lint);
+  gate("format", input.format);
+  gate("build", input.build);
+  gate("e2e", input.e2e);
+  gate("migrations", input.migrations);
+  gate("verifyCoverage", input.verifyCoverage);
+
+  const counted = (name: string, value: number | undefined, kind: "INTERNAL" | "EXTERNAL") =>
+    checks.push({
+      name,
+      kind,
+      state: value === undefined ? "MISSING" : value === 0 ? "PASS" : "FAIL",
+      detail:
+        value === undefined
+          ? `${name} was never counted, and unknown is not zero.`
+          : value === 0
+            ? `${name}: none outstanding at this HEAD.`
+            : `${name}: ${value} outstanding, which blocks the candidate.`,
+    });
+
+  counted("open P0", input.openP0, "INTERNAL");
+  counted("open P1", input.openP1, "INTERNAL");
+  counted("unhandled review findings", input.unhandledReviewFindings, "INTERNAL");
+
+  // P2 is deliberately not a gate. Every deferred P2 here is recorded with a reason and pinned by
+  // a test that fails if it is fixed silently; blocking a release on them would either stop it
+  // forever or create pressure to reclassify them, and the second is worse.
+  checks.push({
+    name: "open P2",
+    kind: "INTERNAL",
+    state: "PASS",
+    detail: `${input.openP2 ?? 0} deferred P2, each recorded with a reason. Not a release gate.`,
+  });
+
+  checks.push({
+    name: "tree clean",
+    kind: "INTERNAL",
+    state: input.treeClean ? "PASS" : "FAIL",
+    detail: input.treeClean ? "No uncommitted changes." : "Uncommitted changes at HEAD.",
+  });
+
+  checks.push({
+    name: "pushed to remote",
+    kind: "INTERNAL",
+    state: input.pushedToRemote ? "PASS" : "FAIL",
+    detail: input.pushedToRemote
+      ? "HEAD exists on the remote."
+      : "HEAD is local only, so the candidate exists on one machine.",
+  });
+
+  checks.push({
+    name: "final independent review",
+    kind: "INTERNAL",
+    state:
+      input.finalReviewDone === undefined ? "MISSING" : input.finalReviewDone ? "PASS" : "FAIL",
+    detail:
+      input.finalReviewDone === undefined
+        ? "Never established. A reviewer's absence is not a clean review."
+        : input.finalReviewDone
+          ? "Final adversarial review completed against this HEAD."
+          : "Final adversarial review has not run against this HEAD.",
+  });
+
+  // External conditions. Real, and categorically different from a defect — they cannot be fixed by
+  // working harder, and reporting them as internal failures would make a release look broken when
+  // it is waiting.
+  const gates = input.openHumanGates ?? [];
+  checks.push({
+    name: "human gates",
+    kind: "EXTERNAL",
+    state: gates.length === 0 ? "PASS" : "FAIL",
+    detail: gates.length === 0 ? "No open gates." : `Open: ${gates.join(", ")}.`,
+  });
+
+  const providers = input.unverifiedProviders ?? [];
+  checks.push({
+    name: "provider capability verified",
+    kind: "EXTERNAL",
+    state: providers.length === 0 ? "PASS" : "FAIL",
+    detail:
+      providers.length === 0
+        ? "Every provider verified against a live response."
+        : `Unverified for want of a key: ${providers.join(", ")}.`,
+  });
+
+  checks.push({
+    name: "escalations transmitted",
+    kind: "EXTERNAL",
+    state: (input.queuedEscalations ?? 0) === 0 ? "PASS" : "FAIL",
+    detail:
+      (input.queuedEscalations ?? 0) === 0
+        ? "Nothing queued untransmitted."
+        : `${input.queuedEscalations} escalation(s) queued and not transmitted.`,
+  });
+
+  checks.push({
+    name: "control bus watching",
+    kind: "EXTERNAL",
+    state: input.controlBusWatcher === "ALIVE" ? "PASS" : "FAIL",
+    detail:
+      input.controlBusWatcher === "ALIVE"
+        ? "Watcher alive; a decision would be read."
+        : "Watcher not running, so a decision posted now would not be seen.",
+  });
+
+  // Order matters and encodes the precedence. A failing internal check outranks a stale one,
+  // because a red suite is a defect whereas a stale suite is an unanswered question; both outrank
+  // an external gate, because there is no point waiting on the world for a build that is broken.
+  const internal = checks.filter((c) => c.kind === "INTERNAL");
+  const failing = internal.filter((c) => c.state === "FAIL");
+  const stale = internal.filter((c) => c.state === "STALE");
+  const missing = internal.filter((c) => c.state === "MISSING");
+  const external = checks.filter((c) => c.kind === "EXTERNAL" && c.state !== "PASS");
+
+  const name = (list: PreflightCheck[]) => list.map((c) => c.name).join(", ");
+
+  if (failing.length > 0) {
+    return {
+      verdict: "RELEASE_CANDIDATE_BLOCKED_INTERNAL",
+      checks,
+      rationale: `Blocked by ${name(failing)} — defects, not waiting.`,
+    };
+  }
+  if (stale.length > 0) {
+    return {
+      verdict: "EVIDENCE_STALE",
+      checks,
+      rationale: `${name(stale)} passed against an earlier commit and the change since could have invalidated it.`,
+    };
+  }
+  if (missing.length > 0) {
+    return {
+      verdict: "EVIDENCE_INSUFFICIENT",
+      checks,
+      rationale: `Never established for this HEAD: ${name(missing)}. Absent evidence is not passing evidence.`,
+    };
+  }
+  if (external.length > 0) {
+    return {
+      verdict: "RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES",
+      checks,
+      rationale: `Every internal check is green against ${input.head}. Waiting on ${name(external)}.`,
+    };
+  }
+  return {
+    verdict: "RELEASE_CANDIDATE_READY",
+    checks,
+    rationale: `Every internal and external condition satisfied against ${input.head}.`,
+  };
+}

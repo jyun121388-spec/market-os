@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { storePaths } from "@/server/controlbus/store";
 import type { PreflightInput } from "@/server/release/preflight";
+import { parseAttestation } from "@/server/release/attestation";
 import { preflight } from "@/server/release/preflight";
 
 const git = (...args: string[]) =>
@@ -117,25 +118,9 @@ function reviewEvidence(): {
 } {
   const attestationPath = join(process.cwd(), "docs", "REVIEW_ATTESTATION.md");
   if (!existsSync(attestationPath)) return {};
-  const text = readFileSync(attestationPath, "utf8");
-
-  // Exactly one of each field. A duplicate is not a formatting quirk to tolerate: an attestation
-  // carrying `REVIEW_VERDICT: NOT_CLEAN` followed by `REVIEW_VERDICT: CLEAN` was accepted as
-  // clean, because a per-line match is satisfied by the friendlier line. The reviewer found it,
-  // and it is exactly the shape a careless edit produces — appending a corrected line instead of
-  // replacing the wrong one.
-  //
-  // Ambiguity is refused rather than resolved. There is no defensible rule for which of two
-  // contradictory verdicts is the real one, so a document that states both states nothing.
-  const shaMatches = [...text.matchAll(/^REVIEWED_CODE_SHA:\s*`?([0-9a-f]{7,40})`?\s*$/gm)];
-  const verdictMatches = [...text.matchAll(/^REVIEW_VERDICT:\s*`?([A-Z_]+)`?\s*$/gm)];
-  if (shaMatches.length !== 1 || verdictMatches.length !== 1) return {};
-
-  const sha = shaMatches[0][1];
-  // Exact equality, not a pattern. `CLEANISH` matched an unanchored regex, and the enumerated
-  // value is the only one that opens the gate.
-  const clean = verdictMatches[0][1] === "CLEAN";
-  if (!sha) return {};
+  const parsed = parseAttestation(readFileSync(attestationPath, "utf8"));
+  if (!parsed) return {};
+  const { reviewedCodeSha: sha, clean } = parsed;
 
   // The reviewed commit must be an ANCESTOR of HEAD.
   //

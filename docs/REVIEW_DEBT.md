@@ -188,3 +188,20 @@ beside the limitations.
 
 `tests/causalProvenance.test.ts` pins the gap the self-correcting way — the absence is asserted as
 it currently is, so fixing IR-037 breaks the test.
+
+## FLAKE-01 — `morning-brief` integration, one occurrence, signature lost
+
+Failed once in a full-suite run on 2026-08-20 (`buildMorningBrief (integration) > composes without
+throwing and returns well-shaped sections`), passed in isolation immediately afterwards, and did
+not reproduce in a subsequent full run with complete output captured (1076/1076).
+
+**No signature was captured**, because the failing run's output was piped through `grep` and the
+error text was discarded — the same mistake IR-039 recorded, made again. The response was to
+re-run with full capture rather than to re-run and hope, but the first occurrence is gone.
+
+Plausible cause, held as a hypothesis and not a conclusion: PostgreSQL had been restarted minutes
+earlier in that session, so a cold connection pool on the first integration file is consistent with
+what was seen. There is no evidence for it.
+
+Recorded so a second occurrence is recognisable as a pattern rather than as a first. If it recurs,
+capture the full output before doing anything else.

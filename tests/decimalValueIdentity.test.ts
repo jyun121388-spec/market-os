@@ -87,15 +87,29 @@ describe("every decimal spelling the adapters can deliver", () => {
     expect(sameDecimalValue("1.234568", "1.234569")).toBe(false);
   });
 
-  it("does not silently equate things it cannot parse", () => {
-    // Unparseable input is DIFFERENT unless the strings are identical. The two possible errors are
-    // not symmetric: a spurious revision is a visible extra row, a missed one is silence.
-    expect(sameDecimalValue("abc", "1")).toBe(false);
-    expect(sameDecimalValue("", "0")).toBe(false);
-    expect(sameDecimalValue("1,000", "1000")).toBe(false);
-    expect(sameDecimalValue("NaN", "0")).toBe(false);
-    expect(sameDecimalValue("Infinity", "0")).toBe(false);
-    expect(sameDecimalValue("abc", "abc")).toBe(true);
+  it.each(["abc", "", "1,000", "NaN", "Infinity", "1e", "--1", "0x10"])(
+    "refuses to answer at all when it cannot read %s",
+    (unreadable) => {
+      // Throwing, not falling back to a string comparison. Deciding "same figure" is the decision
+      // this whole path turns on, and a comparison that cannot read one operand has not made it.
+      // Neither side can legitimately be unreadable — stored values come from Prisma's Decimal and
+      // incoming ones have passed the adapters' finite-number check — so an unreadable value means
+      // something upstream is broken and the run should say so.
+      expect(() => sameDecimalValue(unreadable, "1")).toThrow(/cannot compare observation values/);
+      expect(() => sameDecimalValue("1", unreadable)).toThrow(/cannot compare observation values/);
+    },
+  );
+
+  it("names the offending value, so the error is actionable", () => {
+    expect(() => sameDecimalValue("1", "twelve")).toThrow(/"twelve"/);
+  });
+
+  it("still answers for every value it CAN read", () => {
+    // The control: the throw must be reachable only for genuinely unreadable input, or this
+    // becomes an ingest outage rather than a guard.
+    expect(sameDecimalValue("1", "1.000000")).toBe(true);
+    expect(sameDecimalValue("-0", "0")).toBe(true);
+    expect(sameDecimalValue("1e5", "100000")).toBe(true);
   });
 
   it("does not lose precision on the way through the exponent form", () => {

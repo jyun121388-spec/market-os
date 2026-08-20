@@ -288,3 +288,29 @@ describe("the connection-URI redaction, at both ends", () => {
     }
   });
 });
+
+/**
+ * Gate C, RS-RC-1 (P3) — a complete URI-shaped placeholder in documentation is still redacted.
+ *
+ * `Documentation says the form is proto://user:password@host/path.` comes back with `[REDACTED]`
+ * where `password` was. The reviewer filed it and answered it in the same breath: the shape is
+ * syntactically indistinguishable from a real credential. There is nothing in the string to key
+ * on — `user`, `password` and `host` are exactly what a connection URI contains.
+ *
+ * Not fixed, and pinned instead. The invariant that matters is that a real password never survives
+ * into a stored, operator-visible error; the cost is that a sentence about URI grammar loses one
+ * word. The hostless form Gate B found IS preserved, which is the case that actually appears in
+ * prose, and the earlier version of this pattern rewrote that too.
+ */
+describe("a full URI-shaped placeholder is redacted, deliberately", () => {
+  it("cannot tell documentation from a credential, and errs toward redacting", () => {
+    const out = redactSecrets("Documentation says the form is proto://user:password@host/path.");
+    expect(out).toBe("Documentation says the form is proto://user:[REDACTED]@host/path.");
+  });
+
+  it("still leaves the hostless prose form alone", () => {
+    // The Gate B fix, which this does not undo: no host means no URI, so nothing is rewritten.
+    const text = "Parser syntax is proto://left:right@ followed by a host token.";
+    expect(redactSecrets(text)).toBe(text);
+  });
+});

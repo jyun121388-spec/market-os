@@ -212,3 +212,116 @@ describe("the advisor-proxy pattern, deliberately broad", () => {
     expect(detectPersonalizedAdviceRequest(query)).toBe(true);
   });
 });
+
+/**
+ * Gate C — the third round, and the third time the enumeration was the defect.
+ *
+ * Gate B's repair replaced a possessive-pronoun list with a kinship list and a pronoun list. Gate C
+ * walked past both with a proper name and a role: `Should John buy Nvidia?`,
+ * `Should the trustee buy Nvidia?`, `Should the desk sell Apple?`. It also found that a period is
+ * not a sentence boundary in English — `Tell Mr. Smith to sell Apple.` escaped because the span
+ * stopped at the abbreviation — and that the promised-return pattern still required a pronoun.
+ *
+ * The lesson is now recorded three times in three rounds, so it is written into the patterns
+ * instead: the guardrail keys on the SHAPE of the request, not on a list of who might be asking or
+ * on whose behalf.
+ */
+describe("Gate C — third-party advice, whoever the third party is", () => {
+  it.each([
+    "Should John buy Nvidia?",
+    "Should the trustee buy Nvidia?",
+    "Should the fund manager hold Tesla?",
+    "Should the desk sell Apple?",
+    "Should the pension fund short treasuries?",
+    "Tell Mr. Smith to sell Apple.",
+    "Tell Acme Inc. to sell its Apple stake.",
+    "Can you promise John a 10% annual return?",
+    "Can you promise the trustee a guaranteed 8% yield?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it("keeps refusing everything the earlier rounds pinned", () => {
+    // Widening a guardrail is only safe if the narrow cases survive it, and two of these patterns
+    // were rewritten rather than extended.
+    for (const query of [
+      "Give me a guaranteed 10% annual return strategy for Apple",
+      "Can you promise my brother a 10% annual return?",
+      "Tell my brother to dump Apple and move everything into bonds",
+      "Advise your brother to liquidate his Tesla position.",
+      "Should Dad buy more Nvidia?",
+      "Should I buy Apple?",
+      "삼성전자 지금 사도 되나요?",
+    ]) {
+      expect(detectPersonalizedAdviceRequest(query), query).toBe(true);
+    }
+  });
+});
+
+/**
+ * The forecast questions the price pattern was refusing.
+ *
+ * `[CHATGPT_ARCHITECT_GUIDANCE][RC-EXACT-CANDIDATE-003]` pointed at bare `hit` and `reach` after
+ * `what … will …`, and it was right: "What will unemployment reach next year?" is an analytical
+ * forecast, and refusing it contradicts the invariant the same patch claims two comments above it.
+ *
+ * A definitive PRICE prediction needs the preposition — "trade at", "close above" — or an explicit
+ * worth. A numeric target is already covered by the `will … hit … 300` pattern, which requires the
+ * number that makes it a price rather than a forecast.
+ */
+describe("Gate C — analytical forecasts are not price predictions", () => {
+  it.each([
+    "What will trade volumes be next year?",
+    "What will unemployment reach next year?",
+    "What will trade flows look like next year?",
+    "What will GDP reach by 2030?",
+    "What will inflation hit next year?",
+    "Should investors expect more volatility this quarter?",
+    "Should the Fed raise rates this year?",
+    "Does the merger promise the kind of returns investors want?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it("still refuses the price predictions themselves", () => {
+    for (const query of [
+      "What will Apple trade at next year?",
+      "What will TSLA be worth in December?",
+      "What will Apple close at tomorrow?",
+      "Will Apple hit 300 next year?",
+    ]) {
+      expect(detectPersonalizedAdviceRequest(query), query).toBe(true);
+    }
+  });
+});
+
+/**
+ * Three over-blocks Gate C found that are NOT fixed, pinned so they stay decisions.
+ *
+ * Each has a fix that is worse than the defect, and the reasoning is the same in all three: this
+ * guardrail enforces an absolute prohibition in `docs/LEGAL_GUARDRAILS.md`, so an exemption that
+ * can be written into a request is a bypass, and a bypass outranks an inconvenience.
+ *
+ *  - AM-RC-4, methodology "hold": the exemption already covers `constant|fixed|steady|equal|
+ *    unchanged` within twenty characters. Widening the window or the vocabulary to admit "hold the
+ *    numerator at 1.5" also admits "hold Apple until the market is steady", which is advice.
+ *  - AM-RC-5, quoted filing language: exempting text inside quotation marks lets any request be
+ *    smuggled by quoting it.
+ *  - The advisor-proxy pattern, from Gate B: deliberately broad, and it exists to block
+ *    "what would my broker recommend?".
+ *
+ * All three are cheap for a user to rephrase and none of them silently answers anything. If a
+ * dedicated guardrail review later finds a discriminator that is not a bypass, these are the tests
+ * that will need changing, which is the point of writing them down.
+ */
+describe("over-blocks accepted on purpose", () => {
+  it.each([
+    "Advise the team to hold the numerator at 1.5 in all scenarios.",
+    "Advise the team to hold nominal GDP across every projection constant.",
+    'What does the filing mean when it says "advise shareholders to sell non-core assets"?',
+    "Advise my analyst to hold GDP constant when comparing the two scenarios.",
+    "What did my analyst mean by real terms?",
+  ])("refuses %s, and that is the recorded trade", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});

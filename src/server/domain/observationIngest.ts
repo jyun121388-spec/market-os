@@ -113,14 +113,27 @@ function millionths(raw: string): bigint | null {
  * recognise a superseded value, so a provider replaying `1e5` over a chain that had already moved
  * on would have been applied as a revision back to the old figure.
  *
- * Unparseable input is treated as DIFFERENT rather than equal, unless the two strings are
- * identical. Both errors are possible here and they are not symmetric: a spurious revision is a
- * visible extra row, and a missed revision is silence.
+ * Unparseable input THROWS rather than falling back to a string comparison.
+ *
+ * The fallback was the first instinct and it was wrong. Deciding "same figure" is the decision this
+ * whole path turns on, and a comparison that cannot read one of its operands has not made that
+ * decision — it has guessed, quietly, in a function whose failures are invisible by construction.
+ * Neither operand can legitimately be unreadable: the stored side comes from Prisma's `Decimal`,
+ * and the incoming side has already passed the adapters' finite-number check. So an unreadable
+ * value means something upstream is broken, and the ingest run should say so where an operator can
+ * see it rather than record a revision decision it could not actually make.
  */
 export function sameDecimalValue(a: string, b: string): boolean {
   const left = millionths(a);
   const right = millionths(b);
-  if (left === null || right === null) return a.trim() === b.trim();
+  if (left === null || right === null) {
+    const bad = left === null ? a : b;
+    throw new Error(
+      `[observationIngest] cannot compare observation values: ${JSON.stringify(bad)} is not a ` +
+        `decimal this column can hold. Both sides must be readable before "unchanged" or ` +
+        `"revised" means anything.`,
+    );
+  }
   return left === right;
 }
 

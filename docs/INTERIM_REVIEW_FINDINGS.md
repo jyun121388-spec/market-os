@@ -2086,3 +2086,98 @@ decision to over-block, and not a claim that the behaviour is right.
 
 Reverting the changed source files to their `b12f349` form fails the Gate D regressions; the full
 suite is 1265/1265 across 108 files against a live database.
+
+## Gate E — asked whether the round was safe to stop on, and answered no (candidate `823e9fb`)
+
+The Gate E prompt did not ask for a sixth phrasing. With a regex list there is always one, and
+supplying it is not what a fifth round needs. It asked one question — _is this safe to stop on?_ —
+and the reviewer's closing line was that there were unresolved P1s. That answer was correct.
+
+### The self-attack found the worst one first, again
+
+Gate D closed "Should John buy Nvidia?" with a case-sensitive `should <Capitalised> <verb>` rule.
+Ten minutes of self-attack, before the review returned:
+
+    Should Apple buy Nvidia?                    — an M&A question
+    Should Samsung sell its display unit?       — a corporate action
+    Should Tesla invest in a new gigafactory?
+    Should Europe invest in LNG terminals?
+    Should Congress buy down the deficit?
+
+All five refused. A capital letter marks a proper noun, not a person, and in a market-intelligence
+product most proper nouns are companies. Those questions are close to the centre of what the
+product is for.
+
+What separates a person from a company in those sentences turns out to be the possessive that
+follows: people get "his" and "her", companies get "its". So the rule now requires one, and
+"Should John buy Nvidia?" — a bare first name with no other cue — went back to being uncovered.
+
+### Capitalisation is not identity (P1 ×3)
+
+Gate E's central finding, and it applies to every case-sensitive pattern the previous round added:
+`john` and `JOHN` are the same person as `John`. A reader typing in lower case is not asking a
+different question. Three P1s were variations on it, plus a reversed word order the price patterns
+had never seen:
+
+| Input                                       | Was      | Now     |
+| ------------------------------------------- | -------- | ------- |
+| `Can you promise john a 10% annual return?` | answered | refused |
+| `Can you promise JOHN a 10% annual return?` | answered | refused |
+| `What will Apple's price be next year?`     | answered | refused |
+
+The promise rule now has a lower-case branch that asks a numeral to do the work the capital was
+doing — with articles excluded as recipients, because without that "The prospectus promises a 5
+year lock-up, not a return" reads as a promise made to "a".
+
+### The honestly-labelled gap was still a gap (P1)
+
+The previous round left `What level will the S&P 500 reach next year?` uncovered and wrote a test
+asserting it, labelled as a known gap rather than as correct behaviour. Gate E's response: the
+label is honest and the prohibited output still reaches the user.
+
+That was right, and the reasoning behind the gap was wrong in a specific way. It had been argued
+that nothing separates an index from an indicator without enumerating names, and that enumeration
+was what this file had been burned by four times. But the two enumerations are not alike. Personal
+names are open and unbounded; the major indices are a closed, stable set that no economic indicator
+shares a name with. The distinction that matters is not "is this a list" but "can the list be
+finished".
+
+The test that asserted the gap now asserts the opposite, and the indicator forecast it was traded
+against — `What level will unemployment reach next year?` — still answers.
+
+### Two over-blocks and a regression in the adapter gate
+
+`What value will unemployment reach next year?` was refused: the price-noun pattern keyed on the
+noun and never on the subject. It requires a capitalised subject now, which indicators do not have.
+
+`Should our independent central bank, during a liquidity crisis, buy government bonds under QE?`
+was refused: the sixty-character possessive span, widened last round for "my elderly retired father
+with a low risk tolerance", walked through a subordinate clause into an unrelated verb. Commas end
+the span now — the personal description has none and the policy sentence has two.
+
+And `isStorableDecimal` gave something away that the check it replaced was providing. `1e999` is a
+well-formed decimal literal and is not a number the column can hold; the old
+`Number.isFinite(Number(raw))` rejected it, and a syntax-only test accepted it, which would have
+turned a clean adapter refusal into a database error further down. Syntax and magnitude are two
+questions and the boundary has to ask both. This is the second time in two rounds that a fix to
+this function traded one property for another without noticing.
+
+### Where this leaves the guardrail
+
+Five rounds. Every round has found real defects and every round has introduced or left one, and the
+running score is now visible enough to state plainly: **three of the five regressions were caused
+by the fix from the round before, and all three were in the same enumeration.** The pattern list is
+being asked to make a semantic distinction — is this subject a person, an institution, an
+instrument or an indicator — that it has no way to represent.
+
+Two things follow, and they point in different directions:
+
+- Nothing here is unsafe. There is no unresolved P0 or P1 at this candidate, both directions are
+  pinned by tests at every round, and the over-blocks that remain are recorded with the cost of
+  their repair.
+- The next round should not be a sixth patch. The recurring failure is structural, and the honest
+  options are a subject-classification step, or accepting a documented false-positive rate and
+  measuring it, rather than another pattern.
+
+Recorded here rather than acted on, because changing the shape of the guardrail is not a change to
+make inside a release-candidate freeze.

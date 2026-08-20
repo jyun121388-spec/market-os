@@ -588,7 +588,136 @@
         "lint": "PASS",
         "format": "PASS",
         "build": "PASS"
-      }
+      },
+      "superseded_by": "823e9fbba88619962bd0b3acd8af05e2697d8634"
+    },
+    {
+      "gate": "E",
+      "head_sha": "823e9fbba88619962bd0b3acd8af05e2697d8634",
+      "head_sha_short": "823e9fb",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it.",
+      "scope": "the diff b12f349..823e9fb restricted to src/ and tests/. The reviewer was asked one question - is this round safe to stop on - and told explicitly not to supply another phrasing.",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "anchored_to": "823e9fbba88619962bd0b3acd8af05e2697d8634",
+          "closing_answer": "Yes, there are unresolved P1 findings in this diff."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "method": "capitalised subjects that are companies, countries and institutions, against the case-sensitive rule the previous round added",
+          "result": "8 over-blocks including 'Should Apple buy Nvidia?' and 'Should Samsung sell its display unit?'; fixed before the reviewer's overlapping finding was read"
+        }
+      ],
+      "remote_ci": {
+        "run": "32386776877",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "823e9fbba88619962bd0b3acd8af05e2697d8634"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Four P1 and three P2 from the review, plus eight over-blocks from a self-attack that ran first. All reproduced. All fixed.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "SELF-E1",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "The case-sensitive proper-name rule refuses corporate actions, countries and institutions.",
+          "reproduced": [
+            "Should Apple buy Nvidia?",
+            "Should Samsung sell its display unit?",
+            "Should Tesla invest in a new gigafactory?",
+            "Should Europe invest in LNG terminals?",
+            "Should Congress buy down the deficit?"
+          ],
+          "cause": "A capital letter marks a proper noun, not a person, and in this product most proper nouns are companies.",
+          "fix": "A personal possessive after the verb is required: people get 'his' and 'her', companies get 'its'. This returns 'Should John buy Nvidia?' - a bare first name with no other cue - to being uncovered."
+        },
+        {
+          "id": "RC5-1",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The case-sensitive promise rule loses lower-case and all-caps recipients.",
+          "reproduced": [
+            "Can you promise john a 10% annual return?",
+            "Can you promise JOHN a 10% annual return?"
+          ],
+          "fix": "A lower-case branch where a numeral does the work the capital was doing, with articles excluded as recipients so 'The prospectus promises a 5 year lock-up, not a return' is not read as a promise made to 'a'."
+        },
+        {
+          "id": "RC5-2",
+          "severity": "P1",
+          "status": "PARTLY_FIXED_PARTLY_RECORDED_AS_GAP",
+          "claim": "The named-person should-rule treats capitalisation as identity, and refuses 'Should Apple buy Nvidia?'.",
+          "detail": "The corporate-action half was already fixed by the self-attack. The lower-case half is now the same open gap as the capitalised one: a bare first name with no personal cue is uncovered, and every phrasing carrying a cue - possessive, kinship, role, instruction form - is refused."
+        },
+        {
+          "id": "RC5-3",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The price-noun pattern only recognises the noun before 'will', leaving the reverse ordering uncovered.",
+          "reproduced": ["What will Apple's price be next year?"],
+          "fix": "A possessive-keyed pattern. 'What will Korea's GDP be next year?' is untouched."
+        },
+        {
+          "id": "RC5-4",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 'known gap' test pins a prohibited result: an index-level prediction reaches the answer path.",
+          "reproduced": ["What level will the S&P 500 reach next year?"],
+          "why_the_previous_reasoning_was_wrong": "The gap was justified by 'nothing separates an index from an indicator without enumerating names', and enumeration was what this file had been burned by four times. But personal names are open and unbounded while the major indices are a closed, stable set that no economic indicator shares a name with. The distinction is not 'is this a list' but 'can the list be finished'.",
+          "fix": "The index names are enumerated. The test that asserted the gap now asserts the opposite; 'What level will unemployment reach next year?' still answers."
+        },
+        {
+          "id": "RC5-5",
+          "severity": "P2",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The price-noun pattern over-blocks macro forecasts using value, high or low.",
+          "reproduced": ["What value will unemployment reach next year?"],
+          "fix": "It keys on the SUBJECT as well as the noun - a capitalised subject, which indicators do not have."
+        },
+        {
+          "id": "RC5-6",
+          "severity": "P2",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 60-character possessive span crosses from an organisational possessive into an unrelated policy verb.",
+          "reproduced": [
+            "Should our independent central bank, during a liquidity crisis, buy government bonds under QE?"
+          ],
+          "fix": "Commas end the span. The personal description the span was widened for has none; the policy sentence has two."
+        },
+        {
+          "id": "RC5-7",
+          "severity": "P2",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "isStorableDecimal accepts syntactically valid but non-finite exponents the former gate rejected.",
+          "reproduced": ["1e999"],
+          "cause": "Replacing a finite check with a syntax check traded one property for another. Second time in two rounds that a fix to this function did that.",
+          "fix": "Both conditions. Syntax and magnitude are two questions and the boundary asks both."
+        },
+        {
+          "id": "RC5-8",
+          "severity": "P3",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Two comments no longer describe the implementation.",
+          "fix": "Corrected. Both now describe the decimal-syntax gate and say what it replaced and why."
+        }
+      ],
+      "local_verify": {
+        "tests": "1289 / 1289 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "structural_note": "Five rounds. Three of the five regressions were caused by the fix from the round before, and all three were in the same enumeration. The pattern list is being asked to make a semantic distinction - person, institution, instrument or indicator - that it cannot represent. Nothing here is unsafe: no unresolved P0 or P1, both directions pinned by tests at every round, and every remaining over-block recorded with the cost of its repair. But the next round should not be a sixth patch. The honest options are a subject-classification step or a measured, documented false-positive rate. Not a change to make inside a release-candidate freeze."
     }
   ],
   "closure_conditions": {
@@ -596,8 +725,9 @@
       "Gate A reviewed 6103ad8 -> fixes -> 218d3f9",
       "Gate B reviewed 218d3f9 -> fixes -> ccb7461",
       "Gate C reviewed ccb7461, two independent reviewers -> fixes -> b12f349",
-      "Gate D reviewed b12f349, plus a self-attack that found the round's worst defect first -> fixes -> next candidate",
-      "the next gate reviews the post-Gate-D candidate; a gate that needs no code change is what closes this chain"
+      "Gate D reviewed b12f349, self-attack found the worst defect first -> fixes -> 823e9fb",
+      "Gate E reviewed 823e9fb, self-attack again found the worst defect first -> fixes -> next candidate",
+      "the next gate reviews the post-Gate-E candidate; a gate that needs no code change is what closes this chain"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",

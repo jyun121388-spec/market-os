@@ -112,7 +112,13 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // ...and the same words the other way round. "I want 12% returns guaranteed" states the promise
   // after the figure rather than before it, which is how people actually say it. Every other
   // reversal in this file — target price, price target — was found the same way.
-  /\b(return|profit|gain|yield)s?\b[\s\S]{0,25}\b(guaranteed|guarantee)\b/i,
+  //
+  // Scoped to a first-person frame, and for the same reason the promise noun form is. Reversed,
+  // this pattern reads on any sentence ABOUT a guarantee, and finance is full of those: "Are
+  // deposit returns guaranteed by the FDIC?", "The filing says returns are not guaranteed.",
+  // "What yield is guaranteed under a government bond?". Somebody demanding a guaranteed return
+  // says I, me, my, we or our; somebody asking whether one exists does not.
+  /\b(i|me|my|we|us|our)\b[^?!]{0,25}\b(return|profit|gain|yield)s?\b[^?!]{0,25}\b(guaranteed|guarantee)\b/i,
   // "Promise" carries the same meaning as "guarantee" when it is promised TO SOMEONE — "Can you
   // promise my brother a 10% annual return?" — and an entirely ordinary one when it is not: "does
   // the new fab promise better returns for TSMC" is a research question. The personal object is
@@ -349,7 +355,13 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // SHARES?" names an actor the role list does not have — assistant — but what is being sold is
   // plainly one person's holding, and that is enough on its own. "Sell the house" and "buy new
   // software" have no personal possessive in front of the object, which is what keeps them out.
-  /\bshould\b[^?!]{0,40}\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(his|her|their|my|your|our)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
+  //
+  // The possessive object has to belong to somebody the SENTENCE has already named as a person.
+  // Unbound, "their" is what organisations take: "Should BlackRock sell their pension fund
+  // business?", "Should banks hold their pension fund assets separately?", "Should the company
+  // sell their portfolio management unit?" — all corporate questions, all refused. Requiring a
+  // personal possessive after "should" keeps the boss's-assistant case and drops those.
+  /\bshould\s+(my|his|her|your|our)\b[^?!]{0,40}\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(his|her|their|my|your|our)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
   // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
   // "investors", "a company" or "a pension fund": those appear in questions about markets and
   // regulation far more often than in requests for advice.

@@ -1035,3 +1035,95 @@ describe("Gate K — modifiers and reversals", () => {
     expect(detectPersonalizedAdviceRequest(query)).toBe(true);
   });
 });
+
+/**
+ * Gate L — the reversal needed the same frame the forward form has.
+ *
+ * The previous round added a reversed guarantee pattern, "<return> … guaranteed", to catch "I want
+ * 12% returns guaranteed". Reversed and unscoped, it reads on any sentence ABOUT a guarantee, and
+ * finance is made of those:
+ *
+ *     Are deposit returns guaranteed by the FDIC?
+ *     The filing says returns are not guaranteed.
+ *     What yield is guaranteed under a government bond?
+ *     Which profits are guaranteed under the indenture?
+ *
+ * The same feature that fixed the promise noun form fixes this: somebody demanding a guaranteed
+ * return says I, me, my, we or our; somebody asking whether one exists does not. Third use of the
+ * same discriminator, and the third time it has held.
+ */
+describe("Gate L — asking for a guarantee versus asking about one", () => {
+  it.each([
+    "Are deposit returns guaranteed by the FDIC?",
+    "The filing says returns are not guaranteed.",
+    "What yield is guaranteed under a government bond?",
+    "Which profits are guaranteed under the indenture?",
+    "Is the principal guaranteed on Korean deposit accounts?",
+    "Explain how a guaranteed investment certificate works.",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it.each([
+    "I want 12% returns guaranteed.",
+    "Give me a guaranteed 10% annual return strategy for Apple",
+    "Can you guarantee me a 15 percent yield on this?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});
+
+/**
+ * Gate L — the holding rules against corporate prose.
+ *
+ * Checked rather than assumed: the holding-object rule has no bound on who "should" refers to, so
+ * a company selling its own shares or a fund reporting its position could have matched. Neither
+ * does, because "its" is not in the personal-possessive list. Pinned so it stays that way.
+ */
+describe("Gate L — an entity's own holdings are not a person's", () => {
+  it.each([
+    "When should a company sell its shares in a subsidiary?",
+    "How should a fund report its position in Apple?",
+    "Should the index hold its position after a delisting?",
+    "Should my brother's chartered accountant file the return by April?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it("still refuses a person's holdings whoever is selling them", () => {
+    expect(
+      detectPersonalizedAdviceRequest("Should my boss's assistant sell his Apple shares?"),
+    ).toBe(true);
+  });
+});
+
+/**
+ * Gate L, second finding — "their" is what organisations take.
+ *
+ * The holding-object rule did not bind the possessive to anyone the sentence had named, so
+ * corporate questions matched it: "Should BlackRock sell their pension fund business?", "Should
+ * banks hold their pension fund assets separately?", "Should the company sell their portfolio
+ * management unit?". All three are ordinary industry questions and all three were refused.
+ *
+ * Requiring a personal possessive after "should" keeps the case the rule exists for — a person's
+ * holdings, whoever is doing the selling — and drops the corporate ones.
+ */
+describe("Gate L — corporate holdings are not personal holdings", () => {
+  it.each([
+    "Should BlackRock sell their pension fund business?",
+    "Should banks hold their pension fund assets separately?",
+    "Should the company sell their portfolio management unit?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it("still refuses a person's holdings", () => {
+    for (const query of [
+      "Should my boss's assistant sell his Apple shares?",
+      "Should my father's shares in Apple be sold?",
+      "Should my wife's ISA hold Samsung?",
+    ]) {
+      expect(detectPersonalizedAdviceRequest(query), query).toBe(true);
+    }
+  });
+});

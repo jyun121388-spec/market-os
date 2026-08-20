@@ -32,11 +32,7 @@
     },
     "risk_class": {
       "type": "string",
-      "enum": [
-        "LUNA",
-        "TERRA",
-        "SOL"
-      ]
+      "enum": ["LUNA", "TERRA", "SOL"]
     },
     "summary": {
       "type": "string",
@@ -72,21 +68,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "severity",
-          "finding",
-          "evidence",
-          "required_action"
-        ],
+        "required": ["severity", "finding", "evidence", "required_action"],
         "properties": {
           "severity": {
             "type": "string",
-            "enum": [
-              "CRITICAL",
-              "HIGH",
-              "MEDIUM",
-              "LOW"
-            ]
+            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
           },
           "finding": {
             "type": "string",
@@ -131,10 +117,7 @@
       "type": "boolean"
     },
     "applied_commit": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "pattern": "^[0-9a-fA-F]{7,40}$"
     },
     "limitations": {

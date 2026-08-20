@@ -41,7 +41,7 @@ jobs:
         uses: jyun121388-spec/market-os/.github/actions/ai-event-review@cbf3764962d1a0903c8c9179d8b4ba88a7bfcae2
         with:
           project-id: MARKET-OS
-          canonical-issue: '2'
+          canonical-issue: "2"
           allowed-actor: jyun121388-spec
         env:
           GH_TOKEN: ${{ github.token }}

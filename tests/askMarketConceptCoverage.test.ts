@@ -524,9 +524,13 @@ describe("Gate E — a possessive does not make the subject a person", () => {
  *
  * This assertion exists so the gap is visible and dated. It is a marker, not an endorsement.
  */
-describe("Gate E — known gaps, asserted so they stay visible", () => {
-  it("does not catch a bare first name with no other personal cue", () => {
-    expect(detectPersonalizedAdviceRequest("Should John buy Nvidia?")).toBe(false);
+describe("Gate E — the gap, closed at Gate N by the subject classifier", () => {
+  it("catches a bare first name with no other personal cue", () => {
+    // This assertion said `false` for eight rounds, labelled a known gap: no pattern could tell
+    // "Should John buy Nvidia?" from "Should Apple buy Nvidia?", because the difference is not in
+    // the sentence. `classifySubject` answers it by asking what John and Apple ARE — Apple is in a
+    // registry, John is in none, and an unrecognised subject in a transactional frame redirects.
+    expect(detectPersonalizedAdviceRequest("Should John buy Nvidia?")).toBe(true);
     // ...while every phrasing that carries a cue still does.
     expect(detectPersonalizedAdviceRequest("Tell John to sell Apple.")).toBe(true);
     expect(detectPersonalizedAdviceRequest("Should Sarah sell her Tesla shares?")).toBe(true);

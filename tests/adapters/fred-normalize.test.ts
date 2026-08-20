@@ -111,7 +111,11 @@ describe("well-formed decimals that are still not storable", () => {
     expect(() => normalizeOne(value)).toThrow(/non-decimal FRED value/);
   });
 
-  it("still accepts a large but finite value", () => {
-    expect(normalizeOne("1e308").observations).toHaveLength(1);
+  it("rejects a large finite value the column cannot hold either", () => {
+    // This asserted the opposite while the validator only checked finiteness. `1e308` is finite
+    // and is nearly three hundred orders of magnitude past `Decimal(20, 6)`; accepting it only
+    // moved the failure to the INSERT. The boundary is the column's now, not JavaScript's.
+    expect(() => normalizeOne("1e308")).toThrow(/non-decimal FRED value/);
+    expect(normalizeOne("99999999999999.999999").observations).toHaveLength(1);
   });
 });

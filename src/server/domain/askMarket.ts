@@ -1,6 +1,7 @@
 import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
 import { extractKeywords } from "./eventClustering";
+import { asksWhetherAPersonShouldTrade } from "./subjectClassification";
 
 /**
  * Ask Market — deterministic safe-mode MVP (docs/ROADMAP.md M21).
@@ -324,8 +325,6 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // ESTATE AGENT sell the house?" — neither is about investing, and both were refused. When the
   // second possessive belongs to a financial agent the kinship-agent rule below still catches it,
   // so nothing that matters is lost.
-  /\bshould (my|his|her|their|our|your)\b(?![^?!,]{0,30}['’]s\b)[^?!,]{0,60}\b(buy|sell|dump|short|invest)\b/i,
-  /\bshould (my|his|her|their|our|your)\b(?![^?!,]{0,30}['’]s\b)[^?!,]{0,60}\bhold\b(?![^?!]{0,20}\b(constant|fixed|steady|equal|unchanged)\b)/i,
   // Kinship, with commas allowed on both sides of it — unlike the possessive rules above, where a
   // comma ends the span so that "our independent central bank, during a liquidity crisis, buy
   // government bonds" is not read as advice. A kinship term settles what the possessive rules can
@@ -335,7 +334,6 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // A possessive on the kinship term moves the subject off the person, though: "Should my
   // brother's COMPANY, given its strong cash balance, buy a competitor?" is corporate analysis,
   // and the wider span was reaching across the apostrophe to find the verb.
-  /\bshould\s+(my|his|her|their|our|your)?[^?!]{0,25}\b(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)\b(?!['’]s)[^?!]{0,60}\b(buy|sell|dump|short|hold|invest)\b/i,
   // "Manager" and "agent" are generic, so they need a finance qualifier in front of them. Without
   // one, "Should my brother's PROJECT manager buy new software?", "Should my father's ESTATE agent
   // sell the house?" and "Should my sister's OFFICE manager invest in new desks?" were all
@@ -346,7 +344,18 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // right for "my brother's company" and wrong for "Should Dad's broker sell Apple?" — a broker
   // acts for a person, and a company acts for itself. So the possessive is allowed back when what
   // follows it is one of the roles below.
-  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+((\w+\s+)?(investment|financial|wealth|money|portfolio|fund|asset|retirement|pension|tax)\s+(manager|planner|adviser|advisor|agent|counsel|consultant)|family office|(\w+[\s-])?(trustee|broker|adviser|advisor|banker|accountant|custodian|fiduciary))\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // NOTE — the five `should <subject> <verb>` patterns that used to sit here are gone.
+  //
+  // They tried, across five rounds, to decide whether the subject of a trading verb was a person:
+  // by possessive pronoun, then by kinship list, then by capital letter, then by role list, then by
+  // a second possessive. Each version was walked past from one side or refused ordinary research
+  // from the other, because the difference between "Should John buy Nvidia?" and "Should Apple buy
+  // Nvidia?" is not in the sentence. It is in what John and Apple ARE.
+  //
+  // `asksWhetherAPersonShouldTrade` in ./subjectClassification answers that question against
+  // deterministic local registries, and returns UNRESOLVED-as-person for a name nothing
+  // recognises. It runs in `detectPersonalizedAdviceRequest` below, alongside these patterns.
+
   // A relative's HOLDINGS are still the relative's. The second-possessive exclusion above is right
   // for "my brother's company" and wrong for "Should my father's shares in Apple be sold?" or
   // "Should my wife's ISA hold Samsung?" — those name what the person owns, not a separate actor.
@@ -389,7 +398,6 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // That leaves "Should John buy Nvidia?" uncovered, and it is a real request for advice. Recorded
   // as a gap rather than closed, because every way of closing it that has been tried refuses
   // ordinary research: see docs/INTERIM_REVIEW_FINDINGS.md, Gate E.
-  /\b[Ss]hould\s+[A-Z][a-z]+\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,25}\b(his|her)\b/,
   // "Should I invest?" with no object. The `should i (…|invest in|…)` pattern above requires
   // "invest IN something", so the bare form slipped through.
   /\bshould i (invest|get in|get out|hold|sell out|take profits?|cut (my )?losses)\b/i,
@@ -633,8 +641,17 @@ export function detectPersonalizedAdviceRequest(query: string): boolean {
       (text, pattern) => text.replace(pattern, " "),
       query,
     );
-    if (!ADVICE_REQUEST_PATTERNS.some((pattern) => pattern.test(withoutCollocation))) return false;
+    if (
+      !asksWhetherAPersonShouldTrade(withoutCollocation) &&
+      !ADVICE_REQUEST_PATTERNS.some((pattern) => pattern.test(withoutCollocation))
+    ) {
+      return false;
+    }
   }
+
+  // The subject classifier, not a pattern. See ./subjectClassification for why this one question
+  // could not be answered by the pattern list, and why an unrecognised subject redirects.
+  if (asksWhetherAPersonShouldTrade(query)) return true;
 
   return ADVICE_REQUEST_PATTERNS.some((pattern) => pattern.test(query));
 }

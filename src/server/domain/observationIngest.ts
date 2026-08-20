@@ -50,6 +50,30 @@ const STORED_DECIMAL_PLACES = 6;
 const DECIMAL_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 
 /**
+ * The largest magnitude `Decimal(20, 6)` can hold, expressed in millionths: `10^20 - 1`.
+ *
+ * Precision 20, scale 6 — twenty significant digits of which six are after the point, so fourteen
+ * integer digits. As a count of millionths that is exactly twenty digits, and the boundary is
+ * checked against the SCALED value rather than the written one because rounding can cross it:
+ * `99999999999999.9999995` is in range as typed and stores as `100000000000000.000000`, which is
+ * not.
+ */
+const MAX_STORED_MILLIONTHS = BigInt(10) ** BigInt(20) - BigInt(1);
+
+/**
+ * A cheap bound applied before any exponentiation.
+ *
+ * `1e999999999` is a syntactically valid decimal literal, and computing `10 ** 1000000005` to
+ * discover it does not fit would allocate a gigabyte-scale bigint on the way to returning false.
+ * The column tops out near `10^14`, so a scale shift beyond forty places is out of range by more
+ * than twenty orders of magnitude and can be rejected on the exponent alone.
+ *
+ * The other direction needs no bound, only an early answer: a shift far below the digit count
+ * rounds to zero by definition, and returning that directly avoids building the divisor at all.
+ */
+const MAX_SAFE_SHIFT = 40;
+
+/**
  * Whether a provider string is a decimal this column can hold.
  *
  * Exported so the adapters can validate with the SAME rule the comparison uses. They validated
@@ -62,13 +86,17 @@ const DECIMAL_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
  * for identity, an unreadable one is already too late to do anything useful about.
  */
 export function isStorableDecimal(raw: string): boolean {
-  const trimmed = raw.trim();
-  if (!DECIMAL_SYNTAX.test(trimmed)) return false;
-  // Syntax is not the whole question. `1e999` is a perfectly well-formed decimal literal and it is
-  // not a number this column can hold; the finite check the adapters used before rejected it, and
-  // replacing that check with a syntax test alone would have turned a clean adapter refusal into a
-  // database error further down. Both conditions, not one.
-  return Number.isFinite(Number(trimmed));
+  // Syntax is not the whole question, and neither is JavaScript's idea of finite. `1e999` is a
+  // well-formed literal that cannot be stored, and `Number.isFinite` catches that one — but it
+  // also passes `100000000000000`, which is fifteen integer digits against a column that holds
+  // fourteen, and `99999999999999.9999995`, which is in range as written and ROUNDS out of it.
+  // Both reached the database before failing there, which is the wrong place to find out.
+  //
+  // The only correct test is the one the column itself applies: scale the value to millionths,
+  // rounding as the column rounds, and ask whether the result fits `numeric(20, 6)`.
+  const scaled = millionths(raw);
+  if (scaled === null) return false;
+  return scaled <= MAX_STORED_MILLIONTHS && scaled >= -MAX_STORED_MILLIONTHS;
 }
 
 /**
@@ -94,6 +122,12 @@ function millionths(raw: string): bigint | null {
   // 1234 with a shift of 0; `.5` is 5 with a shift of -1.
   const digits = BigInt(`${whole}${fraction}` || "0");
   const shift = exponent - fraction.length + STORED_DECIMAL_PLACES;
+
+  // Bounds before arithmetic, so an absurd literal is rejected rather than scaled. See
+  // MAX_SAFE_SHIFT: the upper limit is a rejection, the lower one is an answer.
+  if (shift > MAX_SAFE_SHIFT) return null;
+  if (digits === BigInt(0)) return BigInt(0);
+  if (shift < -(digits.toString().length + 1)) return BigInt(0);
 
   // `BigInt(n)` rather than the `10n` literal form: `tsconfig.json` targets ES2017, where the
   // literal syntax is a compile error. Vitest transpiles past it and both `tsc --noEmit` and

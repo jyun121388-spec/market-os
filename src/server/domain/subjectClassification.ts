@@ -1,0 +1,488 @@
+import { SOURCES } from "../../../prisma/sources";
+import { CAUSAL_EDGES } from "../../../prisma/causalEdges";
+
+/**
+ * Deciding whether the subject of a trading verb is a PERSON, and failing safe when it cannot tell.
+ *
+ * Thirteen review rounds went into `askMarket.ts` trying to make a pattern list answer one
+ * question: in "Should X buy Nvidia?", is X somebody being advised, or something being analysed?
+ * Every attempt keyed on a surface feature standing in for the answer — a possessive pronoun, then
+ * a kinship list, then a capital letter, then a role list — and each one was walked past from one
+ * side or refused ordinary research from the other. The record is in
+ * `docs/INTERIM_REVIEW_FINDINGS.md`; the shortest version is that "Should John buy Nvidia?" and
+ * "Should Apple buy Nvidia?" are the same shape, and no amount of pattern work distinguishes them,
+ * because the difference is not in the sentence. It is in what John and Apple ARE.
+ *
+ * So this module answers that question directly, and answers it with three values rather than two.
+ * UNRESOLVED is the important one: a capitalised subject that no registry recognises is not
+ * thereby a company, and in a direct transactional frame it redirects. That is the fail-safe
+ * direction, and it is the whole reason a classifier beats a pattern here — a pattern has to
+ * decide, and this can decline to.
+ *
+ * Deterministic and local. No network, no model, no runtime cost beyond a set lookup. The
+ * registries below come from data this repository already keeps, plus one curated set for the
+ * entities that ordinary market questions name constantly and that no table in v1 holds yet.
+ */
+
+export type SubjectClass = "PERSON" | "NON_PERSON" | "UNRESOLVED";
+
+/**
+ * Words that make the subject a person outright, whatever else the sentence contains.
+ *
+ * Kinship, the first and second person, and the roles whose job is to act on somebody's behalf.
+ * The role list is inherited from the rounds that built it: a broker or a trustee acts FOR a
+ * person, so advising one is advising them.
+ */
+const PERSON_WORDS = new Set(
+  [
+    "i",
+    "me",
+    "my",
+    "mine",
+    "myself",
+    "we",
+    "us",
+    "our",
+    "you",
+    "your",
+    "he",
+    "him",
+    "his",
+    "she",
+    "her",
+    "hers",
+    "they",
+    "them",
+    "their",
+    "dad",
+    "mom",
+    "mum",
+    "mother",
+    "father",
+    "parents",
+    "brother",
+    "sister",
+    "son",
+    "daughter",
+    "wife",
+    "husband",
+    "partner",
+    "spouse",
+    "friend",
+    "uncle",
+    "aunt",
+    "grandma",
+    "grandpa",
+    "grandmother",
+    "grandfather",
+    "colleague",
+    "boss",
+    "client",
+    "neighbour",
+    "neighbor",
+    "trustee",
+    "broker",
+    "adviser",
+    "advisor",
+    "banker",
+    "accountant",
+    "custodian",
+    "fiduciary",
+  ].map((word) => word.toLowerCase()),
+);
+
+/**
+ * Job words that are only a financial agent when a financial qualifier says so.
+ *
+ * "Manager" and "agent" name half the jobs there are. An INVESTMENT manager acts on somebody's
+ * portfolio; a PROJECT manager buys software, an ESTATE agent sells houses, an OFFICE manager buys
+ * desks — and all three were refused for a round when the head noun alone was taken as evidence.
+ * A broker or a trustee needs no qualifier because the title already says what the job is; these
+ * do.
+ */
+const GENERIC_ROLE_HEADS = new Set([
+  "manager",
+  "agent",
+  "planner",
+  "consultant",
+  "counsel",
+  "coordinator",
+  "supervisor",
+  "assistant",
+  "secretary",
+  "officer",
+  "director",
+]);
+
+const FINANCE_QUALIFIERS = new Set([
+  "investment",
+  "investments",
+  "financial",
+  "finance",
+  "wealth",
+  "money",
+  "portfolio",
+  "fund",
+  "asset",
+  "assets",
+  "retirement",
+  "pension",
+  "tax",
+  "securities",
+  "brokerage",
+]);
+
+/**
+ * Head nouns that make a subject an ORGANISATION even when the words around them look personal.
+ *
+ * "My brother's company" is a company; "my brother's broker" is my brother. Both are possessive,
+ * both name a relative, and the head noun is the only thing that separates them — a distinction
+ * two separate review rounds arrived at from opposite directions before it was written down here.
+ */
+const ORGANISATION_WORDS = new Set([
+  "company",
+  "companies",
+  "corporation",
+  "corp",
+  "firm",
+  "business",
+  "bank",
+  "banks",
+  "fund",
+  "funds",
+  "index",
+  "indices",
+  "exchange",
+  "regulator",
+  "government",
+  "ministry",
+  "agency",
+  "board",
+  "committee",
+  "central",
+  "treasury",
+  "issuer",
+  "borrower",
+  "insurer",
+  "startup",
+  "subsidiary",
+  "division",
+  "unit",
+  "market",
+  "markets",
+  "industry",
+  "sector",
+  "investors",
+  "shareholders",
+  "holders",
+  "traders",
+  "consumers",
+  "households",
+  "employers",
+]);
+
+/**
+ * Entities the product talks about by name, normalised to lower case.
+ *
+ * Three of these come from data the repository already maintains — the provider institutions in
+ * `prisma/sources.ts`, the macro variables in `prisma/causalEdges.ts`, and the market indices that
+ * had accumulated inside a guardrail regex and are now a named set. The fourth is curated: the
+ * companies, countries and policy actors that market questions name constantly and that no v1
+ * table holds, because `filings.corpName` contains two companies until an ingest runs and a
+ * classifier that depends on ingestion state would answer differently on two machines.
+ *
+ * Curated, closed and small on purpose. The argument for enumerating indices — that the set can be
+ * FINISHED, unlike personal names — applies here too, and where it does not the answer is
+ * UNRESOLVED rather than a guess.
+ */
+const MARKET_INDICES = [
+  "s&p",
+  "s&p 500",
+  "sp500",
+  "nasdaq",
+  "dow",
+  "dow jones",
+  "russell",
+  "kospi",
+  "kosdaq",
+  "nikkei",
+  "ftse",
+  "dax",
+  "hang seng",
+  "stoxx",
+  "vix",
+];
+
+const POLICY_ACTORS = [
+  "fed",
+  "federal reserve",
+  "fomc",
+  "ecb",
+  "european central bank",
+  "boj",
+  "bank of japan",
+  "bok",
+  "bank of korea",
+  "boe",
+  "bank of england",
+  "pboc",
+  "congress",
+  "parliament",
+  "senate",
+  "imf",
+  "world bank",
+  "oecd",
+  "opec",
+  "sec",
+  "fdic",
+  "finra",
+  "cftc",
+];
+
+const PLACES = [
+  "us",
+  "usa",
+  "america",
+  "korea",
+  "japan",
+  "china",
+  "europe",
+  "eu",
+  "uk",
+  "britain",
+  "germany",
+  "france",
+  "india",
+  "brazil",
+  "canada",
+  "australia",
+  "taiwan",
+  "vietnam",
+  "mexico",
+  "russia",
+  "asia",
+];
+
+/**
+ * Companies named often enough in market questions to be worth knowing by name.
+ *
+ * The bar for entry is that a question naming this company is ordinary research rather than a
+ * request for advice. Anything not here classifies UNRESOLVED, which redirects — so the cost of
+ * omission is an over-block on one phrasing, and the cost of a wrong entry is a prohibited answer.
+ * Erring toward a short list is the safe direction.
+ */
+const WELL_KNOWN_COMPANIES = [
+  "apple",
+  "microsoft",
+  "google",
+  "alphabet",
+  "amazon",
+  "meta",
+  "facebook",
+  "nvidia",
+  "tesla",
+  "netflix",
+  "intel",
+  "amd",
+  "qualcomm",
+  "broadcom",
+  "oracle",
+  "salesforce",
+  "ibm",
+  "cisco",
+  "adobe",
+  "berkshire",
+  "berkshire hathaway",
+  "blackrock",
+  "vanguard",
+  "fidelity",
+  "jpmorgan",
+  "goldman",
+  "goldman sachs",
+  "morgan stanley",
+  "citigroup",
+  "wells fargo",
+  "samsung",
+  "hyundai",
+  "lg",
+  "sk hynix",
+  "naver",
+  "kakao",
+  "posco",
+  "celltrion",
+  "tsmc",
+  "toyota",
+  "sony",
+  "softbank",
+  "alibaba",
+  "tencent",
+  "asml",
+  "nestle",
+  "novartis",
+  "shell",
+  "bp",
+  "exxon",
+  "chevron",
+  "boeing",
+  "airbus",
+  "pfizer",
+  "moderna",
+  "walmart",
+  "costco",
+  "disney",
+  "starbucks",
+  "nike",
+  "mcdonalds",
+  "coca-cola",
+  "pepsico",
+  "visa",
+  "mastercard",
+  "paypal",
+  "uber",
+  "airbnb",
+];
+
+/** Every non-person name, lower-cased, in one set. Built once. */
+const NON_PERSON_NAMES: ReadonlySet<string> = new Set([
+  ...MARKET_INDICES,
+  ...POLICY_ACTORS,
+  ...PLACES,
+  ...WELL_KNOWN_COMPANIES,
+  // Institutions the repository already enumerates, by code and by name.
+  ...SOURCES.flatMap((source) => [source.code.toLowerCase(), source.name.toLowerCase()]),
+  // Macro variables the causal graph already names — "oil price (WTI)" and the rest. Split on
+  // punctuation so "VIX (equity volatility index)" contributes "vix" as well as the whole string.
+  ...CAUSAL_EDGES.flatMap((edge) =>
+    [edge.fromVariable, edge.toVariable].flatMap((variable) => [
+      variable.toLowerCase(),
+      ...variable.toLowerCase().split(/[()/,]+/),
+    ]),
+  ),
+]);
+
+/** Words that carry no evidence either way and should not stop the scan. */
+const NEUTRAL_WORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "this",
+  "that",
+  "these",
+  "those",
+  "any",
+  "some",
+  "each",
+  "every",
+  "new",
+  "old",
+  "big",
+  "small",
+  "large",
+  "major",
+  "minor",
+  "senior",
+  "junior",
+  "independent",
+  "private",
+  "public",
+  "elderly",
+  "retired",
+  "young",
+]);
+
+/** Tokens, lower-cased, punctuation stripped, possessives reduced to the noun. */
+function tokenise(subject: string): string[] {
+  return subject
+    .toLowerCase()
+    .replace(/['’]s\b/g, "")
+    .split(/[^a-z0-9&-]+/)
+    .filter((token) => token.length > 0);
+}
+
+/**
+ * What the subject of a trading verb is.
+ *
+ * Order matters and encodes a judgement. ORGANISATION head nouns win over person words, because
+ * "my brother's company" is a company and the possessive is a red herring. Person words win over
+ * everything else, because a broker or a father in the subject settles it. A recognised name is
+ * NON_PERSON. Anything left — a capitalised word no registry knows, most obviously a first name —
+ * is UNRESOLVED, and callers are expected to treat that as a person.
+ */
+export function classifySubject(subject: string): SubjectClass {
+  const tokens = tokenise(subject);
+  if (tokens.length === 0) return "UNRESOLVED";
+
+  if (tokens.some((token) => ORGANISATION_WORDS.has(token))) return "NON_PERSON";
+
+  // A generic job word decides on its qualifier, and decides before the person words do — the
+  // possessive in "my brother's project manager" is about my brother, and the subject is not.
+  if (tokens.some((token) => GENERIC_ROLE_HEADS.has(token))) {
+    return tokens.some((token) => FINANCE_QUALIFIERS.has(token)) ? "PERSON" : "NON_PERSON";
+  }
+
+  if (tokens.some((token) => PERSON_WORDS.has(token))) return "PERSON";
+
+  // Multi-word names first, so "hang seng" and "goldman sachs" are not missed by a token scan.
+  const joined = tokens.join(" ");
+  if (NON_PERSON_NAMES.has(joined)) return "NON_PERSON";
+  for (let start = 0; start < tokens.length; start += 1) {
+    for (let end = start + 1; end <= tokens.length; end += 1) {
+      if (NON_PERSON_NAMES.has(tokens.slice(start, end).join(" "))) return "NON_PERSON";
+    }
+  }
+
+  // Everything that is left is either a name nobody has registered or ordinary words. If it is all
+  // neutral filler there is nothing to classify; otherwise it is an unrecognised name.
+  if (tokens.every((token) => NEUTRAL_WORDS.has(token))) return "UNRESOLVED";
+  return "UNRESOLVED";
+}
+
+/**
+ * The direct transactional frame this classifier exists for: `should <subject> <trading verb>`.
+ *
+ * Deliberately narrow. It matches only where a subject sits between "should" and a trading verb in
+ * one clause, which is the construction every round of this problem has been about. Everything
+ * else in the guardrail stays where it is.
+ */
+// Commas are allowed inside the subject, because the description of a person is exactly where one
+// appears: "Should my elderly retired father, given his low risk tolerance, sell Apple?" is
+// forty-eight characters of subject with two commas in it. Bounding at seventy characters is what
+// keeps the span local, and the classifier — not the punctuation — decides what the subject is.
+const TRANSACTIONAL_FRAME =
+  /\bshould\s+([^?!]{1,70}?)\s+\b(buy|sell|dump|short|hold|invest|purchase|liquidate|divest)\b/i;
+
+/**
+ * Whether a query asks whether a PERSON should trade.
+ *
+ * True for a recognised person and for an unrecognised subject; false only when the subject is
+ * something the registries identify as not a person. That asymmetry is the fail-safe: an
+ * unrecognised name redirects.
+ */
+export function asksWhetherAPersonShouldTrade(query: string): boolean {
+  const frame = TRANSACTIONAL_FRAME.exec(query);
+  if (!frame) return false;
+  const subject = frame[1];
+  const verb = frame[2].toLowerCase();
+
+  // "Should my model hold the discount rate constant" is methodology, and the analytical sense of
+  // "hold" has been an over-block in three separate rounds. Handled here rather than in the
+  // classifier, because it is a property of the SENTENCE and not of the subject.
+  // "Short" is an adjective as often as a verb in this domain. "What should a 10-K disclose about
+  // SHORT POSITIONS?" is a disclosure question, and reading "short" as the trading verb there puts
+  // "a 10-K disclose about" in the subject slot, where nothing recognises it and the fail-safe
+  // redirects a perfectly ordinary question.
+  if (verb === "short") {
+    const after = query.slice(frame.index + frame[0].length);
+    if (
+      /^\s*(position|positions|interest|seller|sellers|selling|squeeze|sale|sales)\b/i.test(after)
+    )
+      return false;
+  }
+
+  if (verb === "hold") {
+    const after = query.slice(frame.index + frame[0].length, frame.index + frame[0].length + 40);
+    if (/\b(constant|fixed|steady|equal|unchanged)\b/i.test(after)) return false;
+  }
+
+  return classifySubject(subject) !== "NON_PERSON";
+}

@@ -2348,3 +2348,51 @@ deliberately, and G and H have both been boundary work on rules that were struct
 
 Eight rounds, no unresolved P0 or P1 at any candidate, both directions pinned by tests at every
 round, and the regression rate falling. Not yet zero.
+
+## Gate I — the round the documented pattern predicted in advance (candidate `8498867`)
+
+The findings document had, at the end of the previous round, stated the dynamic explicitly: a rule
+written from the requests refuses the prose, a rule written to spare the prose misses the requests,
+and every round so far had been one or the other. Round H narrowed several rules to stop refusing
+prospectus language. So the prediction for round I was a MISSED REQUEST, and the self-attack was
+written to look for exactly that before either review returned.
+
+It found four, all in the same place — the closed verb list that had been added to the noun form:
+
+    Can I have a promise of 10% returns?
+    I would like a promise of 10% returns.
+    I am looking for a promise of 10% returns.
+    Give my brother a promise of 10% returns.
+
+Gate I independently filed the second of those as a P1, and added one more: the kinship-agent rule
+enumerated job titles and missed `Should Dad's investment manager sell Apple?`.
+
+### Both were the same mistake, and both got the same fix
+
+A list of wanting verbs and a list of job titles are the same object. The fix in each case was to
+find the feature the list was standing in for:
+
+- **First person.** Someone asking for a promise says I, me, my, we or our. A document describing
+  one does not. Second person is excluded on purpose — "Can YOU explain the promise of 5% returns
+  in the prospectus?" is research, and including "you" is precisely the over-block round H had just
+  finished removing.
+- **An agent head noun.** Manager, planner, broker, adviser, agent, trustee, custodian — with an
+  optional qualifier in front, so "investment manager" and "financial planner" both work without
+  either appearing in a list. "Company" is not an agent noun, so "my brother's company" still
+  answers.
+
+### What is different about this round
+
+Nine rounds, and this is the second in a row where the fix removed an enumeration rather than
+extending one. The count of lists in this file is now going DOWN:
+
+| Round | Lists added | Lists removed                  |
+| ----- | ----------- | ------------------------------ |
+| A–E   | 6           | 1                              |
+| F     | 0           | 2 (promise recipient branches) |
+| G–H   | 2           | 1                              |
+| I     | 0           | 2 (wanting verbs, job titles)  |
+
+That is the measurable version of the claim that this surface is converging. It is not a claim that
+the guardrail is finished — the Gate E gap is still open, a bare first name with no other cue is
+still uncovered — but the direction of travel is now visible in something other than prose.

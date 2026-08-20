@@ -184,7 +184,13 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // Second person is deliberately excluded. "Can YOU explain the promise of 5% returns in the
   // prospectus?" is a research question, and including "you" here would refuse it — which is the
   // exact over-block the previous round was fixing.
-  /\b(i|me|my|we|us|our)\b[^?!]{0,25}\bpromise of\b[^?!]{0,25}\d[^?!]{0,25}\b(return|profit|gain|yield)s?\b/i,
+  //
+  // And an INDEFINITE article, which is the other half of the same observation. A request asks for
+  // "A promise of 10% returns"; prose refers to "THE promise of 8% returns" that a document already
+  // contains — "Our analysts flagged the promise of 8% returns in that pitch deck" has a
+  // first-person pronoun and is a description. Asking for one and describing one differ in the
+  // article, reliably, and that costs nothing to check.
+  /\b(i|me|my|we|us|our)\b[^?!]{0,25}\ba promise of\b[^?!]{0,25}\d[^?!]{0,25}\b(return|profit|gain|yield)s?\b/i,
   /\btarget (price|return)\b/i,
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
@@ -303,8 +309,13 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // retired father with a low risk tolerance", which contains none, and not enough to walk from
   // "our independent central bank," through a subordinate clause into "buy government bonds under
   // QE" — a monetary-policy question the wider span was refusing.
-  /\bshould (my|his|her|their|our|your)\b[^?!,]{0,60}\b(buy|sell|dump|short|invest)\b/i,
-  /\bshould (my|his|her|their|our|your)\b[^?!,]{0,60}\bhold\b(?![^?!]{0,20}\b(constant|fixed|steady|equal|unchanged)\b)/i,
+  // A second possessive moves the subject again, and the same exclusion the kinship rule uses
+  // applies here: "Should my brother's PROJECT MANAGER buy new software?", "Should my father's
+  // ESTATE AGENT sell the house?" — neither is about investing, and both were refused. When the
+  // second possessive belongs to a financial agent the kinship-agent rule below still catches it,
+  // so nothing that matters is lost.
+  /\bshould (my|his|her|their|our|your)\b(?![^?!,]{0,30}['’]s\b)[^?!,]{0,60}\b(buy|sell|dump|short|invest)\b/i,
+  /\bshould (my|his|her|their|our|your)\b(?![^?!,]{0,30}['’]s\b)[^?!,]{0,60}\bhold\b(?![^?!]{0,20}\b(constant|fixed|steady|equal|unchanged)\b)/i,
   // Kinship, with commas allowed on both sides of it — unlike the possessive rules above, where a
   // comma ends the span so that "our independent central bank, during a liquidity crisis, buy
   // government bonds" is not read as advice. A kinship term settles what the possessive rules can
@@ -315,11 +326,17 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // brother's COMPANY, given its strong cash balance, buy a competitor?" is corporate analysis,
   // and the wider span was reaching across the apostrophe to find the verb.
   /\bshould\s+(my|his|her|their|our|your)?[^?!]{0,25}\b(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)\b(?!['’]s)[^?!]{0,60}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // "Manager" and "agent" are generic, so they need a finance qualifier in front of them. Without
+  // one, "Should my brother's PROJECT manager buy new software?", "Should my father's ESTATE agent
+  // sell the house?" and "Should my sister's OFFICE manager invest in new desks?" were all
+  // refused — none of which is about investing at all. A broker or a trustee needs no qualifier:
+  // the title already says what the job is.
+  //
   // A relative's AGENT is still the relative's decision. Excluding `'s` after a kinship term was
   // right for "my brother's company" and wrong for "Should Dad's broker sell Apple?" — a broker
   // acts for a person, and a company acts for itself. So the possessive is allowed back when what
   // follows it is one of the roles below.
-  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+(\w+\s+)?(trustee|broker|adviser|advisor|analyst|banker|desk|manager|planner|accountant|agent|counsel|custodian)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+((\w+\s+)?(investment|financial|wealth|money|portfolio|fund|asset|retirement|pension|tax)\s+(manager|planner|adviser|advisor|agent|counsel|consultant)|trustee|broker|adviser|advisor|banker|accountant|custodian|fiduciary|desk)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
   // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
   // "investors", "a company" or "a pension fund": those appear in questions about markets and
   // regulation far more often than in requests for advice.

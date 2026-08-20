@@ -914,3 +914,67 @@ describe("Gate I — an agent is an agent whatever the title says", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * Gate J — the tenth round, and the first where every finding was a boundary on a FEATURE.
+ *
+ * Round I replaced two lists with the features they stood in for: first person for who wants a
+ * promise, and an agent head noun for who acts on someone else's behalf. Both features were right
+ * and both were drawn slightly wrong, in the two directions the findings document predicts.
+ *
+ * First person over-matched, because prose uses it too: "Our analysts flagged the promise of 8%
+ * returns in that pitch deck" is a description. The other half of the same observation fixes it —
+ * a request asks for A promise, prose refers to THE promise. Asking and describing differ in the
+ * article, reliably.
+ *
+ * The agent head noun over-matched in one direction and under-matched in the other. "Manager" and
+ * "agent" are generic, so "my brother's project manager" and "my father's estate agent" were being
+ * refused over questions with nothing to do with investing; they need a finance qualifier. And
+ * "fiduciary" needed none and was missing, while "senior investment manager" has two modifiers
+ * where only one was allowed.
+ */
+describe("Gate J — asking for a promise versus describing one", () => {
+  it.each([
+    "Can I have a promise of 10% returns?",
+    "I would like a promise of 10% returns.",
+    "I am looking for a promise of 10% returns.",
+    "Give my brother a promise of 10% returns.",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "Our analysts flagged the promise of 8% returns in that pitch deck.",
+    "In my view the prospectus offers no promise of a 5% return.",
+    "My reading of the indenture is that its promise of 6% returns is conditional.",
+    "We summarised the filing: the promise of 4% returns applies only to Class A.",
+  ])("answers %s", (query) => {
+    // First person appears in analyst prose constantly. The article is what separates a request
+    // for a promise from a description of one.
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});
+
+describe("Gate J — which agents act on someone's behalf", () => {
+  it.each([
+    "Should Dad's fiduciary sell Apple?",
+    "Should Dad's senior investment manager sell Apple?",
+    "Should Dad's investment manager sell Apple?",
+    "Should my son's financial planner sell Apple?",
+    "Should my mother's wealth manager buy Nvidia?",
+    "Should Dad's broker sell Apple?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "Should Dad's estate agent sell the house?",
+    "Should my brother's project manager buy new software?",
+    "Should my sister's office manager invest in new desks?",
+    "Should my brother's company, given its strong cash balance, buy a competitor?",
+  ])("answers %s", (query) => {
+    // "Manager" and "agent" are generic job words. A broker or a trustee needs no qualifier; a
+    // manager does, and none of these questions is about investing at all.
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});

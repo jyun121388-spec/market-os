@@ -41,10 +41,11 @@ const STORED_DECIMAL_PLACES = 6;
 /**
  * Every decimal spelling the ingest path can actually deliver.
  *
- * Both adapters validate with `Number.isFinite(Number(raw))` and then store the ORIGINAL string,
- * so anything JavaScript parses as a finite number arrives here verbatim: `1e5`, `+1`, `.5`,
- * `1E+5`. That is not hypothetical — it is what `normalizeFredObservations` and
- * `normalizeEcosObservations` do today.
+ * Both adapters store the ORIGINAL string, so every spelling arrives here verbatim: `1e5`, `+1`,
+ * `.5`, `1E+5`. They validated with `Number.isFinite(Number(raw))` until Gate D, and that is a
+ * test for "JavaScript can read this as a number" rather than "this is a decimal" — which is how
+ * `0x10`, sixteen to JavaScript, reached this comparison. They use `isStorableDecimal` now, the
+ * same rule this expression backs.
  */
 const DECIMAL_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 
@@ -61,7 +62,13 @@ const DECIMAL_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
  * for identity, an unreadable one is already too late to do anything useful about.
  */
 export function isStorableDecimal(raw: string): boolean {
-  return DECIMAL_SYNTAX.test(raw.trim());
+  const trimmed = raw.trim();
+  if (!DECIMAL_SYNTAX.test(trimmed)) return false;
+  // Syntax is not the whole question. `1e999` is a perfectly well-formed decimal literal and it is
+  // not a number this column can hold; the finite check the adapters used before rejected it, and
+  // replacing that check with a syntax test alone would have turned a clean adapter refusal into a
+  // database error further down. Both conditions, not one.
+  return Number.isFinite(Number(trimmed));
 }
 
 /**

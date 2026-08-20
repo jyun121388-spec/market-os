@@ -11,7 +11,7 @@ export interface NormalizedEcosObservation {
 export interface NormalizeEcosResult {
   observations: NormalizedEcosObservation[];
   /**
-   * Rows whose DATA_VALUE was not a finite number. Never coerced to 0 — see
+   * Rows whose DATA_VALUE was not a decimal this column can hold. Never coerced to 0 — see
    * docs/DATA_POLICY.md. ECOS's exact missing-value marker is unverified (see types.ts note),
    * so this is intentionally conservative: anything non-numeric is treated as missing rather
    * than guessed at.

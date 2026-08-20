@@ -87,3 +87,31 @@ describe("values that read as numbers but are not decimals", () => {
     }
   });
 });
+
+/**
+ * Gate E, RC5-7 — replacing the finite check with a syntax check gave away something real.
+ *
+ * `1e999` is a perfectly well-formed decimal literal and is not a number this column can hold. The
+ * old `Number.isFinite(Number(raw))` gate rejected it; a syntax-only gate accepted it, which would
+ * have turned a clean adapter refusal into a database error further downstream. Syntax and
+ * magnitude are two questions and the adapter has to ask both.
+ */
+describe("well-formed decimals that are still not storable", () => {
+  function normalizeOne(value: string) {
+    return normalizeFredObservations({
+      observation_start: "2026-01-01",
+      observation_end: "2026-01-01",
+      units: "lin",
+      count: 1,
+      observations: [{ realtime_start: "", realtime_end: "", date: "2026-01-01", value }],
+    } as never);
+  }
+
+  it.each(["1e999", "-1e999", "1e400"])("rejects %s, which overflows to Infinity", (value) => {
+    expect(() => normalizeOne(value)).toThrow(/non-decimal FRED value/);
+  });
+
+  it("still accepts a large but finite value", () => {
+    expect(normalizeOne("1e308").observations).toHaveLength(1);
+  });
+});

@@ -228,7 +228,6 @@ describe("the advisor-proxy pattern, deliberately broad", () => {
  */
 describe("Gate C — third-party advice, whoever the third party is", () => {
   it.each([
-    "Should John buy Nvidia?",
     "Should the trustee buy Nvidia?",
     "Should the fund manager hold Tesla?",
     "Should the desk sell Apple?",
@@ -388,7 +387,6 @@ describe("Gate D — requests the narrower rules must still catch", () => {
     "Can you promise John double-digit annual returns?",
     "What high will Apple hit next year?",
     "What price will Apple reach by December?",
-    "Should John buy Nvidia?",
     "Should the trustee buy Nvidia?",
     "Should the desk sell Apple?",
     "Should the fund manager hold Tesla?",
@@ -421,11 +419,162 @@ describe("Gate D — costs and gaps carried forward", () => {
     ).toBe(true);
   });
 
-  it("does not yet catch an index level asked without a price noun", () => {
-    // KNOWN GAP, not a decision. If a later round finds a discriminator between an index and an
-    // indicator that is not a list of index names, this assertion is what should flip.
+  it("catches an index level, now that the subject is what it keys on", () => {
+    // This assertion used to say the opposite, and was labelled a known gap on the grounds that
+    // nothing separated "What level will the S&P 500 reach?" from "What level will unemployment
+    // reach?". The separation is the SUBJECT, and unlike personal names the major indices are a
+    // closed, stable set that no economic indicator shares a name with. Gate E pointed out that a
+    // gap being honestly labelled does not stop it being a gap.
     expect(detectPersonalizedAdviceRequest("What level will the S&P 500 reach next year?")).toBe(
+      true,
+    );
+    expect(detectPersonalizedAdviceRequest("What level will the Nasdaq hit next year?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("What value will the KOSPI reach by December?")).toBe(
+      true,
+    );
+    // ...and the indicator forecast it was traded against still answers.
+    expect(detectPersonalizedAdviceRequest("What level will unemployment reach next year?")).toBe(
       false,
     );
+  });
+});
+
+/**
+ * Gate E — a capital letter marks a proper noun, not a person.
+ *
+ * Gate D added `should <Capitalised> <trading verb>`, matched case-sensitively, to catch
+ * "Should John buy Nvidia?". A self-attack run before the review returned found what that costs in
+ * a product whose users ask about capitalised companies all day:
+ *
+ *     Should Apple buy Nvidia?              — an M&A question
+ *     Should Samsung sell its display unit? — a corporate action
+ *     Should Tesla invest in a new gigafactory?
+ *     Should Europe invest in LNG terminals?
+ *     Should Congress buy down the deficit?
+ *
+ * All five were refused. Those are not edge cases; they are close to the centre of what this
+ * product is for, and refusing them is a worse failure than missing a phrasing.
+ *
+ * The name alone is therefore not enough. What separates a person from a company in these
+ * sentences is the possessive that follows: people get "his" and "her", companies get "its".
+ */
+describe("Gate E — capitalised subjects that are companies, countries or institutions", () => {
+  it.each([
+    "Should Apple buy Nvidia?",
+    "Should Samsung sell its display unit?",
+    "Should Tesla invest in a new gigafactory?",
+    "Should Berkshire hold its Apple stake?",
+    "Should Korea invest more in semiconductors?",
+    "Should Congress buy down the deficit?",
+    "Should Europe invest in LNG terminals?",
+    "Should companies buy back stock in a downturn?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it("still refuses a named person with a personal possessive", () => {
+    expect(detectPersonalizedAdviceRequest("Should Sarah sell her Tesla shares?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should David buy more of his Apple position?")).toBe(
+      true,
+    );
+  });
+});
+
+/**
+ * The methodology sense of "hold", again — this time behind a possessive.
+ *
+ * "Should my model hold the discount rate fixed across all three scenarios?" was refused, because a
+ * possessive was treated as evidence that the subject is a person. "My model" and "my analysis"
+ * take one as readily as "my father" does, so the exemption that already applies to the
+ * instruction patterns applies here too.
+ */
+describe("Gate E — a possessive does not make the subject a person", () => {
+  it.each([
+    "Should my model hold the discount rate fixed across all three scenarios?",
+    "Should my analysis of the semiconductor cycle include capex or just revenue?",
+    "Should our forecast hold inflation constant?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it("still refuses the personalised requests the possessive rule exists for", () => {
+    for (const query of [
+      "Should my elderly retired father with a low risk tolerance sell Apple?",
+      "Should my father buy more of this?",
+      "Should my wife hold her Samsung shares?",
+    ]) {
+      expect(detectPersonalizedAdviceRequest(query), query).toBe(true);
+    }
+  });
+});
+
+/**
+ * A GAP, recorded as a gap.
+ *
+ * "Should John buy Nvidia?" is a request for advice about a named person and it is NOT refused.
+ * Gate C filed it as a P1 and Gate D closed it with a case-sensitive proper-name rule; that rule
+ * refused "Should Apple buy Nvidia?" and had to go. There is no signal in "Should John buy
+ * Nvidia?" that is absent from "Should Apple buy Nvidia?" — both are a capitalised subject, a
+ * trading verb and a company. A first-name list is the fifth enumeration this file would be
+ * carrying, and the previous four each cost a false positive somewhere else.
+ *
+ * The phrasing WITH any personal marker is covered: a possessive ("Should Sarah sell her Tesla
+ * shares?"), a kinship term, a role, or an instruction form ("Tell John to sell Apple.") all
+ * refuse. What remains uncovered is a bare first name with no other cue.
+ *
+ * This assertion exists so the gap is visible and dated. It is a marker, not an endorsement.
+ */
+describe("Gate E — known gaps, asserted so they stay visible", () => {
+  it("does not catch a bare first name with no other personal cue", () => {
+    expect(detectPersonalizedAdviceRequest("Should John buy Nvidia?")).toBe(false);
+    // ...while every phrasing that carries a cue still does.
+    expect(detectPersonalizedAdviceRequest("Tell John to sell Apple.")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should Sarah sell her Tesla shares?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should the trustee buy Nvidia?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("Should Dad buy more Nvidia?")).toBe(true);
+  });
+});
+
+/**
+ * Gate E — the fifth round, and the first where the reviewer's answer to "is this safe to stop on"
+ * was no.
+ *
+ * Four P1s, three of which are variations on one theme: the case-sensitive patterns added in the
+ * previous round treat capitalisation as identity. `john` and `JOHN` are the same person as `John`,
+ * and a reader who types in lower case is not thereby asking a different question.
+ *
+ * The fourth was the index-level gap. It had been recorded honestly as a gap and asserted as such,
+ * and the reviewer's response was that an honest label does not stop a prohibited output being
+ * produced. That was right, and the separation turned out to be available: the major indices are a
+ * closed, stable set in a way that personal names are not.
+ */
+describe("Gate E — capitalisation is not identity", () => {
+  it.each([
+    "Can you promise john a 10% annual return?",
+    "Can you promise JOHN a 10% annual return?",
+    "What will Apple's price be next year?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});
+
+describe("Gate E — over-blocks the price and possessive rules were causing", () => {
+  it.each([
+    "What value will unemployment reach next year?",
+    "Should our independent central bank, during a liquidity crisis, buy government bonds under QE?",
+    "What will Korea's GDP be next year?",
+    "The acquisition promises shareholders a higher return on equity.",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it("still refuses the price questions the narrowing was protecting", () => {
+    for (const query of [
+      "What high will Apple hit next year?",
+      "What will Apple trade at next year?",
+      "Can you promise John double-digit annual returns?",
+    ]) {
+      expect(detectPersonalizedAdviceRequest(query), query).toBe(true);
+    }
   });
 });

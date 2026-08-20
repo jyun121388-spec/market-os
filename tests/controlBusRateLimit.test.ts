@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emptyState } from "@/server/controlbus/state";
 import { storePaths } from "@/server/controlbus/store";
-import { runCycle } from "@/server/controlbus/watch";
+import { parseGhPages, runCycle } from "@/server/controlbus/watch";
 import type { AuthMode } from "@/server/controlbus/ratelimit";
 import {
   TARGET_INTERVAL_MS,
@@ -133,6 +133,57 @@ describe("an exhausted budget is not a broken network", () => {
     // Bounded, so a slept laptop does not wake into an hour-long wait.
     const many = nextPoll({ mode: "UNKNOWN", signals: {}, consecutiveFailures: 50, nowMs: now });
     expect(many.delayMs).toBeLessThanOrEqual(480_000);
+  });
+});
+
+describe("the computed interval never outruns the budget", () => {
+  /**
+   * E1 as a property rather than a spot check.
+   *
+   * The question a reviewer raised and I could not answer from one example: can the arithmetic
+   * ever return an interval that would spend MORE requests before the reset than remain? Sweeping
+   * the space is cheaper than arguing about rounding, and it covers the reserve, the ceiling and
+   * the integer division at once.
+   */
+  it.each([1, 2, 5, 6, 10, 30, 59, 60])("stays within budget with %i remaining", (remaining) => {
+    for (const minutes of [1, 5, 17, 45, 60]) {
+      const resetMs = minutes * 60_000;
+      const decision = nextPoll({
+        mode: "UNAUTHENTICATED_PUBLIC_READ",
+        signals: { status: 200, limit: 60, remaining, resetAtSeconds: resetIn(resetMs) },
+        consecutiveFailures: 0,
+        nowMs: now,
+      });
+      const requestsBeforeReset = Math.floor(resetMs / decision.delayMs);
+      expect(
+        requestsBeforeReset,
+        `${remaining} remaining over ${minutes}min gave ${decision.delayMs}ms, ` +
+          `which is ${requestsBeforeReset} requests`,
+      ).toBeLessThanOrEqual(remaining);
+    }
+  });
+
+  it("does not over-poll when the reset timestamp is already in the past", () => {
+    // A stale or skewed reset makes the remaining-budget arithmetic meaningless, so it falls back
+    // to the target rather than to something computed from a negative interval.
+    const decision = nextPoll({
+      mode: "UNAUTHENTICATED_PUBLIC_READ",
+      signals: { status: 200, limit: 60, remaining: 1, resetAtSeconds: resetIn(-60_000) },
+      consecutiveFailures: 0,
+      nowMs: now,
+    });
+    expect(decision.delayMs).toBeGreaterThanOrEqual(TARGET_INTERVAL_MS);
+  });
+
+  it("ignores a nonsensical remaining count rather than trusting it", () => {
+    // remaining > limit should not produce a faster cadence than the target.
+    const decision = nextPoll({
+      mode: "UNAUTHENTICATED_PUBLIC_READ",
+      signals: { status: 200, limit: 60, remaining: 5000, resetAtSeconds: resetIn(HOUR) },
+      consecutiveFailures: 0,
+      nowMs: now,
+    });
+    expect(decision.delayMs).toBeGreaterThanOrEqual(TARGET_INTERVAL_MS);
   });
 });
 
@@ -274,5 +325,48 @@ describe("the cycle uses the adaptive scheduler, not a constant", () => {
       expect(log).not.toContain("ghp_");
       expect(log).not.toContain("token=");
     });
+  });
+});
+
+/**
+ * A reviewer claim that was rejected by reproduction, kept as coverage anyway.
+ *
+ * The claim was that `gh api --paginate` emits consecutive JSON arrays, so one `JSON.parse` throws
+ * past the first page. Run against gh 2.97.0 with `per_page=5` over twelve comments, it returned a
+ * single merged array of twelve — which is why `--slurp` exists, to opt OUT of merging. The claim
+ * was wrong for this version and the code was not changed to satisfy it.
+ *
+ * The tolerant parse was added regardless, because merging is a property of the TOOL rather than
+ * of this code, and the installed version is not the only one that will ever run it. Cheap
+ * insurance against a difference nobody would otherwise notice until the issue passed 100 comments.
+ */
+describe("gh pagination output, in either shape", () => {
+  const page1 = '[{"id":1}]';
+  const page2 = '[{"id":2}]';
+  const page3 = '[{"id":3}]';
+  // A real newline without writing an escape, because every attempt to write one through this
+  // toolchain has produced a literal line break in the source instead.
+  const NEWLINE = String.fromCharCode(10);
+
+  it("reads the merged array this gh version actually produces", () => {
+    expect(parseGhPages('[{"id":1},{"id":2}]')).toEqual([{ id: 1 }, { id: 2 }]);
+  });
+
+  it("also reads concatenated pages, which another version might emit", () => {
+    expect(parseGhPages([page1, page2].join(" "))).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(parseGhPages([page1, page2, page3].join(NEWLINE))).toEqual([
+      { id: 1 },
+      { id: 2 },
+      { id: 3 },
+    ]);
+  });
+
+  it("still throws on genuinely corrupt output rather than salvaging it", () => {
+    // The failure mode that matters more than either shape: a warning printed to stdout, or a
+    // truncated body. Salvaging those would turn a transport failure into a short comment list,
+    // which is the silent truncation this module keeps having to remove.
+    expect(() => parseGhPages(["warning: something", page1].join(NEWLINE))).toThrow();
+    expect(() => parseGhPages('[{"id":1}')).toThrow();
+    expect(() => parseGhPages("")).toThrow();
   });
 });

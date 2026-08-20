@@ -1578,3 +1578,30 @@ Two further problems this exposed, both mine:
 
 Not yet fixed: the current candidate is frozen pending its bounded review, and this is executable
 change in a different module.
+
+### IR-078 — a reviewer claim rejected by reproduction (`gh --paginate`), recorded as rejected
+
+The bounded review of `d35f72c` refuted one of six questions: it held that `gh api --paginate`
+emits consecutive JSON arrays, so the authenticated adapter's single `JSON.parse` would throw once
+the issue passed one page.
+
+**Reproduced and false for gh 2.97.0.** Run with `per_page=5` against twelve comments — three pages
+— it returned one merged array of twelve. `--slurp` exists precisely to opt _out_ of that merge,
+which is the documentation confirming the default. The code was not changed to satisfy the claim.
+
+Recorded because rejections are evidence too, and because the standing rule cuts both ways: a
+model's finding is a hypothesis until reproduced, and IR-020 remains the reminder that a strong
+model can produce a confident, specific, entirely wrong reproduction. Five of six answers in the
+same review were correct and useful; this one was not, and acting on it would have added handling
+for a shape the tool does not emit.
+
+A tolerant parse was added anyway, for a different reason: merging is a property of the TOOL, not
+of this code, and the installed version is not the only one that will ever run it. Concatenated
+pages are recognised and flattened; genuinely corrupt output — a warning on stdout, a truncated
+body — still throws into `READ_FAILED` rather than being salvaged into a short comment list, which
+would be the silent truncation this module has already had to remove twice.
+
+The other five answers were confirmed: budget arithmetic never over-polls (now swept as a property
+across eight remaining-counts and five reset horizons rather than argued), auth mode cannot claim
+authenticated when it is not, no credential reaches a log or the inbox, the `TEST-` gate cannot be
+bypassed or spoofed, and the attestation parser and freshness rules are unregressed.

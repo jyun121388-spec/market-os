@@ -261,8 +261,34 @@ export function ghFetchComments(run: (args: string[]) => string): FetchComments 
       // No signals is not a claim of an unlimited budget; `nextPoll` keeps the target and no more.
       signals = { status: 200 };
     }
-    return { payload: JSON.parse(raw) as unknown, signals };
+    return { payload: parseGhPages(raw), signals };
   };
+}
+
+/**
+ * Parses `gh api --paginate` output, whichever shape it arrives in.
+ *
+ * A review claimed that `--paginate` emits consecutive JSON arrays, so a single `JSON.parse` would
+ * throw past the first page. Reproduced against gh 2.97.0 and it is false — pages of a JSON array
+ * are merged into one array, which is exactly why `--slurp` exists to opt OUT of merging. The
+ * claim was rejected rather than acted on.
+ *
+ * It is handled anyway, because the merge is a property of the tool rather than of our code, and
+ * the version installed here is not the only version that will ever run this. A concatenated
+ * `[...] [...]` body is recognised and flattened; anything else still throws into READ_FAILED,
+ * where the cursor does not move.
+ */
+export function parseGhPages(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (error) {
+    const trimmed = raw.trim();
+    // Only attempt the concatenated form when it actually looks like one, so a genuinely corrupt
+    // body — a warning printed to stdout, a truncated response — still fails loudly.
+    if (!/^\[[\s\S]*\]$/.test(trimmed) || !/\]\s*\[/.test(trimmed)) throw error;
+    const merged = JSON.parse(`[${trimmed.replace(/\]\s*\[/g, "],[")}]`) as unknown[];
+    return merged.flat();
+  }
 }
 
 /**

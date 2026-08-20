@@ -1,0 +1,127 @@
+        if ([string]::IsNullOrWhiteSpace([string]$referencedSha)) {
+            $result.status = 'REWORK_REQUIRED'
+            $result.safe_to_execute = $false
+            $result.blocking_findings = @($result.blocking_findings) + [pscustomobject]@{
+                severity = 'HIGH'
+                finding = 'The implementation report has no verifiable non-null applied commit.'
+                evidence = 'No appliedCommit/headCommit SHA could be extracted from the triggering comment.'
+                required_action = 'Post a new CLAUDE_APPLIED comment only after the implementation is committed and pushed, with the exact SHA.'
+            }
+        } elseif ($null -eq $githubEvidence.commit) {
+            $result.status = 'REWORK_REQUIRED'
+            $result.safe_to_execute = $false
+            $result.blocking_findings = @($result.blocking_findings) + [pscustomobject]@{
+                severity = 'HIGH'
+                finding = 'The claimed applied commit could not be verified through GitHub.'
+                evidence = "GitHub commit evidence for $referencedSha was unavailable or failed to load."
+                required_action = 'Push the exact implementation commit to the repository and post a corrected CLAUDE_APPLIED report anchored to that SHA.'
+            }
+        }
+    }
+
+    if ($result.human_required -and $result.status -notin @('HUMAN_GATE', 'NOT_APPROVED')) {
+        $result.status = 'HUMAN_GATE'
+        $result.safe_to_execute = $false
+    }
+
+    if ($result.status -eq 'IGNORE') {
+        Write-Log "Codex classified the event as IGNORE; no GitHub response posted."
+        exit 0
+    }
+
+    $responseMarker = if ($eventKind -eq 'CLAUDE_APPLIED') { 'CHATGPT_VERIFIED' } else { 'CHATGPT_DECISION' }
+    $summary = ConvertTo-SafeMarkdownText $result.summary
+    $decision = ConvertTo-SafeMarkdownText $result.decision
+    $reasoning = Format-Bullets -Items @($result.reasoning)
+    $evidence = Format-Bullets -Items @($result.evidence_checked)
+    $blocking = Format-BlockingFindings -Items @($result.blocking_findings)
+    $nonblocking = Format-Bullets -Items @($result.nonblocking_findings)
+    $actions = Format-Bullets -Items @($result.required_actions)
+    $limitations = Format-Bullets -Items @($result.limitations)
+    $appliedCommit = if ($null -eq $result.applied_commit) { 'None' } else { ConvertTo-SafeMarkdownText $result.applied_commit }
+
+    $commentBody = @"
+[$responseMarker][$eventId]
+Status: $($result.status)
+Reviewer: Codex $($route.Model) / $($result.risk_class) (event-driven, read-only)
+Trigger comment: $eventCommentId
+Applied commit: $appliedCommit
+
+## Summary
+$summary
+
+## Decision
+$decision
+
+## Reasoning
+$reasoning
+
+## Evidence checked
+$evidence
+
+## Blocking findings
+$blocking
+
+## Non-blocking findings
+$nonblocking
+
+## Required actions
+$actions
+
+## Execution boundary
+- Safe to execute: $($result.safe_to_execute)
+- Human required: $($result.human_required)
+
+## Limitations
+$limitations
+
+$dedupeTag
+"@
+
+    if ($commentBody.Length -gt 60000) {
+        throw "Rendered review comment exceeds the safe GitHub comment length."
+    }
+
+    $post = Post-IssueComment -Repository $repository -IssueNumber $issueNumber -Body $commentBody -Headers $headers
+    Write-Log "Posted review comment $($post.id) for $eventKind/$eventId."
+
+} catch {
+    $message = $_.Exception.Message
+    Write-Error $message
+
+    if ($null -ne $headers -and -not [string]::IsNullOrWhiteSpace($repository) -and $issueNumber -gt 0 -and -not [string]::IsNullOrWhiteSpace($eventCommentId)) {
+        try {
+            $safeMessage = ConvertTo-SafeMarkdownText $message
+            $safeEventId = if ([string]::IsNullOrWhiteSpace($eventId)) { 'UNKNOWN' } else { $eventId }
+            $errorTag = "<!-- ai-review-error-event:$repository:$eventCommentId -->"
+            $errorBody = @"
+[CHATGPT_REVIEW_ERROR][$safeEventId]
+Status: NOT_APPROVED
+
+The event-driven reviewer failed closed. No approval or product decision was inferred.
+
+- Trigger comment: $eventCommentId
+- Error: $safeMessage
+- Required action: restore the self-hosted runner/Codex authentication or review tooling, then re-run this workflow for the same event.
+
+$errorTag
+"@
+            Post-IssueComment -Repository $repository -IssueNumber $issueNumber -Body $errorBody -Headers $headers | Out-Null
+        } catch {
+            Write-Error "Failed to post the review error to GitHub: $($_.Exception.Message)"
+        }
+    }
+
+    exit 1
+} finally {
+    if ($reviewWorktreeAdded -and -not [string]::IsNullOrWhiteSpace([string]$repoRoot) -and -not [string]::IsNullOrWhiteSpace([string]$reviewRoot)) {
+        try { & git -C $repoRoot worktree remove --force $reviewRoot 2>$null | Out-Null } catch { }
+    } elseif (-not [string]::IsNullOrWhiteSpace([string]$inputDir) -and (Test-Path -LiteralPath $inputDir)) {
+        try { Remove-Item -LiteralPath $inputDir -Recurse -Force } catch { }
+    }
+
+    if ($null -ne $mutex) {
+        try { $mutex.ReleaseMutex() } catch { }
+        $mutex.Dispose()
+    }
+}

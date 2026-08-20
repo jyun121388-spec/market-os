@@ -73,10 +73,26 @@ describe("the budget decides the cadence, not the wish", () => {
   });
 
   it("treats an unknown budget as unknown rather than unlimited", () => {
-    // Absent headers are not evidence of a large budget. The target is kept, because an unknown
-    // budget is equally not evidence of a small one — inventing either would be a guess.
+    // Absent headers are not evidence of a large budget, and the arithmetic says so by refusing
+    // to produce a number.
     expect(sustainableIntervalMs(undefined, resetIn(HOUR), now)).toBeNull();
-    expect(decide("UNKNOWN", { status: 200 }).delayMs).toBe(TARGET_INTERVAL_MS);
+  });
+
+  it("does not grant the target cadence to a mode that is not known to be authenticated", () => {
+    // This assertion used to expect 45s for UNKNOWN, and that was the bug rather than the fix.
+    // The target is only affordable on the authenticated budget; UNKNOWN is not authenticated, so
+    // failing closed means the unauthenticated floor. A review found the same hole on the
+    // UNAUTHENTICATED path with headers missing — absent numbers are not permission.
+    expect(decide("UNKNOWN", { status: 200 }).delayMs).toBeGreaterThan(TARGET_INTERVAL_MS);
+    expect(decide("UNAUTHENTICATED_PUBLIC_READ", { status: 200 }).delayMs).toBeGreaterThan(
+      TARGET_INTERVAL_MS,
+    );
+    // 60 requests an hour is one a minute exactly, so the floor has to clear a minute.
+    expect(decide("UNAUTHENTICATED_PUBLIC_READ", { status: 200 }).delayMs).toBeGreaterThan(60_000);
+  });
+
+  it("keeps the target for a mode that IS known to be authenticated, with no headers", () => {
+    expect(decide("AUTHENTICATED_API", { status: 200 }).delayMs).toBe(TARGET_INTERVAL_MS);
   });
 });
 
@@ -184,6 +200,30 @@ describe("the computed interval never outruns the budget", () => {
       nowMs: now,
     });
     expect(decision.delayMs).toBeGreaterThanOrEqual(TARGET_INTERVAL_MS);
+  });
+});
+
+describe("a parse failure keeps the budget it already knows", () => {
+  it("does not fall back to geometric backoff when the budget is exhausted", () => {
+    // The refuted claim, and the one that mattered most: I had recorded that losing the signals
+    // "errs toward waiting longer". It does the opposite. With remaining zero and a reset an hour
+    // out, discarding the numbers drops the cycle onto geometric backoff — ninety seconds instead
+    // of an hour, polling FASTER than the budget allows in the one case where that costs most.
+    const withSignals = nextPoll({
+      mode: "AUTHENTICATED_API",
+      signals: { status: 200, limit: 5000, remaining: 0, resetAtSeconds: resetIn(HOUR) },
+      consecutiveFailures: 1,
+      nowMs: now,
+    });
+    const withoutSignals = nextPoll({
+      mode: "AUTHENTICATED_API",
+      signals: {},
+      consecutiveFailures: 1,
+      nowMs: now,
+    });
+    expect(withSignals.delayMs).toBeGreaterThan(HOUR - 60_000);
+    expect(withoutSignals.delayMs).toBeLessThan(withSignals.delayMs);
+    // Which is exactly why the adapter must not throw the signals away on a parse failure.
   });
 });
 

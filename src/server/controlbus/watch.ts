@@ -261,7 +261,21 @@ export function ghFetchComments(run: (args: string[]) => string): FetchComments 
       // No signals is not a claim of an unlimited budget; `nextPoll` keeps the target and no more.
       signals = { status: 200 };
     }
-    return { payload: parseGhPages(raw), signals };
+    // A parse failure must NOT throw away the signals we already have.
+    //
+    // It used to, and I recorded the consequence as "errs toward waiting longer". A review showed
+    // the opposite: with `remaining: 0` and a reset an hour away, discarding the budget drops the
+    // cycle onto geometric backoff, which schedules ninety seconds instead of an hour — polling
+    // FASTER than the budget allows, in the one situation where that is most costly. The stated
+    // safety direction was backwards, which is worse than an unstated one.
+    //
+    // Returning the unparsed body keeps the signals attached: it is not an array, so
+    // `parseCommentsPayload` rejects it as MALFORMED_RESPONSE, and that path is budget-aware.
+    try {
+      return { payload: parseGhPages(raw), signals };
+    } catch {
+      return { payload: raw, signals };
+    }
   };
 }
 

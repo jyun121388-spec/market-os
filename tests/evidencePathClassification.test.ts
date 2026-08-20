@@ -62,6 +62,18 @@ const sourceFiles = ROOTS.filter((r) => {
 }).flatMap((r) => walk(join(process.cwd(), r)));
 
 /**
+ * Every source file read once, at module load.
+ *
+ * The checks below used to `readFileSync` inside each `it`, so the whole tree was re-read once per
+ * evidence path. That was tolerable at two paths and a smaller repository; at three paths and this
+ * many long files it crossed the 5-second timeout and the file failed as four timeouts rather than
+ * four assertions — which reads exactly like a broken guard and is not one.
+ */
+const SOURCES: readonly (readonly [string, string])[] = sourceFiles.map(
+  (file) => [file, readFileSync(file, "utf8")] as const,
+);
+
+/**
  * The one file allowed to read an evidence path, and why that is not a loophole.
  *
  * "Read by nothing" was too strict and the guard proved it by going red on the evidence REPORTER —
@@ -93,14 +105,13 @@ describe("evidence-only paths are read only by the evidence reporter", () => {
 
   it.each(CLAIMED_EVIDENCE_ONLY)("nothing reads %s", (evidencePath) => {
     const basename = evidencePath.split("/").pop() ?? evidencePath;
-    const readers = sourceFiles.filter((file) => {
-      const source = readFileSync(file, "utf8");
+    const readers = SOURCES.filter(([, source]) => {
       if (!source.includes(evidencePath) && !source.includes(basename)) return false;
       // NAMING a path is not reading it. `preflight.ts` has to name the allowlist and this file
       // has to name it back; neither opens anything. What matters is a file that both mentions
       // the path and performs a read, which is the shape that makes the contents behavioural.
       return /readFileSync|readFile\(|existsSync|createReadStream|import\(/.test(source);
-    });
+    }).map(([file]) => file);
     const external = readers.filter(
       (file) =>
         !file.endsWith("evidencePathClassification.test.ts") &&
@@ -117,10 +128,9 @@ describe("evidence-only paths are read only by the evidence reporter", () => {
   it("catches a reader that enumerates the docs directory wholesale", () => {
     // The one evasion cheap enough to close. Reading every file under `docs/` picks up the
     // attestation without ever naming it, and unlike constructed paths it has a distinctive shape.
-    const offenders = sourceFiles.filter((file) => {
-      const source = readFileSync(file, "utf8");
-      return /readdirSync\(\s*[^)]*["'`][^"'`]*docs/.test(source);
-    });
+    const offenders = SOURCES.filter(([, source]) =>
+      /readdirSync\(\s*[^)]*["'`][^"'`]*docs/.test(source),
+    ).map(([file]) => file);
     expect(
       offenders.map((f) => relative(process.cwd(), f)),
       "a file enumerates docs/ and would read the attestation without naming it",

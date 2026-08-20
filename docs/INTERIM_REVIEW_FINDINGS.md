@@ -1630,3 +1630,41 @@ Also noted from the same review and not fixed: when `ghFetchComments` throws on 
 the rate-limit signals it had already retrieved are lost, so the backoff degrades to geometric
 rather than budget-aware. Safe in that direction — it waits longer, not shorter — and restructuring
 the fetch contract to carry signals through a throw costs more than it returns today.
+
+### IR-080 — the deferral reason recorded in IR-079 was backwards (P1, fixed)
+
+IR-079 recorded a known limitation and justified deferring it: on a parse failure `ghFetchComments`
+throws and loses rate-limit signals it had already retrieved, so backoff degrades to geometric —
+"that errs toward waiting longer, and restructuring the fetch contract costs more than it returns".
+
+**The safety direction was wrong.** With `remaining: 0` and a reset an hour away, discarding the
+budget drops the cycle onto geometric backoff, which schedules ninety seconds instead of an hour.
+It polls FASTER than the budget allows, in precisely the situation where that costs most. A stated
+safety direction that is backwards is worse than an unstated one, because it ends the analysis.
+
+Fixed by keeping the signals attached rather than restructuring anything: on a parse failure the
+adapter returns the unparsed body, which is not an array, so `parseCommentsPayload` rejects it as
+`MALFORMED_RESPONSE` — and that path is budget-aware. Three lines, where the deferral had assumed
+a contract change.
+
+### IR-081 — absent headers were treated as permission to use the target cadence (P2, fixed)
+
+`nextPoll` fell back to the 45-second target whenever budget headers were missing, including on the
+unauthenticated path where 45 seconds is 80 requests an hour against a 60/hour ceiling. Absent
+numbers are not permission. The unauthenticated and UNKNOWN modes now floor at 70 seconds, which
+clears the one-per-minute ceiling with margin; the target survives only where it is affordable.
+
+The `UNKNOWN` case had a test asserting the old behaviour, and that assertion was the bug rather
+than the fix: unknown is not authenticated, so failing closed means the unauthenticated floor.
+
+### Recorded, not fixed
+
+- **Semantic truncation at a valid JSON boundary** cannot be detected by a parser. A transport that
+  returned a genuine prefix of the comment list would be admitted. Nothing in `JSON.parse` can see
+  this; detecting it needs a total count from the server, which this endpoint does not provide.
+- **The cursor can pass a comment id that was never admitted** when a response omits one from the
+  middle of a range. No decision is lost, because deduplication keys on `processedCommentIds`
+  rather than on the cursor, so a later redelivery still admits it.
+- **`appendFileSync` is ordered but not `fsync`-ed**, so the inbox is crash-safe against process
+  death and not against power loss. The ordering guarantee that matters — messages before cursor —
+  holds in both cases; only the last write is at risk.

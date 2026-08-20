@@ -57,6 +57,13 @@ export const TARGET_INTERVAL_MS = 45_000;
 const MAX_BACKOFF_MS = 480_000;
 /** Leave a few requests unspent so a burst of real work is not blocked by routine polling. */
 const BUDGET_RESERVE = 5;
+/**
+ * The slowest-safe cadence for an unauthenticated poller with no budget information.
+ *
+ * 60 requests an hour is one per minute exactly, so anything at or below that is over-budget the
+ * moment a single extra request happens. 70 seconds leaves room for the occasional retry.
+ */
+const UNAUTHENTICATED_FLOOR_MS = 70_000;
 
 /**
  * The interval a budget can actually sustain until it resets.
@@ -135,7 +142,13 @@ export function nextPoll(input: {
   // Authenticated budgets are large enough that this term almost never binds, which is the whole
   // difference between the two modes and the reason the mode is tracked explicitly.
   const sustainable = sustainableIntervalMs(signals.remaining, signals.resetAtSeconds, nowMs);
-  if (sustainable !== null && !authenticated) floors.push(sustainable);
+  if (!authenticated) {
+    // Unauthenticated with no usable budget headers still may not poll at the target. 45 seconds
+    // is 80 requests an hour against a 60/hour ceiling, so the target is unsafe here BY DEFAULT
+    // and absent headers are not permission to use it — a review found this path scheduling 45s
+    // whenever the numbers were missing. The floor is the ceiling's own arithmetic plus a margin.
+    floors.push(sustainable ?? UNAUTHENTICATED_FLOOR_MS);
+  }
 
   const delayMs = Math.max(...floors);
   return {

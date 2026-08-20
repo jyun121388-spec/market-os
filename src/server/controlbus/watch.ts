@@ -296,8 +296,9 @@ export function ghFetchComments(run: (args: string[]) => string): FetchComments 
  *
  * So it is gone rather than defended with a JSON-aware scanner. It guarded a shape no version is
  * known to emit, and it introduced a corruption path that was reachable from comment content. If
- * some future `gh` does concatenate, this throws into `READ_FAILED` — the cursor does not move,
- * nothing is admitted, and the failure is loud. Loud and wrong-shaped beats quiet and altered.
+ * some future `gh` does concatenate, this throws, and the caller turns that into a
+ * `MALFORMED_RESPONSE` cycle — the cursor does not move, nothing is admitted, the failure is
+ * counted, and the rate-limit signals survive. Loud and wrong-shaped beats quiet and altered.
  */
 export function parseGhPages(raw: string): unknown {
   return JSON.parse(raw) as unknown;

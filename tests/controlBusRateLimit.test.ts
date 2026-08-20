@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emptyState } from "@/server/controlbus/state";
 import { storePaths } from "@/server/controlbus/store";
-import { parseGhPages, runCycle } from "@/server/controlbus/watch";
+import { ghFetchComments, parseGhPages, runCycle } from "@/server/controlbus/watch";
 import type { AuthMode } from "@/server/controlbus/ratelimit";
 import {
   TARGET_INTERVAL_MS,
@@ -228,6 +228,14 @@ describe("a parse failure keeps the budget it already knows", () => {
 });
 
 describe("what the server explicitly asks for wins", () => {
+  it("does not let a short Retry-After undercut the unauthenticated floor", () => {
+    // A review found `Retry-After: 1` returning 45 seconds on the unauthenticated path, straight
+    // through the floor that exists because 45s is 80 requests an hour against a ceiling of 60.
+    // "Wait at least this long" can raise the interval and must never lower it.
+    const decision = decide("UNAUTHENTICATED_PUBLIC_READ", { status: 429, retryAfterSeconds: 1 });
+    expect(decision.delayMs).toBeGreaterThan(60_000);
+  });
+
   it("obeys Retry-After over any calculation", () => {
     const decision = decide("AUTHENTICATED_API", {
       status: 429,
@@ -412,5 +420,83 @@ describe("gh pagination output", () => {
     expect(() => parseGhPages('[{"id":1}] [{"id":2}]')).toThrow();
     expect(() => parseGhPages('[{"id":1}')).toThrow();
     expect(() => parseGhPages("")).toThrow();
+  });
+});
+
+/**
+ * The adapter itself, not just the scheduler it feeds.
+ *
+ * The parse-failure fix was covered only by a `nextPoll` test, which meant reverting the adapter's
+ * catch would have left the suite green — the third vacuous test found in this session by asking
+ * the same question each time: would this fail if the thing it names were removed? These exercise
+ * `ghFetchComments` through `runCycle`, which is where the behaviour actually lives.
+ */
+describe("the gh adapter keeps its signals when the body will not parse", () => {
+  let root: string;
+  let paths: ReturnType<typeof storePaths>;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "adapter-"));
+    paths = storePaths(root);
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  /** A stand-in for the `gh` CLI: comments call gets junk, rate_limit reports an exhausted budget. */
+  const ghWithUnparseableComments = (args: string[]): string => {
+    if (args.includes("rate_limit")) {
+      return JSON.stringify({
+        resources: { core: { limit: 5000, remaining: 0, reset: Math.floor(now / 1000) + 3600 } },
+      });
+    }
+    return "warning: something went sideways";
+  };
+
+  it("reports MALFORMED_RESPONSE rather than READ_FAILED, and waits for the reset", async () => {
+    const result = await runCycle({
+      state: emptyState(2),
+      paths,
+      fetchComments: ghFetchComments(ghWithUnparseableComments),
+      mode: "AUTHENTICATED_API",
+      now: new Date(now).toISOString(),
+    });
+
+    // READ_FAILED would have discarded the signals and fallen to geometric backoff — 90 seconds
+    // against an exhausted budget with an hour to run. That was IR-080.
+    expect(result.outcome).toBe("MALFORMED_RESPONSE");
+    expect(result.pollState).toBe("RATE_LIMITED_AUTHENTICATED");
+    expect(result.nextDelayMs).toBeGreaterThan(HOUR - 60_000);
+
+    // And it is still a failure: nothing admitted, cursor unmoved, the failure counted.
+    expect(result.admitted).toHaveLength(0);
+    expect(result.state.lastRemoteCommentId).toBeNull();
+    expect(result.state.consecutiveFailures).toBe(1);
+  });
+
+  it("still succeeds normally when the body parses", async () => {
+    const comment = {
+      id: 7,
+      body: "[CHATGPT_DECISION][ESC-777] hello",
+      created_at: "2026-08-20T00:00:00Z",
+      user: { login: "jyun121388-spec" },
+    };
+    const gh = (args: string[]) =>
+      args.includes("rate_limit")
+        ? JSON.stringify({
+            resources: {
+              core: { limit: 5000, remaining: 4999, reset: Math.floor(now / 1000) + 3600 },
+            },
+          })
+        : JSON.stringify([comment]);
+
+    const result = await runCycle({
+      state: emptyState(2),
+      paths,
+      fetchComments: ghFetchComments(gh),
+      mode: "AUTHENTICATED_API",
+      now: new Date(now).toISOString(),
+    });
+    expect(result.outcome).toBe("ADMITTED");
+    expect(result.admitted.map((a) => a.protocolId)).toEqual(["ESC-777"]);
+    expect(result.nextDelayMs).toBe(TARGET_INTERVAL_MS);
   });
 });

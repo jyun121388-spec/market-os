@@ -101,11 +101,19 @@ export function nextPoll(input: {
   const { mode, signals, consecutiveFailures, nowMs } = input;
   const authenticated = mode === "AUTHENTICATED_API";
 
-  // An explicit instruction outranks anything we would calculate.
+  // The slowest cadence this mode may ever use, before anything else is considered. An
+  // unauthenticated poller cannot afford the target no matter what else a response says.
+  const modeFloorMs = authenticated ? TARGET_INTERVAL_MS : UNAUTHENTICATED_FLOOR_MS;
+
+  // An explicit instruction outranks anything we would calculate — upward. A SHORT Retry-After is
+  // not permission to exceed the budget: a review found `Retry-After: 1` returning 45 seconds on
+  // the unauthenticated path, straight through the floor that exists because 45 seconds is 80
+  // requests an hour against a ceiling of 60. Obeying "wait at least this long" never means
+  // waiting less than we already must.
   if (signals.retryAfterSeconds !== undefined) {
     return {
       state: authenticated ? "RATE_LIMITED_AUTHENTICATED" : "RATE_LIMITED_UNAUTHENTICATED",
-      delayMs: Math.max(signals.retryAfterSeconds * 1000, TARGET_INTERVAL_MS),
+      delayMs: Math.max(signals.retryAfterSeconds * 1000, modeFloorMs),
       reason: `Retry-After: ${signals.retryAfterSeconds}s. An instruction, not a suggestion.`,
     };
   }
@@ -113,7 +121,7 @@ export function nextPoll(input: {
   // Budget exhausted: wait for the reset and a small skew, rather than spending the next hour
   // collecting 403s. This is NOT a network failure and is not reported as one.
   if (signals.remaining === 0 && signals.resetAtSeconds !== undefined) {
-    const waitMs = Math.max(signals.resetAtSeconds * 1000 - nowMs + 2_000, TARGET_INTERVAL_MS);
+    const waitMs = Math.max(signals.resetAtSeconds * 1000 - nowMs + 2_000, modeFloorMs);
     return {
       state: authenticated ? "RATE_LIMITED_AUTHENTICATED" : "RATE_LIMITED_UNAUTHENTICATED",
       delayMs: waitMs,
@@ -128,12 +136,15 @@ export function nextPoll(input: {
   if (consecutiveFailures > 0 && signals.status === undefined) {
     return {
       state: consecutiveFailures >= 3 ? "NETWORK_DEGRADED" : "BACKING_OFF",
-      delayMs: Math.min(TARGET_INTERVAL_MS * 2 ** Math.min(consecutiveFailures, 4), MAX_BACKOFF_MS),
+      delayMs: Math.max(
+        Math.min(TARGET_INTERVAL_MS * 2 ** Math.min(consecutiveFailures, 4), MAX_BACKOFF_MS),
+        modeFloorMs,
+      ),
       reason: `${consecutiveFailures} consecutive read failure(s) with no HTTP response.`,
     };
   }
 
-  const floors: number[] = [TARGET_INTERVAL_MS];
+  const floors: number[] = [modeFloorMs];
   if (signals.pollIntervalSeconds !== undefined) {
     floors.push(signals.pollIntervalSeconds * 1000);
   }
@@ -142,13 +153,9 @@ export function nextPoll(input: {
   // Authenticated budgets are large enough that this term almost never binds, which is the whole
   // difference between the two modes and the reason the mode is tracked explicitly.
   const sustainable = sustainableIntervalMs(signals.remaining, signals.resetAtSeconds, nowMs);
-  if (!authenticated) {
-    // Unauthenticated with no usable budget headers still may not poll at the target. 45 seconds
-    // is 80 requests an hour against a 60/hour ceiling, so the target is unsafe here BY DEFAULT
-    // and absent headers are not permission to use it — a review found this path scheduling 45s
-    // whenever the numbers were missing. The floor is the ceiling's own arithmetic plus a margin.
-    floors.push(sustainable ?? UNAUTHENTICATED_FLOOR_MS);
-  }
+  // Absent headers are not permission to use the target: the mode floor above already covers
+  // that. This only tightens further when the measured budget is smaller still.
+  if (sustainable !== null && !authenticated) floors.push(sustainable);
 
   const delayMs = Math.max(...floors);
   return {

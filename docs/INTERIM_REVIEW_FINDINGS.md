@@ -1623,8 +1623,10 @@ be defensive. That is the pattern worth recording: the defensive addition was it
 and it existed only to satisfy a claim I had already reproduced as false.
 
 Removed rather than defended with a JSON-aware scanner. It guarded a shape no known `gh` version
-emits, and if a future one does concatenate, `JSON.parse` now throws into `READ_FAILED` — cursor
-unmoved, nothing admitted, failure loud. Loud and wrong-shaped beats quiet and altered.
+emits, and if a future one does concatenate, `JSON.parse` throws — the caller now turns that into
+a `MALFORMED_RESPONSE` cycle rather than `READ_FAILED`, so the cursor stays put, nothing is
+admitted, the failure is counted, and the rate-limit signals survive (IR-080). Loud and
+wrong-shaped beats quiet and altered.
 
 Also noted from the same review and not fixed: when `ghFetchComments` throws on a parse failure,
 the rate-limit signals it had already retrieved are lost, so the backoff degrades to geometric
@@ -1668,3 +1670,30 @@ than the fix: unknown is not authenticated, so failing closed means the unauthen
 - **`appendFileSync` is ordered but not `fsync`-ed**, so the inbox is crash-safe against process
   death and not against power loss. The ordering guarantee that matters — messages before cursor —
   holds in both cases; only the last write is at risk.
+
+### IR-082 — a short `Retry-After` walked through the unauthenticated floor (P2, fixed)
+
+IR-081 added a 70-second floor for unauthenticated polling, because 45 seconds is 80 requests an
+hour against a ceiling of 60. The review of the frozen candidate found the floor was applied in
+only one of four branches: `Retry-After` returned early with `Math.max(retryAfter, 45s)`, so
+`Retry-After: 1` on the unauthenticated path scheduled 45 seconds and went straight through it.
+
+"Wait at least this long" can raise an interval and must never lower it. The mode floor is now
+computed once and applied to every branch — retry-after, exhausted budget, geometric backoff and
+the ordinary path — rather than to the one I happened to be looking at when I wrote it.
+
+### IR-083 — the third vacuous test of the session (P2, fixed)
+
+The IR-080 fix lives in `ghFetchComments`, and the test written for it exercised only `nextPoll`.
+Reverting the adapter's catch would have left the suite green. The review said so, and it is the
+third instance of this shape here — after the attestation fence test that used an invalid example
+value, and the non-string-SHA case that failed on length rather than type.
+
+Now covered through `runCycle` with a stubbed `gh`, and verified the way the others should have
+been: the catch was removed, the test failed, the catch was restored, the test passed. The
+question that finds these is always the same one — _would this fail if the thing it names were
+deleted?_ — and it is cheap enough that there is no excuse for asking it only in review.
+
+Also corrected: three places still said malformed `gh` output reaches `READ_FAILED`. It reaches
+`MALFORMED_RESPONSE` since IR-080. Stale prose beside working code is how a comment becomes a
+claim nobody checks.

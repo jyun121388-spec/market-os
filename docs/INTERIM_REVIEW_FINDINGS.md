@@ -2396,3 +2396,42 @@ extending one. The count of lists in this file is now going DOWN:
 That is the measurable version of the claim that this surface is converging. It is not a claim that
 the guardrail is finished — the Gate E gap is still open, a bare first name with no other cue is
 still uncovered — but the direction of travel is now visible in something other than prose.
+
+## Gate J — boundaries on features, not features on lists (candidate `4eb6dbf`)
+
+Round I replaced two enumerations with the features they stood in for. Round J is the test of
+whether those features were the right ones, and the answer is yes with their edges drawn wrong —
+which is a materially different finding from the first eight rounds, where the RULE was wrong.
+
+**First person over-matched**, because analyst prose uses it constantly: "Our analysts flagged the
+promise of 8% returns in that pitch deck" is a description, not a request. The other half of the
+same observation fixes it. A request asks for **a** promise; prose refers to **the** promise. Asking
+and describing differ in the article, reliably, and checking it costs nothing.
+
+**The agent head noun over-matched and under-matched at once.** "Manager" and "agent" are generic
+job words, so `Should my brother's project manager buy new software?` and `Should my father's
+estate agent sell the house?` were refused over questions with nothing to do with investing. They
+need a finance qualifier in front. Meanwhile "fiduciary" needs none and was missing, and "senior
+investment manager" has two modifiers where only one was allowed.
+
+A third over-block came from the plain possessive rule rather than from this diff: `Should my
+brother's PROJECT MANAGER buy new software?` was matching `should my … buy` across the whole
+phrase. The same exclusion already used twice — a second possessive moves the subject — applies
+there too, and the kinship-agent rule still catches the cases that matter.
+
+### Ten rounds, and what the record now shows
+
+| Rounds | What a finding meant                                                     |
+| ------ | ------------------------------------------------------------------------ |
+| A–E    | the pattern was wrong; replacing it broke something adjacent             |
+| F      | the pattern keyed on the wrong thing; four branches became two           |
+| G–H    | the rule was right, its boundaries were not                              |
+| I      | two lists were standing in for features; both were replaced              |
+| J      | the features were right; their edges were drawn wrong in both directions |
+
+Enumerations added versus removed: rounds A–E, six added and one removed; F, two removed; G–H, two
+added and one removed; I, two removed; J, one removed and none added.
+
+No unresolved P0 or P1 at any candidate in the chain, both directions pinned by tests at every
+round. The Gate E gap — a bare first name with no other personal cue — remains open, remains
+labelled a gap, and remains the one thing in this file that no round has found a feature for.

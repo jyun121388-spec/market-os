@@ -1320,7 +1320,67 @@
         "format": "PASS",
         "build": "PASS"
       },
-      "channel_convergence": "First round in which the self-attack and the independent review found the SAME defects, from different directions, without either seeing the other. A better signal about the state of this surface than either finding is."
+      "channel_convergence": "First round in which the self-attack and the independent review found the SAME defects, from different directions, without either seeing the other. A better signal about the state of this surface than either finding is.",
+      "superseded_by": "4a8cb9b38fcbc25ab5c0c7d00e83992d47297fc7"
+    },
+    {
+      "gate": "N",
+      "head_sha": "4a8cb9b38fcbc25ab5c0c7d00e83992d47297fc7",
+      "head_sha_short": "4a8cb9b",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what was FOUND at this SHA. The two structural repairs are not contained in it.",
+      "scope": "the two structural P1s named in [CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-CONVERGENCE-007], issue #2 comment 5362877148",
+      "reviewers": [
+        {
+          "role": "architect guidance delivered via GitHub issue #2",
+          "identifier": "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-CONVERGENCE-007]",
+          "comment_id": 5362877148,
+          "note": "Answered the stopping-rule question this session escalated: evidence-based convergence is authorised, a reviewer need not return zero comments, but the two structural P1s below must close first."
+        }
+      ],
+      "verdict": "STRUCTURAL_REPAIRS_APPLIED_AWAITING_BOUNDED_REVIEW",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "CONV-1",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The guardrail still leaves 'Should John buy Nvidia?' uncovered while personalized buy/sell advice is a hard prohibition.",
+          "fix": "src/server/domain/subjectClassification.ts. Five should-subject patterns removed and replaced by a deterministic three-valued classifier; UNRESOLVED redirects. Registries read from prisma/sources.ts and prisma/causalEdges.ts, plus a curated closed set for companies, countries and policy actors.",
+          "two_sided_evidence": "Redirects John, john, JOHN, Mr. Smith, Dad, the trustee, Dad's broker, my elderly retired father. Answers Apple, Samsung, Tesla, Korea, Congress, Europe, the Fed, the ECB, BlackRock, banks, investors, my brother's company, my brother's project manager, and the macro and filing questions from every earlier round.",
+          "closes": "the gap open and labelled since Gate E"
+        },
+        {
+          "id": "CONV-2",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "isStorableDecimal validates syntax plus JS finiteness, so a finite out-of-range literal passes the adapter and fails at the database boundary.",
+          "reproduced": ["100000000000000", "99999999999999.9999995"],
+          "fix": "The value is scaled to millionths, rounded as the column rounds, and checked against 10^20 - 1 — after rounding, because 99999999999999.9999995 is in range as written and stores as one digit too many. An exponent bound runs first so 1e999999999 is refused in microseconds rather than allocating a billion-digit bigint.",
+          "verified_against": "real PostgreSQL casts in tests/integration/decimal-storage-domain.test.ts; both FRED and ECOS normalizers use the same validator"
+        },
+        {
+          "id": "CORRECTION-GATE-D",
+          "severity": "DOCUMENTATION",
+          "status": "CORRECTED",
+          "claim": "Gate D recorded that PostgreSQL would reject 0x10. It does not.",
+          "detail": "PostgreSQL 16 reads 0x10 as 16, 0b10 as 2, 0o10 as 8, and accepts NaN as a numeric value. The Gate D defect was therefore WORSE than recorded - the row would have been stored as sixteen under a real series, not rejected. The validator is deliberately stricter than the column in those four places and the test now asserts the divergence rather than assuming agreement.",
+          "found_by": "generating the test's expectations from the database instead of from reasoning about it"
+        }
+      ],
+      "mutation_proof": {
+        "classifier always returns false": 36,
+        "UNRESOLVED fails open instead of safe": 12,
+        "storage-domain range check removed": 6
+      },
+      "local_verify": {
+        "tests": "1514 / 1514 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      }
     }
   ],
   "closure_conditions": {
@@ -1338,7 +1398,8 @@
       "Gate J reviewed 4eb6dbf -> fixes -> next candidate",
       "Gate K reviewed d10334a -> fixes -> next candidate",
       "Gate L reviewed e1134d1 -> fixes -> next candidate",
-      "Gate M reviewed a7cb520 -> fixes -> next candidate"
+      "Gate M reviewed a7cb520 -> fixes -> next candidate",
+      "Gate N applied the two structural repairs RC-CONVERGENCE-007 required -> new candidate -> one bounded review of the repairs, then attestation"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",
@@ -1348,7 +1409,12 @@
     ],
     "where_the_closing_verdict_lives": "docs/REVIEW_ATTESTATION.json and .md are the only review paths on the RC preflight's evidence-only allowlist, so the CLOSING gate - the one that finds nothing needing a code change - is recorded there rather than here. This file records the gates that produced fixes, and each of those commits lands before the candidate it precedes.",
     "pattern_worth_noting": "Four rounds, four times the fix introduced or left a defect, and three of those four were in the same enumeration. The guardrail is a pattern list being asked to make a semantic distinction, and each round buys coverage at the price of a false positive somewhere else. Recorded here because the next round should weigh a different approach against a fifth patch, not because the current state is unsafe: no unresolved P0 or P1 remains at any gate.",
-    "what_changed_at_gate_f": "Rounds B through E each replaced one pattern with a slightly different pattern, and the regression rate stayed flat. Gate F's promise fix changed what the rule keys on - subject rather than object - and collapsed four branches into two while fixing the finding. That is the first evidence in this chain that the surface can converge rather than oscillate, and it is the reason the next round is worth running as a review rather than as a redesign."
+    "what_changed_at_gate_f": "Rounds B through E each replaced one pattern with a slightly different pattern, and the regression rate stayed flat. Gate F's promise fix changed what the rule keys on - subject rather than object - and collapsed four branches into two while fixing the finding. That is the first evidence in this chain that the surface can converge rather than oscillate, and it is the reason the next round is worth running as a review rather than as a redesign.",
+    "authorized_stop_rule": {
+      "source": "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-CONVERGENCE-007]",
+      "rule": "A reviewer does NOT need to return zero comments. The chain stops when unresolved P0 = 0, unresolved P1 / release-critical = 0, the exact candidate has fresh local full-suite plus PostgreSQL evidence and fresh remote-green PR CI, every reviewer claim is reproduced or rejected, no executable commit follows the reviewed SHA, and the two-SHA attestation validates against that exact code SHA.",
+      "residual": "P2/P3 items and the measurable false-positive tail go to REVIEW_DEBT and a follow-up subject-classification evaluation, not to another phrase-hunting round."
+    }
   },
   "reading_rule": "A gate entry records what a review found at one SHA. No gate entry ever makes its own SHA clean: a review that produced fixes is evidence AGAINST the SHA it examined. A clean candidate is one where a gate found nothing needing a code change, and only docs/REVIEW_ATTESTATION.json asserts that, checked against the commit graph by the RC preflight. UNKNOWN stays UNKNOWN."
 }

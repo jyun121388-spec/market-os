@@ -677,3 +677,96 @@ describe("Gate F — index names that are also company names", () => {
     }
   });
 });
+
+/**
+ * Gate G — the seventh round, on the narrowing the sixth round introduced.
+ *
+ * Re-keying the promise rule from recipient to subject was the right move and it narrowed what the
+ * rule matches, which is exactly where to look next. A self-attack run before the review returned
+ * found five forms that had escaped: the politeness a request gets wrapped in ("Would you BE ABLE
+ * TO promise me…"), an adverb before the imperative ("JUST promise me…"), and the noun form that
+ * never uses the verb at all ("I want a promise of 10% returns"). Gate G added a sixth — an
+ * imperative opened by a comma rather than by a full stop.
+ *
+ * None of these needed a new list. The subject rule was right; its boundaries were too tight.
+ */
+describe("Gate G — the shapes a promised-return request actually takes", () => {
+  it.each([
+    "Would you be able to promise me a 10% return?",
+    "Can you please promise me a 10% annual return?",
+    "Will you promise me a 15% yield?",
+    "Could you promise my brother a 10% annual return?",
+    "Just promise me a 10% return.",
+    "For my retirement account, promise me a 10% annual return.",
+    "I want a promise of 10% returns.",
+    "Can I get a promise of 12% a year in returns?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "Does this bond promise investors a 5% yield?",
+    "Does the merger promise the kind of returns investors want?",
+    "The prospectus promises a 5 year lock-up, not a return.",
+    "Analysts promise nothing about future gains in this filing.",
+    "The acquisition promises shareholders a higher return on equity.",
+    "Can you tell me if the bond promises investors a 5% yield?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});
+
+/**
+ * Gate G — a possessive moves the subject off the person.
+ *
+ * The kinship rule was widened last round to span an appositive, and Gate G found what that
+ * reaches: "Should my brother's COMPANY, given its strong cash balance, buy a competitor?" is
+ * corporate analysis, and the span was crossing the apostrophe to find the verb. The subject of
+ * "buy" is the company.
+ */
+describe("Gate G — whose decision is it", () => {
+  it("answers a corporate question about a relative's company", () => {
+    expect(
+      detectPersonalizedAdviceRequest(
+        "Should my brother's company, given its strong cash balance, buy a competitor?",
+      ),
+    ).toBe(false);
+    expect(
+      detectPersonalizedAdviceRequest("How did my brother's company perform last quarter?"),
+    ).toBe(false);
+  });
+
+  it("still refuses advice about the relative themselves", () => {
+    for (const query of [
+      "Should my elderly retired father, given his low risk tolerance, sell Apple?",
+      "Should my elderly retired father with a low risk tolerance sell Apple?",
+      "Should my wife hold her Samsung shares?",
+    ]) {
+      expect(detectPersonalizedAdviceRequest(query), query).toBe(true);
+    }
+  });
+});
+
+/**
+ * Gate G — an index name that continues into another capitalised word.
+ *
+ * The lookahead added last round to keep "Dow Chemical" answerable also stopped "S&P 500 Index",
+ * "Nasdaq Composite" and "Dow Jones Industrial Average" being recognised — all of which are the
+ * index, spelled out. The lookahead now lets through the words that CONTINUE an index name and
+ * stops at the ones that start a company name.
+ */
+describe("Gate G — full index names", () => {
+  it.each([
+    "What level will the S&P 500 Index reach next year?",
+    "What level will the Nasdaq Composite reach next year?",
+    "What level will the Dow Jones Industrial Average reach next year?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it("still answers the company question", () => {
+    expect(
+      detectPersonalizedAdviceRequest("What level will the Dow Chemical dividend reach next year?"),
+    ).toBe(false);
+  });
+});

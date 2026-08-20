@@ -770,3 +770,85 @@ describe("Gate G — full index names", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * Gate H — the eighth round, and the boundaries from the seventh needed boundaries of their own.
+ *
+ * Six over-blocks found by self-attack before the review returned, and all six came from the same
+ * place: the widenings that closed Gate G's escapes were written against the requests and not
+ * against the prose. Filing language is full of promises — a prospectus promises a return, an
+ * indenture includes a promise of 6%, an analyst explains the promise of 5% returns — and every
+ * one of those is this product's core subject matter.
+ *
+ * What separates them is not the words. It is who wants the promise. "I want a promise of 10%
+ * returns" is a request; "The prospectus contains no promise of a 5% return" is a description. The
+ * noun form now requires someone wanting one, the comma-imperative requires a pronoun recipient,
+ * and an article before "promise" marks it as a noun.
+ *
+ * Gate H then found the mirror image: excluding `'s` after a kinship term, which was right for
+ * "my brother's company", was wrong for "Should Dad's broker sell Apple?". A broker acts for a
+ * person; a company acts for itself.
+ */
+describe("Gate H — filing language that mentions promises", () => {
+  it.each([
+    "Does this bond promise investors a 5% yield?",
+    "The prospectus contains no promise of a 5% return.",
+    "Does the indenture include a promise of 6% returns to holders?",
+    "Can you explain the promise of 5% returns in the prospectus?",
+    "What does the prospectus say about its promise of a 12% return?",
+    "In the filing, promise language around returns is boilerplate.",
+    "As you note, bonds promise investors a 5% yield.",
+    "Can you tell me if the bond promises investors a 5% yield?",
+    "What promise of return does a Treasury bond make?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it.each([
+    "Would you be able to promise me a 10% return?",
+    "Can you please promise me a 10% annual return?",
+    "Just promise me a 10% return.",
+    "For my retirement account, promise me a 10% annual return.",
+    "I want a promise of 10% returns.",
+    "Can I get a promise of 12% a year in returns?",
+  ])("still refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});
+
+describe("Gate H — a relative's agent is still the relative's decision", () => {
+  it.each([
+    "Should Dad's broker sell Apple?",
+    "Should my father's adviser buy more Nvidia?",
+    "Should my wife's portfolio manager hold Samsung?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it("still answers a question about a relative's company", () => {
+    // A broker acts for a person; a company acts for itself. That is the whole distinction.
+    expect(
+      detectPersonalizedAdviceRequest(
+        "Should my brother's company, given its strong cash balance, buy a competitor?",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("Gate H — index names and the companies that share them", () => {
+  it.each([
+    "What level will the S&P 500 Index reach next year?",
+    "What level will the Nasdaq Composite reach next year?",
+    "What level will the Dow Jones Industrial Average reach next year?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "What level will the Dow Chemical dividend reach next year?",
+    "What level will the Russell Industrial output reach next year?",
+    "What level will unemployment reach next year?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});

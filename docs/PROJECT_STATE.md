@@ -745,7 +745,7 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-1325 / 1325 PASS across 108 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+1350 / 1350 PASS across 108 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment), measured 2026-08-20 with the Gate A fixes in the tree.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered

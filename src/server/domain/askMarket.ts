@@ -145,7 +145,14 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // there: "Would you BE ABLE TO promise me a 10% return?", "Can you PLEASE promise me…". Fifteen
   // characters covers those and not "Can you tell me if the bond promises investors a 5% yield?",
   // where twenty-four characters separate the two words and the subject is the bond.
-  /\byou\b[^?!]{0,15}\bpromise\b[^?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
+  //
+  // An article before it makes "promise" a noun, and the sentence a question ABOUT a document:
+  // "Can you explain the promise of 5% returns in the prospectus?". The lookbehind is what keeps
+  // the fifteen-character gap from turning every "you ... the promise" into a request.
+  //
+  // And a comma ends the gap, because it ends the clause. "As you note, bonds promise investors a
+  // 5% yield" puts twelve characters between the two words and the subject of "promise" is bonds.
+  /\byou\b[^?!,]{0,15}(?<!\b(?:the|a|an|no|any|its|this|that)\s)\bpromise\b[^?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
   // The imperative, with room for an adverb — "JUST promise me a 10% return." The lead-in is a
   // closed list of adverbs rather than a character span, because a span admits a subject noun and
   // "Analysts promise nothing about future gains in this filing" is prose.
@@ -154,10 +161,20 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // The adverb list is what keeps the boundary from admitting a subject, so widening the boundary
   // costs nothing — "Analysts promise nothing about future gains" has no comma before the verb,
   // and "The prospectus promises…" never matches `promise` followed by a space.
-  /(^|[.?!,]\s+)(just |please |now |kindly )?promise\s+(me|us|him|her|them|\w+)\b[^?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
+  /(^|[.?!]\s+)(just |please |now |kindly )?promise\s+(me|us|him|her|them|\w+)\b[^?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
+  // After a COMMA the recipient must be a pronoun. A full stop is strong evidence that what follows
+  // is a new clause and that "promise" opens it; a comma is not, and with any word allowed after it
+  // "In the filing, promise language around returns is boilerplate" was refused.
+  /,\s+(just |please |now |kindly )?promise\s+(me|us|him|her|them)\b[^?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
   // The noun form. "I want a promise of 10% returns" asks for the same thing without ever using
-  // the verb. A figure is required, so "the filing makes no promise of returns" is untouched.
-  /\bpromise of\b[^?!]{0,25}\d[^?!]{0,25}\b(return|profit|gain|yield)s?\b/i,
+  // the verb.
+  //
+  // A figure alone was not enough of a filter, and the reason is instructive: "promise of <n>%
+  // return" is how PROSPECTUSES talk. "The prospectus contains no promise of a 5% return", "Does
+  // the indenture include a promise of 6% returns to holders?" and "Can you explain the promise of
+  // 5% returns in the prospectus?" were all refused, and all three are the product's core subject
+  // matter. What makes the noun form a request is someone WANTING one, so that is required.
+  /\b(want|get|give me|make me|need|guarantee me)\b[^?!]{0,20}\bpromise of\b[^?!]{0,25}\d[^?!]{0,25}\b(return|profit|gain|yield)s?\b/i,
   /\btarget (price|return)\b/i,
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
@@ -210,7 +227,7 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // followed by another proper noun is part of a longer name, not an index.
   // ...but "Nasdaq Composite" and "S&P 500 Index" ARE the index, so the lookahead lets through the
   // words that continue an index name and stops at the ones that start a company name.
-  /\b[Ww]hat (level|value|number)\b[^?!]{0,30}\bwill\b[^?!]{0,30}\b(S&P( 500)?|Nasdaq|NASDAQ|Dow( Jones)?|Russell|KOSPI|Kospi|KOSDAQ|Nikkei|FTSE|DAX|Hang Seng|STOXX|VIX)\b(?!\s+(?!Index|Composite|Average|Industrial|Industrials)[A-Z])[^?!]{0,25}\b(hit|reach|be|close)\b/,
+  /\b[Ww]hat (level|value|number)\b[^?!]{0,30}\bwill\b[^?!]{0,30}\b(S&P( 500)?|Nasdaq|NASDAQ|Dow Jones Industrial Average|Dow( Jones)?|Russell|KOSPI|Kospi|KOSDAQ|Nikkei|FTSE|DAX|Hang Seng|STOXX|VIX)\b(?!\s+(?!Index|Composite|Average)[A-Z])[^?!]{0,25}\b(hit|reach|be|close)\b/,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\btrade\b\s+(at|above|below|around|near)\b/i,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\b(be worth|be priced)\b/i,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\bclose\b\s+(at|above|below|higher|lower)\b/i,
@@ -288,6 +305,11 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // brother's COMPANY, given its strong cash balance, buy a competitor?" is corporate analysis,
   // and the wider span was reaching across the apostrophe to find the verb.
   /\bshould\s+(my|his|her|their|our|your)?[^?!]{0,25}\b(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)\b(?!['’]s)[^?!]{0,60}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // A relative's AGENT is still the relative's decision. Excluding `'s` after a kinship term was
+  // right for "my brother's company" and wrong for "Should Dad's broker sell Apple?" — a broker
+  // acts for a person, and a company acts for itself. So the possessive is allowed back when what
+  // follows it is one of the roles below.
+  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+(trustee|broker|adviser|advisor|analyst|banker|desk|fund manager|portfolio manager|money manager|wealth manager|accountant|planner)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
   // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
   // "investors", "a company" or "a pension fund": those appear in questions about markets and
   // regulation far more often than in requests for advice.

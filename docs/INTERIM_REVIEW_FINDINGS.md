@@ -2484,3 +2484,37 @@ it is worth checking for deliberately on any new pattern rather than waiting to 
 
 No unresolved P0 or P1 at any candidate. The Gate E gap remains open and remains the only thing in
 this file that no round has found a feature for.
+
+## Gate L — two over-blocks, both from unbound pronouns (candidate `e1134d1`)
+
+**The reversed guarantee read on every sentence about a guarantee**, and finance is made of those:
+`Are deposit returns guaranteed by the FDIC?`, `The filing says returns are not guaranteed.`,
+`What yield is guaranteed under a government bond?`, `Which profits are guaranteed under the
+indenture?`. The forward form has always been safe because "guaranteed 10% return" states a claim;
+reversed and unscoped, the same words describe one.
+
+Fixed with the discriminator that has now held three times — first person. Somebody demanding a
+guaranteed return says I, me, my, we or our; somebody asking whether one exists does not. Third use,
+third time it has held, and the first time a fix in this file was reached for because it had worked
+before rather than derived again from the examples.
+
+**"Their" is what organisations take.** The holding-object rule did not bind the possessive to
+anyone the sentence had named, so `Should BlackRock sell their pension fund business?`, `Should
+banks hold their pension fund assets separately?` and `Should the company sell their portfolio
+management unit?` all matched. Requiring a personal possessive after "should" keeps the case the
+rule exists for and drops the corporate ones.
+
+Gate L also declined to escalate a third candidate — the one-modifier title rule can over-match
+"Dad's chartered accountant buy new software", and the reviewer noted those are not market
+questions and said so rather than filing them. Second round running that a review has separated an
+available finding from a real one.
+
+### Twelve rounds
+
+The reversed-guarantee fix is the first in this chain that was chosen because the same feature had
+already worked twice elsewhere, rather than derived fresh from the failing examples. Three uses of
+first person, three holds. That is a small thing, and it is the difference between a file that
+accumulates patterns and one that accumulates a vocabulary.
+
+No unresolved P0 or P1 at any candidate across twelve rounds. Both directions pinned by tests at
+every round. The Gate E gap is still the only thing here no round has found a feature for.

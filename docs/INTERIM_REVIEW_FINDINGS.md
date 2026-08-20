@@ -2303,3 +2303,48 @@ surface can reach a fixed point rather than trade one error for another indefini
 The gap recorded at Gate E remains open and remains a gap: a bare first name with no other personal
 cue — `Should John buy Nvidia?` — is not refused, because every discriminator tried for it also
 refuses `Should Apple buy Nvidia?`. Every phrasing carrying any other cue is covered.
+
+## Gate H — the boundaries needed boundaries (candidate `319cb72`)
+
+Six over-blocks from self-attack, three P1s from the review, one of which had already been fixed by
+the time it was read. All from one cause: Gate G's widenings were written against the requests and
+never against the prose.
+
+Filing language is full of promises. A prospectus promises a return; an indenture includes a
+promise of 6%; an analyst explains the promise of 5% returns; a bond promises investors a yield.
+Every one of those is this product's subject matter, and every one of them was being refused.
+
+    The prospectus contains no promise of a 5% return.
+    Does the indenture include a promise of 6% returns to holders?
+    Can you explain the promise of 5% returns in the prospectus?
+    In the filing, promise language around returns is boilerplate.
+    As you note, bonds promise investors a 5% yield.
+
+What separates those from a request is not vocabulary — it is who wants the promise. The noun form
+now requires a wanting verb, the comma-imperative requires a pronoun recipient, an article before
+"promise" marks it as a noun, and a comma ends the `you`…`promise` gap because it ends the clause.
+
+Gate H then found the mirror image of the previous round's kinship fix. Excluding `'s` after a
+kinship term was right for "my brother's company" and wrong for `Should Dad's broker sell Apple?`.
+A broker acts for a person; a company acts for itself. The possessive is allowed back when a role
+follows it.
+
+One of Gate H's three findings did not reproduce: the noun-form over-block it named had already
+been fixed by the self-attack before the review was read. It was right about the defect and right
+about the cause — it pointed out that the rule contradicted the design rationale written beside it
+— and it is recorded as not reproducing rather than claimed as this gate's work.
+
+### The pattern across eight rounds, stated once
+
+Two directions keep trading places, and the trade is not random:
+
+- A rule written from the REQUESTS refuses the prose. (Gates A–D, H)
+- A rule written to spare the prose misses the requests. (Gates E–G)
+
+Every round has been one or the other, and every fix that held was the same KIND of thing: find the
+feature that distinguishes the two populations — the subject of the verb, an article, a possessive,
+a comma — rather than adding another member to a list. Gate F is where that started being done
+deliberately, and G and H have both been boundary work on rules that were structurally right.
+
+Eight rounds, no unresolved P0 or P1 at any candidate, both directions pinned by tests at every
+round, and the regression rate falling. Not yet zero.

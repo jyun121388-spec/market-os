@@ -141,3 +141,74 @@ describe("Gate A B1 — prohibited concepts that reached the answer path", () =>
     expect(detectPersonalizedAdviceRequest(query)).toBe(false);
   });
 });
+
+/**
+ * Gate B, findings AM-1 and AM-2 — the fixes for B1 were themselves reviewed, and both directions
+ * were wrong in places.
+ *
+ * AM-1: the third-party patterns keyed on a possessive pronoun from a fixed list, so a proper
+ * name, an unlisted pronoun, or a kinship term with no pronoun all walked past them. WHO the third
+ * party is was never the point.
+ *
+ * AM-2: the price pattern accepted a bare "close", which refused questions about market mechanics,
+ * and the instruction pattern treated the analytical sense of "hold" as a trading instruction.
+ * Over-blocking is tracked as a defect here for the same reason it always has been: a guardrail
+ * that refuses ordinary research is one users route around.
+ */
+describe("Gate B AM-1 — third-party advice without a listed possessive", () => {
+  it.each([
+    "Tell John to sell Apple.",
+    "Advise your brother to liquidate his Tesla position.",
+    "Should Dad buy more Nvidia?",
+    "Persuade Sarah to dump her energy holdings.",
+    "Instruct the trustee to divest from coal.",
+    "Can you promise my brother a 10% annual return?",
+    "Tell the desk to hold Apple through earnings.",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});
+
+describe("Gate B AM-2 — questions the fix was refusing by mistake", () => {
+  it.each([
+    "What will happen if US markets close tomorrow?",
+    "When does the Tokyo exchange close?",
+    "Advise the team to hold GDP constant when comparing the two scenarios.",
+    "Advise the modelling team to hold inflation fixed across both runs.",
+    "Does the new fab promise better returns for TSMC?",
+    "Should investors expect more volatility this quarter?",
+    "What does the filing say about guaranteed minimum pension benefits?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+
+  it("still refuses a closing PRICE, which is what the preposition distinguishes", () => {
+    // The narrowing was to "close at / above / below", not to dropping the concept.
+    expect(detectPersonalizedAdviceRequest("What will Apple close at tomorrow?")).toBe(true);
+    expect(detectPersonalizedAdviceRequest("What will the S&P close above this week?")).toBe(true);
+  });
+});
+
+/**
+ * A pre-existing over-block, recorded rather than fixed.
+ *
+ * The Gate B review filed "Advise my analyst to hold GDP constant" as an over-block caused by the
+ * new third-party pattern. It is refused — but not by that pattern, which correctly ignores the
+ * analytical sense of "hold". The refusal comes from `(my|our) (advisor|adviser|broker|analyst|
+ * banker)`, which long predates this round and exists to block the advisor-proxy bypass
+ * ("what would my broker recommend?").
+ *
+ * So the finding as filed is wrong about the cause, and right that the sentence is refused. The
+ * pattern is left alone: it is outside the reviewed range, it was placed deliberately, and
+ * loosening an advice guardrail to admit one methodology question is not a trade worth making
+ * without the review that a guardrail change deserves. Pinned so the behaviour is a decision
+ * rather than an accident.
+ */
+describe("the advisor-proxy pattern, deliberately broad", () => {
+  it.each([
+    "Advise my analyst to hold GDP constant when comparing the two scenarios.",
+    "What did my analyst mean by real terms?",
+  ])("refuses %s because it names a personal advisor", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});

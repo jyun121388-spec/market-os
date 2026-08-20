@@ -137,8 +137,20 @@ function errorToString(input: unknown): string {
  *
  * Scoped to the userinfo component only, so the scheme, user, host, port and database name all
  * survive — a redacted connection string should still tell you which database failed.
+ *
+ * Two corrections from the follow-up review of this fix:
+ *
+ *  - The username is optional. `postgresql://:s3cr3t@db.internal/market` is a URI that `new URL()`
+ *    accepts and reports a password for, and requiring at least one username character left that
+ *    password in place — six characters, below the value-redaction floor, so nothing downstream
+ *    caught it either.
+ *  - A host must follow. Without that, this rewrote ordinary prose: "Parser syntax is
+ *    proto://left:right@ followed by a host token" came back with `[REDACTED]` in the middle of a
+ *    sentence about grammar. Real connection URIs always have a host, so requiring one costs
+ *    nothing and stops the substitution from editing text that holds no secret. A lookahead
+ *    rather than part of the match, so the host survives into the output.
  */
-const CONNECTION_URI_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+):[^\s@/]+@/gi;
+const CONNECTION_URI_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]*):[^\s@/]+@(?=[^\s:@/])/gi;
 
 export function redactSecrets(text: string): string {
   let out = text.replace(CONNECTION_URI_PASSWORD, `$1:${REDACTED}@`);

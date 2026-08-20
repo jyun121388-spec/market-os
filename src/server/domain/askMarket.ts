@@ -109,6 +109,12 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // 10% annual return", which is not an exotic phrasing — it is how the request is normally made.
   // Found by the Gate A review; guaranteed returns are in LEGAL_GUARDRAILS' hard prohibitions.
   /\b(guaranteed|guarantee)\b[\s\S]{0,40}\b(return|profit|gain|yield)s?\b/i,
+  // "Promise" carries the same meaning as "guarantee" when it is promised TO SOMEONE — "Can you
+  // promise my brother a 10% annual return?" — and an entirely ordinary one when it is not: "does
+  // the new fab promise better returns for TSMC" is a research question. The personal object is
+  // what separates them, so it is required here and not in the pattern above, where the word
+  // "guaranteed" already carries the prohibited claim on its own.
+  /\b(promise|promises|promised|promising)\b[^.?!]{0,15}\b(me|my|us|our|him|his|her|them|their|you|your)\b[^.?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
   /\btarget (price|return)\b/i,
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
@@ -124,14 +130,35 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // Scoped to price verbs deliberately. "What will unemployment be next year?" is a forecast
   // question about an indicator rather than a price prediction, and refusing ordinary macro
   // research would turn the guardrail into something users route around.
-  /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\b(trade|be worth|be priced|close|hit|reach)\b/i,
+  //
+  // "close" is not in that list on its own, and was, briefly. "What will happen if US markets
+  // close tomorrow?" is a question about market mechanics and it was being refused. A closing
+  // PRICE needs the preposition to mean anything — "close at", "close above" — so the preposition
+  // is what the pattern keys on.
+  /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\b(trade|be worth|be priced|hit|reach)\b/i,
+  /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\bclose\b\s+(at|above|below|higher|lower)\b/i,
   /\b(recommend|suggest|pick) (a stock|an etf|which stock|me a stock|me a pick)\b/i,
   // Advice requested ON BEHALF OF someone else, in English. The Korean third-party forms went in
   // as IR-034 and the English ones never did — the same asymmetry as the output scanner being
   // second-person only (GC-10). "Tell my brother to dump Apple" is a personalised recommendation;
   // naming a third party makes it worse rather than exempt.
-  /\b(tell|advise|convince)\b[\s\S]{0,30}\b(my|his|her|their|our)\b[\s\S]{0,20}\bto\b[\s\S]{0,20}\b(buy|sell|dump|short|hold|invest|move|switch|liquidate)\b/i,
-  /\bshould (my|his|her|their|our)\b[\s\S]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  //
+  // The possessive pronoun was doing too much work. The follow-up review walked straight past it
+  // with "Tell John to sell Apple", "Advise your brother to liquidate his Tesla position" and
+  // "Should Dad buy more Nvidia?" — a proper name, an unlisted pronoun and a kinship term with no
+  // pronoun at all. WHO the third party is was never the point, so the instruction pattern no
+  // longer asks. Bounded to a single sentence with `[^.?!]` rather than `[\s\S]`, which is what
+  // stops it reaching across unrelated text now that the span is wider.
+  /\b(tell|advise|convince|instruct|persuade)\b[^.?!]{0,40}\bto\b[^.?!]{0,25}\b(buy|sell|dump|short|invest|divest|liquidate|offload)\b/i,
+  // "hold" gets its own pattern because it has an innocent analytical sense the others do not:
+  // "Advise my analyst to hold GDP constant when comparing the two scenarios" is methodology, not
+  // a trading instruction, and was being refused.
+  /\b(tell|advise|convince|instruct|persuade)\b[^.?!]{0,40}\bto\b[^.?!]{0,25}\bhold\b(?![^.?!]{0,20}\b(constant|fixed|steady|equal|unchanged)\b)/i,
+  /\bshould (my|his|her|their|our|your)\b[^.?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // Kinship terms used without a possessive — "Should Dad buy more Nvidia?". Enumerated rather
+  // than generalised: "should <anyone> buy" would swallow "should investors buy", which is a
+  // market-commentary question rather than a request for personal advice.
+  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)\b[^.?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
   // "Should I invest?" with no object. The `should i (…|invest in|…)` pattern above requires
   // "invest IN something", so the bare form slipped through.
   /\bshould i (invest|get in|get out|hold|sell out|take profits?|cut (my )?losses)\b/i,

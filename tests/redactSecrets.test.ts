@@ -247,3 +247,44 @@ describe("a connection URI never keeps its password", () => {
     }
   });
 });
+
+/**
+ * Gate B, findings RS-1 and RS-2 — the fix for E1 was wrong at both ends of the URI.
+ *
+ * RS-1: the username was required, and it is optional in a URI. `postgresql://:s3cr3t@host/db`
+ * kept its password — six characters, below the value-redaction floor, so no later phase caught it
+ * either. The one shape most likely to appear in a misconfigured local connection string.
+ *
+ * RS-2: nothing was required after the `@`, so the substitution edited prose. "Parser syntax is
+ * proto://left:right@ followed by a host token" came back with `[REDACTED]` in the middle of a
+ * sentence about grammar, and because this runs before the other two phases, nothing could put it
+ * back.
+ */
+describe("the connection-URI redaction, at both ends", () => {
+  it("redacts a password when the username is empty", () => {
+    const out = redactSecrets("connect failed: postgresql://:s3cr3t@db.internal/market");
+    expect(out).not.toContain("s3cr3t");
+    expect(out).toContain("postgresql://:[REDACTED]@db.internal/market");
+  });
+
+  it.each([
+    "Parser syntax is proto://left:right@ followed by a host token.",
+    "the grammar is scheme://user:pass@ then the authority",
+  ])("leaves %s alone, because no host follows", (text) => {
+    // A real connection URI always has a host. Requiring one costs nothing and stops this from
+    // rewriting text that holds no secret.
+    expect(redactSecrets(text)).toBe(text);
+  });
+
+  it("still redacts the cases E1 was about", () => {
+    for (const [text, secret] of [
+      ["postgresql://market:s3cr3t!@db.internal:5432/market_os", "s3cr3t!"],
+      ["postgres://u:short@host:5432/db", "short"],
+      ["mongodb+srv://svc:abc@cluster0.example.net/db", "abc"],
+    ] as const) {
+      const out = redactSecrets(text);
+      expect(out).toContain("[REDACTED]");
+      expect(out).not.toContain(`:${secret}@`);
+    }
+  });
+});

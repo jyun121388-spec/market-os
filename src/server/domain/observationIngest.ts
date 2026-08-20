@@ -29,34 +29,99 @@ const UNIQUE_CONSTRAINT_VIOLATION = "P2002";
 const MAX_REVISION_RETRIES = 20;
 
 /**
+ * How many decimal places the column actually keeps: `value Decimal @db.Decimal(20, 6)`.
+ *
+ * Comparison has to happen at the column's precision, not at the provider's. A provider that
+ * sends `1.2345678` for a row already storing `1.234568` has sent the same figure as far as this
+ * database is concerned, and comparing the unrounded strings would manufacture a revision that
+ * records no change.
+ */
+const STORED_DECIMAL_PLACES = 6;
+
+/**
+ * Every decimal spelling the ingest path can actually deliver.
+ *
+ * Both adapters validate with `Number.isFinite(Number(raw))` and then store the ORIGINAL string,
+ * so anything JavaScript parses as a finite number arrives here verbatim: `1e5`, `+1`, `.5`,
+ * `1E+5`. That is not hypothetical — it is what `normalizeFredObservations` and
+ * `normalizeEcosObservations` do today.
+ */
+const DECIMAL_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+
+/**
+ * A decimal string as the integer number of millionths it represents, or null if it is not a
+ * decimal at all.
+ *
+ * Exact throughout: the digits are carried as `bigint`, never as a double, because the whole point
+ * of this helper is that a double cannot hold what the column holds. Rounding is half away from
+ * zero, which is what Postgres `numeric` does when it stores a value with more decimals than the
+ * column keeps.
+ */
+function millionths(raw: string): bigint | null {
+  const trimmed = raw.trim();
+  if (!DECIMAL_SYNTAX.test(trimmed)) return null;
+
+  const negative = trimmed.startsWith("-");
+  const unsigned = trimmed.replace(/^[+-]/, "");
+  const [mantissa, exponentPart] = unsigned.split(/e/i);
+  const exponent = exponentPart === undefined ? 0 : Number(exponentPart);
+  const [whole, fraction = ""] = mantissa.split(".");
+
+  // The mantissa as one integer, plus the power of ten it has to be multiplied by. `12.34e2` is
+  // 1234 with a shift of 0; `.5` is 5 with a shift of -1.
+  const digits = BigInt(`${whole}${fraction}` || "0");
+  const shift = exponent - fraction.length + STORED_DECIMAL_PLACES;
+
+  // `BigInt(n)` rather than the `10n` literal form: `tsconfig.json` targets ES2017, where the
+  // literal syntax is a compile error. Vitest transpiles past it and both `tsc --noEmit` and
+  // `next build` do not, so the first version of this typechecked fine in the test run and failed
+  // the build — a reminder that a green test run is evidence about the test runner.
+  const TEN = BigInt(10);
+  const ONE = BigInt(1);
+  const TWO = BigInt(2);
+
+  if (shift >= 0) {
+    const scaled = digits * TEN ** BigInt(shift);
+    return negative ? -scaled : scaled;
+  }
+
+  const divisor = TEN ** BigInt(-shift);
+  const quotient = digits / divisor;
+  const remainder = digits % divisor;
+  // Half away from zero, matching how the column rounds on the way in — verified against a real
+  // `numeric(20, 6)` cast in tests/integration/decimal-column-semantics.test.ts, not assumed.
+  const rounded = remainder * TWO >= divisor ? quotient + ONE : quotient;
+  return negative ? -rounded : rounded;
+}
+
+/**
  * Whether two stored decimal values are the same figure.
  *
- * Compared as normalised decimal strings, not as `Number`. The column holds six decimal places and
- * JavaScript doubles carry roughly fifteen to seventeen significant digits, so a large value with
- * six decimals exceeds what a double can distinguish — `10000000000000.000001` and
- * `...000002` compare equal. A genuine revision would then be recorded as "unchanged" and silently
- * dropped, which is the one outcome this whole ingest path exists to prevent.
+ * Compared as exact integers at the column's precision, not as `Number`. The column holds six
+ * decimal places and JavaScript doubles carry roughly fifteen to seventeen significant digits, so
+ * a large value with six decimals exceeds what a double can distinguish —
+ * `10000000000000.000001` and `...000002` compare equal. A genuine revision would then be recorded
+ * as "unchanged" and silently dropped, which is the one outcome this whole ingest path exists to
+ * prevent. No current series is near that magnitude, so it is a latent defect rather than an
+ * observed one; it is fixed anyway because the failure is invisible.
  *
- * No current series comes close to that magnitude, so this is a latent defect rather than an
- * observed one. It is fixed anyway because the failure is invisible: nothing errors, the revision
- * simply never appears, and the ledger would look consistent while missing a figure.
+ * The first version of this compared normalised decimal STRINGS, which fixed the double problem
+ * and introduced a smaller one in the other direction. It assumed the values arrive as plain
+ * decimal text, and they do not: both adapters accept anything `Number.isFinite` accepts and pass
+ * the original string through, so `1e5` reaches here as `1e5` and compared unequal to `100000`.
+ * The consequence was worse than a cosmetic mismatch — the rollback guard uses this function to
+ * recognise a superseded value, so a provider replaying `1e5` over a chain that had already moved
+ * on would have been applied as a revision back to the old figure.
  *
- * Trailing zeros are insignificant — "10.5" and "10.500000" are the same reading — so both sides
- * are normalised before comparison rather than matched as text.
+ * Unparseable input is treated as DIFFERENT rather than equal, unless the two strings are
+ * identical. Both errors are possible here and they are not symmetric: a spurious revision is a
+ * visible extra row, and a missed revision is silence.
  */
 export function sameDecimalValue(a: string, b: string): boolean {
-  const normalise = (raw: string): string => {
-    const trimmed = raw.trim();
-    const negative = trimmed.startsWith("-");
-    const digits = negative ? trimmed.slice(1) : trimmed;
-    const [whole, fraction = ""] = digits.split(".");
-    const cleanWhole = whole.replace(/^0+(?=\d)/, "");
-    const cleanFraction = fraction.replace(/0+$/, "");
-    const body = cleanFraction.length > 0 ? `${cleanWhole}.${cleanFraction}` : cleanWhole;
-    // Negative zero and zero are the same figure.
-    return body === "0" ? "0" : `${negative ? "-" : ""}${body}`;
-  };
-  return normalise(a) === normalise(b);
+  const left = millionths(a);
+  const right = millionths(b);
+  if (left === null || right === null) return a.trim() === b.trim();
+  return left === right;
 }
 
 /**

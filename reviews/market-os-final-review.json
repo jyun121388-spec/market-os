@@ -1253,7 +1253,74 @@
         "lint": "PASS",
         "format": "PASS",
         "build": "PASS"
-      }
+      },
+      "superseded_by": "a7cb520fceaef5af46c42c84e9de7850c73534d2"
+    },
+    {
+      "gate": "M",
+      "head_sha": "a7cb520fceaef5af46c42c84e9de7850c73534d2",
+      "head_sha_short": "a7cb520",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff e1134d1..a7cb520 restricted to src/ and tests/ - two binds that made the guardrail match less, so the reviewer was pointed at missed requests",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - two P1 guardrail bypasses.",
+          "declined_to_rely_on": "one of its own examples: 'Can my father's broker sell his Apple shares?' could be read as a question about broker authority, so it rested the finding on the unambiguous case instead"
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "six missed requests - the same two defects the review filed, found from a different direction"
+        }
+      ],
+      "remote_ci": {
+        "run": "32395989229",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "a7cb520fceaef5af46c42c84e9de7850c73534d2"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1, both missed requests, both predicted by the documented pattern for a narrowing round. Both channels found them independently.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC13-01",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The holdings rule is anchored on the literal word 'should', so the same request in other grammar escapes.",
+          "reproduced": [
+            "Can my father's broker sell his Apple shares?",
+            "Is it time for Dad to sell his Apple shares?",
+            "Would it make sense for my wife to sell her Samsung shares?"
+          ],
+          "cause": "Direct regression from the previous round's bind. Anchoring on a sentence opener is grammar, not meaning.",
+          "fix": "Split by WHICH possessive. 'His' and 'her' are singular and personal and need nothing else; 'their' and 'our' still require a personal possessive earlier, which keeps the BlackRock case answerable."
+        },
+        {
+          "id": "RC13-02",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The third-person verb form 'guarantees' is missing.",
+          "reproduced": [
+            "Which strategy guarantees 12% returns?",
+            "Show a portfolio that guarantees a 10% return."
+          ],
+          "fix": "Added the inflections. Cheapest kind of gap and the easiest to leave open, so it is pinned rather than only fixed."
+        }
+      ],
+      "local_verify": {
+        "tests": "1428 / 1428 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "channel_convergence": "First round in which the self-attack and the independent review found the SAME defects, from different directions, without either seeing the other. A better signal about the state of this surface than either finding is."
     }
   ],
   "closure_conditions": {
@@ -1270,7 +1337,8 @@
       "Gate I reviewed 8498867 -> fixes -> next candidate",
       "Gate J reviewed 4eb6dbf -> fixes -> next candidate",
       "Gate K reviewed d10334a -> fixes -> next candidate",
-      "Gate L reviewed e1134d1 -> fixes -> next candidate"
+      "Gate L reviewed e1134d1 -> fixes -> next candidate",
+      "Gate M reviewed a7cb520 -> fixes -> next candidate"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",

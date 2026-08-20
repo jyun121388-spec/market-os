@@ -2518,3 +2518,43 @@ accumulates patterns and one that accumulates a vocabulary.
 
 No unresolved P0 or P1 at any candidate across twelve rounds. Both directions pinned by tests at
 every round. The Gate E gap is still the only thing here no round has found a feature for.
+
+## Gate M — the two channels converged on the same gaps (candidate `a7cb520`)
+
+The self-attack and the independent review found the SAME two defects this round, having attacked
+from different directions and without either seeing the other. That has not happened before, and it
+is a better signal about the state of this surface than either finding is.
+
+**Anchoring on "should" was grammar, not meaning.** Binding the holdings rule the previous round tied
+it to the literal sentence opener, and the same request survives in other grammar:
+
+    Can my father's broker sell his Apple shares?
+    Is it time for Dad to sell his Apple shares?
+    Would it make sense for my wife to sell her Samsung shares?
+
+The rule now splits by WHICH possessive rather than by opener. "His" and "her" are singular and
+personal and need nothing else; "their" and "our" are what organisations take, so they still
+require a personal possessive earlier — which is what keeps the BlackRock case answerable.
+
+**"Guarantees" is the same word as "guarantee".** The third-person verb form was missing, so
+`Which strategy guarantees 12% returns?` reached the answer path. An inflection is the cheapest
+kind of gap and the easiest to leave open, which is why it is now pinned rather than just fixed.
+
+Gate M also declined to rely on one of its own examples — it noted that "Can my father's broker
+sell his Apple shares?" could be read as a question about broker authority, and rested the finding
+on the unambiguous one instead. Third round running that a review has been explicit about the limit
+of its own evidence.
+
+### Thirteen rounds
+
+Every round has produced a real defect. Nothing here says that stops. What has changed is
+measurable and worth stating plainly:
+
+- The last three reviews each filed a short list and named at least one candidate they declined to
+  escalate, with the reason. The first ten did not.
+- The last two rounds' fixes were chosen because a feature had already worked elsewhere, rather
+  than derived again from the failing examples.
+- This round the two independent channels agreed exactly.
+
+No unresolved P0 or P1 at any candidate across thirteen rounds; both directions pinned by tests at
+every one. The Gate E gap remains the only thing in this file that no round has found a feature for.

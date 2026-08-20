@@ -10,11 +10,11 @@ STATUS as of 2026-08-18:
 
 - 774/774 unit and integration tests, scheduler queue 3 startable / 5 gated, E2E 33/33 in a real browser against the production build,
   `verify:live:edgar` 67/67, lint / typecheck / format / build clean. P0 = 0, P1 = 0.
-- Every commit after `6cb74fc` is local-only, ~128 of them (HG-001, `PUSH_PENDING_AUTH`). No
-  credential on this machine. Stated as an anchor rather than a count, because a count written
-  into a document that is itself committed is stale the moment it lands.
-- Independent review is blocked on included-usage exhaustion resetting 2026-08-22 (HG-005). Not
-  something to poll for, and not something to buy a way out of.
+- **Superseded 2026-08-20**: HG-001 is closed, the branch is fully pushed, PR #1 is open, and the
+  Gate A independent review has run. Both bullets below were true when written and are kept only
+  because the first one stayed in the documents long after it stopped being true.
+- ~~Every commit after `6cb74fc` is local-only, ~128 of them (HG-001, `PUSH_PENDING_AUTH`).~~
+- ~~Independent review is blocked on included-usage exhaustion resetting 2026-08-22 (HG-005).~~
 - Shadow layers implemented: Reality Fabric projection, Verify, Governance policy engine,
   Evolution ledger and detector — plus the provider-vintage contract that ties them together.
 

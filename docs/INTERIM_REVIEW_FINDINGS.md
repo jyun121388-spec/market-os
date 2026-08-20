@@ -1598,8 +1598,10 @@ for a shape the tool does not emit.
 A tolerant parse was added anyway, for a different reason: merging is a property of the TOOL, not
 of this code, and the installed version is not the only one that will ever run it. Concatenated
 pages are recognised and flattened; genuinely corrupt output — a warning on stdout, a truncated
-body — still throws into `READ_FAILED` rather than being salvaged into a short comment list, which
-would be the silent truncation this module has already had to remove twice.
+body — still throws rather than being salvaged into a short comment list, which would be the silent
+truncation this module has already had to remove twice. (That throw reached `READ_FAILED` when this
+was written; since IR-080 the adapter catches it so the cycle ends as `MALFORMED_RESPONSE` with the
+rate-limit signals preserved. The tolerant parse itself was later removed — see IR-079.)
 
 The other five answers were confirmed: budget arithmetic never over-polls (now swept as a property
 across eight remaining-counts and five reset horizons rather than argued), auth mode cannot claim
@@ -1697,3 +1699,89 @@ deleted?_ — and it is cheap enough that there is no excuse for asking it only 
 Also corrected: three places still said malformed `gh` output reaches `READ_FAILED`. It reaches
 `MALFORMED_RESPONSE` since IR-080. Stale prose beside working code is how a comment becomes a
 claim nobody checks.
+
+## Gate A — final release-candidate adversarial review (`gpt-5.6-sol`, candidate `6103ad8`)
+
+Required by `[CHATGPT_DECISION][RC-GATES-001]` as the one true technical RC blocker. Five areas
+reviewed: auth and operator access, legal-guardrail enforcement, Claim Ledger and Verifier
+boundaries, ingestion and migration safety, and secret redaction. Five findings, each reproduced
+before anything was changed.
+
+### B1 — three prohibited concepts reached the answer path (P1, FIXED)
+
+The one that matters most, because `LEGAL_GUARDRAILS.md` is an absolute rule rather than a quality
+target. All three reproduced:
+
+- `Give me a guaranteed 10% annual return strategy for Apple` — the pattern required "guaranteed"
+  and "return" to be adjacent, and the natural phrasing puts a number between them.
+- `What will Apple trade at next year?` — the numeral pattern needs a number and the other
+  definitive-price pattern needs the word "where".
+- `Tell my brother to dump Apple and move everything into bonds` — third-party framing exists in
+  Korean (IR-034) and never existed in English.
+
+The same shape as every other member of this cluster: one phrasing of a prohibited concept covered,
+its neighbour not. The third-party gap is the exact mirror of GC-10, where the OUTPUT scanner was
+second-person only. Fixed with both-direction controls — a macro forecast question, a filing's use
+of the word "guarantee", and an innocent mention of a family member all still answer normally,
+because a guardrail that refuses ordinary research is one users route around.
+
+### D1 — a revision that would have vanished (P1, FIXED)
+
+Ingest compared stored and incoming figures with `Number(a) === Number(b)`. The column holds six
+decimals; a double carries fifteen to seventeen significant digits, so `10000000000000.000001` and
+`...000002` are the same number to JavaScript and a genuine revision would have been recorded as
+"unchanged".
+
+Latent rather than observed — no series is near that magnitude — and fixed anyway because of how it
+fails: nothing errors, no revision row appears, and the ledger looks consistent while missing a
+figure. Compared as normalised decimal strings now, so trailing zeros still mean the same reading.
+
+### E1 — a short password survived redaction (P2, FIXED)
+
+Credentials are redacted by value with an eight-character floor, so that "test" or "admin" do not
+turn diagnostics into `[REDACTED]` soup. Sound reasoning, real hole: a seven-character database
+password inside a connection URI reached persisted ingestion errors and could render on `/admin`.
+
+The threshold was not the mistake. A password between `:` and `@` in a URI needs no length
+heuristic — its position identifies it — so it is redacted by shape while the scheme, user, host,
+port and database name survive. A redacted connection error should still say which database failed.
+
+### A1 — signup discloses whether an email is registered (P2, ACCEPTED PRE-LAUNCH)
+
+Reproduced by reading: `signUp` throws "An account with this email already exists". The asymmetry is
+stark — `signIn` carries a comment explaining that it never reveals which field was wrong or that a
+lockout occurred, and its neighbour announces account existence directly.
+
+Not fixed, and the reason is a product decision rather than a technical one. The standard remedies
+need email verification, which is a Human Gate (bulk messaging), and the alternative — a generic
+failure — strands a user who has forgotten they registered. Recorded alongside HG-009 as an accepted
+pre-launch posture that must be revisited before public launch, not as a defect that was missed.
+
+### C1 — the Claim Ledger validates shape, never content (P2, DEFERRED WITH A PLAN)
+
+`assertValidClaim` enforces structure: a FACT needs a `sourceId`, a CALCULATION needs evidence, an
+INFERENCE needs a confidence in range. It says nothing about the claim TEXT, so an INFERENCE reading
+"Apple will definitely double next year" would pass.
+
+Not reachable today: nothing constructs such a claim, the request-side guardrail refuses those
+questions at input, and no page renders claims at all. The obvious fix — reuse
+`ADVICE_OUTPUT_PATTERNS` from `verify/evaluate.ts` — would import the v2 shadow layer into v1
+domain, which the architecture boundary forbids, and copying the list into the ledger would create
+a second copy of a guardrail vocabulary that must never diverge. Duplicated pattern lists ARE the
+GUARDRAIL_COVERAGE cluster.
+
+The right remediation is one shared policy module consumed by three callers — the request guardrail,
+the output scanner and the ledger — and that is a deliberate refactor rather than something to do
+under a frozen candidate. Recorded so it is chosen rather than forgotten.
+
+### Areas the review found clean
+
+Sessions use 32 random bytes and rotate on login; cookies are HttpOnly, SameSite=Lax and Secure in
+production; `/admin` requires both a validated session and `ADMIN_EMAILS`, and fails closed when
+that is empty; passwords use salted scrypt with constant-time comparison. Refusals survive the
+domain-to-page boundary and the page cannot substitute its own answer. FACT and CALCULATION
+verification re-fetch and recompute rather than trusting stored text. Original observations are
+protected by a partial unique index, revision children are unique per parent, and uniqueness races
+are treated as idempotent. No migration deletes business rows. Only `.env.example` is committed, and
+the destructive-test guard refuses missing, identical, non-disposable and production-like database
+targets.

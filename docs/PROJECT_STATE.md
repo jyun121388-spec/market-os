@@ -24,18 +24,19 @@ full chain is green — but four external gates are open, and none of them is so
 work can close. Do not promote the status because the engineering looks finished; see
 `docs/HUMAN_GATE_QUEUE.md`.
 
-**`PUSH_PENDING_AUTH`** — every commit after `6cb74fc` is local-only. This machine has no GitHub
-credential and the environment cannot prompt for one (HG-001). One push is attempted per
-meaningful credential-state change, not on a loop. All work is committed on
-`claude/market-os-development-7vnicg`; nothing was rewritten and no force operation was used.
+**`PUSHED`** — HG-001 is closed. The branch is fully published on
+`origin/claude/market-os-development-7vnicg` with zero commits ahead, PR #1 is open, and CI runs
+against real SHAs. Nothing was rewritten and no force operation was used. The
+`PUSH_PENDING_AUTH` text that stood here was true when written and false for most of the session
+that followed it; see the correction in `docs/HUMAN_GATE_QUEUE.md` (HG-001).
 
-**`INDEPENDENT_REVIEW_PENDING_USAGE_RESET`** — the blocker here changed on 2026-08-18. `codex-cli`
-is installed and IS authenticated against the ChatGPT subscription, so the environment limitation
-recorded in earlier rounds is gone. What blocks review now is included-usage exhaustion, account
-level rather than model level, resetting 2026-08-22. No credits purchased, no API key configured
-(HG-005). `docs/INDEPENDENT_REVIEW_PACKET.md` is prepared against the current range with ten
-ranked attack targets — and working through that packet's own questions is what produced findings
-23-29 below, so it has already paid for itself before any reviewer has read it.
+**`INDEPENDENT_REVIEW_DONE_FOR_GATE_A`** — the review blocker is closed for the release-candidate
+range. Included usage returned, and the Gate A adversarial review authorised by
+`[CHATGPT_DECISION][RC-GATES-001]` ran read-only against candidate `6103ad8`. Result in
+`reviews/market-os-final-review.json`: no P0, two P1 reproduced and fixed with regression tests
+(guardrail coverage, decimal identity), three P2 of which one fixed, one accepted pre-launch and
+one deferred with a named remediation. `docs/INDEPENDENT_REVIEW_PACKET.md` remains the packet;
+working through its own questions produced findings 23-29 below before any reviewer read it.
 
 STATUS
 Local environment is fully operational and reproducible:
@@ -744,14 +745,21 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-1130 / 1130 PASS across 105 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment).
+1153 / 1153 PASS across 106 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-20 with the Gate A fixes in the tree.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real
-data.sec.gov. Lint / typecheck / format / production build all clean. Full suite 136-206s against a live
-database across two runs on the same tree — the variance is real and is the integration files
-contending for one Postgres, not noise worth averaging away.
+data.sec.gov. Lint / typecheck / format / production build all clean. Full suite 136-516s against a live
+database across several runs — the variance is real and is the integration files contending for
+one Postgres, not noise worth averaging away.
+
+A run measured on 2026-08-20 reported 947 passed and **205 skipped across 39 skipped files** in
+179s and looked, at a glance, like a pass. It was not one: `TEST_DATABASE_URL` was absent from that
+shell, the fail-closed guard correctly declined to fall back to `DATABASE_URL`, and every
+database-backed file skipped. Same tree, same command, 179s versus 516s. The skip count is the
+tell, and it matches the documented no-database baseline exactly. Recorded because the failure
+looks like success in every line of the summary except the one that says `skipped`.
 
 Tests run against a disposable database, enforced fail-closed. With no database at all, **569 tests
 pass and 205 skip across 39 skipped files**, cleanly, in 28s (measured 2026-08-19; the "350 unit
@@ -814,15 +822,14 @@ NEXT
 All open items are tracked with owner and unblock steps in `docs/HUMAN_GATE_QUEUE.md`
 (HG-001..HG-008). Summary:
 
-0. **Push the local commits** (HG-001, `PUSH_PENDING_AUTH`). One `git push` once GitHub auth
-   exists on this machine. Blocks the `RELEASE_CANDIDATE_READY` promotion and CI.
-1. **Codex re-review** — still the one non-Product gate. Run docs/CODEX_REVIEW_PACKET.md §12
-   from a machine with `codex login` done, and drop the result at
-   `reviews/market-os-final-review.json`. **The scope is no longer just the fix-round diff:**
-   it now runs from `9b34f8bb6be120dacd381fe22577870f40d6e5fa` (the commit the first review
-   examined) to current HEAD, which adds the local-verification round on top of the H1/H2/H3
-   fixes. The H3 fix in particular was itself defective and has been re-fixed — a re-reviewer
-   should be told that rather than left to rediscover it.
+0. ~~Push the local commits~~ **DONE** (HG-001 closed 2026-08-20). Branch published, PR #1 open.
+1. ~~Codex re-review~~ **DONE for Gate A** — `reviews/market-os-final-review.json` holds the
+   machine-readable result against candidate `6103ad8`, per `[CHATGPT_DECISION][RC-GATES-001]`.
+   What remains is mechanical rather than gated: the two P1 fixes it produced are not contained
+   in `6103ad8`, so they form a new candidate that needs its own review, its own green remote
+   CI, and its own two-SHA attestation. Correctness outranks SHA stability
+   (`[CHATGPT_DECISION][MARKET-RESUME-002]` item 4), so the candidate moves rather than the
+   findings being deferred.
 2. **FRED / ECOS / OpenDART API keys** (HG-002/003/004, `LIVE_KEY_PENDING`) — user is obtaining
    all three. When each key lands, run `npm run verify:live:<provider>`, then the full sequence
    before classifying it `LIVE_VERIFIED`: compare the real schema against types/parser/DB, test

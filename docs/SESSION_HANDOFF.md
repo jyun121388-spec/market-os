@@ -108,18 +108,22 @@ Fabric projection reports 8 disagreements, including `REVISED_WITHOUT_VINTAGE` f
 `ECOS:722Y001:0101000` — a real series that has been revised with no provider evidence of which
 version won.
 
-## External gates, all still open
+## External gates
 
-| Gate                        | State                                                                     |
-| --------------------------- | ------------------------------------------------------------------------- |
-| `PUSH_PENDING_AUTH`         | HG-001. `git push` hangs on a credential prompt that cannot be shown.     |
-| `FRED_LIVE_KEY_PENDING`     | HG-002. Blocks 13 capability axes and the vintage question for macro.     |
-| `ECOS_LIVE_KEY_PENDING`     | HG-003.                                                                   |
-| `OPENDART_LIVE_KEY_PENDING` | HG-004.                                                                   |
-| HG-009                      | Login-lockout threat model. Fully documented; recommended default stated. |
-| Independent review          | HG-005, included usage resets 2026-08-22.                                 |
+| Gate                        | State                                                                       |
+| --------------------------- | --------------------------------------------------------------------------- |
+| `PUSH_PENDING_AUTH`         | **CLOSED 2026-08-20** (HG-001). Branch pushed, PR #1 open, `gh` authorised. |
+| Independent review          | **CLOSED for Gate A** — `reviews/market-os-final-review.json` vs `6103ad8`. |
+| `FRED_LIVE_KEY_PENDING`     | HG-002. Blocks 13 capability axes and the vintage question for macro.       |
+| `ECOS_LIVE_KEY_PENDING`     | HG-003.                                                                     |
+| `OPENDART_LIVE_KEY_PENDING` | HG-004.                                                                     |
+| HG-009                      | Login-lockout threat model. Fully documented; recommended default stated.   |
+| A1 (signup enumeration)     | Accepted pre-launch posture, not a defect left open. Revisit with HG-009.   |
 
-None was faked closed. None blocked other work.
+None was faked closed. None blocked other work. The two now closed were both reported open for
+longer than they were: `PUSH_PENDING_AUTH` because a probe could not tell an unauthenticated `gh`
+from an absent one, and independent review because a usage reset date was treated as the current
+state rather than re-checked.
 
 ## Next exact action
 

@@ -105,14 +105,33 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   /\bworth (buying|selling)\b/i,
   /\bwhat should i (buy|sell|invest in|allocate|purchase)\b/i,
   /\bhow much should i (invest|allocate|put)\b/i,
-  /\b(guaranteed|guarantee) (return|profit|gain)s?\b/i,
+  // A bounded gap between the promise and the noun. The adjacent-words version missed "guaranteed
+  // 10% annual return", which is not an exotic phrasing — it is how the request is normally made.
+  // Found by the Gate A review; guaranteed returns are in LEGAL_GUARDRAILS' hard prohibitions.
+  /\b(guaranteed|guarantee)\b[\s\S]{0,40}\b(return|profit|gain|yield)s?\b/i,
   /\btarget (price|return)\b/i,
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
   // hard-prohibitions list, so having only one word order covered was a real hole.
   /\bprice target\b/i,
   /\bwill .* (hit|reach|go to) [\d,.]+\b/i,
+  // A definitive price prediction asked with "what" and no numeral: "What will Apple trade at
+  // next year?". The numeral pattern above cannot see it, and the `where … will … trade` pattern
+  // further down requires "where". This is the third time the same shape has appeared — one
+  // phrasing of a prohibited concept covered and the neighbouring one not, after target/price
+  // target and the two Korean reversals.
+  //
+  // Scoped to price verbs deliberately. "What will unemployment be next year?" is a forecast
+  // question about an indicator rather than a price prediction, and refusing ordinary macro
+  // research would turn the guardrail into something users route around.
+  /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\b(trade|be worth|be priced|close|hit|reach)\b/i,
   /\b(recommend|suggest|pick) (a stock|an etf|which stock|me a stock|me a pick)\b/i,
+  // Advice requested ON BEHALF OF someone else, in English. The Korean third-party forms went in
+  // as IR-034 and the English ones never did — the same asymmetry as the output scanner being
+  // second-person only (GC-10). "Tell my brother to dump Apple" is a personalised recommendation;
+  // naming a third party makes it worse rather than exempt.
+  /\b(tell|advise|convince)\b[\s\S]{0,30}\b(my|his|her|their|our)\b[\s\S]{0,20}\bto\b[\s\S]{0,20}\b(buy|sell|dump|short|hold|invest|move|switch|liquidate)\b/i,
+  /\bshould (my|his|her|their|our)\b[\s\S]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
   // "Should I invest?" with no object. The `should i (…|invest in|…)` pattern above requires
   // "invest IN something", so the bare form slipped through.
   /\bshould i (invest|get in|get out|hold|sell out|take profits?|cut (my )?losses)\b/i,

@@ -1,0 +1,134 @@
+{
+  "schema": "market-os/review-evidence/1",
+  "gate": "A",
+  "authorized_by": "[CHATGPT_DECISION][RC-GATES-001] (issue #2, comment 5352653561)",
+  "head_sha": "6103ad820bc6da56fe0fec3edab0ffbaa5399990",
+  "head_sha_short": "6103ad8",
+  "branch": "claude/market-os-development-7vnicg",
+  "reviewer": {
+    "role": "independent adversarial reviewer",
+    "model": "gpt-5.6-sol",
+    "invocation": "codex exec -s read-only",
+    "independence": "review ran read-only against the frozen candidate; the reviewer neither wrote nor verified the fixes below"
+  },
+  "reviewed_at": "2026-08-20T09:21:48Z",
+  "scope": [
+    "authentication, session handling and operator access",
+    "legal-guardrail enforcement across request and output paths",
+    "Claim Ledger and Verifier boundaries",
+    "ingestion, revision and migration safety",
+    "secret redaction and error persistence"
+  ],
+  "verdict": "CONDITIONAL_PASS",
+  "verdict_basis": "No P0. Both P1 findings reproduced and fixed with regression tests. The two remaining findings are P2: one accepted as a pre-launch product posture, one deferred with a named remediation. The verdict is the reviewer's classification applied to reproduced evidence, not a self-assessment of readiness.",
+  "unresolved_p0": 0,
+  "unresolved_p1": 0,
+  "findings": [
+    {
+      "id": "B1",
+      "severity": "P1",
+      "cluster": "GUARDRAIL_COVERAGE",
+      "file": "src/server/domain/askMarket.ts",
+      "line": 96,
+      "claim": "Three prohibited concepts reach the answer path instead of being refused.",
+      "status": "REPRODUCED_AND_FIXED",
+      "reproduction": {
+        "method": "ran detectPersonalizedAdviceRequest against the three named phrasings plus refuse/allow controls, before any change",
+        "triggers": [
+          "Give me a guaranteed 10% annual return strategy for Apple",
+          "What will Apple trade at next year?",
+          "Tell my brother to dump Apple and move everything into bonds"
+        ],
+        "observed_before": "all three returned false (answered)",
+        "observed_after": "all three return true (refused); the must-allow controls still return false"
+      },
+      "cause": "Each prohibited concept had one phrasing covered and its neighbour uncovered: 'guaranteed' and 'return' had to be adjacent, definitive-price detection required a numeral or the word 'where', and third-party framing existed only in Korean (IR-034).",
+      "fix": "Three patterns added covering guaranteed-return with intervening text, future-tense price questions without a numeral, and English third-party instruction framing.",
+      "regression_tests": [
+        "tests/askMarketConceptCoverage.test.ts (7 must-refuse, 6 must-allow added; 55 pass)"
+      ]
+    },
+    {
+      "id": "D1",
+      "severity": "P1",
+      "cluster": "SILENT_DEGRADATION",
+      "file": "src/server/domain/observationIngest.ts",
+      "line": 94,
+      "claim": "Float comparison of stored and incoming values can treat a genuine revision as unchanged.",
+      "status": "REPRODUCED_AND_FIXED",
+      "reproduction": {
+        "method": "control assertion in the regression test rather than a live ingest, because no series reaches the magnitude required",
+        "observed_before": "Number(\"10000000000000.000001\") === Number(\"10000000000000.000002\") is true, so the two readings compare equal",
+        "observed_after": "sameDecimalValue distinguishes them while still treating 1.50 and 1.5 as equal"
+      },
+      "cause": "The column stores six decimals; a double carries 15-17 significant digits, so precision is lost above ~10^10.",
+      "fix": "sameDecimalValue() compares normalised decimal strings; both Number() comparison sites replaced.",
+      "reachability": "LATENT — no current series is near that magnitude. Fixed because the failure is silent: no error, no revision row, and a ledger that looks consistent while missing a figure.",
+      "regression_tests": [
+        "tests/decimalValueIdentity.test.ts (4 pass, including the control that proves the old comparison collapses)"
+      ]
+    },
+    {
+      "id": "E1",
+      "severity": "P2",
+      "cluster": "PROVENANCE",
+      "file": "src/server/adapters/redactSecrets.ts",
+      "line": 37,
+      "claim": "A database password shorter than the eight-character redaction floor survives into persisted ingestion errors.",
+      "status": "REPRODUCED_AND_FIXED",
+      "reproduction": {
+        "method": "redacted a connection URI carrying a seven-character password",
+        "observed_before": "password present in the output",
+        "observed_after": "password replaced; scheme, user, host, port and database name preserved"
+      },
+      "cause": "Redaction was by exact value only, and the length floor that prevents '[REDACTED]' soup also exempted short real passwords.",
+      "fix": "CONNECTION_URI_PASSWORD redacts the userinfo password by shape. The length floor is unchanged and still governs value-based redaction.",
+      "regression_tests": [
+        "tests/redactSecrets.test.ts (23 pass; 4 URI shapes, a preservation case and three non-secret controls)"
+      ]
+    },
+    {
+      "id": "A1",
+      "severity": "P2",
+      "cluster": "IDENTITY_MODELLING",
+      "file": "src/server/domain/auth.ts",
+      "line": 98,
+      "claim": "signUp discloses whether an email is already registered, giving an enumeration oracle.",
+      "status": "REPRODUCED_ACCEPTED_PRE_LAUNCH",
+      "reproduction": {
+        "method": "read the code path; the thrown message is unconditional on an existing account",
+        "observed": "\"An account with this email already exists\" is returned to an unauthenticated caller"
+      },
+      "why_not_fixed": "The standard remedies require email verification, which is a Human Gate (bulk messaging), and the alternative generic failure strands a user who has forgotten they registered. This is a product decision, not a code fix. signIn is unaffected — it already refuses to reveal which field failed or that a lockout occurred.",
+      "revisit": "Required before public launch; recorded with HG-009 in docs/HUMAN_GATE_QUEUE.md."
+    },
+    {
+      "id": "C1",
+      "severity": "P2",
+      "severity_as_filed": "P1",
+      "cluster": "GUARDRAIL_COVERAGE",
+      "file": "src/server/domain/claimStore.ts",
+      "line": 17,
+      "claim": "assertValidClaim performs no content-level validation, so a prohibited claim could be stored.",
+      "status": "PARTIALLY_VALID_DEFERRED_WITH_PLAN",
+      "downgrade_reason": "Structurally accurate — validation covers shape only (FACT needs sourceId, CALCULATION needs evidence, INFERENCE needs confidence in range) — but unreachable: nothing constructs such a claim, the request guardrail refuses those questions at input, and no page renders claims.",
+      "why_not_fixed_now": "The obvious fix, reusing ADVICE_OUTPUT_PATTERNS from src/server/verify/evaluate.ts, would import the v2 shadow layer into v1 domain, which the architecture boundary test forbids. Copying the list into the ledger would create a second copy of a guardrail vocabulary that must never diverge — duplicated pattern lists are what the GUARDRAIL_COVERAGE cluster is made of.",
+      "remediation": "Extract one shared prohibited-language policy module consumed by three callers: the request guardrail, the output scanner and the ledger. A deliberate refactor, not a change to make under a frozen candidate.",
+      "tracked_in": "docs/INTERIM_REVIEW_FINDINGS.md"
+    }
+  ],
+  "clean_areas": [
+    "sessions use 32 random bytes, rotate on login, and set HttpOnly/SameSite=Lax/Secure-in-production cookies",
+    "/admin requires a validated session and ADMIN_EMAILS membership, failing closed when unset",
+    "passwords use salted scrypt with constant-time comparison",
+    "refusals survive the domain-to-page boundary; the page cannot substitute its own answer",
+    "FACT and CALCULATION verification re-fetch and recompute rather than trusting stored text",
+    "original observations are protected by a partial unique index; uniqueness races are idempotent",
+    "no migration deletes business rows",
+    "only .env.example is committed; the destructive-test guard refuses missing, identical, non-disposable and production-like targets"
+  ],
+  "closure_conditions": {
+    "exact_sha_match": "the fixes above are NOT contained in 6103ad8; they form the next candidate, which must be reviewed and CI-verified on its own SHA",
+    "note": "This file is evidence for Gate A against 6103ad8. It does not attest the fix commit."
+  }
+}

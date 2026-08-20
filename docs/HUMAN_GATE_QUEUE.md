@@ -13,26 +13,30 @@ third party) · `RESOLVED`.
 
 ## HG-001 — GitHub push authentication
 
-**Status**: `PARTIALLY_RESOLVED` · marker `API_WRITE_PENDING_AUTH` · updated 2026-08-19
+**Status**: `RESOLVED` · closed 2026-08-20
 
-Git push authenticated for the first time on 2026-08-19 and the branch is being pushed
-normally, so the half of this gate that blocked backup is closed. The half that blocks the
-escalation channel is not: posting a comment goes through the REST API, the credential that
-satisfies git lives in a credential helper, and extracting a helper secret is prohibited. No
-`gh` CLI is installed. Recorded as two capabilities because they resolved separately, and
-treating the gate as closed on the strength of the first would report messages as delivered
-that nobody has seen.
+Both halves are closed. Git push authenticated on 2026-08-19; the `gh` CLI is authenticated
+against account `jyun121388-spec` through official GitHub OAuth stored in the OS keyring, with
+`repo` and `workflow` scopes, which covers issue comments as well as pushes. No token was
+generated, extracted, printed or written anywhere, and OAuth through the official CLI costs
+nothing — the zero-extra-cost rule is intact.
 
-**Issue**: `git push` fails with `could not read Username for 'https://github.com'`. The
-credential helper is configured (`manager`) but holds no credential for github.com, `gh` CLI is
-not installed, and the environment is non-interactive so git cannot prompt.
+Verified by use rather than by inspection: the branch reports zero commits ahead of
+`origin/claude/market-os-development-7vnicg`, PR #1 exists with CI runs against real SHAs, and
+`[CLAUDE_APPLIED]` replies for TEST-001, TEST-002, ESC-009, ESC-010 and ESC-011 were posted to
+issue #2 and read back from the API.
 
-**Required from the user**: authenticate this machine to GitHub once — either sign in through
-Git Credential Manager interactively, install and run `gh auth login`, or configure an SSH
-remote. Any of the three is sufficient.
+**Correction to the earlier record.** This gate was reported as blocked for most of a session on
+the strength of a probe that could not distinguish "not installed" from "installed but
+unauthenticated" — `command -v gh && gh auth status || echo "not installed"` prints the same
+thing for both, because `gh auth status` exits non-zero when unauthenticated. The original text
+is kept below so the misread stays visible; the claims in it about `gh` are false.
 
-**Why blocked**: credentials are a Human Gate under `CLAUDE.md`. Retrying in a loop would
-accomplish nothing, so it is not retried.
+**Original issue (2026-08-19, since resolved)**: `git push` failed with `could not read Username
+for 'https://github.com'`. The credential helper was configured (`manager`) but held no
+credential for github.com, and the environment is non-interactive so git could not prompt.
+
+**What was required from the user**: authenticate this machine to GitHub once. Done.
 
 **Safe work completed around it**: all work is committed locally on
 `claude/market-os-development-7vnicg`. Nothing is lost and nothing is at risk; the commits are
@@ -341,16 +345,16 @@ transport test: read `[CHATGPT_DECISION][TEST-001]` directly from GitHub and rep
 ChatGPT decision over the unauthenticated REST API. The comment was read in full — ACKNOWLEDGED,
 transport test only, no product decision implied — with no manual copy/paste.
 
-**The write half is blocked by HG-001, not by a new gate.** No `gh` CLI is installed, neither
-`GITHUB_TOKEN` nor `GH_TOKEN` is set, and `git push` has hung on a credential prompt all session.
-The reply is staged verbatim in `docs/escalation/PENDING_COMMENTS.md` and will post unchanged when
-a credential exists.
+**The write half was reported blocked, and was not.** This paragraph said no `gh` CLI was
+installed and that Claude could not answer on the escalation channel. That was wrong, and it stood
+for most of a session: the probe used to establish it conflated an unauthenticated `gh` with an
+absent one. `gh` was installed, and once authenticated it posts comments directly. The channel has
+since run full-duplex — TEST-001, TEST-002, ESC-009, ESC-010 and ESC-011 all round-tripped.
 
-**What this changes about HG-001.** It was previously "147 local commits cannot be published". It
-is now also "Claude cannot answer on the escalation channel", which makes the gate a
-communications blocker as well as a publishing one. Reading incoming decisions still works, so
-ChatGPT → Claude is live and Claude → ChatGPT is not.
+Superseded by the HG-001 record above, which is now `RESOLVED`. Kept rather than deleted because
+the failure mode is worth more than the conclusion: a probe whose two branches print the same
+string for two different states cannot establish either one, and a staged reply queue made the
+wrong answer comfortable to live with.
 
-Recommended default unchanged: supply a credential (a fine-grained PAT with `contents:write` and
-`issues:write` on this repository is enough for both halves). Nothing else in the session is
-blocked by it.
+`docs/escalation/PENDING_COMMENTS.md` remains the staging path for the case where the credential
+genuinely is absent. It is a fallback now, not the normal route.

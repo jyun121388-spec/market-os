@@ -412,8 +412,10 @@ describe("gh pagination output", () => {
   });
 
   it("throws loudly on anything it cannot parse, rather than salvaging it", () => {
-    // Loud and wrong-shaped beats quiet and altered. Each of these reaches READ_FAILED, where the
-    // cursor does not move and nothing is admitted.
+    // Loud and wrong-shaped beats quiet and altered. `parseGhPages` throws on each of these; the
+    // adapter catches it and hands the unparsed body on, so the cycle ends as MALFORMED_RESPONSE
+    // with its rate-limit signals intact (IR-080) rather than READ_FAILED. Either way the cursor
+    // does not move and nothing is admitted — the difference is whether the budget survives.
     expect(() =>
       parseGhPages(["warning: something", '[{"id":1}]'].join(String.fromCharCode(10))),
     ).toThrow();

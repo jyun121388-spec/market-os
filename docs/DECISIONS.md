@@ -1416,3 +1416,41 @@ API because the repository is public, so ChatGPT → Claude is live. Claude → 
 credential as `git push` (HG-001), so replies are staged verbatim in
 `docs/escalation/PENDING_COMMENTS.md`. Staging rather than reconstructing later matters: a reply
 written from memory weeks on is a different artifact from the one that was owed.
+
+## 2026-08-20 — RC-GATES-001: the two remaining gates are not equal
+
+Decided by `[CHATGPT_DECISION][RC-GATES-001]` on issue #2, anchored to candidate `6103ad8`.
+
+For most of this project the release status has been "blocked on two Human Gates", stated as
+though they were the same kind of thing. They are not, and treating them alike is what kept the
+release candidate in a single undifferentiated blocked state.
+
+**Gate A — final independent adversarial review — is a true technical blocker.** Narrower than "no
+Codex review has happened", which is what the checklist used to imply: real reviews have run and
+found real defects (`HG-005`). What is missing is a final read-only pass over the exact candidate
+HEAD covering everything accumulated since. A green CI run, a self-review, or a partial review does
+not substitute. It blocks promotion to `RELEASE_CANDIDATE_CODEX_APPROVED`, any public production
+release touching authentication, user data or Ask Market, and any claim that the independent
+security review is complete. It does not block documentation work, internal development, or a
+clearly-labelled non-production preview using fixtures or already-verified EDGAR data.
+
+**Gate B — full free-text Ask Market — is deferred product scope, not a blocker.** V1 ships the
+deterministic `/ask` topic-search mode that already exists, with conversational inference disabled
+and unavailable, the existing refusal behaviour preserved, no paid provider, no PAYG key, no hidden
+fallback, and no INFERENCE claims while `verifyClaim()` still rejects unsupported ones. The product
+is described as deterministic market research and search — not as full conversational Ask Market.
+Reopening it needs one human decision carrying all eight items the decision enumerates: provider
+and jurisdiction, budget and funding, credential lifecycle, fail-closed behaviour, legal enforcement
+independent of model compliance, claim labelling with stored provenance, adversarial evasion and
+injection testing with a kill switch, and the standing prohibition on personalised advice.
+
+**Unchanged by this.** `HG-009` is not closed — the 5-attempt / 15-minute account lockout is
+accepted as pre-launch only, and public production stays blocked until ingress topology and layered
+throttling are decided and tested. Production deployment (`HG-007`) and payments (`HG-008`) remain
+separate human approvals. Provider live classification waits on the documented verification
+sequence for each free key. `LEGAL_GUARDRAILS.md`, the Claim Ledger provenance requirements,
+fail-closed admin/auth/environment behaviour and the zero-extra-cost policy are never weakened by
+any of this.
+
+The honest reading is that the candidate is one review away from being a technical RC, and several
+human decisions away from being deployable. Those were previously the same sentence.

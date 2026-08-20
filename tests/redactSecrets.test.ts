@@ -202,3 +202,48 @@ describe("the database password is redacted like any other credential", () => {
     expect(redactSecrets("nothing to redact")).toBe("nothing to redact");
   });
 });
+
+/**
+ * Gate A, finding E1 — a short password survived redaction.
+ *
+ * Credentials are redacted by exact value, and values under eight characters are exempt so that
+ * "test" or "admin" do not turn ordinary diagnostics into `[REDACTED]` soup. That reasoning is
+ * sound and it left a hole: a seven-character database password in a connection URI reached
+ * persisted ingestion errors and could be rendered on `/admin`.
+ *
+ * The threshold was not the mistake. A password sitting between `:` and `@` in a URI needs no
+ * length heuristic to be identified — its position says what it is — so it is now redacted by
+ * shape, while everything else about the string survives. A redacted connection error should still
+ * say which database failed.
+ */
+describe("a connection URI never keeps its password", () => {
+  it.each([
+    "connect failed: postgresql://market:s3cr3t!@db.internal:5432/market_os",
+    "postgres://u:short@host:5432/db",
+    "mysql://root:p@127.0.0.1:3306/app",
+    "mongodb+srv://svc:abc@cluster0.example.net/db",
+  ])("redacts the password in %s", (text) => {
+    const out = redactSecrets(text);
+    expect(out).toContain("[REDACTED]");
+    for (const secret of ["s3cr3t!", ":short@", ":p@", ":abc@"]) {
+      if (text.includes(secret)) expect(out).not.toContain(secret);
+    }
+  });
+
+  it("keeps everything that is not the password", () => {
+    // A diagnostic that cannot say which host or database failed is not much of a diagnostic.
+    const out = redactSecrets("postgresql://market:s3cr3t!@db.internal:5432/market_os");
+    expect(out).toContain("postgresql://market:");
+    expect(out).toContain("@db.internal:5432/market_os");
+  });
+
+  it("leaves ordinary URLs and prose alone", () => {
+    for (const safe of [
+      "GET https://api.stlouisfed.org/fred/series?series_id=UNRATE",
+      "see https://github.com/jyun121388-spec/market-os for details",
+      "ratio was 3:1 and host@example.com replied",
+    ]) {
+      expect(redactSecrets(safe)).toBe(safe);
+    }
+  });
+});

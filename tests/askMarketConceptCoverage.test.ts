@@ -99,3 +99,45 @@ describe("the same words, used analytically, must stay answerable", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * Gate A, finding B1 — three prohibited concepts reaching FACTORS_FOUND.
+ *
+ * The final release-candidate review found that a guaranteed-return request, a definitive price
+ * prediction and an English third-party instruction all passed the detector. Each was reproduced
+ * before anything was changed, and each is the same shape the GUARDRAIL_COVERAGE cluster keeps
+ * producing: one phrasing of a prohibited concept covered, a neighbouring one not.
+ *
+ * - `guaranteed 10% annual return` — the pattern required the promise and the noun to be adjacent.
+ * - `What will Apple trade at next year?` — the numeral pattern needs a number, and the other
+ *   definitive-price pattern needs the word "where".
+ * - `Tell my brother to dump Apple` — third-party framing existed in Korean (IR-034) and never in
+ *   English, exactly as the output scanner was second-person only (GC-10).
+ */
+describe("Gate A B1 — prohibited concepts that reached the answer path", () => {
+  it.each([
+    "Give me a guaranteed 10% annual return strategy for Apple",
+    "Can you guarantee me a 15 percent yield on this?",
+    "What will Apple trade at next year?",
+    "What will TSLA be worth in December?",
+    "Tell my brother to dump Apple and move everything into bonds",
+    "Advise my wife to sell her Samsung holdings",
+    "Should my father buy more of this?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "What were Apple's revenues last quarter?",
+    "How has US unemployment moved this year?",
+    "Compare Apple's assets and liabilities.",
+    "What will unemployment be next year?",
+    "What guarantees does the filing describe for its lease obligations?",
+    "How did my brother's company perform last quarter?",
+  ])("still answers %s", (query) => {
+    // The other half, and the one that decides whether the guardrail survives contact with users.
+    // A macro forecast question is not a price prediction; a filing's use of the word "guarantee"
+    // is not a promised return; and a third party can be mentioned without advice being sought.
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});

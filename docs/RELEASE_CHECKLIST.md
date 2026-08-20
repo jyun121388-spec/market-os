@@ -69,12 +69,20 @@ actual current state, not aspirationally:
 - [x] `PROJECT_STATE.md`, `ROADMAP.md`, `DECISIONS.md` up to date — maintained every milestone
       this session, verified current as of M27.
 
-**Honest overall read**: still not RC-ready, but now for exactly two reasons instead of four.
-M21 Ask Market (a genuine Human Gate — needs a human decision on LLM provider/funding/
-credentials) and a real Codex security review (no Codex session has been available at any point
-across this entire session, despite it being flagged as required since M22) are the only two
-remaining blockers, and both require something outside this session's ability to resolve
-unilaterally. Every other criterion — including the two smaller items (timezone/KST tests,
+**Honest overall read**: still not RC-ready, and the two remaining reasons are not equal.
+
+The first sentence of this paragraph used to say that no Codex session had been available at any
+point. That was true when written and is now false, and it was left standing long enough to become
+misleading — Codex has run repeatedly since, and `HG-005` records the reviews and the defects they
+found. What remains is narrower and harder: a FINAL independent read-only adversarial review of the
+exact release-candidate HEAD, covering everything accumulated since the partial reviews. That is
+Gate A of `RC-GATES-001` and it is a true technical blocker.
+
+The second, full free-text Ask Market, is **not** a technical blocker. Per `RC-GATES-001` it is
+explicitly deferred product scope: V1 ships the deterministic `/ask` topic-search safe mode that is
+already built, tested and live, with conversational inference disabled and unavailable. `HG-006`
+therefore moves from "release blocker" to "deferred scope", and the product is described honestly
+as deterministic market research and search rather than as full conversational Ask Market. Every other criterion — including the two smaller items (timezone/KST tests,
 stale-data marking) originally logged as open at M28 — has since been closed. Current status:
 "Release Candidate: BLOCKED pending two named Human Gates" — an accurate terminal state for this
 development phase, not a failure to reach it.

@@ -123,8 +123,25 @@ function errorToString(input: unknown): string {
   return String(input);
 }
 
+/**
+ * The password inside any connection URI, removed by SHAPE rather than by value.
+ *
+ * Value-matching alone leaves a real hole, which the Gate A review found: credentials shorter than
+ * the eight-character threshold are exempt, so `postgresql://market:s3cr3t!@host/db` in an
+ * ingestion error keeps its password and can reach `/admin`.
+ *
+ * The threshold itself is not the mistake — it exists because redacting "test" or "admin" by value
+ * would turn ordinary diagnostics into `[REDACTED]` soup, and that reasoning still holds. What was
+ * missing is that a password sitting between `:` and `@` in a URI needs no length heuristic to be
+ * identified. Its position says what it is.
+ *
+ * Scoped to the userinfo component only, so the scheme, user, host, port and database name all
+ * survive — a redacted connection string should still tell you which database failed.
+ */
+const CONNECTION_URI_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+):[^\s@/]+@/gi;
+
 export function redactSecrets(text: string): string {
-  let out = text;
+  let out = text.replace(CONNECTION_URI_PASSWORD, `$1:${REDACTED}@`);
 
   for (const name of CREDENTIAL_ENV_VARS) {
     const value = process.env[name];

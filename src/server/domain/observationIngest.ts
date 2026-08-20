@@ -29,6 +29,37 @@ const UNIQUE_CONSTRAINT_VIOLATION = "P2002";
 const MAX_REVISION_RETRIES = 20;
 
 /**
+ * Whether two stored decimal values are the same figure.
+ *
+ * Compared as normalised decimal strings, not as `Number`. The column holds six decimal places and
+ * JavaScript doubles carry roughly fifteen to seventeen significant digits, so a large value with
+ * six decimals exceeds what a double can distinguish — `10000000000000.000001` and
+ * `...000002` compare equal. A genuine revision would then be recorded as "unchanged" and silently
+ * dropped, which is the one outcome this whole ingest path exists to prevent.
+ *
+ * No current series comes close to that magnitude, so this is a latent defect rather than an
+ * observed one. It is fixed anyway because the failure is invisible: nothing errors, the revision
+ * simply never appears, and the ledger would look consistent while missing a figure.
+ *
+ * Trailing zeros are insignificant — "10.5" and "10.500000" are the same reading — so both sides
+ * are normalised before comparison rather than matched as text.
+ */
+export function sameDecimalValue(a: string, b: string): boolean {
+  const normalise = (raw: string): string => {
+    const trimmed = raw.trim();
+    const negative = trimmed.startsWith("-");
+    const digits = negative ? trimmed.slice(1) : trimmed;
+    const [whole, fraction = ""] = digits.split(".");
+    const cleanWhole = whole.replace(/^0+(?=\d)/, "");
+    const cleanFraction = fraction.replace(/0+$/, "");
+    const body = cleanFraction.length > 0 ? `${cleanWhole}.${cleanFraction}` : cleanWhole;
+    // Negative zero and zero are the same figure.
+    return body === "0" ? "0" : `${negative ? "-" : ""}${body}`;
+  };
+  return normalise(a) === normalise(b);
+}
+
+/**
  * Shared revision-preserving observation upsert used by every source adapter's ingest
  * pipeline (FRED, ECOS, ...). A changed value for an already-stored observation date is
  * never silently overwritten: it is inserted as a new row with isRevision/revisionOf pointing
@@ -92,7 +123,7 @@ export async function upsertRevisionAwareObservation(
       continue;
     }
 
-    if (Number(latest.value.toString()) === Number(input.value)) {
+    if (sameDecimalValue(latest.value.toString(), input.value)) {
       return "unchanged";
     }
 
@@ -118,8 +149,8 @@ export async function upsertRevisionAwareObservation(
     // of the two available errors: this one is visible in the log, the other is silent.
     const supersededValues = chain
       .filter((row) => row.id !== latest.id)
-      .map((row) => Number(row.value.toString()));
-    if (supersededValues.includes(Number(input.value))) {
+      .map((row) => row.value.toString());
+    if (supersededValues.some((superseded) => sameDecimalValue(superseded, input.value))) {
       console.warn(
         `[observationIngest] series ${input.seriesId} on ` +
           `${input.observationDate.toISOString().slice(0, 10)}: incoming value ${input.value} ` +

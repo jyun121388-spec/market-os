@@ -1785,3 +1785,108 @@ protected by a partial unique index, revision children are unique per parent, an
 are treated as idempotent. No migration deletes business rows. Only `.env.example` is committed, and
 the destructive-test guard refuses missing, identical, non-disposable and production-like database
 targets.
+
+## Gate B — reviewing the Gate A fixes (`gpt-5.6-sol`, candidate `218d3f9`)
+
+`[CHATGPT_DECISION][MARKET-RESUME-002]` item 4 says a real P1 moves the candidate and the new
+candidate needs its own review, CI and evidence. Gate A found two P1s, so the candidate moved, and
+this is that review: the 209-line diff `6103ad8..218d3f9`, which is the Gate A fixes themselves.
+
+Reviewing a fix round is worth doing on its own terms. Four of the five findings were real, and
+three of them were defects introduced BY the fixes rather than surviving them.
+
+### AM-1 — the possessive pronoun was doing too much work (P1, FIXED)
+
+The Gate A third-party pattern required a possessive from a fixed list, and the review walked
+straight past it: `Tell John to sell Apple`, `Advise your brother to liquidate his Tesla position`,
+`Should Dad buy more Nvidia?`. A proper name, an unlisted pronoun, and a kinship term with no
+pronoun. Who the third party is was never the point.
+
+The same round added `Can you promise my brother a 10% annual return?` — "promise" carries the
+guarantee meaning and only "guarantee" was covered. It is covered now when the promise is made TO
+someone, which is what separates it from "does the new fab promise better returns for TSMC".
+
+This is the GUARDRAIL_COVERAGE cluster catching the fix for the GUARDRAIL_COVERAGE cluster. The
+lesson is the one already recorded and not yet learned: a pattern written against the examples in
+hand covers the examples in hand. The instruction pattern no longer enumerates who — it is bounded
+to a single sentence instead, which is what keeps the wider span honest.
+
+### AM-2 — the same fix refusing ordinary questions (P2, one real, one rejected, one misattributed)
+
+Three claims, and they did not all hold. This is why claims get reproduced before they get fixed.
+
+- `What will happen if US markets close tomorrow?` was refused. Real, and mine: a bare "close" in
+  the price-prediction pattern. A closing PRICE needs the preposition to mean anything, so
+  "close at / above / below" is what the pattern keys on now.
+- `What guaranteed benefits affect the pension fund's expected return?` was claimed to be refused
+  and **is not**. The gap between "guaranteed" and "return" is 41 characters and the pattern bounds
+  it at 40. Rejected on evidence.
+- `Advise my analyst to hold GDP constant when comparing the two scenarios.` is refused — but not
+  by the new pattern, which correctly ignores the analytical sense of "hold". Swap "my analyst" for
+  "the team" and the identical sentence answers normally. The refusal comes from
+  `(my|our) (advisor|adviser|broker|analyst|banker)`, which predates this round and exists to block
+  the advisor-proxy bypass.
+
+  Left unchanged. It is outside the reviewed range, it was placed deliberately, and loosening an
+  advice guardrail to admit one methodology question is not a trade to make under a frozen
+  candidate on a reviewer's say-so. Pinned by test so it stays a decision rather than an accident.
+
+### DI-1 — the decimal fix assumed a spelling the data does not keep to (P1, FIXED)
+
+The Gate A fix replaced `Number()` comparison with normalised decimal STRINGS. It removed the
+double-precision defect and introduced a smaller one facing the other way.
+
+Both adapters validate an incoming value with `Number.isFinite(Number(raw))` and then persist the
+ORIGINAL string. So every spelling JavaScript accepts arrives at the comparison verbatim: `1e5`,
+`+1`, `.5`. That was checked in the adapters before the finding was accepted, because reachability
+is the whole question — and it is reachable.
+
+The consequence is worse than a cosmetic mismatch. `sameDecimalValue` is used twice: once for
+"unchanged", and once by the rollback guard that recognises a value the chain has already
+superseded. A provider replaying `1e5` over a chain that had moved on to `110000` would not have
+been recognised as stale, and the old figure would have been written back in as a revision — the
+guard defeated by notation.
+
+Now exact `bigint` arithmetic scaled to the column's six decimal places, rounding half away from
+zero as `Decimal(20, 6)` does on the way in. That last part fixes a second case the review found:
+an incoming `1.2345678` IS the stored `1.234568` once it lands, and comparing at full incoming
+precision manufactured a revision recording no change.
+
+Unparseable input is treated as DIFFERENT unless the strings are identical. Both errors are
+possible and they are not symmetric: a spurious revision is a visible extra row, a missed revision
+is silence.
+
+### RS-1 and RS-2 — the redaction fix, wrong at both ends (P1 and P2, FIXED)
+
+The username was required, and it is optional in a URI. `postgresql://:s3cr3t@db.internal/market`
+kept its password — six characters, below the value-redaction floor, so nothing downstream caught
+it either. That is the shape a misconfigured local connection string most often takes.
+
+And nothing was required after the `@`, so the substitution edited prose: "Parser syntax is
+proto://left:right@ followed by a host token" came back with `[REDACTED]` in the middle of a
+sentence about grammar. Because this phase runs first, no later step could put it back.
+
+Both corrected. A real connection URI always has a host, so requiring one costs nothing.
+
+### The discrimination check, run rather than asserted
+
+The review was asked directly whether any new test would still pass with its fix reverted. It
+answered, and the answer was checked by doing it:
+
+| Reverted                                     | Tests that fail |
+| -------------------------------------------- | --------------- |
+| the connection-URI regex                     | 3               |
+| `sameDecimalValue` to `Number()`             | 4               |
+| `sameDecimalValue` to the Gate A string form | 8               |
+| the new guardrail patterns                   | 11              |
+
+The reviewer also noted that several must-ALLOW assertions still pass under a reversion. That is
+what a negative control is; they are kept as controls and not counted as proof.
+
+### What Gate B found clean
+
+No catastrophic-backtracking construction among the new regexes — the variable spans are bounded
+and the character classes hold no nested ambiguous repetition. `sameDecimalValue` throws on none of
+the probed inputs. Whitespace, trailing zeros, leading zeros, ordinary negatives and negative zero
+are all handled. The connection regex handles ordinary usernames, one-character passwords,
+mixed-case schemes, and schemes containing `+`, `.` or `-`.

@@ -1,0 +1,39 @@
+name: Event-driven AI escalation review
+description: Review canonical escalation comments with the locally authenticated Codex CLI and post a fail-closed GitHub decision.
+
+inputs:
+  project-id:
+    description: Canonical project identifier.
+    required: true
+  canonical-issue:
+    description: Canonical AI escalation issue number.
+    required: true
+  allowed-actor:
+    description: GitHub actor allowed to publish Claude escalation/application messages.
+    required: false
+    default: jyun121388-spec
+
+runs:
+  using: composite
+  steps:
+    - name: Assemble and run the independent reviewer
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $bundle = Join-Path $env:RUNNER_TEMP "ai-review-action-${{ github.run_id }}-${{ github.run_attempt }}"
+        if (Test-Path -LiteralPath $bundle) { Remove-Item -LiteralPath $bundle -Recurse -Force }
+        New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+
+        $parts = Get-ChildItem -LiteralPath $env:GITHUB_ACTION_PATH -Filter 'Invoke-AIEventReview.part*.ps1.txt' | Sort-Object Name
+        if ($parts.Count -lt 2) { throw 'The pinned reviewer action is incomplete.' }
+        $scriptPath = Join-Path $bundle 'Invoke-AIEventReview.ps1'
+        foreach ($part in $parts) {
+          Get-Content -LiteralPath $part.FullName -Raw -Encoding UTF8 | Add-Content -LiteralPath $scriptPath -Encoding UTF8
+        }
+        Copy-Item -LiteralPath (Join-Path $env:GITHUB_ACTION_PATH 'review-output.schema.json') -Destination $bundle
+        Copy-Item -LiteralPath (Join-Path $env:GITHUB_ACTION_PATH 'review-prompt.md') -Destination $bundle
+
+        & $scriptPath `
+          -ProjectId '${{ inputs.project-id }}' `
+          -CanonicalIssue ([int]'${{ inputs.canonical-issue }}') `
+          -AllowedActor '${{ inputs.allowed-actor }}'

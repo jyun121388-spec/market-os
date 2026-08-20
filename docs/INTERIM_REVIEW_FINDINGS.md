@@ -2004,3 +2004,85 @@ cannot disagree. Secret redaction across empty and ordinary usernames, one-chara
 punctuation and percent-encoded credentials, schemes containing `+`, `.` and `-`, hostnames, IPv4,
 ports and bracketed IPv6, with no real connection-password false negative. No catastrophic
 backtracking. And no newly added assertion that would still pass with its implementation reverted.
+
+## Gate D — the round where the previous round's fix was the defect (candidate `b12f349`)
+
+Gate C's widest change was replacing an enumerated `should <person> <trading verb>` rule with a
+general `should <anything> <trading verb>` one, on the reasoning that the verb was the real
+discriminator. A self-attack written while the reviewer was still running refused ten ordinary
+research questions out of ten:
+
+    Should the Fed hold rates steady at the next meeting?
+    Why should the ECB buy government bonds under QE?
+    How should a company hold treasury shares on its balance sheet?
+    What should a 10-K disclose about short positions?
+    Should short interest be reported semi-monthly?
+
+The verb is not a discriminator. "Hold", "short" and "invest" are ordinary words in monetary
+policy, accounting, index mechanics and regulation. Gate B's original objection to generalising was
+right, the note recorded against it in Gate C was wrong, and this reverses the reversal — on
+evidence this time rather than on reflection.
+
+The enumeration is back, extended with exactly what Gate C proved missing and no further: proper
+names (case-sensitive, because a capital mid-sentence is the only available signal that a subject
+is somebody rather than something) and investor roles — trustee, broker, adviser, desk, fund
+manager. Institutions are deliberately out: nothing separates "Should the pension fund short
+treasuries?" from "How much should a pension fund invest in bonds under Korean regulation?", and
+refusing the second is the worse error.
+
+**CI was green on `b12f349` with all ten of those over-blocks present.** No test covered a
+monetary-policy question phrased with "should", so nothing failed. Worth recording plainly: a green
+suite is evidence about the tests, and this round's most damaging defect was found by attacking the
+code rather than by running it.
+
+### What Gate D itself found
+
+Seven claims, all reproduced. Two — the `should` over-block and a promise-shaped false positive —
+were already fixed by the self-attack before the review was read; both are recorded as such rather
+than claimed as Gate D's work.
+
+**RC4-INGEST-1 (P1)** is the interesting one, and it is a defect in the fix from the round before.
+`Number.isFinite(Number(raw))` is not a test for "this is a decimal": `Number("0x10")` is 16, and
+`0b10` and `0o10` read the same way. So a hexadecimal value passed the adapter, was stored by
+Prisma as 16, and then made the newly-throwing comparator abort on the NEXT ingest of the same
+series. Accepted once, fatal the second time — the worst of the two available behaviours, and
+introduced by making the comparator loud without asking where the unreadable value came from.
+
+The adapter is where a value that is not a decimal should stop. Both normalizers now validate with
+`isStorableDecimal`, the same rule the comparator uses, so the throw is defence in depth rather
+than the first line of it. The comment claiming the regex covered every spelling the ingest path
+could deliver was simply false, and is corrected.
+
+**RC4-SHOULD-2 (P1)** — `Should my elderly retired father with a low risk tolerance sell Apple?`
+was answered: forty-eight characters between the possessive and the verb, against a twenty-five
+character span. The description of a person is exactly where this kind of request gets long, and
+the possessive has already established that a person is the subject, so the span is sixty now.
+
+**RC4-PROMISE-2 (P1)** — `Can you promise John double-digit annual returns?` has no numeral, and
+the pattern required `a`, `an` or a digit after the recipient. Split in two: a recipient that is
+unmistakably a person needs no figure, while a `the <something>` recipient still does — without
+that second half, "does the merger promise the kind of returns investors want" reads as a promise
+made to "the kind".
+
+**RC4-PRICE-1 (P1)** — dropping bare `hit` and `reach` in Gate C reopened the price question asked
+without a numeral: `What high will Apple hit next year?`. The price NOUN carries the meaning there,
+so that is what the new pattern keys on.
+
+### Two things carried forward rather than fixed
+
+`RC4-SPAN-1` (P2): with periods no longer bounding the instruction span, a second sentence starting
+with an infinitive can be read as a continuation of the first — "Advise investors on duration risk.
+To sell bonds before maturity can crystallize losses." Bounding on periods again reopens a P1, and
+every alternative needs an abbreviation list, which is a bypass surface of its own.
+
+The index-level gap is a different kind of note, and the difference matters. `What level will the
+S&P 500 reach next year?` is a price prediction and is NOT refused. Nothing in the sentence
+separates it from `What level will unemployment reach next year?` without knowing whether the
+subject is an instrument or an indicator, and refusing macro forecasts is the worse error. That is
+a coverage GAP with a test asserting current behaviour so it stays visible and dated — not a
+decision to over-block, and not a claim that the behaviour is right.
+
+### Discrimination
+
+Reverting the changed source files to their `b12f349` form fails the Gate D regressions; the full
+suite is 1265/1265 across 108 files against a live database.

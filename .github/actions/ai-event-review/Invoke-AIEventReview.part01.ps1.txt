@@ -1,0 +1,130 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectId,
+
+    [Parameter(Mandatory = $true)]
+    [int]$CanonicalIssue,
+
+    [Parameter(Mandatory = $false)]
+    [string]$AllowedActor = "jyun121388-spec"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+function Write-Log {
+    param([string]$Message)
+    Write-Host "[ai-event-review] $Message"
+}
+
+function ConvertTo-SafeMarkdownText {
+    param([AllowNull()][object]$Value)
+    if ($null -eq $Value) { return "" }
+    $text = [string]$Value
+    # Prevent a model-produced HTML comment from spoofing the idempotency marker.
+    return $text.Replace("<!-- ai-review-event:", "&lt;!-- ai-review-event:")
+}
+
+function Get-GitHubHeaders {
+    param([string]$Token)
+    return @{
+        Authorization        = "Bearer $Token"
+        Accept               = "application/vnd.github+json"
+        "X-GitHub-Api-Version" = "2022-11-28"
+        "User-Agent"         = "4os-ai-event-review"
+    }
+}
+
+function Get-AllIssueComments {
+    param(
+        [string]$Repository,
+        [int]$IssueNumber,
+        [hashtable]$Headers
+    )
+
+    $all = @()
+    $page = 1
+    do {
+        $uri = "https://api.github.com/repos/$Repository/issues/$IssueNumber/comments?per_page=100&page=$page"
+        $batch = @(Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers)
+        $all += $batch
+        $page++
+    } while ($batch.Count -eq 100)
+
+    return $all
+}
+
+function Post-IssueComment {
+    param(
+        [string]$Repository,
+        [int]$IssueNumber,
+        [string]$Body,
+        [hashtable]$Headers
+    )
+
+    $uri = "https://api.github.com/repos/$Repository/issues/$IssueNumber/comments"
+    $payload = @{ body = $Body } | ConvertTo-Json -Depth 8
+    return Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes($payload))
+}
+
+function Find-EventId {
+    param([string]$Body)
+    $matches = [regex]::Matches($Body, '\[(ESC-[A-Za-z0-9_.-]+|TEST-[A-Za-z0-9_.-]+)\]')
+    if ($matches.Count -eq 0) { return $null }
+    return $matches[$matches.Count - 1].Groups[1].Value
+}
+
+function Find-CommitSha {
+    param([string]$Body)
+
+    $patterns = @(
+        '(?im)"?appliedCommit"?\s*[:=]\s*["''`]?([0-9a-f]{7,40})',
+        '(?im)"?headCommit"?\s*[:=]\s*["''`]?([0-9a-f]{7,40})',
+        '(?im)"?baseHead"?\s*[:=]\s*["''`]?([0-9a-f]{7,40})',
+        '(?im)\bHEAD\s*[:=]\s*["''`]?([0-9a-f]{7,40})'
+    )
+
+    foreach ($pattern in $patterns) {
+        $match = [regex]::Match($Body, $pattern)
+        if ($match.Success) { return $match.Groups[1].Value }
+    }
+
+    return $null
+}
+
+function Format-Bullets {
+    param(
+        [AllowNull()][object[]]$Items,
+        [string]$EmptyText = "- None."
+    )
+
+    if ($null -eq $Items -or $Items.Count -eq 0) { return $EmptyText }
+    return (($Items | ForEach-Object { "- " + (ConvertTo-SafeMarkdownText $_) }) -join "`n")
+}
+
+function Format-BlockingFindings {
+    param([AllowNull()][object[]]$Items)
+    if ($null -eq $Items -or $Items.Count -eq 0) { return "- None." }
+
+    $lines = @()
+    $index = 1
+    foreach ($item in $Items) {
+        $severity = ConvertTo-SafeMarkdownText $item.severity
+        $finding = ConvertTo-SafeMarkdownText $item.finding
+        $evidence = ConvertTo-SafeMarkdownText $item.evidence
+        $action = ConvertTo-SafeMarkdownText $item.required_action
+        $lines += "$index. **[$severity] $finding**`n   - Evidence: $evidence`n   - Required action: $action"
+        $index++
+    }
+    return ($lines -join "`n")
+}
+
+function Select-ReviewModel {
+    param(
+        [string]$EventKind,
+        [string]$Body
+    )
+
+    if ($Body -match '(?i)\[TEST-' -and $EventKind -eq 'CLAUDE_APPLIED') {

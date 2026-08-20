@@ -121,7 +121,18 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // possessive phrase. The trailing `a|an|<digit>` is what keeps ordinary prose out: "does the
   // merger promise the kind of returns investors want" has a recipient-shaped word after "promise"
   // and no figure after it, and still answers.
-  /\b(promise|promises|promised|promising)\s+((my|our|his|her|their|your|the)\s+\w+|\w+)\s+(an?|\d)[^?!]{0,30}\b(return|profit|gain|yield)s?\b/i,
+  //
+  // The recipient has to be PERSON-LIKE. Allowing any word there was the overshoot: "The
+  // prospectus promises a 5 year lock-up, not a return" and "Analysts promise nothing about future
+  // gains in this filing" were both refused, because "a" and "nothing" are words like any other.
+  //
+  // Split in two, because the recipient and the figure trade off against each other. A recipient
+  // that is unmistakably a PERSON needs no figure after it — "Can you promise John double-digit
+  // annual returns?" has none, and requiring one let it through. A recipient of the form
+  // "the <something>" is far weaker evidence, so that branch still wants a figure: without it,
+  // "does the merger promise the kind of returns investors want" reads as a promise to "the kind".
+  /\b[Pp]romis(e|es|ed|ing)\s+(me|us|him|her|them|you|(my|our|his|her|their|your)\s+\w+|[A-Z][a-z]+)\s[^?!]{0,30}\b(return|profit|gain|yield)s?\b/,
+  /\b(promise|promises|promised|promising)\s+the\s+\w+\s+(an?|\d)[^?!]{0,30}\b(return|profit|gain|yield)s?\b/i,
   /\btarget (price|return)\b/i,
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
@@ -149,6 +160,18 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // PRICE prediction needs the preposition ("trade at", "close above") or an explicit worth; a
   // numeric target is already covered by the `will … hit … 300` pattern above, which requires the
   // number that makes it a price.
+  //
+  // Dropping bare "hit" and "reach" reopened the form that asks for a price WITHOUT a number:
+  // "What high will Apple hit next year?". The numeric pattern above cannot see it because there
+  // is no numeral, and "trade at" is not how it is phrased. The price NOUN is what carries the
+  // meaning here, so that is what this keys on.
+  //
+  // "level" is deliberately absent. "What level will unemployment reach next year?" is a macro
+  // forecast and "What level will the S&P 500 reach next year?" is a price prediction, and nothing
+  // in the sentence distinguishes them without knowing whether the subject is an instrument or an
+  // indicator. Refusing macro forecasts is the worse error, so the index form is left uncovered
+  // and recorded as a gap rather than papered over with a list of index names.
+  /\bwhat\s+(high|low|price|value|worth)\b[^?!]{0,30}\bwill\b[^?!]{0,30}\b(hit|reach|be)\b/i,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\btrade\b\s+(at|above|below|around|near)\b/i,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\b(be worth|be priced)\b/i,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\bclose\b\s+(at|above|below|higher|lower)\b/i,
@@ -181,12 +204,40 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // desk sell Apple?") both walked past a kinship list, and a longer list would only move the
   // boundary rather than remove it.
   //
-  // The earlier objection to generalising was that "should investors buy" is market commentary
-  // rather than personal advice. On reflection that is a request for a recommendation too, and
-  // LEGAL_GUARDRAILS does not exempt one because it is addressed to a crowd. What keeps this from
-  // swallowing ordinary questions is the VERB: "Should investors expect more volatility?" and
-  // "Should the Fed raise rates?" carry no trading verb and still answer.
-  /\bshould\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // The generalisation `should <anything> <trading verb>` was tried here for one commit and it was
+  // a bad trade — the widest change of that round, and the one that broke the most. A self-attack
+  // with ten ordinary research questions refused all ten:
+  //
+  //   "Should the Fed hold rates steady at the next meeting?"
+  //   "Why should the ECB buy government bonds under QE?"
+  //   "How should a company hold treasury shares on its balance sheet?"
+  //   "What should a 10-K disclose about short positions?"
+  //   "Should short interest be reported semi-monthly?"
+  //
+  // The verb was supposed to be the discriminator and it is not one: "hold", "short" and "invest"
+  // are ordinary words in central-bank policy, accounting and regulation. Gate B's original
+  // objection was right and the reversal recorded against it was wrong — this reverses the
+  // reversal, on evidence rather than on reflection.
+  //
+  // What Gate C actually proved missing was narrower than the generalisation used to fix it:
+  // proper names and investor roles. Those are enumerated, and the enumeration is honest about
+  // what it is. The subject has to be a PERSON or someone acting for one; "the Fed", "a company"
+  // and "the index" are none of those, and "Should investors buy Nvidia?" stays answerable as
+  // market commentary rather than personal advice.
+  // Sixty characters rather than twenty-five, because the description of the person is exactly
+  // where a request like this gets long: "Should my elderly retired father with a low risk
+  // tolerance sell Apple?" is forty-eight characters between the possessive and the verb, and it
+  // is the most personalised request in this whole file. The possessive already establishes that
+  // a person is the subject, so the extra span costs nothing that the possessive was buying.
+  /\bshould (my|his|her|their|our|your)\b[^?!]{0,60}\b(buy|sell|dump|short|hold|invest)\b/i,
+  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
+  // "investors", "a company" or "a pension fund": those appear in questions about markets and
+  // regulation far more often than in requests for advice.
+  /\bshould\s+(the|my|our|his|her|their|your)\s+(trustee|broker|adviser|advisor|analyst|banker|desk|fund manager|portfolio manager|money manager|wealth manager|accountant)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // A named person. Case-sensitive on purpose — a capital letter mid-sentence is the only signal
+  // available here that the subject is somebody rather than something.
+  /\b[Ss]hould\s+[A-Z][a-z]+\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/,
   // "Should I invest?" with no object. The `should i (…|invest in|…)` pattern above requires
   // "invest IN something", so the bare form slipped through.
   /\bshould i (invest|get in|get out|hold|sell out|take profits?|cut (my )?losses)\b/i,

@@ -49,6 +49,22 @@ const STORED_DECIMAL_PLACES = 6;
 const DECIMAL_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 
 /**
+ * Whether a provider string is a decimal this column can hold.
+ *
+ * Exported so the adapters can validate with the SAME rule the comparison uses. They validated
+ * with `Number.isFinite(Number(raw))`, which is a test for "JavaScript can read this as a number",
+ * not for "this is a decimal" — `Number("0x10")` is 16, and `0b10` and `0o10` read the same way.
+ * A hexadecimal value therefore passed the adapter, was stored by Prisma as 16, and then made the
+ * comparator throw on the NEXT ingest of the same series: accepted once, fatal the second time.
+ *
+ * Validating at the boundary is the right place for it. By the time two values are being compared
+ * for identity, an unreadable one is already too late to do anything useful about.
+ */
+export function isStorableDecimal(raw: string): boolean {
+  return DECIMAL_SYNTAX.test(raw.trim());
+}
+
+/**
  * A decimal string as the integer number of millionths it represents, or null if it is not a
  * decimal at all.
  *

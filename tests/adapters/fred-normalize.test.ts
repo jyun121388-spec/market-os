@@ -54,3 +54,36 @@ describe("normalizeFredObservations", () => {
     expect(() => normalizeFredObservations(impossibleMonth)).toThrow(/does not exist/);
   });
 });
+
+/**
+ * Gate D, RC4-INGEST-1 — `Number.isFinite(Number(raw))` is not a test for "this is a decimal".
+ *
+ * `Number("0x10")` is 16, and `0b10` and `0o10` read the same way. A hexadecimal value passed this
+ * normalizer, was stored by Prisma as 16, and then made the identity comparator throw on the NEXT
+ * ingest of the same series — accepted once, fatal the second time, which is the worst of both
+ * available behaviours.
+ *
+ * The adapter is where a value that is not a decimal should stop, and it now validates with the
+ * same rule the comparator uses.
+ */
+describe("values that read as numbers but are not decimals", () => {
+  function normalizeOne(value: string) {
+    return normalizeFredObservations({
+      observation_start: "2026-01-01",
+      observation_end: "2026-01-01",
+      units: "lin",
+      count: 1,
+      observations: [{ realtime_start: "", realtime_end: "", date: "2026-01-01", value }],
+    } as never);
+  }
+
+  it.each(["0x10", "0b10", "0o10", "0xFF"])("rejects %s rather than storing it", (value) => {
+    expect(() => normalizeOne(value)).toThrow(/non-decimal FRED value/);
+  });
+
+  it("still accepts every decimal spelling a provider legitimately sends", () => {
+    for (const value of ["1", "-1", "+1", ".5", "1e5", "1.234567", "0"]) {
+      expect(normalizeOne(value).observations, value).toHaveLength(1);
+    }
+  });
+});

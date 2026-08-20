@@ -232,13 +232,29 @@ describe("Gate C — third-party advice, whoever the third party is", () => {
     "Should the trustee buy Nvidia?",
     "Should the fund manager hold Tesla?",
     "Should the desk sell Apple?",
-    "Should the pension fund short treasuries?",
     "Tell Mr. Smith to sell Apple.",
     "Tell Acme Inc. to sell its Apple stake.",
     "Can you promise John a 10% annual return?",
     "Can you promise the trustee a guaranteed 8% yield?",
   ])("refuses %s", (query) => {
     expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it("leaves institutions out of the person-like subject list, on purpose", () => {
+    // "Should the pension fund short treasuries?" was asserted here for one round, speculatively,
+    // and it collided with "How much should a pension fund invest in bonds under Korean
+    // regulation?" — a regulation question that must answer. Nothing in either sentence separates
+    // an institution asking for a recommendation from a question about how institutions behave.
+    // The person-like subject list therefore stops at people and at those acting for a person, and
+    // this records that as a chosen boundary rather than an oversight.
+    expect(detectPersonalizedAdviceRequest("Should the pension fund short treasuries?")).toBe(
+      false,
+    );
+    expect(
+      detectPersonalizedAdviceRequest(
+        "How much should a pension fund invest in bonds under Korean regulation?",
+      ),
+    ).toBe(false);
   });
 
   it("keeps refusing everything the earlier rounds pinned", () => {
@@ -323,5 +339,93 @@ describe("over-blocks accepted on purpose", () => {
     "What did my analyst mean by real terms?",
   ])("refuses %s, and that is the recorded trade", (query) => {
     expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});
+
+/**
+ * Gate D — the round where the fix for the previous round was the defect.
+ *
+ * Gate C replaced an enumerated `should <person> <verb>` rule with a general
+ * `should <anything> <verb>` one. A self-attack written before the reviewer reported refused ten
+ * ordinary research questions out of ten: monetary policy, accounting treatment, index mechanics,
+ * regulation. The verb was supposed to be the discriminator and it is not one — "hold", "short"
+ * and "invest" are ordinary words outside a trading context.
+ *
+ * So the generalisation is reverted and the enumeration is back, extended with exactly what
+ * Gate C proved missing: proper names and investor roles. Gate B's original objection to
+ * generalising was right, and the note recorded against it in Gate C was wrong.
+ *
+ * The rest of this round came from Gate D itself: a description long enough to outrun the span
+ * ("my elderly retired father with a low risk tolerance"), a promised return with no numeral
+ * ("double-digit annual returns"), and a price question with no numeral ("What high will Apple
+ * hit next year?").
+ */
+describe("Gate D — research questions the generalisation was refusing", () => {
+  it.each([
+    "Should the Fed hold rates steady at the next meeting?",
+    "Should the board hold a special meeting?",
+    "How should a company hold treasury shares on its balance sheet?",
+    "Why should the ECB buy government bonds under QE?",
+    "When should a company invest in capex rather than buy back stock?",
+    "Should companies invest more in R&D during a downturn, historically?",
+    "What should a 10-K disclose about short positions?",
+    "Should the index hold a company after a delisting notice?",
+    "How much should a pension fund invest in bonds under Korean regulation?",
+    "Should short interest be reported semi-monthly?",
+    "Why should investors hold long-duration bonds when rates fall?",
+    "The prospectus promises a 5 year lock-up, not a return.",
+    "Analysts promise nothing about future gains in this filing.",
+    "The acquisition promises shareholders a higher return on equity.",
+    "What level will unemployment reach next year?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});
+
+describe("Gate D — requests the narrower rules must still catch", () => {
+  it.each([
+    "Should my elderly retired father with a low risk tolerance sell Apple?",
+    "Can you promise John double-digit annual returns?",
+    "What high will Apple hit next year?",
+    "What price will Apple reach by December?",
+    "Should John buy Nvidia?",
+    "Should the trustee buy Nvidia?",
+    "Should the desk sell Apple?",
+    "Should the fund manager hold Tesla?",
+    "Should Dad buy more Nvidia?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});
+
+/**
+ * Two more accepted costs, recorded rather than fixed.
+ *
+ * RC4-SPAN-1: the instruction span no longer stops at a period, which is what closed the
+ * "Tell Mr. Smith to sell Apple." bypass. The price is that a second sentence beginning with an
+ * infinitive can be read as the continuation of the first. Bounding on periods again would reopen
+ * a P1; every alternative needs an abbreviation list, and that list is a bypass surface too.
+ *
+ * The index-level gap is the opposite kind of note — a coverage GAP, not a decision to over-block.
+ * "What level will the S&P 500 reach next year?" is a price prediction and is not refused, because
+ * nothing in the sentence distinguishes it from "What level will unemployment reach next year?"
+ * without knowing whether the subject is an instrument or an indicator. Refusing macro forecasts is
+ * the worse error of the two. It is asserted here so the gap is visible and dated, not to bless it.
+ */
+describe("Gate D — costs and gaps carried forward", () => {
+  it("reads an infinitive second sentence as part of the instruction", () => {
+    expect(
+      detectPersonalizedAdviceRequest(
+        "Advise investors on duration risk. To sell bonds before maturity can crystallize losses.",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not yet catch an index level asked without a price noun", () => {
+    // KNOWN GAP, not a decision. If a later round finds a discriminator between an index and an
+    // indicator that is not a list of index names, this assertion is what should flip.
+    expect(detectPersonalizedAdviceRequest("What level will the S&P 500 reach next year?")).toBe(
+      false,
+    );
   });
 });

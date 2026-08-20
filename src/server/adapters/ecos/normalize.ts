@@ -1,5 +1,6 @@
 import { assertValidCalendarDate } from "../dateValidation";
 import type { EcosCycle, EcosStatisticSearchRow, EcosStatisticSearchSuccess } from "./types";
+import { isStorableDecimal } from "@/server/domain/observationIngest";
 
 export interface NormalizedEcosObservation {
   observationDate: Date;
@@ -25,8 +26,10 @@ export function normalizeEcosObservations(
   const skippedMissing: EcosStatisticSearchRow[] = [];
 
   for (const row of response.StatisticSearch.row) {
-    const numeric = Number(row.DATA_VALUE);
-    if (row.DATA_VALUE === undefined || row.DATA_VALUE === "" || !Number.isFinite(numeric)) {
+    // Same rule the identity comparator uses, for the same reason as in the FRED normalizer:
+    // `Number.isFinite(Number(...))` accepts `0x10`, which is not a decimal and is not something
+    // this column should ever be asked to hold.
+    if (row.DATA_VALUE === undefined || !isStorableDecimal(row.DATA_VALUE)) {
       skippedMissing.push(row);
       continue;
     }

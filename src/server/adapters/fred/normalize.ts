@@ -1,5 +1,6 @@
 import { assertValidCalendarDate } from "../dateValidation";
 import type { FredObservationRaw, FredObservationsResponse } from "./types";
+import { isStorableDecimal } from "@/server/domain/observationIngest";
 
 export interface NormalizedFredObservation {
   observationDate: Date;
@@ -29,9 +30,14 @@ export function normalizeFredObservations(response: FredObservationsResponse): N
       continue;
     }
 
-    const numeric = Number(raw.value);
-    if (!Number.isFinite(numeric)) {
-      throw new Error(`Unexpected non-numeric FRED value "${raw.value}" on ${raw.date}`);
+    // `isStorableDecimal`, not `Number.isFinite(Number(...))`. The latter tests whether JavaScript
+    // can read the string as a number, which is not the same question: `Number("0x10")` is 16, and
+    // `0b10` and `0o10` read the same way. A hexadecimal value used to pass here, get stored by
+    // Prisma as 16, and then make the identity comparator throw on the next ingest of the same
+    // series — accepted once, fatal the second time. The adapter is where a value that is not a
+    // decimal should stop.
+    if (!isStorableDecimal(raw.value)) {
+      throw new Error(`Unexpected non-decimal FRED value "${raw.value}" on ${raw.date}`);
     }
 
     observations.push({

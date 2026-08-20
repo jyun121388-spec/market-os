@@ -1,0 +1,47 @@
+name: AI escalation event review
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: ai-event-review-${{ github.repository }}-${{ github.event.issue.number }}-${{ github.event.comment.id }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.number == 2 &&
+      github.event.comment.user.login == 'jyun121388-spec' &&
+      (
+        startsWith(github.event.comment.body, '[ESCALATION]') ||
+        startsWith(github.event.comment.body, '[ESCALATION_REFRESH_REQUIRED]') ||
+        startsWith(github.event.comment.body, '[CLAUDE_APPLIED]')
+      )
+    runs-on: [self-hosted, Windows, X64, ai-review]
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out canonical repository state
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          clean: true
+
+      - name: Run independent event review and post the decision
+        uses: jyun121388-spec/market-os/.github/actions/ai-event-review@cbf3764962d1a0903c8c9179d8b4ba88a7bfcae2
+        with:
+          project-id: MARKET-OS
+          canonical-issue: '2'
+          allowed-actor: jyun121388-spec
+        env:
+          GH_TOKEN: ${{ github.token }}

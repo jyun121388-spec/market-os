@@ -2435,3 +2435,52 @@ added and one removed; I, two removed; J, one removed and none added.
 No unresolved P0 or P1 at any candidate in the chain, both directions pinned by tests at every
 round. The Gate E gap — a bare first name with no other personal cue — remains open, remains
 labelled a gap, and remains the one thing in this file that no round has found a feature for.
+
+## Gate K — the first review that declined to escalate (candidate `d10334a`)
+
+One P1, and two candidates the reviewer explicitly refused to elevate, with reasons: `I want YOUR
+promise of 10% returns` evades the noun form but is materially less natural than the phrasings
+already covered, and an insurance agent being asked whether to sell Apple is not an ordinary
+representative-investment scenario.
+
+After ten rounds of unqualified "yes, there are unresolved P1s", a review that separates a real
+defect from an available one is a result in itself, and it is recorded as one. Four claims across
+the previous rounds did not reproduce; the discipline that avoids those is the same discipline that
+produces a shorter list.
+
+### The one P1, and it was mine
+
+`Should my boss's assistant sell his Apple shares?`
+
+The second-possessive exclusion added the round before rejects the whole rule whenever a possessive
+appears within thirty characters. The kinship rule rejects "boss's". "Assistant" is in no role list.
+Nothing was left to catch it.
+
+The fix does not extend a role list. What is being sold is plainly one person's holding, and that
+is sufficient on its own — a personal possessive in front of shares, a stake, an ISA, a portfolio.
+"Sell the house" and "buy new software" have no such possessive, which is what keeps them out.
+
+### Four more from self-attack
+
+Financial titles are rarely bare in practice: `private banker`, `independent adviser`,
+`robo-adviser`, `family office`. The unqualified head nouns now accept a modifier, which the
+qualified ones already did.
+
+And `I want 12% returns guaranteed` states the promise AFTER the figure. That is the same reversal
+that produced "price target" against "target price" nine rounds ago, and the same reversal found in
+two Korean forms before that. Reversal is now a category this file has been caught by four times;
+it is worth checking for deliberately on any new pattern rather than waiting to be told.
+
+### Eleven rounds
+
+| Rounds | What a finding meant                                                       |
+| ------ | -------------------------------------------------------------------------- |
+| A–E    | the pattern was wrong; replacing it broke something adjacent               |
+| F      | the pattern keyed on the wrong thing                                       |
+| G–H    | the rule was right, its boundaries were not                                |
+| I      | two lists were standing in for features; both were replaced                |
+| J      | the features were right; their edges were drawn wrong                      |
+| K      | one edge case the features did not reach — and a reviewer who said so once |
+
+No unresolved P0 or P1 at any candidate. The Gate E gap remains open and remains the only thing in
+this file that no round has found a feature for.

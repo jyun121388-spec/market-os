@@ -1104,7 +1104,83 @@
         "format": "PASS",
         "build": "PASS"
       },
-      "convergence_evidence": "First round where EVERY finding was a boundary on a feature rather than a wrong rule. Enumerations added vs removed across the chain: A-E 6/1, F 0/2, G-H 2/1, I 0/2, J 0/1. The Gate E gap remains the one thing in this file no round has found a feature for."
+      "convergence_evidence": "First round where EVERY finding was a boundary on a feature rather than a wrong rule. Enumerations added vs removed across the chain: A-E 6/1, F 0/2, G-H 2/1, I 0/2, J 0/1. The Gate E gap remains the one thing in this file no round has found a feature for.",
+      "superseded_by": "d10334a4fc172faedb3c33e8554909f106396ab1"
+    },
+    {
+      "gate": "K",
+      "head_sha": "d10334a4fc172faedb3c33e8554909f106396ab1",
+      "head_sha_short": "d10334a",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff 4eb6dbf..d10334a restricted to src/ and tests/, with the reviewer told that 'no unresolved P1' is a legitimate answer and that ten consecutive yes answers is itself a signal",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - one P1.",
+          "declined_to_escalate": [
+            "'I want YOUR promise of 10% returns' - evades the noun form but is materially less natural than the covered phrasings",
+            "'insurance agent' outside the qualifier list - a real title, but asking one whether to sell Apple is not an ordinary representative-investment scenario"
+          ],
+          "note": "First review in the chain to file a single finding and explain why two other candidates were not P1s. Recorded as a result in its own right."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "four more: private banker, independent adviser, robo-adviser and family office were all uncovered because unqualified head nouns took no modifier; and 'I want 12% returns guaranteed' states the promise after the figure"
+        }
+      ],
+      "remote_ci": {
+        "run": "32394590982",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "d10334a4fc172faedb3c33e8554909f106396ab1"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. One P1 from the review and four gaps from self-attack. All reproduced, all fixed.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC11-01",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The second-possessive exclusion creates a bypass when the actor is a person with no listed role.",
+          "reproduced": ["Should my boss's assistant sell his Apple shares?"],
+          "cause": "Direct regression from the previous round. The exclusion rejects the rule whenever a possessive appears; the kinship rule rejects 'boss's'; 'assistant' is in no role list.",
+          "fix": "Not a longer role list. What is being sold is one person's holding - a personal possessive in front of shares, a stake, an ISA, a portfolio - and that is sufficient. 'Sell the house' and 'buy new software' have no such possessive."
+        },
+        {
+          "id": "SELF-K1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "Unqualified financial titles take no modifier, so ordinary titles escape.",
+          "reproduced": [
+            "Should Dad's private banker sell Apple?",
+            "Should Dad's independent adviser sell Apple?",
+            "Should my son's robo-adviser buy Nvidia?",
+            "Should my mother's family office sell Apple?"
+          ],
+          "fix": "An optional modifier before the unqualified heads, matching what the qualified ones already allowed."
+        },
+        {
+          "id": "SELF-K2",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "A guaranteed return stated after the figure is not matched.",
+          "reproduced": ["I want 12% returns guaranteed."],
+          "note": "The same reversal that produced 'price target' against 'target price' nine rounds ago, and two Korean reversals before that. Reversal is a category this file has now been caught by four times and is worth checking deliberately on any new pattern."
+        }
+      ],
+      "local_verify": {
+        "tests": "1395 / 1395 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      }
     }
   ],
   "closure_conditions": {
@@ -1119,7 +1195,8 @@
       "Gate G reviewed 8340143 and found only boundaries, not patterns -> fixes -> next candidate",
       "Gate H reviewed 319cb72 -> fixes -> next candidate",
       "Gate I reviewed 8498867 -> fixes -> next candidate",
-      "Gate J reviewed 4eb6dbf -> fixes -> next candidate"
+      "Gate J reviewed 4eb6dbf -> fixes -> next candidate",
+      "Gate K reviewed d10334a -> fixes -> next candidate"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",

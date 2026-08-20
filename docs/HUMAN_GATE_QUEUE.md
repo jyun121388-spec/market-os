@@ -263,7 +263,7 @@ decided autonomously and recorded in `docs/DECISIONS.md`.
 
 ## HG-009 — Login lockout threat-model decision
 
-**Status**: `DEFERRED_HUMAN_GATE` · `ESCALATION_QUEUED_NOT_TRANSMITTED` as `ESC-009` ·
+**Status**: `HUMAN_GATE` · decision received and consumed 2026-08-20 · **still open** ·
 raised 2026-08-18 · escalated 2026-08-19 · severity P2
 
 The earlier status was `HUMAN_GATE_DEFERRED_UNTIL_USER_RETURN`, which is the shape the
@@ -280,6 +280,36 @@ password is verified (`src/server/domain/auth.ts`, `isLoginLocked`). Anyone who 
 can therefore lock that account for 15 minutes with five wrong guesses — no session, no victim
 interaction. Found by independent review (`gpt-5.6-terra`), reproduced by reading the
 implementation. Full analysis in `docs/INTERIM_REVIEW_FINDINGS.md` IR-014.
+
+### ESC-009 decision, received 2026-08-20 (issue #2 comment 5349780439)
+
+`Status: HUMAN_GATE`. Keep the current account-targeted 5-attempt / 15-minute lockout **unchanged
+as a temporary pre-launch default**. This is risk deferral, not a statement that the present design
+is the desired production one, and **the gate does not close on deployment**.
+
+The exposure, stated plainly because a gate record that softens it looks handled: at the current
+HEAD, `signIn()` calls `isLoginLocked(normalized)` before `verifyPassword`, and failures are keyed
+only by normalised email. Anyone who knows an address can deny that account for fifteen minutes
+with five wrong guesses — no session, no victim interaction.
+
+Why no autonomous fix: source/IP keying moves the failure rather than removing it (distributed
+attackers bypass it, NAT and proxy users are collateral) and depends on trusted ingress topology
+that does not exist; a challenge mechanism does not exist and adding one changes dependencies,
+accessibility and abuse policy; verifying the password first would restore unlimited guessing.
+Each is a product and threat-model choice, not a defect with one correct patch.
+
+**Preferred production direction when revisited** — layered throttling rather than a single hard
+account lock: progressive per-account delay plus source-aware limiting at a trusted ingress, with
+generic login errors preserved, and challenge/MFA only as a separately governed capability.
+
+Non-behavioural work completed under this decision: `tests/loginLockoutThreatModel.test.ts` pins the
+present semantics — including asserting the DoS as present, so it cannot drift silently in either
+direction — and records the acceptance criteria a replacement must satisfy (known-account DoS,
+brute-force budget, NAT/proxy fairness, distributed-source bypass, generic-error non-enumeration,
+trusted ingress prerequisite).
+
+**Not approved for production.** A fresh revision of this gate is required, with measured
+constraints, once ingress topology and acceptable user friction are known.
 
 **Why this was not decided autonomously**: every alternative trades one weakness for another, so
 there is no fix that is simply correct.

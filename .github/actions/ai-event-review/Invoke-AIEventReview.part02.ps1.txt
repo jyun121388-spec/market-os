@@ -1,0 +1,130 @@
+        return @{ Model = 'gpt-5.6-luna'; Risk = 'LUNA' }
+    }
+
+    if ($EventKind -in @('ESCALATION', 'ESCALATION_REFRESH_REQUIRED')) {
+        return @{ Model = 'gpt-5.6-sol'; Risk = 'SOL' }
+    }
+
+    $highRisk = '(?i)security|auth|credential|secret|financial|money|concurren|race|deadlock|migration|schema|database|delete|destruct|production|quarantine|payment|legal|regulat|rollback|irreversible|allocation|ledger|transaction'
+    if ($Body -match $highRisk) {
+        return @{ Model = 'gpt-5.6-sol'; Risk = 'SOL' }
+    }
+
+    return @{ Model = 'gpt-5.6-terra'; Risk = 'TERRA' }
+}
+
+$mutex = $null
+$token = $null
+$headers = $null
+$repository = $null
+$issueNumber = $CanonicalIssue
+$eventId = $null
+$eventCommentId = $null
+$dedupeTag = $null
+$repoRoot = $null
+$reviewRoot = $null
+$inputDir = $null
+$reviewWorktreeAdded = $false
+
+try {
+    if ([string]::IsNullOrWhiteSpace($env:GITHUB_EVENT_PATH) -or -not (Test-Path -LiteralPath $env:GITHUB_EVENT_PATH)) {
+        throw "GITHUB_EVENT_PATH is missing."
+    }
+
+    if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+        throw "GH_TOKEN is missing. The workflow must grant issues:write."
+    }
+
+    $token = $env:GH_TOKEN
+    $headers = Get-GitHubHeaders -Token $token
+    $event = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw -Encoding UTF8 | ConvertFrom-Json
+
+    $repository = [string]$event.repository.full_name
+    $issueNumber = [int]$event.issue.number
+    $eventCommentId = [string]$event.comment.id
+    $actor = [string]$event.comment.user.login
+    $body = [string]$event.comment.body
+
+    if ($issueNumber -ne $CanonicalIssue) {
+        Write-Log "Ignoring non-canonical issue #$issueNumber."
+        exit 0
+    }
+
+    if ($actor -ne $AllowedActor) {
+        Write-Log "Ignoring event from non-allowlisted actor '$actor'."
+        exit 0
+    }
+
+    $eventKind = $null
+    if ($body.StartsWith('[ESCALATION]')) {
+        $eventKind = 'ESCALATION'
+    } elseif ($body.StartsWith('[ESCALATION_REFRESH_REQUIRED]')) {
+        $eventKind = 'ESCALATION_REFRESH_REQUIRED'
+    } elseif ($body.StartsWith('[CLAUDE_APPLIED]')) {
+        $eventKind = 'CLAUDE_APPLIED'
+    } else {
+        Write-Log "Ignoring unsupported marker."
+        exit 0
+    }
+
+    $eventId = Find-EventId -Body $body
+    if ([string]::IsNullOrWhiteSpace($eventId)) {
+        throw "The triggering comment has no ESC-/TEST- identifier."
+    }
+
+    $dedupeTag = "<!-- ai-review-event:$repository:$eventCommentId -->"
+    $comments = @(Get-AllIssueComments -Repository $repository -IssueNumber $issueNumber -Headers $headers)
+    if (($comments | Where-Object { [string]$_.body -like "*$dedupeTag*" }).Count -gt 0) {
+        Write-Log "Event $eventCommentId was already handled."
+        exit 0
+    }
+
+    # One Codex review at a time across all four repository-level runners on this Windows host.
+    $mutex = [Threading.Mutex]::new($false, 'Global\Jyun4OSCodexEventReview')
+    $lockAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(90))
+    if (-not $lockAcquired) {
+        throw "Timed out waiting for the shared Codex review mutex."
+    }
+
+    $repoRoot = if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE)) { (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE).Path } else { (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path }
+
+    # Fetch every branch while the checkout credential is still present. The credential is removed
+    # before Codex starts so the model process cannot use the GitHub write token.
+    Write-Log 'Refreshing all remote branches for exact commit review.'
+    & git -C $repoRoot fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune --tags 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log 'Full branch fetch failed; continuing fail-closed with the objects already present.'
+    }
+
+    $referencedSha = Find-CommitSha -Body $body
+    if (-not [string]::IsNullOrWhiteSpace($referencedSha)) {
+        & git -C $repoRoot cat-file -e "$referencedSha^{commit}" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "Fetching referenced commit $referencedSha."
+            & git -C $repoRoot fetch --no-tags origin $referencedSha 2>&1 | Out-Host
+        }
+    }
+
+    $reviewRoot = $repoRoot
+    if (-not [string]::IsNullOrWhiteSpace($referencedSha)) {
+        & git -C $repoRoot cat-file -e "$referencedSha^{commit}" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $candidateRoot = Join-Path $env:RUNNER_TEMP "ai-review-$eventCommentId"
+            if (Test-Path -LiteralPath $candidateRoot) {
+                Remove-Item -LiteralPath $candidateRoot -Recurse -Force
+            }
+            & git -C $repoRoot worktree add --detach $candidateRoot $referencedSha 2>&1 | Out-Host
+            if ($LASTEXITCODE -eq 0) {
+                $reviewRoot = $candidateRoot
+                $reviewWorktreeAdded = $true
+                Write-Log "Reviewing exact commit $referencedSha in a detached worktree."
+            } else {
+                Write-Log 'Could not create the exact-commit worktree; the reviewer must treat this as an evidence limitation.'
+            }
+        }
+    }
+
+    $inputDir = Join-Path $reviewRoot '.ai-review-input'
+    if (Test-Path -LiteralPath $inputDir) {
+        Remove-Item -LiteralPath $inputDir -Recurse -Force
+    }

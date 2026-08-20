@@ -125,8 +125,10 @@ function millionths(raw: string): bigint | null {
 
   // Bounds before arithmetic, so an absurd literal is rejected rather than scaled. See
   // MAX_SAFE_SHIFT: the upper limit is a rejection, the lower one is an answer.
-  if (shift > MAX_SAFE_SHIFT) return null;
+  // Zero first: `0e999` is a well-formed way of writing zero, and the exponent bound would have
+  // rejected it for an exponent that cannot matter when the mantissa is nothing.
   if (digits === BigInt(0)) return BigInt(0);
+  if (shift > MAX_SAFE_SHIFT) return null;
   if (shift < -(digits.toString().length + 1)) return BigInt(0);
 
   // `BigInt(n)` rather than the `10n` literal form: `tsconfig.json` targets ES2017, where the

@@ -409,9 +409,25 @@ function tokenise(subject: string): string[] {
  * is UNRESOLVED, and callers are expected to treat that as a person.
  */
 export function classifySubject(subject: string): SubjectClass {
+  // Only the HEAD phrase decides. An appositive after a comma describes the subject; it is not the
+  // subject. "My father, a company DIRECTOR, sell Apple?" put an organisation word in reach of a
+  // rule that checks organisation words first, and answered a personalised request — while "my
+  // brother's company, given its strong cash balance" needs the organisation word to win, because
+  // there it IS the head. Splitting at the comma separates the two without a new list.
+  const head = subject.split(",")[0];
+  const headTokens = tokenise(head);
+  if (headTokens.length > 0) {
+    const fromHead = classifyTokens(headTokens);
+    if (fromHead !== "UNRESOLVED") return fromHead;
+  }
+
   const tokens = tokenise(subject);
   if (tokens.length === 0) return "UNRESOLVED";
+  return classifyTokens(tokens);
+}
 
+/** The classification rules themselves, applied to one already-tokenised phrase. */
+function classifyTokens(tokens: string[]): SubjectClass {
   if (tokens.some((token) => ORGANISATION_WORDS.has(token))) return "NON_PERSON";
 
   // A generic job word decides on its qualifier, and decides before the person words do — the
@@ -449,7 +465,7 @@ export function classifySubject(subject: string): SubjectClass {
 // forty-eight characters of subject with two commas in it. Bounding at seventy characters is what
 // keeps the span local, and the classifier — not the punctuation — decides what the subject is.
 const TRANSACTIONAL_FRAME =
-  /\bshould\s+([^?!]{1,70}?)\s+\b(buy|sell|dump|short|hold|invest|purchase|liquidate|divest)\b/i;
+  /\bshould\s+([^?!]{1,120}?)\s+\b(buy|sell|dump|short|hold|invest|purchase|liquidate|divest)\b/i;
 
 /**
  * Whether a query asks whether a PERSON should trade.
@@ -458,6 +474,94 @@ const TRANSACTIONAL_FRAME =
  * something the registries identify as not a person. That asymmetry is the fail-safe: an
  * unrecognised name redirects.
  */
+/** Words naming a tradable thing, as opposed to office furniture or a house. */
+const FINANCIAL_OBJECT_WORDS = new Set([
+  "shares",
+  "share",
+  "stock",
+  "stocks",
+  "equity",
+  "equities",
+  "bond",
+  "bonds",
+  "etf",
+  "etfs",
+  "fund",
+  "funds",
+  "position",
+  "positions",
+  "stake",
+  "holding",
+  "holdings",
+  "portfolio",
+  "securities",
+  "options",
+  "futures",
+  "treasuries",
+  "crypto",
+  "bitcoin",
+]);
+
+/**
+ * Whether what is being bought or sold is a tradable instrument.
+ *
+ * The subject alone is not enough, and two findings from opposite directions prove it. "Should my
+ * brother's PROJECT MANAGER buy new software?" is procurement; "Should my brother's PROJECT MANAGER
+ * buy Nvidia?" is a personalised trade. Same subject, same verb, and only the object differs — so
+ * a rule that reads only the subject has to get one of them wrong.
+ */
+function objectIsFinancial(object: string): boolean {
+  const tokens = tokenise(object);
+  if (tokens.some((token) => FINANCIAL_OBJECT_WORDS.has(token))) return true;
+  const joined = tokens.join(" ");
+  if (NON_PERSON_NAMES.has(joined)) return true;
+  for (let start = 0; start < tokens.length; start += 1) {
+    for (let end = start + 1; end <= tokens.length; end += 1) {
+      if (NON_PERSON_NAMES.has(tokens.slice(start, end).join(" "))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether the subject names a person anywhere in it, even if something else is its head.
+ *
+ * A person NOUN, not a possessive pronoun. "Our independent central bank" contains "our" and names
+ * no one; "my brother's project manager" contains "brother" and does. Using the whole person-word
+ * set here refused a monetary-policy question, because the pronoun that makes a subject personal
+ * in one construction is just a determiner in the other.
+ */
+const PERSON_NOUNS = new Set(
+  [...PERSON_WORDS].filter(
+    (word) =>
+      ![
+        "i",
+        "me",
+        "my",
+        "mine",
+        "myself",
+        "we",
+        "us",
+        "our",
+        "you",
+        "your",
+        "he",
+        "him",
+        "his",
+        "she",
+        "her",
+        "hers",
+        "they",
+        "them",
+        "their",
+      ].includes(word),
+  ),
+);
+
+function mentionsAPerson(subject: string): boolean {
+  return tokenise(subject).some((token) => PERSON_NOUNS.has(token));
+}
+
 export function asksWhetherAPersonShouldTrade(query: string): boolean {
   const frame = TRANSACTIONAL_FRAME.exec(query);
   if (!frame) return false;
@@ -479,10 +583,30 @@ export function asksWhetherAPersonShouldTrade(query: string): boolean {
       return false;
   }
 
-  if (verb === "hold") {
-    const after = query.slice(frame.index + frame[0].length, frame.index + frame[0].length + 40);
-    if (/\b(constant|fixed|steady|equal|unchanged)\b/i.test(after)) return false;
+  const object = query.slice(frame.index + frame[0].length, frame.index + frame[0].length + 60);
+  const financialObject = objectIsFinancial(object);
+
+  // The analytical sense of "hold" — holding a variable constant — but ONLY when the thing held is
+  // not tradable. "Should my father hold his Apple position unchanged?" contains "unchanged" and
+  // is a personalised hold recommendation; "Should my model hold the discount rate fixed?" is
+  // methodology. The qualifier alone cannot tell them apart, and the object can.
+  if (verb === "hold" && !financialObject) {
+    if (/\b(constant|fixed|steady|equal|unchanged)\b/i.test(object.slice(0, 40))) return false;
   }
 
-  return classifySubject(subject) !== "NON_PERSON";
+  // A singular personal possessive on the object settles it whatever the subject is. "Should Apple
+  // Martin sell HER Nvidia shares?" is a person's holding being sold, and the subject — a name that
+  // happens to collide with a company — cannot be trusted to say so. "His" and "her" only: "their"
+  // and "our" are what organisations take, which is how "Should BlackRock sell their pension fund
+  // business?" stays answerable.
+  if (financialObject && /\b(his|her)\b/i.test(object)) return true;
+
+  const subjectClass = classifySubject(subject);
+  if (subjectClass !== "NON_PERSON") return true;
+
+  // The subject's HEAD is not a person, but a person is named in it and what is being traded is an
+  // instrument. "Should my brother's project manager buy Nvidia?" is a personalised trade;
+  // "Should my brother's project manager buy new software?" is procurement. Same subject, same
+  // verb — the object is the only thing that separates them, so it decides.
+  return mentionsAPerson(subject) && financialObject;
 }

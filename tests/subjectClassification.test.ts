@@ -128,3 +128,84 @@ describe("asksWhetherAPersonShouldTrade", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * Gate O — the bounded post-repair review, and the thing the classifier had left out.
+ *
+ * Both blockers turned on the OBJECT of the verb, which the first version never looked at. Two
+ * findings from opposite directions prove it has to:
+ *
+ *     Should my brother's project manager buy new software?   procurement — answer
+ *     Should my brother's project manager buy Nvidia?         a personalised trade — redirect
+ *
+ * Same subject, same verb. A rule that reads only the subject has to get one of them wrong, and
+ * Gate J had made it wrong in one direction while Gate O found it wrong in the other.
+ *
+ * The `hold` carve-out was the same mistake in miniature: "Should my father hold his Apple position
+ * unchanged?" was exempted because "unchanged" appears after the verb, which is exactly the word an
+ * analytical hold uses. The qualifier cannot separate them; the object can.
+ */
+describe("Gate O — the object decides what kind of question it is", () => {
+  it.each([
+    "Should my brother's project manager buy Nvidia?",
+    "Should my friend the bank director buy Nvidia?",
+    "Should my father hold his Apple position unchanged?",
+  ])("redirects %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
+  });
+
+  it.each([
+    "Should my brother's project manager buy new software?",
+    "Should Dad's estate agent sell the house?",
+    "Should my sister's office manager invest in new desks?",
+    "Should my model hold the discount rate fixed across all three scenarios?",
+    "Should our forecast hold inflation constant?",
+    "Should my brother's company, given its strong cash balance, buy a competitor?",
+  ])("does not redirect %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(false);
+  });
+
+  it("reads an appositive as description, not as the subject", () => {
+    // "My father, a company DIRECTOR" put an organisation word in reach of a rule that checks
+    // organisation words first. Only the head phrase decides now; the rest is description.
+    expect(asksWhetherAPersonShouldTrade("Should my father, a company director, sell Apple?")).toBe(
+      true,
+    );
+    expect(
+      asksWhetherAPersonShouldTrade(
+        "Should my brother's company, given its strong cash balance, buy a competitor?",
+      ),
+    ).toBe(false);
+  });
+
+  it("follows a described person as far as they are described", () => {
+    for (const query of [
+      "Should Sarah, who is 68 and retired and has a very low tolerance for any risk at all, sell Apple?",
+      "Should my elderly retired father with a very conservative long-term retirement portfolio sell Nvidia?",
+    ]) {
+      expect(asksWhetherAPersonShouldTrade(query), query).toBe(true);
+    }
+  });
+});
+
+/**
+ * Known residual, assigned to REVIEW_DEBT by the Gate O review rather than fixed.
+ *
+ * A person whose name is also a registry entry classifies NON_PERSON — "Should Apple Martin buy
+ * Nvidia?" reads "apple" and stops. Every name registry has this property, and the repairs that
+ * would close it either require full-span matching, which breaks "the Dow Jones Industrial
+ * Average", or a personal-name list, which is the unbounded enumeration this whole module exists
+ * to avoid.
+ *
+ * `[CHATGPT_ARCHITECT_GUIDANCE][RC-CONVERGENCE-007]` is explicit that a measurable tail like this
+ * belongs in a follow-up coverage evaluation and not in another round. Asserted so the tail is
+ * visible and dated, not endorsed.
+ */
+describe("Gate O — name collisions, recorded as review debt", () => {
+  it("cannot tell a person named after a company from the company", () => {
+    expect(asksWhetherAPersonShouldTrade("Should Apple Martin buy Nvidia?")).toBe(false);
+    // ...while the ordinary forms of the same request are all covered.
+    expect(asksWhetherAPersonShouldTrade("Should Apple Martin sell her Nvidia shares?")).toBe(true);
+    expect(asksWhetherAPersonShouldTrade("Should my friend Apple Martin buy Nvidia?")).toBe(true);
+  });
+});

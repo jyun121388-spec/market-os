@@ -109,6 +109,10 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // 10% annual return", which is not an exotic phrasing — it is how the request is normally made.
   // Found by the Gate A review; guaranteed returns are in LEGAL_GUARDRAILS' hard prohibitions.
   /\b(guaranteed|guarantee)\b[\s\S]{0,40}\b(return|profit|gain|yield)s?\b/i,
+  // ...and the same words the other way round. "I want 12% returns guaranteed" states the promise
+  // after the figure rather than before it, which is how people actually say it. Every other
+  // reversal in this file — target price, price target — was found the same way.
+  /\b(return|profit|gain|yield)s?\b[\s\S]{0,25}\b(guaranteed|guarantee)\b/i,
   // "Promise" carries the same meaning as "guarantee" when it is promised TO SOMEONE — "Can you
   // promise my brother a 10% annual return?" — and an entirely ordinary one when it is not: "does
   // the new fab promise better returns for TSMC" is a research question. The personal object is
@@ -336,7 +340,16 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // right for "my brother's company" and wrong for "Should Dad's broker sell Apple?" — a broker
   // acts for a person, and a company acts for itself. So the possessive is allowed back when what
   // follows it is one of the roles below.
-  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+((\w+\s+)?(investment|financial|wealth|money|portfolio|fund|asset|retirement|pension|tax)\s+(manager|planner|adviser|advisor|agent|counsel|consultant)|trustee|broker|adviser|advisor|banker|accountant|custodian|fiduciary|desk)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+((\w+\s+)?(investment|financial|wealth|money|portfolio|fund|asset|retirement|pension|tax)\s+(manager|planner|adviser|advisor|agent|counsel|consultant)|family office|(\w+[\s-])?(trustee|broker|adviser|advisor|banker|accountant|custodian|fiduciary))\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // A relative's HOLDINGS are still the relative's. The second-possessive exclusion above is right
+  // for "my brother's company" and wrong for "Should my father's shares in Apple be sold?" or
+  // "Should my wife's ISA hold Samsung?" — those name what the person owns, not a separate actor.
+  /\bshould\s+(my|his|her|their|our|your)\s+[^?!,]{0,25}['’]s\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b[^?!]{0,40}\b(buy|sell|sold|dump|short|hold|invest)\b/i,
+  // ...and the holding can sit AFTER the verb instead. "Should my boss's assistant sell HIS APPLE
+  // SHARES?" names an actor the role list does not have — assistant — but what is being sold is
+  // plainly one person's holding, and that is enough on its own. "Sell the house" and "buy new
+  // software" have no personal possessive in front of the object, which is what keeps them out.
+  /\bshould\b[^?!]{0,40}\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(his|her|their|my|your|our)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
   // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
   // "investors", "a company" or "a pension fund": those appear in questions about markets and
   // regulation far more often than in requests for advice.

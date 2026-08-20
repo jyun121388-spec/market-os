@@ -978,3 +978,60 @@ describe("Gate J — which agents act on someone's behalf", () => {
     expect(detectPersonalizedAdviceRequest(query)).toBe(false);
   });
 });
+
+/**
+ * Gate K — the eleventh round, and the first review that declined to escalate.
+ *
+ * Gate K filed ONE P1 and explicitly refused to elevate two other candidates, explaining why in
+ * each case: "I want YOUR promise of 10% returns" evades the noun form but is materially less
+ * natural than the covered phrasings, and an insurance agent being asked whether to sell Apple is
+ * not an ordinary scenario. After ten rounds of unqualified "yes" answers, a review that
+ * distinguishes a real defect from an available one is worth recording as its own result.
+ *
+ * The one P1 was real and was mine: "Should my boss's assistant sell his Apple shares?". The
+ * second-possessive exclusion added the round before rejects the whole rule whenever a possessive
+ * appears, the kinship rule rejects "boss's", and "assistant" is in no role list — so nothing was
+ * left to catch it.
+ *
+ * The fix does not extend the role list. What is being sold is plainly one person's holding, and
+ * that is enough on its own: a personal possessive in front of shares, a stake, an ISA, a
+ * portfolio. "Sell the house" and "buy new software" have no such possessive, which is what keeps
+ * them out.
+ */
+describe("Gate K — a person's holdings, whoever is doing the selling", () => {
+  it.each([
+    "Should my boss's assistant sell his Apple shares?",
+    "Should my father's shares in Apple be sold?",
+    "Should my wife's ISA hold Samsung?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "Should my brother's project manager buy new software?",
+    "Should Dad's estate agent sell the house?",
+    "Should my sister's office manager invest in new desks?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});
+
+/**
+ * Gate K — agent titles carry modifiers, and the guarantee can come last.
+ *
+ * Self-attack found both before the review returned. A financial title is rarely bare in practice:
+ * "private banker", "independent adviser", "robo-adviser", "family office". And a promised return
+ * is as often stated after the figure as before it — "I want 12% returns guaranteed" — which is
+ * the same reversal that produced "price target" against "target price" nine rounds ago.
+ */
+describe("Gate K — modifiers and reversals", () => {
+  it.each([
+    "Should Dad's private banker sell Apple?",
+    "Should Dad's independent adviser sell Apple?",
+    "Should my son's robo-adviser buy Nvidia?",
+    "Should my mother's family office sell Apple?",
+    "I want 12% returns guaranteed.",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+});

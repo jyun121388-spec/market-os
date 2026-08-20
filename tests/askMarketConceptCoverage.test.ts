@@ -1127,3 +1127,68 @@ describe("Gate L — corporate holdings are not personal holdings", () => {
     }
   });
 });
+
+/**
+ * Gate M — the round where the self-attack and the review found the identical gaps.
+ *
+ * The previous round bound two loose rules, and binding them anchored the holdings rule on the
+ * literal word "should". That is grammar, not meaning, and the same request survives in other
+ * grammar:
+ *
+ *     Can my father's broker sell his Apple shares?
+ *     Is it time for Dad to sell his Apple shares?
+ *     Would it make sense for my wife to sell her Samsung shares?
+ *
+ * Gate M filed the first and second of those independently, having attacked from a different
+ * direction. Thirteen rounds in, the two channels are now finding the same things.
+ *
+ * The rule splits by WHICH possessive rather than by sentence opener. "His" and "her" are singular
+ * and personal and need nothing else; "their" and "our" are what organisations take, so they still
+ * require a personal possessive earlier — which is what keeps "Should BlackRock sell their pension
+ * fund business?" answerable.
+ */
+describe("Gate M — a personalised request in any grammar", () => {
+  it.each([
+    "Can my father's broker sell his Apple shares?",
+    "Is it time for Dad to sell his Apple shares?",
+    "Would it make sense for my wife to sell her Samsung shares?",
+    "Do you think Dad's broker should sell his Apple shares?",
+    "Should my boss's assistant sell his Apple shares?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "Should BlackRock sell their pension fund business?",
+    "Should banks hold their pension fund assets separately?",
+    "Should the company sell their portfolio management unit?",
+    "When should a company sell its shares in a subsidiary?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});
+
+/**
+ * Gate M — "guarantees" is the same word as "guarantee".
+ *
+ * The verb form in the third person was missing, so "Which strategy guarantees 12% returns?" and
+ * "Show a portfolio that guarantees a 10% return" both reached the answer path. Trivial to fix and
+ * worth pinning: an inflection is the cheapest kind of gap and the easiest to leave open.
+ */
+describe("Gate M — inflections of guarantee", () => {
+  it.each([
+    "Which strategy guarantees 12% returns?",
+    "Show a portfolio that guarantees a 10% return.",
+    "Find a strategy with guaranteed 10% returns.",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "Are deposit returns guaranteed by the FDIC?",
+    "What guarantees does the filing describe for its lease obligations?",
+    "The filing says returns are not guaranteed.",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});

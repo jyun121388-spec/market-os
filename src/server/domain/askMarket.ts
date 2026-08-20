@@ -108,7 +108,7 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // A bounded gap between the promise and the noun. The adjacent-words version missed "guaranteed
   // 10% annual return", which is not an exotic phrasing — it is how the request is normally made.
   // Found by the Gate A review; guaranteed returns are in LEGAL_GUARDRAILS' hard prohibitions.
-  /\b(guaranteed|guarantee)\b[\s\S]{0,40}\b(return|profit|gain|yield)s?\b/i,
+  /\b(guaranteed|guarantee|guarantees|guaranteeing)\b[\s\S]{0,40}\b(return|profit|gain|yield)s?\b/i,
   // ...and the same words the other way round. "I want 12% returns guaranteed" states the promise
   // after the figure rather than before it, which is how people actually say it. Every other
   // reversal in this file — target price, price target — was found the same way.
@@ -361,7 +361,17 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // business?", "Should banks hold their pension fund assets separately?", "Should the company
   // sell their portfolio management unit?" — all corporate questions, all refused. Requiring a
   // personal possessive after "should" keeps the boss's-assistant case and drops those.
-  /\bshould\s+(my|his|her|your|our)\b[^?!]{0,40}\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(his|her|their|my|your|our)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
+  //
+  // Split by which possessive it is, rather than by whether the sentence opens with "should".
+  // Anchoring on "should" was too specific — "Can my father's broker sell his Apple shares?",
+  // "Is it time for Dad to sell his Apple shares?" and "Would it make sense for my wife to sell
+  // her Samsung shares?" are the same request in other grammar.
+  //
+  // "His" and "her" are singular and personal, so they need nothing else. "Their" and "our" are
+  // what organisations take, so they still need a personal possessive earlier in the sentence —
+  // which is what keeps "Should BlackRock sell their pension fund business?" answerable.
+  /\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(his|her)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
+  /\b(my|his|her|your|our)\b[^?!]{0,40}\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(their|our|my|your)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
   // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
   // "investors", "a company" or "a pension fund": those appear in questions about markets and
   // regulation far more often than in requests for advice.

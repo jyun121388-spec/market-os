@@ -340,32 +340,36 @@ describe("the cycle uses the adaptive scheduler, not a constant", () => {
  * of this code, and the installed version is not the only one that will ever run it. Cheap
  * insurance against a difference nobody would otherwise notice until the issue passed 100 comments.
  */
-describe("gh pagination output, in either shape", () => {
-  const page1 = '[{"id":1}]';
-  const page2 = '[{"id":2}]';
-  const page3 = '[{"id":3}]';
-  // A real newline without writing an escape, because every attempt to write one through this
-  // toolchain has produced a literal line break in the source instead.
-  const NEWLINE = String.fromCharCode(10);
-
-  it("reads the merged array this gh version actually produces", () => {
+describe("gh pagination output", () => {
+  /**
+   * A rejected claim, then a fix for it that was worse than the claim.
+   *
+   * The review said `--paginate` concatenates arrays. It does not, for gh 2.97.0 — reproduced,
+   * rejected. I added concatenation handling anyway as version-tolerance, and the next review
+   * found it corrupted data: the merge rewrote `][` into `],[` including inside JSON strings, so
+   * a comment body containing those two characters came back altered.
+   *
+   * Text-surgery on a format with string literals — the same mistake that moved the attestation
+   * parser off Markdown, one module over. Deleted rather than defended with a JSON-aware scanner,
+   * because it guarded a shape no known version emits and was reachable from comment content.
+   */
+  it("reads the merged array gh actually produces", () => {
     expect(parseGhPages('[{"id":1},{"id":2}]')).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
-  it("also reads concatenated pages, which another version might emit", () => {
-    expect(parseGhPages([page1, page2].join(" "))).toEqual([{ id: 1 }, { id: 2 }]);
-    expect(parseGhPages([page1, page2, page3].join(NEWLINE))).toEqual([
-      { id: 1 },
-      { id: 2 },
-      { id: 3 },
-    ]);
+  it("does not alter a body containing the old separator pattern", () => {
+    // The corruption case, pinned. This is legitimate content and must survive untouched.
+    const tricky = JSON.stringify([{ id: 1, body: "see figure ][ below" }]);
+    expect(parseGhPages(tricky)).toEqual([{ id: 1, body: "see figure ][ below" }]);
   });
 
-  it("still throws on genuinely corrupt output rather than salvaging it", () => {
-    // The failure mode that matters more than either shape: a warning printed to stdout, or a
-    // truncated body. Salvaging those would turn a transport failure into a short comment list,
-    // which is the silent truncation this module keeps having to remove.
-    expect(() => parseGhPages(["warning: something", page1].join(NEWLINE))).toThrow();
+  it("throws loudly on anything it cannot parse, rather than salvaging it", () => {
+    // Loud and wrong-shaped beats quiet and altered. Each of these reaches READ_FAILED, where the
+    // cursor does not move and nothing is admitted.
+    expect(() =>
+      parseGhPages(["warning: something", '[{"id":1}]'].join(String.fromCharCode(10))),
+    ).toThrow();
+    expect(() => parseGhPages('[{"id":1}] [{"id":2}]')).toThrow();
     expect(() => parseGhPages('[{"id":1}')).toThrow();
     expect(() => parseGhPages("")).toThrow();
   });

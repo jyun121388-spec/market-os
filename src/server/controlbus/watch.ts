@@ -266,29 +266,27 @@ export function ghFetchComments(run: (args: string[]) => string): FetchComments 
 }
 
 /**
- * Parses `gh api --paginate` output, whichever shape it arrives in.
+ * Parses `gh api --paginate` output.
  *
- * A review claimed that `--paginate` emits consecutive JSON arrays, so a single `JSON.parse` would
- * throw past the first page. Reproduced against gh 2.97.0 and it is false — pages of a JSON array
- * are merged into one array, which is exactly why `--slurp` exists to opt OUT of merging. The
- * claim was rejected rather than acted on.
+ * Plain `JSON.parse`, and the history is the point. A review claimed `--paginate` emits
+ * consecutive JSON arrays, so one parse would throw past the first page. Reproduced against
+ * gh 2.97.0 with `per_page=5` over twelve comments: it returned a single merged array of twelve.
+ * `--slurp` exists to opt OUT of that merge, which is the documentation confirming the default.
+ * The claim was rejected.
  *
- * It is handled anyway, because the merge is a property of the tool rather than of our code, and
- * the version installed here is not the only version that will ever run this. A concatenated
- * `[...] [...]` body is recognised and flattened; anything else still throws into READ_FAILED,
- * where the cursor does not move.
+ * I then added concatenation handling anyway, as version-tolerance — and the next review found it
+ * corrupted data. The merge was a regex rewriting `][` into `],[`, which also rewrites those two
+ * characters INSIDE a JSON string: a comment body containing `][` came back altered. Text-surgery
+ * on a format that has string literals in it, which is precisely the mistake the attestation
+ * parser was moved off Markdown to escape, repeated one module over.
+ *
+ * So it is gone rather than defended with a JSON-aware scanner. It guarded a shape no version is
+ * known to emit, and it introduced a corruption path that was reachable from comment content. If
+ * some future `gh` does concatenate, this throws into `READ_FAILED` — the cursor does not move,
+ * nothing is admitted, and the failure is loud. Loud and wrong-shaped beats quiet and altered.
  */
 export function parseGhPages(raw: string): unknown {
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch (error) {
-    const trimmed = raw.trim();
-    // Only attempt the concatenated form when it actually looks like one, so a genuinely corrupt
-    // body — a warning printed to stdout, a truncated response — still fails loudly.
-    if (!/^\[[\s\S]*\]$/.test(trimmed) || !/\]\s*\[/.test(trimmed)) throw error;
-    const merged = JSON.parse(`[${trimmed.replace(/\]\s*\[/g, "],[")}]`) as unknown[];
-    return merged.flat();
-  }
+  return JSON.parse(raw) as unknown;
 }
 
 /**

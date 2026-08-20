@@ -1605,3 +1605,28 @@ The other five answers were confirmed: budget arithmetic never over-polls (now s
 across eight remaining-counts and five reset horizons rather than argued), auth mode cannot claim
 authenticated when it is not, no credential reaches a log or the inbox, the `TEST-` gate cannot be
 bypassed or spoofed, and the attestation parser and freshness rules are unregressed.
+
+### IR-079 — the tolerance added for a rejected claim corrupted data (P1, removed)
+
+IR-078 rejected a reviewer claim that `gh api --paginate` concatenates JSON arrays. I added
+concatenation handling anyway, framed as version-tolerance. The next review found it corrupts
+data.
+
+The merge was a regex rewriting `][` into `],[`. That rewrite does not respect JSON string
+literals, so `["x][y"]["z"]` — a body containing those two characters — parsed to altered content.
+A GitHub comment saying "see figure ][ below" is entirely ordinary, which makes this reachable from
+remote content rather than theoretical.
+
+**Text-surgery on a format that has string literals in it.** The same mistake that moved the
+attestation parser off Markdown two days of work ago, repeated one module over, in code written to
+be defensive. That is the pattern worth recording: the defensive addition was itself the defect,
+and it existed only to satisfy a claim I had already reproduced as false.
+
+Removed rather than defended with a JSON-aware scanner. It guarded a shape no known `gh` version
+emits, and if a future one does concatenate, `JSON.parse` now throws into `READ_FAILED` — cursor
+unmoved, nothing admitted, failure loud. Loud and wrong-shaped beats quiet and altered.
+
+Also noted from the same review and not fixed: when `ghFetchComments` throws on a parse failure,
+the rate-limit signals it had already retrieved are lost, so the backoff degrades to geometric
+rather than budget-aware. Safe in that direction — it waits longer, not shorter — and restructuring
+the fetch contract to carry signals through a throw costs more than it returns today.

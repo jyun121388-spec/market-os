@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "risk_class",
+    "summary",
+    "decision",
+    "reasoning",
+    "evidence_checked",
+    "blocking_findings",
+    "nonblocking_findings",
+    "required_actions",
+    "safe_to_execute",
+    "human_required",
+    "limitations",
+    "applied_commit"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "APPROVED",
+        "APPROVED_TO_IMPLEMENT",
+        "REWORK_REQUIRED",
+        "NOT_APPROVED",
+        "NEEDS_MORE_EVIDENCE",
+        "HUMAN_GATE",
+        "IGNORE"
+      ]
+    },
+    "risk_class": {
+      "type": "string",
+      "enum": [
+        "LUNA",
+        "TERRA",
+        "SOL"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "decision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 6000
+    },
+    "reasoning": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "evidence_checked": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "blocking_findings": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "severity",
+          "finding",
+          "evidence",
+          "required_action"
+        ],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ]
+          },
+          "finding": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2500
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2500
+          },
+          "required_action": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2500
+          }
+        }
+      }
+    },
+    "nonblocking_findings": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "required_actions": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "safe_to_execute": {
+      "type": "boolean"
+    },
+    "human_required": {
+      "type": "boolean"
+    },
+    "applied_commit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-fA-F]{7,40}$"
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    }
+  }
+}

@@ -2181,3 +2181,63 @@ Two things follow, and they point in different directions:
 
 Recorded here rather than acted on, because changing the shape of the guardrail is not a change to
 make inside a release-candidate freeze.
+
+## Gate F — the round that found the actual discriminator (candidate `0508113`)
+
+Three P1s, all reproduced, all in the guardrail. Two were regressions from the fix immediately
+before them, which by now is the expected result rather than a surprise. The third was worth more
+than either.
+
+### The recipient was never the question
+
+`Does this bond promise investors a 5% yield?` was refused. That is a question about contractual
+terms and about as ordinary as research gets in this product.
+
+Look at what three rounds had been doing to the promise rule. Round one keyed on a pronoun list.
+Round two on any word. Round three on a capitalised name. Round four added a numeral to stand in
+for the capital. Each version fixed the example in front of it and broke something adjacent, and
+each time the thing being adjusted was the RECIPIENT.
+
+The recipient carries no information. Look at the subject instead:
+
+    Can you promise John a 10% annual return?          the system is asked to promise — prohibited
+    Does this bond promise investors a 5% yield?       a bond promises — contractual terms
+    The acquisition promises shareholders a return     prose
+    Does the merger promise the kind of returns…       prose
+
+Every prohibited form has "you promise" in it or is an imperative. Every innocent one has a thing
+as the subject. Keying on that makes lower case, capitals, names, roles and "double-digit" all work
+at once — the four separate branches collapse to two, and the recipient goes back to being anything
+at all.
+
+This is the same shape as four of the six rounds: patching the object when the subject was the
+signal. Worth stating in those terms, because it is the first structural improvement in the file
+rather than another pattern.
+
+### A comma is not a change of subject
+
+The previous round made commas end the possessive span, so that "Should our independent central
+bank, during a liquidity crisis, buy government bonds under QE?" would stop being refused. Gate F
+found the other side of it immediately: `Should my elderly retired father, given his low risk
+tolerance, sell Apple?` is the same request as the pinned no-comma version and was being answered.
+
+A kinship term settles what a bare possessive can only guess at, so the kinship rule allows commas
+and the possessive rules still do not. Both sentences get the right answer now for a reason rather
+than by tuning a number — which is the difference between the two halves of this round.
+
+### "Dow" is a company as well as an index
+
+`What level will the Dow Chemical dividend reach next year?` was refused by the case-insensitive
+index list added the round before. The list is case-sensitive now and does not match when another
+proper noun follows: an index name followed by a capitalised word is part of a longer name.
+
+The index enumeration itself still holds up. It was defended on the grounds that it is a list that
+can be FINISHED, unlike personal names, and that argument survives contact with this finding — what
+failed was the matching, not the closure of the set.
+
+### The reviewer could not run the tests, and said so
+
+Gate F's environment refused to let Vite write its temporary config, so the review is regex reading
+rather than execution. It said so explicitly instead of implying the findings had been run. All
+three reproduced when checked here, which is the right outcome for a review that was honest about
+its limits.

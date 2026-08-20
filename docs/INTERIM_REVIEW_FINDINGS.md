@@ -2626,3 +2626,60 @@ Three mutants, all load-bearing:
 
 The middle row is the one worth keeping: it proves the fail-safe direction is tested, not just the
 happy path.
+
+## Gate O — the bounded post-repair review, and the thing the classifier had left out
+
+Two P1 blockers, and both turned on the same omission: the classifier read the SUBJECT and never
+the object.
+
+    Should my brother's project manager buy new software?   procurement — answer
+    Should my brother's project manager buy Nvidia?         a personalised trade — redirect
+
+Same subject, same verb. Gate J had made this wrong in one direction and Gate O found it wrong in
+the other, which is as clean a demonstration as the chain has produced that a rule reading half the
+sentence has to get one half of the cases wrong.
+
+The `hold` carve-out was the same mistake in miniature. "Should my father hold his Apple position
+UNCHANGED?" was exempted because "unchanged" is exactly the word an analytical hold uses. The
+qualifier cannot separate methodology from advice; the object can.
+
+So `asksWhetherAPersonShouldTrade` now reads both ends. The object rescues a person whose subject
+head is not one, the analytical exemption applies only when what is held is not tradable, and a
+singular personal possessive on the object — "her Nvidia shares" — settles it regardless of the
+subject, which is what covers a person whose NAME collides with a registry entry.
+
+### Three smaller things the same review round produced
+
+An appositive is description, not subject. "Should my father, a company DIRECTOR, sell Apple?" put
+an organisation word within reach of a rule that checks organisation words first. Only the head
+phrase decides now.
+
+`mentionsAPerson` needed a person NOUN rather than any person word. Using the full set refused
+"Should our independent central bank, during a liquidity crisis, buy government bonds under QE?" —
+"our" makes a subject personal in one construction and is a bare determiner in the other.
+
+And `0e999` was rejected for an exponent that cannot matter when the mantissa is zero. The
+zero-mantissa answer comes before the exponent bound now.
+
+### What went to REVIEW_DEBT rather than to another round
+
+Per `[CHATGPT_ARCHITECT_GUIDANCE][RC-CONVERGENCE-007]`, which is explicit that a measurable tail
+belongs in a follow-up evaluation:
+
+- **Name collisions.** A person whose name is a registry entry — "Should Dow buy Nvidia?", "Should
+  Apple Martin buy Nvidia?" — classifies NON_PERSON. Every name registry has this property. The
+  repairs that would close it need either full-span matching, which breaks "the Dow Jones
+  Industrial Average", or a personal-name list, which is the unbounded enumeration this module
+  exists to avoid. Every ordinary form of the same request IS covered: a possessive on the object,
+  a kinship word, a role, or an instruction frame all redirect.
+
+These are asserted by test so the tail is visible and dated, not endorsed.
+
+### The classifier, after Gate O
+
+It reads: the head phrase of the subject, the rest of the subject as supporting evidence, and the
+object. Three registries the repository already maintains plus one curated set. Three outcomes,
+with UNRESOLVED redirecting.
+
+Mutation proof, re-run after these repairs: neutering the classifier fails 36 tests, making
+UNRESOLVED fail open fails 12, removing the storage-domain range check fails 6.

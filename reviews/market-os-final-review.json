@@ -1380,6 +1380,112 @@
         "lint": "PASS",
         "format": "PASS",
         "build": "PASS"
+      },
+      "superseded_by": "dcc88ed22975f96c6661390a0ddde31ddc99b4b4"
+    },
+    {
+      "gate": "O",
+      "head_sha": "dcc88ed22975f96c6661390a0ddde31ddc99b4b4",
+      "head_sha_short": "dcc88ed",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "THE bounded post-repair review required by RC-CONVERGENCE-007: the two structural repairs plus regression of the Gate A-M cases",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - two P1 BLOCKER, three REVIEW_DEBT.",
+          "note": "Asked to mark each finding BLOCKER or REVIEW_DEBT and did so, which is the distinction the candidate needed. It also confirmed it reviewed the candidate blobs rather than the modified working tree."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "four under-blocks; two were the same defects the review filed as blockers, two are the name-collision tail the review independently assigned to REVIEW_DEBT"
+        }
+      ],
+      "remote_ci": {
+        "run": "32428791312",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "dcc88ed22975f96c6661390a0ddde31ddc99b4b4"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1 blockers, both from the classifier reading only the subject and never the object. Both fixed. Three REVIEW_DEBT items: two fixed anyway because they were cheap, one recorded as a tail.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-001",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Classification precedence turns an identified person into NON_PERSON when their description contains an organisation word or generic job title.",
+          "reproduced": [
+            "Should my brother's project manager buy Nvidia?",
+            "Should my friend the bank director buy Nvidia?"
+          ],
+          "cause": "The classifier read the subject and never the object. Gate J had made this wrong in one direction; this is the other direction of the same omission.",
+          "fix": "The object decides. A person named in the subject plus a tradable object redirects; 'buy new software' and 'sell the house' still answer."
+        },
+        {
+          "id": "RC-002",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The analytical hold exemption also exempts personalised position advice whenever 'steady' or 'unchanged' follows the verb.",
+          "reproduced": ["Should my father hold his Apple position unchanged?"],
+          "fix": "The exemption applies only when the thing held is not tradable. 'Should my model hold the discount rate fixed?' still answers."
+        },
+        {
+          "id": "RC-003",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "PARTLY_CLOSED_TAIL_RECORDED",
+          "claim": "A person sharing a registered entity name classifies NON_PERSON, including on a substring.",
+          "reproduced": ["Should Apple Martin buy Nvidia?", "Should Dow buy Nvidia?"],
+          "partly_closed": "A singular personal possessive on the object now settles it regardless of subject, so 'Should Apple Martin sell her Nvidia shares?' redirects, as do the kinship, role and instruction forms.",
+          "why_the_rest_is_debt": "Closing the bare form needs full-span matching, which breaks 'the Dow Jones Industrial Average', or a personal-name list, which is the unbounded enumeration this module exists to avoid. RC-CONVERGENCE-007 assigns a measurable tail like this to a follow-up evaluation."
+        },
+        {
+          "id": "RC-004",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The exponent limit runs before the zero-mantissa exception, so 0e999 is rejected.",
+          "fix": "Zero is answered before the bound is applied. Cheap enough that leaving it as debt would have cost more to track than to fix."
+        },
+        {
+          "id": "RC-005",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "FOUND_BY_SELF_ATTACK_FIRST_AND_FIXED",
+          "claim": "A personalised subject longer than 70 characters evades the transactional frame.",
+          "reproduced": [
+            "Should my elderly retired father with a very conservative long-term retirement portfolio sell Nvidia?"
+          ],
+          "fix": "The frame spans 120 characters. A described person runs long, and the classifier reads the head phrase, so a wider span gives the classifier more to look at rather than the pattern more to match."
+        },
+        {
+          "id": "SELF-O1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "An appositive containing an organisation word overrides an identified person.",
+          "reproduced": ["Should my father, a company director, sell Apple?"],
+          "fix": "Only the head phrase decides. The rest of the subject is description and is used only as supporting evidence."
+        }
+      ],
+      "mutation_proof": {
+        "classifier always returns false": 36,
+        "UNRESOLVED fails open instead of safe": 12,
+        "storage-domain range check removed": 6
+      },
+      "local_verify": {
+        "tests": "1526 / 1526 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
       }
     }
   ],
@@ -1399,7 +1505,8 @@
       "Gate K reviewed d10334a -> fixes -> next candidate",
       "Gate L reviewed e1134d1 -> fixes -> next candidate",
       "Gate M reviewed a7cb520 -> fixes -> next candidate",
-      "Gate N applied the two structural repairs RC-CONVERGENCE-007 required -> new candidate -> one bounded review of the repairs, then attestation"
+      "Gate N applied the two structural repairs RC-CONVERGENCE-007 required -> new candidate -> one bounded review of the repairs, then attestation",
+      "Gate O ran the bounded post-repair review of dcc88ed -> two P1 blockers fixed -> next candidate needs only a re-review of the changed surface"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",

@@ -2241,3 +2241,65 @@ Gate F's environment refused to let Vite write its temporary config, so the revi
 rather than execution. It said so explicitly instead of implying the findings had been run. All
 three reproduced when checked here, which is the right outcome for a review that was honest about
 its limits.
+
+## Gate G — the seventh round, and the first where nothing new had to be invented (candidate `8340143`)
+
+Three P1s. All of them were boundaries on the rule Gate F introduced rather than the rule itself,
+and that is the difference worth recording: for six rounds a finding meant replacing a pattern, and
+this round every finding was fixed by widening or narrowing a bound on a rule that was already
+right.
+
+### The subject rule was right; its edges were too tight
+
+Re-keying the promise rule from recipient to subject narrowed what it matches. A self-attack run
+before the review returned found five forms that had slipped out of the narrowing:
+
+    Would you be able to promise me a 10% return?     the politeness sits between "you" and "promise"
+    Can you please promise me a 10% annual return?
+    Just promise me a 10% return.                     an adverb before the imperative
+    I want a promise of 10% returns.                  the noun form, no verb at all
+    Can I get a promise of 12% a year in returns?
+
+Gate G added a sixth: `For my retirement account, promise me a 10% annual return.` — an imperative
+opened by a comma rather than by a full stop.
+
+Fixed by allowing a fifteen-character gap after "you", a closed list of adverbs before the
+imperative, a comma as a sentence boundary, and one pattern for the noun form that requires a
+figure. `Can you tell me if the bond promises investors a 5% yield?` still answers: twenty-four
+characters separate "you" from "promise" there, and the subject is the bond.
+
+### A possessive moves the subject off the person
+
+The kinship rule was widened last round to span an appositive. `Should my brother's COMPANY, given
+its strong cash balance, buy a competitor?` is what that reaches — corporate analysis, with the
+span crossing the apostrophe to find the verb. The subject of "buy" is the company, and a
+possessive on the kinship term is exactly the signal that says so.
+
+### Index names that continue into another capitalised word
+
+The lookahead added last round to keep "Dow Chemical" answerable also stopped `S&P 500 Index`,
+`Nasdaq Composite` and `Dow Jones Industrial Average` being recognised. All three are the index,
+spelled out in full. The lookahead now lets through the words that CONTINUE an index name and stops
+at the ones that start a company name.
+
+Found by self-attack for `Nasdaq Composite` and by Gate G for the other two, which is the second
+round running where the two agreed without having seen each other.
+
+### Where the chain stands
+
+Seven rounds. The shape of the findings has changed:
+
+| Rounds | What a finding meant                                        |
+| ------ | ----------------------------------------------------------- |
+| A–E    | replace a pattern; the replacement broke something adjacent |
+| F      | change what a rule keys on; four branches became two        |
+| G      | adjust a boundary on a rule that was already right          |
+
+Gate F is the reason. Keying on the subject rather than the object removed the thing that had been
+oscillating, and the round after it produced no structural finding at all — only edges. That is
+what convergence looks like from inside, and it is the first evidence in seven rounds that this
+surface can reach a fixed point rather than trade one error for another indefinitely.
+
+The gap recorded at Gate E remains open and remains a gap: a bare first name with no other personal
+cue — `Should John buy Nvidia?` — is not refused, because every discriminator tried for it also
+refuses `Should Apple buy Nvidia?`. Every phrasing carrying any other cue is covered.

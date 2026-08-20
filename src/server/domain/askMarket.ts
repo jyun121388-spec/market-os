@@ -126,20 +126,22 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // prospectus promises a 5 year lock-up, not a return" and "Analysts promise nothing about future
   // gains in this filing" were both refused, because "a" and "nothing" are words like any other.
   //
-  // Split in two, because the recipient and the figure trade off against each other. A recipient
-  // that is unmistakably a PERSON needs no figure after it — "Can you promise John double-digit
-  // annual returns?" has none, and requiring one let it through. A recipient of the form
-  // "the <something>" is far weaker evidence, so that branch still wants a figure: without it,
-  // "does the merger promise the kind of returns investors want" reads as a promise to "the kind".
-  /\b[Pp]romis(e|es|ed|ing)\s+(me|us|him|her|them|you|(my|our|his|her|their|your)\s+\w+|[A-Z][a-z]+)\s[^?!]{0,30}\b(return|profit|gain|yield)s?\b/,
-  /\b(promise|promises|promised|promising)\s+the\s+\w+\s+(an?|\d)[^?!]{0,30}\b(return|profit|gain|yield)s?\b/i,
-  // A recipient written in lower case, or shouted in capitals, is the same recipient. The
-  // case-sensitive branch above reads a capital as evidence of a name, and "promise john a 10%
-  // annual return" offers none — so this branch takes any word and lets the figure do the work
-  // instead, which is what keeps "does the new fab promise better returns" out of it.
-  // An article is not a recipient. Without excluding them, "The prospectus promises a 5 year
-  // lock-up, not a return" reads as a promise made to "a".
-  /\b(promise|promises|promised|promising)\s+(?!(a|an|the|no|nothing|not)\b)\w+\s[^?!]{0,20}\d[^?!]{0,25}\b(return|profit|gain|yield)s?\b/i,
+  // Three rounds were spent on the RECIPIENT — pronoun, then any word, then a capitalised name,
+  // then a numeral to stand in for the capital — and each version traded one error for another.
+  // The recipient was never the discriminator. WHO IS BEING ASKED TO PROMISE is.
+  //
+  //   "Can you promise John a 10% annual return?"     — the system is asked to promise. Prohibited.
+  //   "Does this bond promise investors a 5% yield?"  — a bond promises. Contractual terms, and a
+  //                                                     perfectly ordinary research question.
+  //   "The acquisition promises shareholders a higher return on equity."   — prose.
+  //   "Does the merger promise the kind of returns investors want?"        — prose.
+  //
+  // Every prohibited form has "you promise" in it or is an imperative; every innocent one has a
+  // thing as the subject. So the subject is what this keys on, and the recipient goes back to
+  // being anything at all — which is what finally makes lower case, capitals, names, roles and
+  // "double-digit" all work without a fourth list.
+  /\byou\s+promise\b[^?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
+  /(^|[.?!]\s+)\s*promise\s+(me|us|him|her|them|\w+)\b[^?!]{0,40}\b(return|profit|gain|yield)s?\b/i,
   /\btarget (price|return)\b/i,
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
@@ -186,7 +188,11 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // "What level will the S&P 500 reach?" from "What level will unemployment reach?" — but the
   // separation is the SUBJECT, and unlike personal names the major indices are a closed, stable
   // set. Naming them costs nothing: no economic indicator shares a name with one.
-  /\bwhat (level|value|number)\b[^?!]{0,30}\bwill\b[^?!]{0,30}\b(s&p( 500)?|nasdaq|dow( jones)?|russell|kospi|kosdaq|nikkei|ftse|dax|hang seng|stoxx|vix)\b[^?!]{0,25}\b(hit|reach|be|close)\b/i,
+  // Case-sensitive, and refusing to match when a capitalised word follows the index name. Both
+  // are there for the same reason: "Dow" is a company as well as an index, and the case-insensitive
+  // version refused "What level will the Dow Chemical dividend reach next year?". An index name
+  // followed by another proper noun is part of a longer name, not an index.
+  /\b[Ww]hat (level|value|number)\b[^?!]{0,30}\bwill\b[^?!]{0,30}\b(S&P( 500)?|Nasdaq|NASDAQ|Dow( Jones)?|Russell|KOSPI|Kospi|KOSDAQ|Nikkei|FTSE|DAX|Hang Seng|STOXX|VIX)\b(?!\s+[A-Z])[^?!]{0,25}\b(hit|reach|be|close)\b/,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\btrade\b\s+(at|above|below|around|near)\b/i,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\b(be worth|be priced)\b/i,
   /\bwhat\b[\s\S]{0,40}\bwill\b[\s\S]{0,30}\bclose\b\s+(at|above|below|higher|lower)\b/i,
@@ -254,7 +260,12 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // QE" — a monetary-policy question the wider span was refusing.
   /\bshould (my|his|her|their|our|your)\b[^?!,]{0,60}\b(buy|sell|dump|short|invest)\b/i,
   /\bshould (my|his|her|their|our|your)\b[^?!,]{0,60}\bhold\b(?![^?!]{0,20}\b(constant|fixed|steady|equal|unchanged)\b)/i,
-  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  // Kinship, with commas allowed on both sides of it — unlike the possessive rules above, where a
+  // comma ends the span so that "our independent central bank, during a liquidity crisis, buy
+  // government bonds" is not read as advice. A kinship term settles what the possessive rules can
+  // only guess at: "Should my elderly retired father, given his low risk tolerance, sell Apple?"
+  // is a person being advised, appositive or not, and the comma bound was letting it through.
+  /\bshould\s+(my|his|her|their|our|your)?[^?!]{0,25}\b(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)\b[^?!]{0,60}\b(buy|sell|dump|short|hold|invest)\b/i,
   // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
   // "investors", "a company" or "a pension fund": those appear in questions about markets and
   // regulation far more often than in requests for advice.

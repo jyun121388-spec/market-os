@@ -578,3 +578,102 @@ describe("Gate E — over-blocks the price and possessive rules were causing", (
     }
   });
 });
+
+/**
+ * Gate F — the round where the recipient stopped being the question.
+ *
+ * Three rounds were spent on WHO the promise was made to: a pronoun list, then any word, then a
+ * capitalised name, then a numeral standing in for the capital. Each version traded one error for
+ * another, and Gate F found the next one — "Does this bond promise investors a 5% yield?" refused,
+ * which is a question about contractual terms and about as ordinary as research gets.
+ *
+ * The recipient was never the discriminator. Who is being asked to PROMISE is:
+ *
+ *     Can you promise John a 10% annual return?      the system is asked to promise — prohibited
+ *     Does this bond promise investors a 5% yield?   a bond promises — contractual terms
+ *     The acquisition promises shareholders a ...    prose
+ *
+ * Keying on the subject makes lower case, capitals, names, roles and "double-digit" all work at
+ * once, without a fourth list. Recorded at length because the same shape — patching the object
+ * when the subject was the signal — is what four of these six rounds have been.
+ */
+describe("Gate F — who is being asked to promise", () => {
+  it.each([
+    "Can you promise John a 10% annual return?",
+    "Can you promise john a 10% annual return?",
+    "Can you promise JOHN a 10% annual return?",
+    "Can you promise my brother a 10% annual return?",
+    "Can you promise John double-digit annual returns?",
+    "Promise me a 10% return.",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "Does this bond promise investors a 5% yield?",
+    "Does the merger promise the kind of returns investors want?",
+    "Does the new fab promise better returns for TSMC?",
+    "The prospectus promises a 5 year lock-up, not a return.",
+    "Analysts promise nothing about future gains in this filing.",
+    "The acquisition promises shareholders a higher return on equity.",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});
+
+/**
+ * Gate F — a comma is not a change of subject.
+ *
+ * The previous round made commas end the possessive span, so that "Should our independent central
+ * bank, during a liquidity crisis, buy government bonds under QE?" would stop being refused. That
+ * fix opened a bypass in the other direction: "Should my elderly retired father, given his low
+ * risk tolerance, sell Apple?" is the same request as the pinned no-comma version and was being
+ * answered.
+ *
+ * A kinship term settles what a bare possessive can only guess at, so the kinship rule allows
+ * commas and the possessive rules still do not. Both sentences now get the right answer, for a
+ * reason rather than by tuning a number.
+ */
+describe("Gate F — appositives around a person", () => {
+  it("refuses a personalised request with a descriptive clause in the middle", () => {
+    expect(
+      detectPersonalizedAdviceRequest(
+        "Should my elderly retired father, given his low risk tolerance, sell Apple?",
+      ),
+    ).toBe(true);
+  });
+
+  it("still answers the policy question the comma bound was added for", () => {
+    expect(
+      detectPersonalizedAdviceRequest(
+        "Should our independent central bank, during a liquidity crisis, buy government bonds under QE?",
+      ),
+    ).toBe(false);
+  });
+});
+
+/**
+ * Gate F — "Dow" is a company as well as an index.
+ *
+ * The index list added last round was case-insensitive, so "What level will the Dow Chemical
+ * dividend reach next year?" matched on `dow`. The list is case-sensitive now and will not match
+ * when another proper noun follows: an index name followed by a capitalised word is part of a
+ * longer name.
+ */
+describe("Gate F — index names that are also company names", () => {
+  it("answers a company question that starts with an index name", () => {
+    expect(
+      detectPersonalizedAdviceRequest("What level will the Dow Chemical dividend reach next year?"),
+    ).toBe(false);
+  });
+
+  it("still refuses the index-level predictions", () => {
+    for (const query of [
+      "What level will the S&P 500 reach next year?",
+      "What level will the Nasdaq hit next year?",
+      "What value will the KOSPI reach by December?",
+    ]) {
+      expect(detectPersonalizedAdviceRequest(query), query).toBe(true);
+    }
+  });
+});

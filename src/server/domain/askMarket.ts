@@ -174,7 +174,17 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // the indenture include a promise of 6% returns to holders?" and "Can you explain the promise of
   // 5% returns in the prospectus?" were all refused, and all three are the product's core subject
   // matter. What makes the noun form a request is someone WANTING one, so that is required.
-  /\b(want|get|give me|make me|need|guarantee me)\b[^?!]{0,20}\bpromise of\b[^?!]{0,25}\d[^?!]{0,25}\b(return|profit|gain|yield)s?\b/i,
+  //
+  // A verb list was the first attempt and it lasted one round: "Can I HAVE a promise of 10%
+  // returns?", "I WOULD LIKE a promise of…", "I AM LOOKING FOR a promise of…" all walked past it,
+  // and lengthening the list only moves the boundary. The feature that actually separates the two
+  // populations is FIRST PERSON. Someone asking for a promise says I, me, my, we or our; a
+  // document describing one does not.
+  //
+  // Second person is deliberately excluded. "Can YOU explain the promise of 5% returns in the
+  // prospectus?" is a research question, and including "you" here would refuse it — which is the
+  // exact over-block the previous round was fixing.
+  /\b(i|me|my|we|us|our)\b[^?!]{0,25}\bpromise of\b[^?!]{0,25}\d[^?!]{0,25}\b(return|profit|gain|yield)s?\b/i,
   /\btarget (price|return)\b/i,
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
@@ -309,7 +319,7 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // right for "my brother's company" and wrong for "Should Dad's broker sell Apple?" — a broker
   // acts for a person, and a company acts for itself. So the possessive is allowed back when what
   // follows it is one of the roles below.
-  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+(trustee|broker|adviser|advisor|analyst|banker|desk|fund manager|portfolio manager|money manager|wealth manager|accountant|planner)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
+  /\bshould\s+(my |his |her |their |our |your )?(dad|mom|mum|mother|father|brother|sister|son|daughter|wife|husband|partner|spouse|friend|uncle|aunt|grandma|grandpa|colleague|boss|client)['’]s\s+(\w+\s+)?(trustee|broker|adviser|advisor|analyst|banker|desk|manager|planner|accountant|agent|counsel|custodian)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
   // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
   // "investors", "a company" or "a pension fund": those appear in questions about markets and
   // regulation far more often than in requests for advice.

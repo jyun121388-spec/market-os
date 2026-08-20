@@ -852,3 +852,65 @@ describe("Gate H — index names and the companies that share them", () => {
     expect(detectPersonalizedAdviceRequest(query)).toBe(false);
   });
 });
+
+/**
+ * Gate I — the ninth round, and the first where a list was replaced by a feature on both sides.
+ *
+ * The eighth round narrowed the noun form with a closed verb list (want / get / give me / need).
+ * The pattern documented in docs/INTERIM_REVIEW_FINDINGS.md predicts what a narrowing does next,
+ * and it was right: "Can I HAVE a promise of 10% returns?", "I WOULD LIKE a promise of…", "I AM
+ * LOOKING FOR a promise of…" all walked past it. Lengthening the list moves the boundary; it does
+ * not remove it.
+ *
+ * The feature is FIRST PERSON. Someone asking for a promise says I, me, my, we or our; a document
+ * describing one does not. Second person is deliberately excluded — "Can YOU explain the promise
+ * of 5% returns in the prospectus?" is research, and including "you" would refuse it.
+ *
+ * The same substitution fixed the other finding. The kinship-agent rule enumerated job titles and
+ * missed "investment manager"; it now matches an agent HEAD NOUN — manager, planner, broker,
+ * adviser, agent — with an optional qualifier in front. "Company" is not an agent noun, so
+ * "my brother's company" still answers.
+ */
+describe("Gate I — asking for a promise, in whatever words", () => {
+  it.each([
+    "Can I have a promise of 10% returns?",
+    "I would like a promise of 10% returns.",
+    "I am looking for a promise of 10% returns.",
+    "Give my brother a promise of 10% returns.",
+    "I want a promise of 10% returns.",
+    "Can I get a promise of 12% a year in returns?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it.each([
+    "The prospectus contains no promise of a 5% return.",
+    "Can you explain the promise of 5% returns in the prospectus?",
+    "Does the indenture include a promise of 6% returns to holders?",
+    "What does the prospectus say about its promise of a 12% return?",
+  ])("answers %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(false);
+  });
+});
+
+describe("Gate I — an agent is an agent whatever the title says", () => {
+  it.each([
+    "Should Dad's investment manager sell Apple?",
+    "Should my son's financial planner sell Apple?",
+    "Should my mother's wealth manager buy Nvidia?",
+    "Should Dad's tax agent sell Apple?",
+    "Should Dad's broker sell Apple?",
+  ])("refuses %s", (query) => {
+    expect(detectPersonalizedAdviceRequest(query)).toBe(true);
+  });
+
+  it("still answers a question about a relative's company", () => {
+    // "Company" is not an agent noun. That is the whole distinction, and it is a property of the
+    // word rather than an entry in a list.
+    expect(
+      detectPersonalizedAdviceRequest(
+        "Should my brother's company, given its strong cash balance, buy a competitor?",
+      ),
+    ).toBe(false);
+  });
+});

@@ -270,22 +270,207 @@
       ],
       "sha_status": "SUPERSEDED_NOT_CLEAN",
       "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it, so this SHA is superseded and must never be attested.",
-      "superseded_by": "PENDING_GATE_B_FIX_COMMIT"
+      "superseded_by": "ccb7461884f687acca306df0299c4209de7ecb00"
+    },
+    {
+      "gate": "C",
+      "authorized_by": [
+        "[CHATGPT_DECISION][MARKET-RESUME-002] item 4 - correctness outranks SHA stability",
+        "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-EXACT-CANDIDATE-003] (issue #2, comment 5357383332)"
+      ],
+      "head_sha": "ccb7461884f687acca306df0299c4209de7ecb00",
+      "head_sha_short": "ccb7461",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it, so this SHA is superseded and must never be attested.",
+      "scope": "the diff 218d3f9..ccb7461 restricted to src/ and tests/, plus an independently-anchored review of 6103ad8..218d3f9 that arrived on the control bus during this round",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "anchored_to": "ccb7461884f687acca306df0299c4209de7ecb00",
+          "findings": ["AM-RC-1", "AM-RC-2", "AM-RC-3", "AM-RC-4", "AM-RC-5", "RS-RC-1"]
+        },
+        {
+          "role": "independent exact-candidate review, delivered via GitHub issue #2",
+          "identifier": "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-EXACT-CANDIDATE-003]",
+          "comment_id": 5357383332,
+          "anchored_to": "218d3f997d855bb0560e68dba0ce87186c76042c",
+          "findings": ["RC003-D1", "RC003-B1"],
+          "note": "anchored one candidate behind, which is why one of its two findings was already fixed by the time it was read"
+        }
+      ],
+      "remote_ci": {
+        "run": "32382780866",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "ccb7461884f687acca306df0299c4209de7ecb00"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Nine claims across two independent reviewers with no overlap between them. Seven reproduced, one had already been fixed by a commit its reviewer had not seen, and one did not reproduce. Four of the reproduced defects are fixed; three over-blocks are accepted and pinned by test because every available repair is a bypass of an absolute prohibition.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "AM-RC-1",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "PARTLY_REPRODUCED_FIXED",
+          "claim": "The promised-return pattern still requires a pronoun, so promises to named people or roles reach the answer path.",
+          "reproduced": [
+            {
+              "input": "Can you promise John a 10% annual return?",
+              "was": "answered",
+              "now": "refused"
+            }
+          ],
+          "rejected": [
+            {
+              "input": "Can you promise the trustee a guaranteed 8% yield?",
+              "claimed": "answered",
+              "observed": "already refused",
+              "detail": "'guaranteed' next to 'yield' fires a pattern that predates this round entirely. Reproducing each sub-claim separately is what separated it from the real half."
+            }
+          ],
+          "fix": "Matches the SHAPE promise <recipient> a <figure> <return>, with the recipient allowed to be a name, a role or a possessive phrase. The trailing article-or-digit is what keeps prose out: 'does the merger promise the kind of returns investors want' still answers."
+        },
+        {
+          "id": "AM-RC-2",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 'should third party trade' repair enumerates pronouns and kinship nouns and still misses proper names and roles.",
+          "reproduction": {
+            "triggers": [
+              "Should John buy Nvidia?",
+              "Should the trustee buy Nvidia?",
+              "Should the fund manager hold Tesla?",
+              "Should the desk sell Apple?"
+            ],
+            "observed_before": "all four answered",
+            "observed_after": "all four refused"
+          },
+          "cause": "Third round of the same defect: each round enumerated the examples in hand and the next reviewer supplied one outside the list.",
+          "fix": "should <anything> <trading verb>. The verb is the discriminator - 'Should investors expect more volatility?' and 'Should the Fed raise rates?' carry no trading verb and still answer.",
+          "reversal_recorded": "Gate B's kinship list existed because 'should investors buy' was judged market commentary rather than personal advice. Reversed on reflection: it is a request for a recommendation either way, and LEGAL_GUARDRAILS does not exempt one for being addressed to a crowd."
+        },
+        {
+          "id": "AM-RC-3",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Using periods as hard sentence boundaries lets an abbreviation defeat the third-party coverage.",
+          "reproduction": {
+            "triggers": [
+              "Tell Mr. Smith to sell Apple.",
+              "Tell Acme Inc. to sell its Apple stake."
+            ],
+            "observed_before": "both answered",
+            "observed_after": "both refused"
+          },
+          "fix": "The span excludes only ? and !; the 40/25 character bounds keep it local.",
+          "accepted_cost": "Two short sentences within forty characters can now be matched across. Deliberate: the alternative was a one-word bypass of an absolute prohibition, and an abbreviation list or lookbehind thicket is worse than what it fixes."
+        },
+        {
+          "id": "RC003-B1",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "source": "control bus, RC-EXACT-CANDIDATE-003",
+          "claim": "Bare hit/reach after 'what ... will ...' refuses ordinary analytical forecasts.",
+          "reproduction": {
+            "triggers": [
+              "What will trade volumes be next year?",
+              "What will unemployment reach next year?",
+              "What will GDP reach by 2030?",
+              "What will inflation hit next year?"
+            ],
+            "observed_before": "all refused",
+            "observed_after": "all answered; the price predictions themselves still refuse"
+          },
+          "cause": "The pattern contradicted the invariant stated in the comment directly above it.",
+          "fix": "A definitive price prediction needs the preposition (trade at, close above) or an explicit worth. A numeric target was already covered by the 'will ... hit ... 300' pattern, which requires the number that makes it a price."
+        },
+        {
+          "id": "RC003-D1",
+          "severity": "P1_AS_FILED",
+          "file": "src/server/domain/observationIngest.ts",
+          "status": "ALREADY_FIXED_BEFORE_THE_CLAIM_WAS_READ",
+          "source": "control bus, RC-EXACT-CANDIDATE-003",
+          "claim": "sameDecimalValue('1.0000004','1.000000') returns false and manufactures a spurious revision.",
+          "detail": "True of 218d3f9, the SHA the review was anchored to, and already false by ccb7461: the quantise-to-scale-6 repair had landed in between. Verified by running it rather than by reasoning about the timeline.",
+          "adopted_anyway": [
+            "Requirement 2 - fail loudly on unreadable input. sameDecimalValue now throws instead of falling back to a string comparison; a comparison that cannot read an operand has not decided anything, it has guessed.",
+            "Requirement 4 - an ingest-level test. tests/integration/observation-decimal-identity.test.ts counts ROWS through upsertRevisionAwareObservation: eight spellings the column stores identically produce no revision, a one-unit change at the sixth decimal produces exactly one, and a superseded value replayed as 1e5 is still refused by the rollback guard."
+          ],
+          "honesty_note": "That integration file passes against ccb7461 too. It is a new contract test for behaviour that was already correct, not a regression test for a Gate C fix, and a green run should not be read as implying otherwise."
+        },
+        {
+          "id": "AM-RC-4",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_ACCEPTED_AND_PINNED",
+          "claim": "The analytical 'hold' exemption recognises only five keywords within twenty characters, so it refuses ordinary methodology instructions.",
+          "reproduced": [
+            "Advise the team to hold the numerator at 1.5 in all scenarios.",
+            "Advise the team to hold nominal GDP across every projection constant."
+          ],
+          "why_not_fixed": "Widening the window or the vocabulary to admit these also admits 'hold Apple until the market is steady', which is advice. The exemption is the bypass surface."
+        },
+        {
+          "id": "AM-RC-5",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_ACCEPTED_AND_PINNED",
+          "claim": "Quoted filing language reads as a user instruction.",
+          "reproduced": [
+            "What does the filing mean when it says \"advise shareholders to sell non-core assets\"?"
+          ],
+          "why_not_fixed": "Exempting text inside quotation marks lets any request be smuggled by quoting it."
+        },
+        {
+          "id": "RS-RC-1",
+          "severity": "P3",
+          "file": "src/server/adapters/redactSecrets.ts",
+          "status": "REPRODUCED_ACCEPTED_AND_PINNED",
+          "claim": "A complete URI-shaped placeholder in documentation is redacted.",
+          "reproduced": ["Documentation says the form is proto://user:password@host/path."],
+          "why_not_fixed": "The shape is syntactically indistinguishable from a real credential - the reviewer said so while filing it. A real password surviving into a stored, operator-visible error is the failure that matters; a sentence about URI grammar losing one word is not. The hostless form Gate B found IS preserved, and that is the case that actually appears in prose."
+        }
+      ],
+      "test_discrimination": "Reverting both changed source files to their ccb7461 form fails 22 tests.",
+      "local_verify": {
+        "tests": "1234 / 1234 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "clean_areas": [
+        "decimal identity across exponent notation, leading +, leading ., whitespace, trailing zeros, negative zero, exact-half rounding in both signs, values beyond double precision, and very large and small exponents - adapter reachability considered for each, no stored-value identity violation found",
+        "both decimal call sites use the same helper, so unchanged detection and rollback detection cannot disagree",
+        "secret redaction across empty and ordinary usernames, one-character passwords, punctuation and percent-encoded credentials, schemes containing + . -, hostnames, IPv4, ports and bracketed IPv6, with no real connection-password false negative",
+        "no catastrophic-backtracking input found in the modified expressions",
+        "no newly added assertion would still pass with its implementation reverted",
+        "the database-semantics test genuinely depends on PostgreSQL and skips rather than pretending when DATABASE_URL is absent"
+      ]
     }
   ],
   "closure_conditions": {
     "chain": [
       "Gate A reviewed 6103ad8 and produced fixes -> candidate moved to 218d3f9",
-      "Gate B reviewed 218d3f9 and produced fixes -> candidate moves again",
-      "Gate C reviews the post-Gate-B candidate; its result is recorded in docs/REVIEW_ATTESTATION.json and .md"
+      "Gate B reviewed 218d3f9 and produced fixes -> candidate moved to ccb7461",
+      "Gate C reviewed ccb7461, two independent reviewers, and produced fixes -> candidate moves again",
+      "the next gate reviews the post-Gate-C candidate; a gate that needs no code change is what closes this chain"
     ],
-    "why_gate_c_is_not_in_this_file": "docs/REVIEW_ATTESTATION.json and .md are the only review paths on the RC preflight's evidence-only allowlist. This file is not, so a commit touching it after the candidate would invalidate the review coverage the preflight checks. Gate C therefore lands in the attestation, which is the mechanism designed for exactly that.",
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",
       "no executable commit after the reviewed candidate",
       "remote CI green on exactly that SHA",
       "an attestation whose reviewed code SHA is an ancestor of the attestation SHA, with every intervening path on the evidence-only allowlist"
-    ]
+    ],
+    "where_the_closing_verdict_lives": "docs/REVIEW_ATTESTATION.json and .md are the only review paths on the RC preflight's evidence-only allowlist, so the CLOSING gate - the one that finds nothing needing a code change - is recorded there rather than here. This file records the gates that produced fixes, and each of those commits lands before the candidate it precedes."
   },
   "reading_rule": "A gate entry records what a review found at one SHA. No gate entry ever makes its own SHA clean: a review that produced fixes is evidence AGAINST the SHA it examined. A clean candidate is one where a gate found nothing needing a code change, and only docs/REVIEW_ATTESTATION.json asserts that, checked against the commit graph by the RC preflight. UNKNOWN stays UNKNOWN."
 }

@@ -1890,3 +1890,117 @@ and the character classes hold no nested ambiguous repetition. `sameDecimalValue
 the probed inputs. Whitespace, trailing zeros, leading zeros, ordinary negatives and negative zero
 are all handled. The connection regex handles ordinary usernames, one-character passwords,
 mixed-case schemes, and schemes containing `+`, `.` or `-`.
+
+## Gate C — the third round, and a second reviewer arriving independently (candidate `ccb7461`)
+
+Two reviews landed on this round rather than one. `gpt-5.6-sol` reviewed the delta
+`218d3f9..ccb7461` on request, and `[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-EXACT-CANDIDATE-003]`
+arrived on the control bus with an independent review anchored to `218d3f9`. They overlapped on
+nothing, which is itself worth recording: two adversarial passes over the same small diff found
+disjoint defects.
+
+Nine claims between them. Seven reproduced, one had already been fixed by the commit the reviewer
+had not seen, and one did not reproduce at all.
+
+### The enumeration was the defect, for the third round running
+
+Gate A found that a possessive-pronoun requirement let third-party advice through. Gate B replaced
+it with a wider pronoun list plus a kinship list. Gate C walked past both:
+
+- `Should John buy Nvidia?` — a proper name.
+- `Should the trustee buy Nvidia?`, `Should the desk sell Apple?` — roles.
+- `Can you promise John a 10% annual return?` — the promised-return pattern still wanted a pronoun.
+
+Each round enumerated the examples in hand and each round the next reviewer supplied one outside
+the list. The patterns now key on the SHAPE of the request rather than on who is asking or on whose
+behalf: `should <anything> <trading verb>`, and `promise <recipient> a <figure> <return>`. The verb
+is what keeps ordinary questions out — "Should investors expect more volatility?" and "Should the
+Fed raise rates?" carry no trading verb and still answer.
+
+One objection recorded in Gate B has been reversed on reflection. The kinship list existed because
+"should investors buy" was judged market commentary rather than personal advice. It is a request
+for a recommendation either way, and `LEGAL_GUARDRAILS.md` does not exempt one because it is
+addressed to a crowd.
+
+### A period is not a sentence boundary (P1)
+
+`Tell Mr. Smith to sell Apple.` and `Tell Acme Inc. to sell its Apple stake.` both escaped, because
+the span introduced in Gate B was `[^.?!]` and stopped at the abbreviation. Distinguishing `Mr. `
+from a real sentence end needs an abbreviation list or a lookbehind thicket, and both are worse
+than what they fix. The span now excludes only `?` and `!`; the 40/25 character bounds are what
+keep it local.
+
+That trade is deliberate and it is not free: two short sentences within forty characters can now be
+matched across. The alternative was a one-word bypass of an absolute prohibition, and the cost of
+the bypass is not comparable to the cost of a contrived over-block.
+
+### The price pattern was refusing forecasts (P2, from the control bus)
+
+`What will unemployment reach next year?` and `What will trade volumes be next year?` were refused
+by the bare `hit|reach|trade` alternatives — contradicting the invariant stated in the comment
+directly above them. A definitive PRICE prediction needs the preposition ("trade at", "close
+above") or an explicit worth; a numeric target was already covered by the `will … hit … 300`
+pattern, which requires the number that makes it a price.
+
+### A claim that had already been fixed, and one that was never true
+
+The control-bus review's D1 follow-up said `sameDecimalValue("1.0000004", "1.000000")` returns
+false and manufactures a spurious revision. True of `218d3f9`, which is the SHA it was anchored to,
+and already false by `ccb7461` — the quantise-to-scale-6 repair had landed in between. Recorded as
+ALREADY_FIXED rather than as a finding, and its requirement for an ingest-level test was adopted
+because it was right that no such test existed.
+
+Gate C's own AM-RC-1 listed `Can you promise the trustee a guaranteed 8% yield?` as reaching the
+answer path. It does not — the word "guaranteed" next to "yield" fires a pattern that predates this
+round entirely. The rest of AM-RC-1 was real. Reproducing each sub-claim separately is what
+separated them.
+
+### Three over-blocks accepted rather than fixed
+
+Each has a repair that is worse than the defect, and the reasoning is identical in all three: this
+guardrail enforces an absolute prohibition, so an exemption a user can write into a request is a
+bypass, and a bypass outranks an inconvenience.
+
+| Case                                                         | Why not fixed                                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `hold the numerator at 1.5` (AM-RC-4)                        | Widening the analytical exemption also admits "hold Apple until the market is steady" |
+| quoted filing language (AM-RC-5)                             | Exempting quoted text lets any request be smuggled by quoting it                      |
+| `proto://user:password@host/path` in documentation (RS-RC-1) | Syntactically identical to a real credential; the reviewer said so while filing it    |
+
+All three are pinned by test. None of them silently answers anything, and each is cheap for a user
+to rephrase. If a later dedicated guardrail review finds a discriminator that is not a bypass,
+those tests are what will need changing — which is the point of writing them down.
+
+### What this round added beyond the fixes
+
+`sameDecimalValue` no longer falls back to a string comparison when it cannot read an operand; it
+throws. Deciding "same figure" is the decision this path turns on, and a comparison that cannot
+read one side has not made that decision — it has guessed, quietly, in a function whose failures
+are invisible by construction. Neither operand can legitimately be unreadable, so an unreadable one
+means something upstream is broken and the run should say so.
+
+`tests/integration/observation-decimal-identity.test.ts` closes the gap the control-bus review
+named: identity was tested at the function boundary and against a `numeric(20,6)` cast, but never
+through `upsertRevisionAwareObservation` itself. It now counts rows. Eight spellings the column
+stores identically must produce no revision; a one-unit change at the sixth decimal must produce
+exactly one; and a superseded value replayed as `1e5` must still be refused by the rollback guard.
+Both earlier defects in this area were invisible at the function boundary and visible only as rows.
+
+That file passes against `ccb7461` as well as against this commit, and that is worth saying plainly
+rather than letting a green run imply otherwise: it is a new contract test for behaviour that was
+already correct, not a regression test for a Gate C fix.
+
+### Discrimination
+
+Reverting both changed source files to their `ccb7461` form fails 22 tests.
+
+### What Gate C found clean
+
+Decimal identity across exponent notation, leading `+`, leading `.`, whitespace, trailing zeros,
+negative zero, exact-half rounding in both signs, values beyond double precision, and very large
+and small exponents — with adapter reachability considered for each, and no stored-value identity
+violation found. Both call sites use the same helper, so unchanged detection and rollback detection
+cannot disagree. Secret redaction across empty and ordinary usernames, one-character passwords,
+punctuation and percent-encoded credentials, schemes containing `+`, `.` and `-`, hostnames, IPv4,
+ports and bracketed IPv6, with no real connection-password false negative. No catastrophic
+backtracking. And no newly added assertion that would still pass with its implementation reverted.

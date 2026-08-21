@@ -244,8 +244,10 @@ describe("Gate P — whose money is being traded", () => {
   });
 
   it("reads an organisational possessive on the object as the organisation's holding", () => {
-    // "Its" and "their" say whose the holding is. That is what separates an institution managing
-    // its own balance sheet from a person being advised about theirs.
+    // "Its" says whose the holding is. "Their" does not — it is ordinary singular-they, and
+    // "Should Dad's assistant sell their Nvidia shares?" is one person's holding. What keeps an
+    // institution's "their" from being read as a person's is the SUBJECT: see the organisation-head
+    // guard below.
     expect(asksWhetherAPersonShouldTrade("Should the trustee bank hold its pension fund?")).toBe(
       false,
     );
@@ -301,5 +303,38 @@ describe("Gate Q — the head is the last word, not any word", () => {
       ),
     ).toBe(false);
     expect(asksWhetherAPersonShouldTrade("Should my adviser sell our Apple shares?")).toBe(true);
+  });
+});
+
+/**
+ * Gate R — one blocker, and it was a claim I had written down too strongly.
+ *
+ * Dropping object-side "their" came with the reasoning that the organisational cases have no person
+ * noun in the subject, so the rescue could never reach that line for them. The next review
+ * disproved it in one input: "Should the trustee bank sell their Nvidia holdings?" has "trustee" in
+ * the subject and is an institution's balance sheet.
+ *
+ * What carries the distinction now is a property of the subject rather than a hope about which
+ * subjects occur. "The trustee bank" ends in an organisation word and begins with an article;
+ * "my retirement fund" ends in one too and begins with a personal possessive. That difference is
+ * the whole thing.
+ */
+describe("Gate R — an organisation head, with or without a person noun in front", () => {
+  it.each([
+    "Should the trustee bank sell their Nvidia holdings?",
+    "Should the trustee bank sell their pension fund business?",
+    "Should the trustee bank hold its pension fund assets separately?",
+    "Should the client committee sell their bond portfolio?",
+  ])("does not redirect %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(false);
+  });
+
+  it.each([
+    "Should my retirement fund buy Nvidia stock?",
+    "Should your retirement fund buy Nvidia stock?",
+    "Should Dad's assistant sell their Nvidia shares?",
+    "Should my parents sell their Nvidia shares?",
+  ])("still redirects %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
   });
 });

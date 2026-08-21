@@ -591,6 +591,22 @@ const PERSON_NOUNS = new Set(
 // possessive that reads institutionally — "our independent central bank".
 const PERSONAL_POSSESSIVES = new Set(["i", "me", "my", "mine", "myself", "you", "your", "yours"]);
 
+/**
+ * Whether the subject's head noun is an organisation, ignoring a personal possessive in front.
+ *
+ * "The trustee bank" ends in an organisation and is one, even though "trustee" names a person.
+ * "My retirement fund" ends in an organisation word too, and the possessive says it is somebody's.
+ * That difference — an article in front versus a personal possessive — is the whole distinction,
+ * and it is what stopped "Should the trustee bank sell THEIR pension fund business?" being read as
+ * a personalised trade.
+ */
+function headIsAnOrganisation(subject: string): boolean {
+  const head = tokenise(subject.split(",")[0]);
+  if (head.length === 0) return false;
+  if (PERSONAL_POSSESSIVES.has(head[0])) return false;
+  return ORGANISATION_WORDS.has(head[head.length - 1]);
+}
+
 function mentionsAPerson(subject: string): boolean {
   const head = tokenise(subject.split(",")[0]);
   return head.some((token) => PERSON_NOUNS.has(token) || PERSONAL_POSSESSIVES.has(token));
@@ -648,10 +664,15 @@ export function asksWhetherAPersonShouldTrade(query: string): boolean {
   // an organisation's holding is not a personalised trade.
   //
   // "Its" only. "Their" was here for one commit and is ordinary singular-they — "Should Dad's
-  // assistant sell THEIR Nvidia shares?" is one person's holding. Nothing is lost by dropping it:
-  // the organisational cases it appeared to cover have no person noun in the subject at all, so
-  // the rescue never reaches this line for them.
+  // assistant sell THEIR Nvidia shares?" is one person's holding.
+  //
+  // The reasoning written here when "their" was dropped said the organisational cases have no
+  // person noun in the subject, so the rescue could never reach this line for them. That was
+  // WRONG, and the next review disproved it in one line: "Should the trustee bank sell their
+  // Nvidia holdings?" has "trustee" in the subject. The claim was too strong and the check that
+  // now carries it is `headIsAnOrganisation` below — a property of the subject, not a hope about
+  // which subjects occur.
   if (/\bits\b/i.test(object)) return false;
 
-  return mentionsAPerson(subject) && financialObject;
+  return mentionsAPerson(subject) && financialObject && !headIsAnOrganisation(subject);
 }

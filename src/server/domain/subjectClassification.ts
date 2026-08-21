@@ -592,19 +592,25 @@ const PERSON_NOUNS = new Set(
 const PERSONAL_POSSESSIVES = new Set(["i", "me", "my", "mine", "myself", "you", "your", "yours"]);
 
 /**
- * Whether the subject's head noun is an organisation, ignoring a personal possessive in front.
+ * Whether the subject is an organisation, ignoring a personal possessive in front.
  *
- * "The trustee bank" ends in an organisation and is one, even though "trustee" names a person.
- * "My retirement fund" ends in an organisation word too, and the possessive says it is somebody's.
- * That difference — an article in front versus a personal possessive — is the whole distinction,
- * and it is what stopped "Should the trustee bank sell THEIR pension fund business?" being read as
- * a personalised trade.
+ * "The trustee bank" contains an organisation word and is one, even though "trustee" names a
+ * person. "My retirement fund" contains one too, and the possessive says it is somebody's. That
+ * difference — an article in front versus a personal possessive — is the whole distinction, and it
+ * is what stopped "Should the trustee bank sell THEIR pension fund business?" being read as a
+ * personalised trade.
+ *
+ * It looks anywhere in the head phrase rather than at the last word, which it did for one commit.
+ * A relative clause moves the last word off the institution: "the bank where my father WORKS" ends
+ * in a verb, and reading only the end made the bank invisible and the father decisive. That is not
+ * true of the ROLE check further up, where the last word genuinely is the head — "the fund manager
+ * association" is an association — so the two checks read the phrase differently on purpose.
  */
 function headIsAnOrganisation(subject: string): boolean {
   const head = tokenise(subject.split(",")[0]);
   if (head.length === 0) return false;
   if (PERSONAL_POSSESSIVES.has(head[0])) return false;
-  return ORGANISATION_WORDS.has(head[head.length - 1]);
+  return head.some((token) => ORGANISATION_WORDS.has(token));
 }
 
 function mentionsAPerson(subject: string): boolean {

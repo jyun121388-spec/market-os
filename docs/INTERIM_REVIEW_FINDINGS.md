@@ -2780,3 +2780,25 @@ Gate R also filed the stale test comment as REVIEW_DEBT rather than a blocker. C
 The last four rounds were all classifier scope and precedence, not new vocabulary, and Gate R's
 single blocker was already fixed locally before the review returned. That is what convergence looks
 like without claiming it has arrived.
+
+## Gate S — a relative clause moves the last word off the institution
+
+One finding, and a good one. The organisation guard read the LAST token of the head phrase, and
+`Should the bank where my father WORKS buy Nvidia?` ends in a verb. The bank became invisible, the
+father became decisive, and a question about an institution's investment was refused.
+
+It scans the head phrase now. The ROLE check further up still reads the last word, and the two
+differ on purpose: there the last word genuinely is the head — "the fund manager association" is an
+association — while here any organisation word anywhere in the phrase settles it. Two checks, two
+readings of the same phrase, each justified by what it is looking for.
+
+Gate S also noted that the comment introduced with the guard said "head noun" while the code
+checked the last token. Same class of error as Gate R found, one round later, and worth the note:
+the comment was describing the intent and the code was implementing something narrower, which is
+exactly how a reader ends up trusting the wrong one.
+
+### Nineteen gates
+
+Self-attack found nothing this round; Gate S found the one thing there was. That is the first round
+in the chain where the independent review contributed the only finding, and it is a better argument
+for keeping the review than any round where the two agreed.

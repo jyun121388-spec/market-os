@@ -338,3 +338,65 @@ describe("Gate R — an organisation head, with or without a person noun in fron
     expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
   });
 });
+
+/**
+ * Gate S — the organisation-head guard, attacked in both directions.
+ *
+ * The guard says: an organisation word at the end of the head phrase means an organisation, unless
+ * a personal possessive opens the phrase. Two things could go wrong with that and neither does.
+ *
+ * A possessive in front of an organisation still names somebody's money — "my bank", "my pension
+ * fund", "your brokerage account", "his trust" — and all four redirect. An organisation with
+ * adjectives in front of it is still an organisation, however long the run of adjectives, because
+ * the guard reads the last token and not the first.
+ */
+describe("Gate S — a possessive in front of an organisation", () => {
+  it.each([
+    "Should my bank sell my Apple shares?",
+    "Should my pension fund buy Nvidia?",
+    "Should your brokerage account hold Tesla?",
+    "Should his trust sell Apple?",
+    "Should my broker's firm sell my Apple shares?",
+  ])("redirects %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
+  });
+
+  it.each([
+    "Should the large regional bank sell their Nvidia holdings?",
+    "Should the new sovereign wealth fund buy Apple?",
+    "Should the independent advisory board hold their meeting?",
+  ])("does not redirect %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(false);
+  });
+});
+
+/**
+ * Gate S — a relative clause moves the last word off the institution.
+ *
+ * The organisation guard read the LAST token of the head phrase for one commit, and "the bank where
+ * my father WORKS" ends in a verb. The bank became invisible and the father decisive, so a question
+ * about an institution's investment was refused.
+ *
+ * It scans the head phrase now. The ROLE check further up still reads the last word, and that
+ * difference is deliberate: there the last word genuinely is the head — "the fund manager
+ * association" is an association — while here any organisation word in the phrase settles it.
+ */
+describe("Gate S — organisations described by what they do", () => {
+  it.each([
+    "Should the bank where my father works buy Nvidia?",
+    "Should the fund where my brother invests buy Apple?",
+    "Should the large regional bank sell their Nvidia holdings?",
+    "Should the fund manager association invest in financial education?",
+  ])("does not redirect %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(false);
+  });
+
+  it.each([
+    "Should my bank sell my Apple shares?",
+    "Should my broker's firm sell my Apple shares?",
+    "Should my brother's project manager buy Nvidia?",
+    "Should the fund manager hold Tesla?",
+  ])("still redirects %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
+  });
+});

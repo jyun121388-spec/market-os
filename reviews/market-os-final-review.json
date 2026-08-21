@@ -1702,6 +1702,58 @@
         "enumerations_added_since_gate_N": "1 (organisation nouns)",
         "rounds_where_self_attack_found_the_worst_defect_first": 7,
         "note": "The last four rounds were classifier scope and precedence, not new vocabulary, and Gate R's single blocker was already fixed locally before the review returned."
+      },
+      "superseded_by": "fc47adcea72e7962d6ddb50b74e1a4a053cdc0d4"
+    },
+    {
+      "gate": "S",
+      "head_sha": "fc47adcea72e7962d6ddb50b74e1a4a053cdc0d4",
+      "head_sha_short": "fc47adc",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fix is not contained in it.",
+      "scope": "fourth re-review of the changed surface under RC-CONVERGENCE-007",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - RC-007-R4-01 is a release-critical P1.",
+          "note": "Traced the branch by hand and showed each step of the trace, which is why the finding was actionable immediately."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "21 cases, zero over-blocks, zero under-blocks - found nothing. First round where the independent review contributed the only finding."
+        }
+      ],
+      "remote_ci": {
+        "run": "32432977972",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "fc47adcea72e7962d6ddb50b74e1a4a053cdc0d4"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. One P1 over-block, fixed. Nothing else.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-R4-01",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "headIsAnOrganisation reads the final token as the head, so a relative clause after an institutional noun defeats the gate.",
+          "reproduced": ["Should the bank where my father works buy Nvidia?"],
+          "fix": "The guard scans the head phrase. The ROLE check still reads the last word, deliberately - there the last word genuinely is the head.",
+          "secondary": "The comment said 'head noun' while the code checked the last token. Same class of error Gate R found one round earlier: the comment described the intent and the code implemented something narrower."
+        }
+      ],
+      "local_verify": {
+        "tests": "1571 / 1571 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
       }
     }
   ],
@@ -1725,7 +1777,8 @@
       "Gate O ran the bounded post-repair review of dcc88ed -> two P1 blockers fixed -> next candidate needs only a re-review of the changed surface",
       "Gate P re-reviewed the changed surface of 856f88d -> two P1 blockers fixed -> next candidate",
       "Gate Q re-reviewed 3d58f5b -> three P1 fixed -> next candidate",
-      "Gate R re-reviewed 98c6365 -> one P1 (already fixed locally) plus a false justification corrected -> next candidate"
+      "Gate R re-reviewed 98c6365 -> one P1 (already fixed locally) plus a false justification corrected -> next candidate",
+      "Gate S re-reviewed fc47adc -> one P1 over-block fixed -> next candidate"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",

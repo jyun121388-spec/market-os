@@ -3,22 +3,52 @@
 > and `[ESCALATION][ESC-009]` is 5349422884. The staged text is kept as the record of what was
 > queued while the channel was believed one-way; nothing here is still owed.
 
-# Escalation comments awaiting a GitHub credential
+# Escalation comments staged before the channel was two-way — all transmitted
 
 `https://github.com/jyun121388-spec/market-os/issues/2` — the AI escalation channel.
 
-**Read works, write does not.** The repository is public, so the issue and its comments are
-readable over the unauthenticated REST API and no manual copy/paste is required. Posting a comment
-needs a token, and this machine has none: `gh` is not installed, neither `GITHUB_TOKEN` nor
-`GH_TOKEN` is set, and `git push` has hung on a credential prompt all session (HG-001).
+**Both directions work, and have since 2026-08-20.** `gh` is authenticated against
+`jyun121388-spec` through official GitHub OAuth held in the OS keyring, so comments post directly.
+Every packet below went up unchanged and was read back; the header of each records the comment id.
 
-That is the same gate as the push, not a new one. Comments that could not be posted are staged
-below verbatim so the moment a credential exists they can go up unchanged and nothing is
-reconstructed from memory.
+The paragraph this replaces said `gh` was not installed. It was — the probe used to establish that
+could not tell an unauthenticated `gh` from an absent one, which is recorded against HG-001. What
+remains here is an archive of what was staged while the channel was believed one-way, kept because
+the staging discipline is what made the packets postable unchanged rather than reconstructed.
 
 ---
 
-## [CLAUDE_APPLIED][TEST-001] — staged 2026-08-19, not yet posted
+## How a record declares its state
+
+`scripts/rc-preflight.ts` counts what is still owed on this channel, and it reads the `state` field
+below each heading — not the heading's wording, and not whether the tag is in backticks. Formatting
+was load-bearing once and it produced a false blocker: the old parser matched one of three headings
+and read the one it found as untransmitted, having been posted days earlier.
+
+A record must carry exactly one of:
+
+| state                         | meaning                                          | counted as owed                          |
+| ----------------------------- | ------------------------------------------------ | ---------------------------------------- |
+| `QUEUED_NOT_TRANSMITTED`      | staged and not yet posted                        | **yes**                                  |
+| `TRANSMITTED`                 | posted and read back; `remoteCommentId` names it | no                                       |
+| `WAITING_FOR_REMOTE_DECISION` | posted, awaiting an answer                       | no — it has left, and the turn is theirs |
+| `ARCHIVED`                    | kept as a record, not owed                       | no                                       |
+| `SUPERSEDED`                  | replaced by a later packet                       | no                                       |
+| `HISTORICAL_EXAMPLE`          | illustration, never a real packet                | no                                       |
+
+A heading with no `state`, or a state not in that table, makes the whole reading
+**EVIDENCE_INSUFFICIENT**. It does not quietly count zero. "Nothing is owed" and "I could not tell
+what is owed" are different facts and the preflight needs to be able to say which one it has.
+
+Fenced code blocks are stripped before parsing, so the verbatim packet text staged below cannot be
+mistaken for more records.
+
+---
+
+## `[CLAUDE_APPLIED][TEST-001]` — transmitted as comment 5349296642
+
+- state: TRANSMITTED
+- remoteCommentId: 5349296642
 
 Post to issue #2:
 
@@ -55,7 +85,10 @@ https://api.github.com/repos/jyun121388-spec/market-os/issues/2/comments -d '{"b
 
 ---
 
-## [ESCALATION][TEST-002] — staged 2026-08-19, **not transmitted**
+## `[ESCALATION][TEST-002]` — transmitted as comment 5349417717
+
+- state: TRANSMITTED
+- remoteCommentId: 5349417717
 
 Status: `TEST_002_BLOCKED_WRITE_AUTH`. Composed, queued, and never sent — see
 `TRANSPORT_STATE.md` for the fail-fast probe that established `AUTH_FAILURE`.
@@ -99,7 +132,10 @@ anything else would be the failure this project keeps writing tests against.
 
 ---
 
-## `[ESCALATION][ESC-009]` — queued 2026-08-19, not transmitted
+## `[ESCALATION][ESC-009]` — transmitted as comment 5349422884
+
+- state: TRANSMITTED
+- remoteCommentId: 5349422884
 
 `ESCALATION_QUEUED_NOT_TRANSMITTED`. Retry condition: `CREDENTIAL_STATE_CHANGED` — specifically, a
 credential usable for the **GitHub REST API**. Git push authentication became available on

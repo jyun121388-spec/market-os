@@ -11,6 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { countPendingEscalations } from "../src/server/release/pendingEscalations";
 import { join } from "node:path";
 import { storePaths } from "@/server/controlbus/store";
 import type { PreflightInput } from "@/server/release/preflight";
@@ -81,12 +82,17 @@ const busState = existsSync(busPaths.state)
   ? (JSON.parse(readFileSync(busPaths.state, "utf8")) as { outbox?: unknown[] })
   : null;
 
+/**
+ * Packets staged in `PENDING_COMMENTS.md` that have not been transmitted.
+ *
+ * The counting lives in `src/server/release/pendingEscalations.ts` and is tested there. It used to
+ * be a regex here, in a script nothing imported, and it was wrong in two directions for eleven
+ * days — see that module for what it got wrong and why the shape of the fix follows from it.
+ */
 const pending = existsSync("docs/escalation/PENDING_COMMENTS.md")
-  ? [
-      ...readFileSync(join(process.cwd(), "docs/escalation/PENDING_COMMENTS.md"), "utf8").matchAll(
-        /^## +`\[(?:ESCALATION|CLAUDE_APPLIED)\]\[([A-Z0-9-]+)\]`/gm,
-      ),
-    ].length
+  ? countPendingEscalations(
+      readFileSync(join(process.cwd(), "docs/escalation/PENDING_COMMENTS.md"), "utf8"),
+    )
   : 0;
 
 /** The abbreviated form git would print, so string equality against `head` means what it says. */
@@ -171,7 +177,12 @@ const input: PreflightInput = {
   ...reviewEvidence(),
   openHumanGates,
   unverifiedProviders: ["FRED", "ECOS", "OPENDART"],
-  queuedEscalations: pending + (busState?.outbox?.length ?? 0),
+  // `pending` is null when the staging document declares a state the parser cannot read. Passing
+  // undefined makes the preflight report the check as never established, which is the honest
+  // answer; adding null to a number would have produced NaN, and coercing it to zero would have
+  // turned "I could not tell" into "nothing is owed" — the exact substitution this counter was
+  // fixed for making.
+  queuedEscalations: pending === null ? undefined : pending + (busState?.outbox?.length ?? 0),
   controlBusWatcher: watcherAlive ? "ALIVE" : "STOPPED",
 };
 

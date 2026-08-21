@@ -86,7 +86,17 @@ const SOURCES: readonly (readonly [string, string])[] = sourceFiles.map(
  * even though the data it reads is not. That is the property that matters, and the exemption is
  * checked below rather than trusted.
  */
-const PERMITTED_READERS = ["scripts/rc-preflight.ts"];
+/**
+ * Two reporters now, and the second exists because the first answers the wrong question once
+ * follow-up work begins. `rc-preflight.ts` reports on HEAD; `verify-frozen-pair.ts` reports on two
+ * explicit SHAs, reading their git objects rather than the checkout, so a dirty tool worktree
+ * cannot be mistaken for a dirty candidate.
+ *
+ * It qualifies for the same exemption on the same terms: it is not on the evidence-only list, so
+ * any change to it invalidates a review, which is the property the exemption rests on and which
+ * the test below checks rather than assumes.
+ */
+const PERMITTED_READERS = ["scripts/rc-preflight.ts", "scripts/verify-frozen-pair.ts"];
 
 /** Compare paths on forward slashes; this machine produces backslashes. */
 const normalise = (path: string) => path.split("\\").join("/");

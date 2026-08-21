@@ -36,7 +36,8 @@
     "control-bus:status": "tsx scripts/control-bus.ts status",
     "control-bus:stop": "tsx scripts/control-bus.ts stop",
     "control-bus:once": "tsx scripts/control-bus.ts once",
-    "rc:preflight": "tsx scripts/rc-preflight.ts"
+    "rc:preflight": "tsx scripts/rc-preflight.ts",
+    "rc:verify-pair": "tsx scripts/verify-frozen-pair.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

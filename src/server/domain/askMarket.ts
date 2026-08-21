@@ -586,6 +586,124 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   /(들어가도|나와도|들어갈까|나올까)\s*(될까요|되나요|되나|될까|요)?/,
   /비중\s*(조절|늘려|줄여|확대|축소)/, // adjust position weighting
   /(사기|팔기)\s*좋은\s*(때|시점|타이밍)/, // "a good time to buy/sell"
+
+  // --- 2026-08-21. Four prohibitions that were never implemented (IR-085).
+  //
+  // Found by measurement rather than by probing. A 120-case corpus built from the seven hard
+  // prohibitions in docs/LEGAL_GUARDRAILS.md — not from this list — answered 36 of 63 prohibited
+  // requests. The misses were not scattered: loss protection caught NOTHING, automated trading
+  // caught one case out of six, and guaranteed return and fund allocation were each about half.
+  // Twenty review gates had worked on this surface, and every one of them worked on personalised
+  // trade and price prediction. Those two measure well. Nobody had asked about the other five.
+  //
+  // So these are organised by prohibition, not by phrasing, and each is anchored to the shape the
+  // prohibition takes rather than to a word it happens to use.
+
+  // (6) Loss protection — "never build" in LEGAL_GUARDRAILS.md and previously unenforced.
+  //
+  // The word to be careful with is "risk": risk premium, risk-free rate and risk appetite are all
+  // ordinary macro vocabulary, so a bare match would break the analytical half of the product.
+  // Each pattern below pairs the absence-of-loss claim with the asker wanting one.
+  /\b(no|without|zero|never)[-\s](risk|losing|loss)\b[\s\S]{0,40}\b(place|way|option|investment|park|put|invest|savings|money)\b/i,
+  /\b(place|way|option|somewhere|something)\b[\s\S]{0,40}\b(no|without|zero)[-\s](risk|loss)\b/i,
+  /\b(don'?t|doesn'?t|won'?t|never|avoid|make sure i don'?t|so i don'?t)\b[\s\S]{0,20}\blos(e|ing)\b[\s\S]{0,20}\bmoney\b/i,
+  /\b(downside|principal|capital|loss)[-\s]protect/i,
+  /\bprotect\w*\b[\s\S]{0,20}\b(against|from)\b[\s\S]{0,15}\b(loss|losses|downside|drawdown)\b/i,
+  /\bcan'?t lose\b/i,
+  // Korean. 원금 손실 없는 / 손해 안 보 / 손실 없이 — the standard retail phrasings.
+  /원금\s*(손실|보장)/,
+  /손실\s*(없는|없이|안\s*(나|보))/,
+  /손해\s*(안|없)\s*(보|나|는)/,
+
+  // (3) Automated trading and order execution — also "never build", also unenforced.
+  //
+  // Anchored to the system being ASKED to act. "How are orders matched on the KRX?" is a market
+  // mechanics question and must stay answerable, so every pattern needs an instruction frame:
+  // an imperative, a "can you", or a request to build something that trades.
+  /\b(place|submit|enter|execute|fill|cancel)\b[\s\S]{0,25}\b(an?|my|the)\s+(order|trade|buy|sell|position)\b/i,
+  /\b(can|could|would|will)\s+you\b[\s\S]{0,30}\b(buy|sell|order|trade|execute|invest)\b/i,
+  /\b(buy|sell|trade|invest)\b[\s\S]{0,20}\bon my behalf\b/i,
+  /\b(trading|trade)\s+(bot|algorithm|algo|script|system)\b/i,
+  /\b(automatic|automatically|auto)\w*\b[\s\S]{0,30}\b(buys?|sells?|trades?|executes?|rebalances?)\b/i,
+  /\bset up\b[\s\S]{0,40}\bthat\b[\s\S]{0,20}\b(buys?|sells?|trades?)\b/i,
+  // Korean: 주문 넣어 주세요 / 자동 매매 / 매매 봇.
+  /(주문|매도|매수)\s*(을|를)?\s*(넣어|걸어|내어|체결)/,
+  /자동\s*(매매|매수|매도|거래)/,
+  /(매매|트레이딩)\s*(봇|프로그램|자동화)/,
+
+  // (4) Guaranteed and implied-guaranteed returns.
+  //
+  // The existing list caught the word "guaranteed" adjacent to "return". Certainty is expressed
+  // far more often without that word: certain to, sure to, bound to, can't miss, double my money.
+  /\b(certain|sure|guaranteed|bound|destined)\s+to\s+(go up|rise|gain|beat|double|outperform)\b/i,
+  /\b(which|what)\b[\s\S]{0,30}\b(will definitely|is certain to|is guaranteed to)\b/i,
+  /\bpromise me\b/i,
+  /\b(double|triple|10x|ten[-\s]?x)\b[\s\S]{0,15}\bmy money\b/i,
+  /\bdouble\b[\s\S]{0,20}\b(my|the)\s+(money|capital|investment|principal)\b/i,
+  /\bsafest way to\b[\s\S]{0,30}\b(double|grow|make|earn)\b/i,
+  /\b(something|anything|one)\b[\s\S]{0,20}\bthat can'?t\b[\s\S]{0,15}\b(lose|fail|go down)\b/i,
+  // Korean: 확실히 오르는 / 무조건 / 원금 두 배.
+  /(확실히|무조건|반드시)\s*(오르|올라|수익|버는|버실)/,
+  /(원금|투자금|돈)\s*(을|이)?\s*두\s*배/,
+
+  // (7) Allocating the asker's own funds, and (2) portfolio construction.
+  //
+  // Grouped because they share one structure: the asker's own money is the subject and the
+  // question asks where it should go. There is often no security named and no trading verb at
+  // all — "I have 50 million won in cash, what should I do with it?" contains neither — so
+  // anchoring on instruments could never have caught them. What is constant is the possessive
+  // over a pot of money plus a decision being requested about it.
+  /\b(where|what|how much)\b[\s\S]{0,30}\b(should|do) i\b[\s\S]{0,30}\b(put|do with|invest|allocate|park)\b/i,
+  /\b(where|what)\b[\s\S]{0,25}\bshould\b[\s\S]{0,20}\bmy\s+(money|cash|savings|bonus|inheritance|funds?|capital|payout|windfall)\b/i,
+  /\bi (have|'ve got|inherited|received|saved)\b[\s\S]{0,40}\b(cash|savings|won|dollars?|money|bonus|inheritance)\b[\s\S]{0,60}\b(what|where|how)\b/i,
+  /\bhow much of my\b[\s\S]{0,25}\b(should|do i)\b/i,
+  /\bwhere does it belong\b/i,
+  /\b(split|allocation|allocate|divide)\b[\s\S]{0,40}\bbetween\b[\s\S]{0,40}\b(stocks?|bonds?|equities|cash|gold)\b[\s\S]{0,40}\b(for|my|me)\b/i,
+  /\bfor someone my age\b/i,
+  /\bhow should i be (positioned|allocated|invested)\b/i,
+  /\bdesign\b[\s\S]{0,20}\b(a|an|my)\b[\s\S]{0,20}\bportfolio\b/i,
+  /\bshould i hedge\b/i,
+  /\b(too|over)[-\s]?concentrated\b/i,
+  // Korean: 어디에 넣/투자, 얼마나 넣어야, 자산 배분, 비중을 나누.
+  // The bare form — 어디에 + 넣/투자 — refused "가계 자산이 어디에 투자되어 있나요?", which asks
+  // where household assets ARE invested. A published statistic, and one of the eighteen macro
+  // questions pinned as must-not-flag. Caught by the existing corpus on the first run of this
+  // block, which is what that corpus is for.
+  //
+  // Korean marks the difference in the ending, not in the words: 투자되어 있나요 describes a
+  // state, 투자할까요 asks for a decision. So the decision endings are required, and the
+  // descriptive ones fall through.
+  /(어디에|어디다|어느\s*쪽에)[\s\S]{0,10}(넣|투자|묻어)[\s\S]{0,6}(할까|해야|하나요|하는\s*게|는\s*게|좋을|좋은가|둘까|둬야)/,
+  /(얼마나|몇\s*%|몇\s*퍼센트)\s*[\s\S]{0,15}(넣어야|투자해야|담아야)/,
+  /자산\s*배분/,
+  /비중을?\s*(어떻게|얼마나)?\s*[\s\S]{0,10}나[눠누]/,
+  /(퇴직금|여유자금|목돈|종잣돈|비상금)\s*[\s\S]{0,20}(어디|얼마|투자|넣)/,
+
+  // (5) Definitive price predictions — the Korean mirror of a pattern that already existed.
+  //
+  // "Will KRW hit 1400 by March?" is the example LEGAL_GUARDRAILS.md names, and the English form
+  // was refused while "환율이 언제 1400원을 넘을까요?" — the same sentence — was answered. An
+  // English pattern with no Korean mirror is a hole, which this list has now learned three times.
+  //
+  // Anchored on a named price series plus a NUMERIC level plus a crossing verb, so "1997년
+  // 외환위기 당시 환율은 얼마였나요?" stays answerable: it names the series and asks for history,
+  // and supplies no level to cross.
+  /(환율|주가|주가지수|지수|코스피|코스닥|비트코인|금값|유가)[\s\S]{0,20}\d[\d,.]*\s*(원|달러|엔|위안|포인트|만원)[\s\S]{0,12}(넘|돌파|도달|찍|갈까|될까|올라|떨어질까)/,
+
+  // (1) Personalised trade, the shapes the twenty gates did not reach.
+  //
+  // Each of these asks for a decision without using a trading verb in the first person, which is
+  // what the existing patterns key on.
+  /\b(good|right|bad|wrong) time for (me|us|him|her|them)\b/i,
+  /\b(thinking|thought) (of|about)\b[\s\S]{0,25}\b(selling|buying)\b[\s\S]{0,15}\bmy\b/i,
+  /\btalk me (out of|into)\b/i,
+  /\bwhat would you do\b[\s\S]{0,25}\b(in my|with my|if you were me)\b/i,
+  /\b(stock|share|etf|fund)\s+picks?\b[\s\S]{0,20}\bfor (me|us)\b/i,
+  /\bany\b[\s\S]{0,15}\bpicks?\b[\s\S]{0,20}\bfor (me|us)\b/i,
+  /\bis (now|this|it)\b[\s\S]{0,15}\ban entry point\b/i,
+  // Korean: 제 상황에 / 아버지가 …사려고 하시는데.
+  /(제|내|저희)\s*상황(에|에서)/,
+  /(아버지|어머니|부모님|형|누나|동생|아내|남편|와이프)(가|께서)\s*[\s\S]{0,25}(사려고|팔려고|투자하려)/,
 ];
 
 /**

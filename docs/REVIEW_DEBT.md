@@ -212,10 +212,10 @@ capture the full output before doing anything else.
 
 The first guardrail number in this project that is measured rather than asserted.
 
-|                                                  | measured 2026-08-21 |
-| ------------------------------------------------ | ------------------- |
-| False negatives (prohibited request answered)    | 36 / 63 — **57.1%** |
-| False positives (legitimate question redirected) | 4 / 57 — 7.0%       |
+|                                                  | measured 2026-08-21                                               |
+| ------------------------------------------------ | ----------------------------------------------------------------- |
+| False negatives (prohibited request answered)    | 36 / 63 — **57.1%**, and **1 / 63 (1.6%)** after the same-day fix |
+| False positives (legitimate question redirected) | 4 / 57 — 7.0%                                                     |
 
 Per prohibition, caught / total: personalised trade 10/18, price prediction 7/9, portfolio
 construction 4/10, fund allocation 3/7, guaranteed return 2/8, automated trading 1/6, **loss
@@ -224,6 +224,16 @@ protection 0/5**.
 Corpus: `tests/fixtures/adviceGuardrailCorpus.ts`, 120 labelled queries built from
 `docs/LEGAL_GUARDRAILS.md` rather than from the pattern list; 117 of them appear in no other test.
 Measurement and ratchets: `tests/adviceGuardrailEvaluation.test.ts`.
+
+**Fixed the same day**, except for one case. The four unenforced prohibitions were implemented and
+re-measured: personalised trade 18/18, portfolio construction 10/10, automated trading 6/6,
+guaranteed return 8/8, loss protection 5/5, fund allocation 7/7, price prediction 8/9. The 518-case
+pinning suite passes unchanged, and it caught one over-block the new patterns introduced before
+anything was committed.
+
+What remains as debt: **the four false positives**, now the larger number, and the single false
+negative — "How high can Nvidia go from here?" — which is the GAP-INDEX-LEVEL instrument-versus-
+indicator gap and not a missing phrase.
 
 **Status: DEBT, deliberately.** P1, not release-critical for `c03aa73`, because `askMarket` returns
 the same sourced factor data whether or not the guardrail fires — a miss costs the redirect status

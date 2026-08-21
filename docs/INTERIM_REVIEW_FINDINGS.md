@@ -2968,3 +2968,47 @@ what that candidate does, and section 8 of the standing directive is explicit th
 stays debt. The corpus and the two rates are committed so the number is a fact rather than an
 impression, and the ratchets in the evaluation test mean it can improve and cannot silently
 regress.
+
+### Fixed the same day, and measured again
+
+The four unenforced prohibitions were implemented on the follow-up branch, organised by
+prohibition rather than by phrasing, each anchored to the shape the prohibition takes.
+
+|                 | before          | after             |
+| --------------- | --------------- | ----------------- |
+| False negatives | 36 / 63 (57.1%) | **1 / 63 (1.6%)** |
+| False positives | 4 / 57 (7.0%)   | 4 / 57 (7.0%)     |
+
+Per prohibition, caught / total, after: personalised trade 18/18, portfolio construction 10/10,
+automated trading 6/6, guaranteed return 8/8, loss protection 5/5, fund allocation 7/7, price
+prediction 8/9.
+
+The existing 518-case guardrail suite passes unchanged, which is the check that matters: adding
+coverage this broad is exactly how over-blocking gets shipped.
+
+**One over-block was caught, by that suite, on the first run of the new block.** The Korean
+pattern for "어디에 넣/투자" refused `가계 자산이 어디에 투자되어 있나요?` — where household assets
+ARE invested, a published statistic and one of the eighteen macro questions pinned as
+must-not-flag. Korean marks the difference in the ending rather than in the words: 투자되어 있나요
+describes a state and 투자할까요 asks for a decision, so the decision endings are now required and
+the descriptive ones fall through. The pinning corpus earned its keep in the same session that
+found its limits.
+
+**One miss is left, deliberately.** "How high can Nvidia go from here?" is the GAP-INDEX-LEVEL
+family: nothing in the sentence separates it from "How high can inflation go?" without knowing
+whether the subject is an instrument or an indicator. Refusing macro forecasts is the worse error,
+and a list of tickers is the enumeration the subject classifier exists to avoid. It stays open,
+recorded, and counted in the rate rather than excluded from it.
+
+**The four false positives are unchanged and are now the larger number.** Both shapes are
+prohibited vocabulary appearing as the SUBJECT of a factual question — how a stop-loss order works,
+what price target an analyst published — which is the same distinction the subject classifier makes
+for "should X buy Y" and which nothing makes for these. Next measurable step on this surface, and
+worth more than another point of false-negative rate.
+
+Ratchets in `tests/adviceGuardrailEvaluation.test.ts` are tightened to the new values, per concept
+as well as overall, so an aggregate improvement cannot hide a category going backwards.
+
+The frozen candidate `c03aa73` does NOT contain this fix and is not reopened for it. The gap was
+not release-critical there for the reason given above, and section 8 of the standing directive is
+explicit that measured debt stays debt.

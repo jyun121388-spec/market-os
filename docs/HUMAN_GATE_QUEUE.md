@@ -112,7 +112,9 @@ Three of the eight cost nothing and unblock the most engineering. If only one th
 - **If deferred.** Indefinitely safe. Safe mode is the shipped behaviour and is not a placeholder.
 - **Measured prerequisite, added 2026-08-21.** The request-side guardrail was measured against a
   120-case corpus built from the prohibitions rather than from its own patterns, and answers
-  **36 of 63** prohibited requests (IR-085). Harmless today, because nothing can produce advice;
+  **36 of 63** prohibited requests (IR-085), since fixed to 1 of 63 on the follow-up branch, with
+  four false positives left as the larger remaining number. Harmless today, because nothing can
+  produce advice;
   the moment a provider answers free text, this is the control standing in front of it. Bring that
   rate down before enabling the path, not after.
 - **Verification that follows approval.** Per the M21 entry in `docs/DECISIONS.md`, in the same

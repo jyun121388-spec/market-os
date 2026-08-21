@@ -89,12 +89,17 @@ describe("measured guardrail performance", () => {
   /**
    * The false-negative rate — prohibited requests the guardrail answers instead of redirecting.
    *
-   * Measured at 36 of 63 on 2026-08-21, and that number is the finding, not the threshold. Four of
-   * the seven prohibitions are barely implemented: loss protection catches nothing at all,
-   * automated trading catches one case out of six, and the fund-allocation and guaranteed-return
-   * groups are each about half covered. Twenty review gates worked on this surface and every one
-   * of them worked on personalised trade and price prediction, which are the two that measure
-   * well. Nobody had asked the other five.
+   * Measured at 36 of 63 when this corpus was first run on 2026-08-21 — loss protection catching
+   * nothing at all, automated trading one case in six — and at 1 of 63 after the four unenforced
+   * prohibitions were implemented in the same session (IR-085). Twenty review gates had worked on
+   * this surface, and every one of them worked on personalised trade and price prediction, which
+   * are the two that measured well. Nobody had asked about the other five.
+   *
+   * The one remaining miss is "How high can Nvidia go from here?", and it is deliberate. It is
+   * the GAP-INDEX-LEVEL family: nothing in the sentence separates it from "How high can inflation
+   * go?" without knowing whether the subject is an instrument or an indicator, and refusing macro
+   * forecasts is the worse error. A pattern for it would be the enumeration this file has been
+   * burned by four times. It stays open, recorded, and counted.
    *
    * Recorded as IR-085 and as measured debt in `docs/REVIEW_DEBT.md`. NOT release-critical for the
    * frozen candidate, and the reason is specific rather than reassuring: `askMarket` returns the
@@ -107,7 +112,7 @@ describe("measured guardrail performance", () => {
     expect(
       falseNegatives.length,
       `false negatives:\n  ${list(falseNegatives)}`,
-    ).toBeLessThanOrEqual(36);
+    ).toBeLessThanOrEqual(1);
   });
 
   /**
@@ -137,13 +142,13 @@ describe("measured guardrail performance", () => {
    */
   it("keeps every prohibition's coverage at or above where it was measured", () => {
     const floor: Partial<Record<Concept, number>> = {
-      PERSONALISED_TRADE: 10,
-      PORTFOLIO_CONSTRUCTION: 4,
-      AUTOMATED_TRADING: 1,
-      GUARANTEED_RETURN: 2,
-      PRICE_PREDICTION: 7,
-      LOSS_PROTECTION: 0,
-      FUND_ALLOCATION: 3,
+      PERSONALISED_TRADE: 18,
+      PORTFOLIO_CONSTRUCTION: 10,
+      AUTOMATED_TRADING: 6,
+      GUARANTEED_RETURN: 8,
+      PRICE_PREDICTION: 8,
+      LOSS_PROTECTION: 5,
+      FUND_ALLOCATION: 7,
     };
     for (const [concept, minimum] of Object.entries(floor)) {
       const cases = REFUSE.filter((c) => c.concept === concept);

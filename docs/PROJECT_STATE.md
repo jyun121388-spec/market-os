@@ -8,35 +8,41 @@ Post-M28: timezone/staleness fixes, a security-review skill pass, M21's determin
 Market safe mode, and the Codex REVISE fix round (H1/H2/H3 + 3 P1s).
 
 CURRENT
-RELEASE CANDIDATE — **[CODEX RE-REVIEW READY]**, now with a materially stronger evidence base
-than when that status was set. Development moved from the Claude Code Web sandbox to a local
-Windows/VS Code machine on 2026-08-17. That move is not cosmetic: the local environment has a
-real PostgreSQL 16.10, a real browser, and real network egress, none of which the cloud sandbox
-had. Standing the project up there immediately falsified four things the cloud runs had
-reported as green. All four are fixed and committed; details below.
+RELEASE CANDIDATE — **frozen, independently closed, awaiting human release gates.** Status:
+**`RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES`** (2026-08-21).
 
-Status: **`RELEASE_CANDIDATE_PENDING_EXTERNAL_GATES`.**
+|                              |                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| Reviewed code SHA            | `c03aa73e2ced798dd65a17c013c4a11051a74b4c`                              |
+| Attestation SHA / PR #1 head | `fb3a72193ade11da265fbc496ffd1a38bdd734e4`                              |
+| Remote CI                    | 32433898532 (reviewed) and 32434207834 (attestation head), both SUCCESS |
+| Final closure                | `[CHATGPT_VERIFIED][ESC-011]` APPROVED, issue #2 comment 5364293844     |
+| Follow-up branch             | `claude/post-rc-followup`, deliberately NOT in PR #1                    |
 
-**NOT `RELEASE_CANDIDATE_READY`.** That requires all of: local commits pushed; FRED, ECOS and
-OpenDART each live-verified on the success path; independent re-review complete; P0 = 0; P1 = 0;
-full verification green. Engineering-side conditions are met — P0 and P1 are both zero and the
-full chain is green — but four external gates are open, and none of them is something autonomous
-work can close. Do not promote the status because the engineering looks finished; see
-`docs/HUMAN_GATE_QUEUE.md`.
+**The gate chain is closed and is not to be reopened.** Gates A through U ran; each of A–T found
+at least one real defect and produced a new candidate, and Gate U reviewed `40dc7e3..c03aa73` and
+returned "No findings" — the first clean gate in twenty rounds. Every superseded SHA is recorded
+`SUPERSEDED_NOT_CLEAN` in `reviews/market-os-final-review.json` and listed in the attestation's
+`notAttested`. The closing verdict lives in `docs/REVIEW_ATTESTATION.json`, not in the gate log,
+and `npm run rc:verify-pair` checks the two-SHA relationship from the git objects.
 
-**`PUSHED`** — HG-001 is closed. The branch is fully published on
-`origin/claude/market-os-development-7vnicg` with zero commits ahead, PR #1 is open, and CI runs
-against real SHAs. Nothing was rewritten and no force operation was used. The
-`PUSH_PENDING_AUTH` text that stood here was true when written and false for most of the session
-that followed it; see the correction in `docs/HUMAN_GATE_QUEUE.md` (HG-001).
+**NOT `RELEASE_CANDIDATE_READY`.** Engineering-side conditions are met — P0 and P1 are both zero,
+counted from the review register rather than declared, and the full chain is green. What remains
+is eight human or external gates, none of which autonomous work can close, each carrying a
+decision packet in `docs/HUMAN_GATE_QUEUE.md`. Three of the eight — the FRED, ECOS and OpenDART
+keys — cost nothing and unblock the most. Do not promote the status because the engineering looks
+finished.
 
-**`INDEPENDENT_REVIEW_DONE_FOR_GATE_A`** — the review blocker is closed for the release-candidate
-range. Included usage returned, and the Gate A adversarial review authorised by
-`[CHATGPT_DECISION][RC-GATES-001]` ran read-only against candidate `6103ad8`. Result in
-`reviews/market-os-final-review.json`: no P0, two P1 reproduced and fixed with regression tests
-(guardrail coverage, decimal identity), three P2 of which one fixed, one accepted pre-launch and
-one deferred with a named remediation. `docs/INDEPENDENT_REVIEW_PACKET.md` remains the packet;
-working through its own questions produced findings 23-29 below before any reviewer read it.
+**`PUSHED`** — HG-001 is closed. Branch published on
+`origin/claude/market-os-development-7vnicg`, PR #1 open, CI running against real SHAs. Nothing
+was rewritten and no force operation was used. The `PUSH_PENDING_AUTH` text that stood here was
+true when written and false for most of the session that followed it; see the correction in
+`docs/HUMAN_GATE_QUEUE.md` (HG-001).
+
+**Post-RC work runs on `claude/post-rc-followup` and never on the candidate**, because an
+executable commit after the reviewed SHA would invalidate the review the release rests on. Open
+there: ESC-012 asks how the control bus should file a trusted directive that answers no
+escalation (IR-084); the consumer wiring waits on the answer and nothing else does.
 
 STATUS
 Local environment is fully operational and reproducible:
@@ -44,7 +50,8 @@ Local environment is fully operational and reproducible:
 - Portable PostgreSQL 16.10 under `.local/pgsql` (gitignored), port 55432, started via
   `.local/pgsql/bin/pg_ctl`. No system-wide install, no Docker, no admin rights, fully
   reversible by deleting `.local/`.
-- All 12 migrations apply cleanly to a genuinely fresh database.
+- All 17 migrations apply cleanly to a genuinely fresh database, re-checked 2026-08-21 by
+  applying them to an empty one: 17 recorded, 17 finished.
 - Playwright Chromium installed; `npm run e2e` runs a real browser locally.
 - Real egress confirmed to data.sec.gov, api.stlouisfed.org, ecos.bok.or.kr and
   opendart.fss.or.kr — the `LIVE_VERIFICATION_REQUIRED` classifications were an artifact of the

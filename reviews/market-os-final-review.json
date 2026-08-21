@@ -1,0 +1,1852 @@
+{
+  "schema": "market-os/review-evidence/1",
+  "gates": [
+    {
+      "gate": "A",
+      "authorized_by": "[CHATGPT_DECISION][RC-GATES-001] (issue #2, comment 5352653561)",
+      "head_sha": "6103ad820bc6da56fe0fec3edab0ffbaa5399990",
+      "head_sha_short": "6103ad8",
+      "branch": "claude/market-os-development-7vnicg",
+      "reviewer": {
+        "role": "independent adversarial reviewer",
+        "model": "gpt-5.6-sol",
+        "invocation": "codex exec -s read-only",
+        "independence": "review ran read-only against the frozen candidate; the reviewer neither wrote nor verified the fixes below"
+      },
+      "reviewed_at": "2026-08-20T09:21:48Z",
+      "scope": [
+        "authentication, session handling and operator access",
+        "legal-guardrail enforcement across request and output paths",
+        "Claim Ledger and Verifier boundaries",
+        "ingestion, revision and migration safety",
+        "secret redaction and error persistence"
+      ],
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1 found AT 6103ad8 and reproduced. Both are fixed in 218d3f9, not here. Two P2 remain open by decision rather than oversight: A1 accepted as a pre-launch product posture, C1 valid but unreachable and deferred with a named remediation. The earlier label CONDITIONAL_PASS was replaced because it read as a property of this SHA when it was a summary of what the review turned up.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "B1",
+          "severity": "P1",
+          "cluster": "GUARDRAIL_COVERAGE",
+          "file": "src/server/domain/askMarket.ts",
+          "line": 96,
+          "claim": "Three prohibited concepts reach the answer path instead of being refused.",
+          "status": "REPRODUCED_AND_FIXED",
+          "reproduction": {
+            "method": "ran detectPersonalizedAdviceRequest against the three named phrasings plus refuse/allow controls, before any change",
+            "triggers": [
+              "Give me a guaranteed 10% annual return strategy for Apple",
+              "What will Apple trade at next year?",
+              "Tell my brother to dump Apple and move everything into bonds"
+            ],
+            "observed_before": "all three returned false (answered)",
+            "observed_after": "all three return true (refused); the must-allow controls still return false"
+          },
+          "cause": "Each prohibited concept had one phrasing covered and its neighbour uncovered: 'guaranteed' and 'return' had to be adjacent, definitive-price detection required a numeral or the word 'where', and third-party framing existed only in Korean (IR-034).",
+          "fix": "Three patterns added covering guaranteed-return with intervening text, future-tense price questions without a numeral, and English third-party instruction framing.",
+          "regression_tests": [
+            "tests/askMarketConceptCoverage.test.ts (7 must-refuse, 6 must-allow added; 55 pass)"
+          ]
+        },
+        {
+          "id": "D1",
+          "severity": "P1",
+          "cluster": "SILENT_DEGRADATION",
+          "file": "src/server/domain/observationIngest.ts",
+          "line": 94,
+          "claim": "Float comparison of stored and incoming values can treat a genuine revision as unchanged.",
+          "status": "REPRODUCED_AND_FIXED",
+          "reproduction": {
+            "method": "control assertion in the regression test rather than a live ingest, because no series reaches the magnitude required",
+            "observed_before": "Number(\"10000000000000.000001\") === Number(\"10000000000000.000002\") is true, so the two readings compare equal",
+            "observed_after": "sameDecimalValue distinguishes them while still treating 1.50 and 1.5 as equal"
+          },
+          "cause": "The column stores six decimals; a double carries 15-17 significant digits, so precision is lost above ~10^10.",
+          "fix": "sameDecimalValue() compares normalised decimal strings; both Number() comparison sites replaced.",
+          "reachability": "LATENT — no current series is near that magnitude. Fixed because the failure is silent: no error, no revision row, and a ledger that looks consistent while missing a figure.",
+          "regression_tests": [
+            "tests/decimalValueIdentity.test.ts (4 pass, including the control that proves the old comparison collapses)"
+          ]
+        },
+        {
+          "id": "E1",
+          "severity": "P2",
+          "cluster": "PROVENANCE",
+          "file": "src/server/adapters/redactSecrets.ts",
+          "line": 37,
+          "claim": "A database password shorter than the eight-character redaction floor survives into persisted ingestion errors.",
+          "status": "REPRODUCED_AND_FIXED",
+          "reproduction": {
+            "method": "redacted a connection URI carrying a seven-character password",
+            "observed_before": "password present in the output",
+            "observed_after": "password replaced; scheme, user, host, port and database name preserved"
+          },
+          "cause": "Redaction was by exact value only, and the length floor that prevents '[REDACTED]' soup also exempted short real passwords.",
+          "fix": "CONNECTION_URI_PASSWORD redacts the userinfo password by shape. The length floor is unchanged and still governs value-based redaction.",
+          "regression_tests": [
+            "tests/redactSecrets.test.ts (23 pass; 4 URI shapes, a preservation case and three non-secret controls)"
+          ]
+        },
+        {
+          "id": "A1",
+          "severity": "P2",
+          "cluster": "IDENTITY_MODELLING",
+          "file": "src/server/domain/auth.ts",
+          "line": 98,
+          "claim": "signUp discloses whether an email is already registered, giving an enumeration oracle.",
+          "status": "REPRODUCED_ACCEPTED_PRE_LAUNCH",
+          "reproduction": {
+            "method": "read the code path; the thrown message is unconditional on an existing account",
+            "observed": "\"An account with this email already exists\" is returned to an unauthenticated caller"
+          },
+          "why_not_fixed": "The standard remedies require email verification, which is a Human Gate (bulk messaging), and the alternative generic failure strands a user who has forgotten they registered. This is a product decision, not a code fix. signIn is unaffected — it already refuses to reveal which field failed or that a lockout occurred.",
+          "revisit": "Required before public launch; recorded with HG-009 in docs/HUMAN_GATE_QUEUE.md."
+        },
+        {
+          "id": "C1",
+          "severity": "P2",
+          "severity_as_filed": "P1",
+          "cluster": "GUARDRAIL_COVERAGE",
+          "file": "src/server/domain/claimStore.ts",
+          "line": 17,
+          "claim": "assertValidClaim performs no content-level validation, so a prohibited claim could be stored.",
+          "status": "PARTIALLY_VALID_DEFERRED_WITH_PLAN",
+          "downgrade_reason": "Structurally accurate — validation covers shape only (FACT needs sourceId, CALCULATION needs evidence, INFERENCE needs confidence in range) — but unreachable: nothing constructs such a claim, the request guardrail refuses those questions at input, and no page renders claims.",
+          "why_not_fixed_now": "The obvious fix, reusing ADVICE_OUTPUT_PATTERNS from src/server/verify/evaluate.ts, would import the v2 shadow layer into v1 domain, which the architecture boundary test forbids. Copying the list into the ledger would create a second copy of a guardrail vocabulary that must never diverge — duplicated pattern lists are what the GUARDRAIL_COVERAGE cluster is made of.",
+          "remediation": "Extract one shared prohibited-language policy module consumed by three callers: the request guardrail, the output scanner and the ledger. A deliberate refactor, not a change to make under a frozen candidate.",
+          "tracked_in": "docs/INTERIM_REVIEW_FINDINGS.md"
+        }
+      ],
+      "clean_areas": [
+        "sessions use 32 random bytes, rotate on login, and set HttpOnly/SameSite=Lax/Secure-in-production cookies",
+        "/admin requires a validated session and ADMIN_EMAILS membership, failing closed when unset",
+        "passwords use salted scrypt with constant-time comparison",
+        "refusals survive the domain-to-page boundary; the page cannot substitute its own answer",
+        "FACT and CALCULATION verification re-fetch and recompute rather than trusting stored text",
+        "original observations are protected by a partial unique index; uniqueness races are idempotent",
+        "no migration deletes business rows",
+        "only .env.example is committed; the destructive-test guard refuses missing, identical, non-disposable and production-like targets"
+      ],
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it, so this SHA is superseded and must never be attested.",
+      "superseded_by": "218d3f997d855bb0560e68dba0ce87186c76042c"
+    },
+    {
+      "gate": "B",
+      "authorized_by": "[CHATGPT_DECISION][MARKET-RESUME-002] item 4 - a real P1 moves the candidate, and the new candidate needs fresh review, CI and evidence anchoring",
+      "head_sha": "218d3f997d855bb0560e68dba0ce87186c76042c",
+      "head_sha_short": "218d3f9",
+      "scope": "the diff 6103ad8..218d3f9 restricted to src/ and tests/ - 209 added lines across 7 files, i.e. the Gate A fixes themselves",
+      "reviewer": {
+        "role": "independent adversarial reviewer",
+        "model": "gpt-5.6-sol",
+        "invocation": "codex exec -s read-only",
+        "independence": "reviewed the fixes without having written them; asked explicitly for concrete failing inputs in BOTH directions and for a verdict on whether each new test could still pass if its fix were reverted"
+      },
+      "remote_ci": {
+        "run": "32357510507",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "218d3f997d855bb0560e68dba0ce87186c76042c",
+        "note": "green on exactly the reviewed SHA; local verification is never treated as a substitute"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1 and three P2 found AT 218d3f9. Every claim was reproduced before any change: four reproduced exactly, one was rejected outright, and one was right about the symptom and wrong about the cause. The confirmed defects are fixed in the NEXT commit, not in 218d3f9. The earlier label FIXES_REQUIRED_THEN_CLEAN was replaced because 'THEN_CLEAN' could be read as a claim about 218d3f9, and 218d3f9 is precisely the SHA the fixes were needed for.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "AM-1",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The new third-party patterns keyed on a possessive pronoun from a fixed list, so close paraphrases still reached the answer path.",
+          "reproduction": {
+            "triggers": [
+              "Tell John to sell Apple.",
+              "Advise your brother to liquidate his Tesla position.",
+              "Should Dad buy more Nvidia?",
+              "Can you promise my brother a 10% annual return?"
+            ],
+            "observed_before": "all four answered",
+            "observed_after": "all four refused; every must-allow control still answers"
+          },
+          "cause": "A proper name, an unlisted pronoun and a kinship term with no pronoun all bypass a possessive-pronoun requirement. Who the third party is was never the point. Separately, 'promise' carries the guarantee meaning and only 'guarantee' was covered.",
+          "fix": "The instruction pattern no longer requires a possessive and is bounded to a single sentence; a kinship-term pattern was added; 'promise' is covered when it is promised to a person, which is what separates it from 'the new fab promises better returns'.",
+          "regression_tests": [
+            "tests/askMarketConceptCoverage.test.ts - 7 new must-refuse cases; removing the new patterns fails 11 assertions"
+          ]
+        },
+        {
+          "id": "AM-2",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "PARTLY_REPRODUCED_PARTLY_REJECTED_FIXED_WHERE_REAL",
+          "claim": "The new patterns refuse legitimate research questions.",
+          "reproduced": [
+            {
+              "input": "What will happen if US markets close tomorrow?",
+              "was": "refused",
+              "now": "answered",
+              "cause": "a bare 'close' in the price pattern; a closing PRICE needs the preposition - close at, close above - to mean anything"
+            },
+            {
+              "input": "Advise my analyst to hold GDP constant when comparing the two scenarios.",
+              "was": "refused",
+              "still": "refused",
+              "verdict": "RIGHT_ABOUT_SYMPTOM_WRONG_ABOUT_CAUSE",
+              "detail": "The new hold pattern correctly ignores the analytical sense - the identical sentence with 'the team' in place of 'my analyst' answers normally. The refusal comes from the advisor-proxy pattern, which long predates this round and exists to block 'what would my broker recommend'. Left unchanged: outside the reviewed range, placed deliberately, and loosening an advice guardrail for one methodology question is not a trade to make under a frozen candidate. Pinned by test so it stays a decision rather than an accident."
+            }
+          ],
+          "rejected": [
+            {
+              "input": "What guaranteed benefits affect the pension fund's expected return?",
+              "claimed": "refused",
+              "observed": "answered",
+              "detail": "The gap between 'guaranteed' and 'return' is 41 characters, past the pattern's 40-character bound. Checked before being acted on; did not reproduce."
+            }
+          ],
+          "regression_tests": [
+            "tests/askMarketConceptCoverage.test.ts - 7 must-answer cases plus a pin for the pre-existing advisor-proxy behaviour"
+          ]
+        },
+        {
+          "id": "DI-1",
+          "severity": "P1",
+          "file": "src/server/domain/observationIngest.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "sameDecimalValue does not parse the decimal syntax the adapters actually deliver, so a superseded value can bypass the rollback guard.",
+          "reproduction": {
+            "method": "checked reachability in the adapters before accepting the claim - both normalizers validate with Number.isFinite(Number(raw)) and then persist the ORIGINAL string, so 1e5, +1 and .5 all arrive verbatim",
+            "observed_before": "sameDecimalValue('100000','1e5') was false; a provider replaying 1e5 over a chain that had moved on to 110000 would have been written back in as a revision",
+            "observed_after": "true; and 1.234568 vs 1.2345678 now compare equal, because Decimal(20,6) is what the column keeps"
+          },
+          "cause": "The Gate A fix compared normalised decimal STRINGS. That removed the double-precision defect and assumed a spelling the data does not keep to.",
+          "fix": "Exact bigint arithmetic scaled to the column's six decimal places, rounding half away from zero as the column does. Unparseable input is treated as different unless the strings are identical, because a spurious revision is a visible row and a missed one is silence.",
+          "regression_tests": [
+            "tests/decimalValueIdentity.test.ts - 8 syntax cases, precision cases and unparseable-input cases; reverting to Number() fails 4 tests, reverting to the Gate A string version fails 8"
+          ]
+        },
+        {
+          "id": "RS-1",
+          "severity": "P1",
+          "file": "src/server/adapters/redactSecrets.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "A connection URI with an empty username keeps its password.",
+          "reproduction": {
+            "input": "connect failed: postgresql://:s3cr3t@db.internal/market",
+            "observed_before": "password present in the output",
+            "observed_after": "postgresql://:[REDACTED]@db.internal/market"
+          },
+          "cause": "The username character class required at least one character. The password was six characters, below the value-redaction floor, so no later phase caught it either.",
+          "fix": "The username is optional.",
+          "regression_tests": ["tests/redactSecrets.test.ts"]
+        },
+        {
+          "id": "RS-2",
+          "severity": "P2",
+          "file": "src/server/adapters/redactSecrets.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The URI substitution corrupts prose containing a scheme://word:word@ grammar example.",
+          "reproduction": {
+            "input": "Parser syntax is proto://left:right@ followed by a host token.",
+            "observed_before": "proto://left:[REDACTED]@ followed by a host token.",
+            "observed_after": "unchanged"
+          },
+          "cause": "Nothing was required after the '@', and this substitution runs before the other two phases, so no later step could restore the text.",
+          "fix": "A lookahead requires a host character after the '@'. Real connection URIs always have a host, so this costs nothing.",
+          "regression_tests": ["tests/redactSecrets.test.ts - reverting the regex fails 3 tests"]
+        }
+      ],
+      "test_discrimination": "The review asked whether any new test could still pass with its fix reverted. Checked by doing it: reverting the connection regex fails 3, reverting sameDecimalValue to Number() fails 4, reverting it to the Gate A string version fails 8, and removing the new guardrail patterns fails 11. The reviewer also observed that several must-ALLOW assertions pass under a reversion - that is what a negative control is, and they are kept as controls rather than counted as proof.",
+      "clean_areas": [
+        "no catastrophic-backtracking construction among the new regexes - spans are bounded and character classes hold no nested ambiguous repetition",
+        "sameDecimalValue throws on none of the probed inputs",
+        "whitespace, trailing zeros, leading zeros, ordinary negatives and negative zero all handled",
+        "the connection regex handles ordinary usernames, one-character passwords, mixed-case schemes and schemes containing + . -"
+      ],
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it, so this SHA is superseded and must never be attested.",
+      "superseded_by": "ccb7461884f687acca306df0299c4209de7ecb00"
+    },
+    {
+      "gate": "C",
+      "authorized_by": [
+        "[CHATGPT_DECISION][MARKET-RESUME-002] item 4 - correctness outranks SHA stability",
+        "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-EXACT-CANDIDATE-003] (issue #2, comment 5357383332)"
+      ],
+      "head_sha": "ccb7461884f687acca306df0299c4209de7ecb00",
+      "head_sha_short": "ccb7461",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it, so this SHA is superseded and must never be attested.",
+      "scope": "the diff 218d3f9..ccb7461 restricted to src/ and tests/, plus an independently-anchored review of 6103ad8..218d3f9 that arrived on the control bus during this round",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "anchored_to": "ccb7461884f687acca306df0299c4209de7ecb00",
+          "findings": ["AM-RC-1", "AM-RC-2", "AM-RC-3", "AM-RC-4", "AM-RC-5", "RS-RC-1"]
+        },
+        {
+          "role": "independent exact-candidate review, delivered via GitHub issue #2",
+          "identifier": "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-EXACT-CANDIDATE-003]",
+          "comment_id": 5357383332,
+          "anchored_to": "218d3f997d855bb0560e68dba0ce87186c76042c",
+          "findings": ["RC003-D1", "RC003-B1"],
+          "note": "anchored one candidate behind, which is why one of its two findings was already fixed by the time it was read"
+        }
+      ],
+      "remote_ci": {
+        "run": "32382780866",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "ccb7461884f687acca306df0299c4209de7ecb00"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Nine claims across two independent reviewers with no overlap between them. Seven reproduced, one had already been fixed by a commit its reviewer had not seen, and one did not reproduce. Four of the reproduced defects are fixed; three over-blocks are accepted and pinned by test because every available repair is a bypass of an absolute prohibition.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "AM-RC-1",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "PARTLY_REPRODUCED_FIXED",
+          "claim": "The promised-return pattern still requires a pronoun, so promises to named people or roles reach the answer path.",
+          "reproduced": [
+            {
+              "input": "Can you promise John a 10% annual return?",
+              "was": "answered",
+              "now": "refused"
+            }
+          ],
+          "rejected": [
+            {
+              "input": "Can you promise the trustee a guaranteed 8% yield?",
+              "claimed": "answered",
+              "observed": "already refused",
+              "detail": "'guaranteed' next to 'yield' fires a pattern that predates this round entirely. Reproducing each sub-claim separately is what separated it from the real half."
+            }
+          ],
+          "fix": "Matches the SHAPE promise <recipient> a <figure> <return>, with the recipient allowed to be a name, a role or a possessive phrase. The trailing article-or-digit is what keeps prose out: 'does the merger promise the kind of returns investors want' still answers."
+        },
+        {
+          "id": "AM-RC-2",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 'should third party trade' repair enumerates pronouns and kinship nouns and still misses proper names and roles.",
+          "reproduction": {
+            "triggers": [
+              "Should John buy Nvidia?",
+              "Should the trustee buy Nvidia?",
+              "Should the fund manager hold Tesla?",
+              "Should the desk sell Apple?"
+            ],
+            "observed_before": "all four answered",
+            "observed_after": "all four refused"
+          },
+          "cause": "Third round of the same defect: each round enumerated the examples in hand and the next reviewer supplied one outside the list.",
+          "fix": "should <anything> <trading verb>. The verb is the discriminator - 'Should investors expect more volatility?' and 'Should the Fed raise rates?' carry no trading verb and still answer.",
+          "reversal_recorded": "Gate B's kinship list existed because 'should investors buy' was judged market commentary rather than personal advice. Reversed on reflection: it is a request for a recommendation either way, and LEGAL_GUARDRAILS does not exempt one for being addressed to a crowd."
+        },
+        {
+          "id": "AM-RC-3",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Using periods as hard sentence boundaries lets an abbreviation defeat the third-party coverage.",
+          "reproduction": {
+            "triggers": [
+              "Tell Mr. Smith to sell Apple.",
+              "Tell Acme Inc. to sell its Apple stake."
+            ],
+            "observed_before": "both answered",
+            "observed_after": "both refused"
+          },
+          "fix": "The span excludes only ? and !; the 40/25 character bounds keep it local.",
+          "accepted_cost": "Two short sentences within forty characters can now be matched across. Deliberate: the alternative was a one-word bypass of an absolute prohibition, and an abbreviation list or lookbehind thicket is worse than what it fixes."
+        },
+        {
+          "id": "RC003-B1",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "source": "control bus, RC-EXACT-CANDIDATE-003",
+          "claim": "Bare hit/reach after 'what ... will ...' refuses ordinary analytical forecasts.",
+          "reproduction": {
+            "triggers": [
+              "What will trade volumes be next year?",
+              "What will unemployment reach next year?",
+              "What will GDP reach by 2030?",
+              "What will inflation hit next year?"
+            ],
+            "observed_before": "all refused",
+            "observed_after": "all answered; the price predictions themselves still refuse"
+          },
+          "cause": "The pattern contradicted the invariant stated in the comment directly above it.",
+          "fix": "A definitive price prediction needs the preposition (trade at, close above) or an explicit worth. A numeric target was already covered by the 'will ... hit ... 300' pattern, which requires the number that makes it a price."
+        },
+        {
+          "id": "RC003-D1",
+          "severity": "P1_AS_FILED",
+          "file": "src/server/domain/observationIngest.ts",
+          "status": "ALREADY_FIXED_BEFORE_THE_CLAIM_WAS_READ",
+          "source": "control bus, RC-EXACT-CANDIDATE-003",
+          "claim": "sameDecimalValue('1.0000004','1.000000') returns false and manufactures a spurious revision.",
+          "detail": "True of 218d3f9, the SHA the review was anchored to, and already false by ccb7461: the quantise-to-scale-6 repair had landed in between. Verified by running it rather than by reasoning about the timeline.",
+          "adopted_anyway": [
+            "Requirement 2 - fail loudly on unreadable input. sameDecimalValue now throws instead of falling back to a string comparison; a comparison that cannot read an operand has not decided anything, it has guessed.",
+            "Requirement 4 - an ingest-level test. tests/integration/observation-decimal-identity.test.ts counts ROWS through upsertRevisionAwareObservation: eight spellings the column stores identically produce no revision, a one-unit change at the sixth decimal produces exactly one, and a superseded value replayed as 1e5 is still refused by the rollback guard."
+          ],
+          "honesty_note": "That integration file passes against ccb7461 too. It is a new contract test for behaviour that was already correct, not a regression test for a Gate C fix, and a green run should not be read as implying otherwise."
+        },
+        {
+          "id": "AM-RC-4",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_ACCEPTED_AND_PINNED",
+          "claim": "The analytical 'hold' exemption recognises only five keywords within twenty characters, so it refuses ordinary methodology instructions.",
+          "reproduced": [
+            "Advise the team to hold the numerator at 1.5 in all scenarios.",
+            "Advise the team to hold nominal GDP across every projection constant."
+          ],
+          "why_not_fixed": "Widening the window or the vocabulary to admit these also admits 'hold Apple until the market is steady', which is advice. The exemption is the bypass surface."
+        },
+        {
+          "id": "AM-RC-5",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_ACCEPTED_AND_PINNED",
+          "claim": "Quoted filing language reads as a user instruction.",
+          "reproduced": [
+            "What does the filing mean when it says \"advise shareholders to sell non-core assets\"?"
+          ],
+          "why_not_fixed": "Exempting text inside quotation marks lets any request be smuggled by quoting it."
+        },
+        {
+          "id": "RS-RC-1",
+          "severity": "P3",
+          "file": "src/server/adapters/redactSecrets.ts",
+          "status": "REPRODUCED_ACCEPTED_AND_PINNED",
+          "claim": "A complete URI-shaped placeholder in documentation is redacted.",
+          "reproduced": ["Documentation says the form is proto://user:password@host/path."],
+          "why_not_fixed": "The shape is syntactically indistinguishable from a real credential - the reviewer said so while filing it. A real password surviving into a stored, operator-visible error is the failure that matters; a sentence about URI grammar losing one word is not. The hostless form Gate B found IS preserved, and that is the case that actually appears in prose."
+        }
+      ],
+      "test_discrimination": "Reverting both changed source files to their ccb7461 form fails 22 tests.",
+      "local_verify": {
+        "tests": "1234 / 1234 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "clean_areas": [
+        "decimal identity across exponent notation, leading +, leading ., whitespace, trailing zeros, negative zero, exact-half rounding in both signs, values beyond double precision, and very large and small exponents - adapter reachability considered for each, no stored-value identity violation found",
+        "both decimal call sites use the same helper, so unchanged detection and rollback detection cannot disagree",
+        "secret redaction across empty and ordinary usernames, one-character passwords, punctuation and percent-encoded credentials, schemes containing + . -, hostnames, IPv4, ports and bracketed IPv6, with no real connection-password false negative",
+        "no catastrophic-backtracking input found in the modified expressions",
+        "no newly added assertion would still pass with its implementation reverted",
+        "the database-semantics test genuinely depends on PostgreSQL and skips rather than pretending when DATABASE_URL is absent"
+      ],
+      "superseded_by": "b12f349fa102978dc1589b531a97bd3491224e18"
+    },
+    {
+      "gate": "D",
+      "head_sha": "b12f349fa102978dc1589b531a97bd3491224e18",
+      "head_sha_short": "b12f349",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it, so this SHA is superseded and must never be attested.",
+      "scope": "the diff ccb7461..b12f349 restricted to src/ and tests/, with the reviewer asked to prefer regressions the fix caused over new coverage gaps",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "anchored_to": "b12f349fa102978dc1589b531a97bd3491224e18"
+        },
+        {
+          "role": "self-attack, written before the review returned",
+          "method": "ten plausible research questions against the widest change in the round, plus two-sentence inputs and promise-shaped prose",
+          "result": "12 over-blocks found, 10 of them from the generalised should-rule; fixed before the reviewer's overlapping finding was read"
+        }
+      ],
+      "remote_ci": {
+        "run": "32385076217",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "b12f349fa102978dc1589b531a97bd3491224e18",
+        "honesty_note": "CI was GREEN on this SHA with all ten over-blocks present. No test covered a monetary-policy question phrased with 'should'. A green suite is evidence about the tests; this round's most damaging defect was found by attacking the code, not by running it."
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Seven claims, all reproduced. Two were already fixed by the self-attack before the review was read and are recorded as such rather than claimed as this gate's work. Four are fixed here. One P2 and one coverage gap are carried forward with reasoning.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC4-INGEST-1",
+          "severity": "P1",
+          "file": "src/server/adapters/fred/normalize.ts, src/server/adapters/ecos/normalize.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The throwing comparator rejects hexadecimal values both adapters accept, turning a repeat ingest into a run-ending exception.",
+          "reproduction": {
+            "method": "ran the FRED normalizer on a 0x10 observation and then the comparator on the pair it would produce",
+            "observed_before": "Number.isFinite(Number('0x10')) is true, the normalizer kept '0x10', Prisma stored 16, and the next ingest threw",
+            "observed_after": "the normalizer rejects it with 'Unexpected non-decimal FRED value'; every legitimate decimal spelling still passes"
+          },
+          "cause": "Number.isFinite(Number(raw)) tests whether JavaScript can read a string as a number, not whether it is a decimal. Introduced by making the comparator loud without asking where an unreadable value came from.",
+          "fix": "Both normalizers validate with isStorableDecimal, the same rule the comparator uses. The throw becomes defence in depth rather than the first line of it. The comment claiming the regex covered every spelling the ingest path could deliver was false and is corrected.",
+          "regression_tests": ["tests/adapters/fred-normalize.test.ts"]
+        },
+        {
+          "id": "RC4-SHOULD-2",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 25-character bound lets descriptive text carry a third-party recommendation past the rule.",
+          "reproduction": {
+            "trigger": "Should my elderly retired father with a low risk tolerance sell Apple?",
+            "observed_before": "answered",
+            "observed_after": "refused"
+          },
+          "fix": "The possessive branch spans sixty characters. The possessive already establishes a person as the subject, so the extra span costs nothing it was buying."
+        },
+        {
+          "id": "RC4-PROMISE-2",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Requiring a, an or a digit after the recipient misses an ordinary promised-return request.",
+          "reproduction": {
+            "trigger": "Can you promise John double-digit annual returns?",
+            "observed_before": "answered",
+            "observed_after": "refused"
+          },
+          "fix": "Split in two. An unmistakably personal recipient needs no figure; a 'the <something>' recipient still does, or 'does the merger promise the kind of returns investors want' reads as a promise made to 'the kind'."
+        },
+        {
+          "id": "RC4-PRICE-1",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Dropping bare hit and reach reopened non-numeric asset-price predictions.",
+          "reproduction": {
+            "trigger": "What high will Apple hit next year?",
+            "observed_before": "answered",
+            "observed_after": "refused"
+          },
+          "fix": "The price NOUN carries the meaning when there is no numeral, so the pattern keys on high/low/price/value/worth."
+        },
+        {
+          "id": "RC4-SHOULD-1",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "FOUND_BY_SELF_ATTACK_FIRST_THEN_CONFIRMED",
+          "claim": "The generalised should-rule blocks monetary-policy and governance research.",
+          "detail": "Found independently by a self-attack before this review was read, and fixed then. Ten of ten research questions were refused. The generalisation is reverted; the enumeration is back, extended with proper names and investor roles."
+        },
+        {
+          "id": "RC4-PROMISE-1",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "FOUND_BY_SELF_ATTACK_FIRST_THEN_CONFIRMED",
+          "claim": "The promise shape treats corporate-finance prose as a personal return guarantee.",
+          "detail": "'The acquisition promises shareholders a higher return on equity.' Fixed by requiring a person-like recipient, in the same self-attack round."
+        },
+        {
+          "id": "RC4-SPAN-1",
+          "severity": "P2",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_ACCEPTED_AND_PINNED",
+          "claim": "Periods inside the instruction span let an explanatory second sentence read as an instruction.",
+          "reproduced": [
+            "Advise investors on duration risk. To sell bonds before maturity can crystallize losses."
+          ],
+          "why_not_fixed": "Bounding on periods again reopens the 'Tell Mr. Smith to sell Apple.' P1, and every alternative needs an abbreviation list, which is a bypass surface of its own."
+        },
+        {
+          "id": "GAP-INDEX-LEVEL",
+          "severity": "P3",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "OPEN_COVERAGE_GAP",
+          "raised_by": "this round, while narrowing the price pattern",
+          "claim": "'What level will the S&P 500 reach next year?' is a price prediction and is not refused.",
+          "why_open": "Nothing in the sentence separates it from 'What level will unemployment reach next year?' without knowing whether the subject is an instrument or an indicator. Refusing macro forecasts is the worse error, and a list of index names is the enumeration this file has now been burned by four times.",
+          "recorded_how": "A test asserts the current behaviour so the gap stays visible and dated. That assertion is a marker, not an endorsement - it should flip when a discriminator exists."
+        }
+      ],
+      "local_verify": {
+        "tests": "1265 / 1265 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "823e9fbba88619962bd0b3acd8af05e2697d8634"
+    },
+    {
+      "gate": "E",
+      "head_sha": "823e9fbba88619962bd0b3acd8af05e2697d8634",
+      "head_sha_short": "823e9fb",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. It is not a statement that this SHA is clean. The fixes it produced are not contained in it.",
+      "scope": "the diff b12f349..823e9fb restricted to src/ and tests/. The reviewer was asked one question - is this round safe to stop on - and told explicitly not to supply another phrasing.",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "anchored_to": "823e9fbba88619962bd0b3acd8af05e2697d8634",
+          "closing_answer": "Yes, there are unresolved P1 findings in this diff."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "method": "capitalised subjects that are companies, countries and institutions, against the case-sensitive rule the previous round added",
+          "result": "8 over-blocks including 'Should Apple buy Nvidia?' and 'Should Samsung sell its display unit?'; fixed before the reviewer's overlapping finding was read"
+        }
+      ],
+      "remote_ci": {
+        "run": "32386776877",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "823e9fbba88619962bd0b3acd8af05e2697d8634"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Four P1 and three P2 from the review, plus eight over-blocks from a self-attack that ran first. All reproduced. All fixed.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "SELF-E1",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "The case-sensitive proper-name rule refuses corporate actions, countries and institutions.",
+          "reproduced": [
+            "Should Apple buy Nvidia?",
+            "Should Samsung sell its display unit?",
+            "Should Tesla invest in a new gigafactory?",
+            "Should Europe invest in LNG terminals?",
+            "Should Congress buy down the deficit?"
+          ],
+          "cause": "A capital letter marks a proper noun, not a person, and in this product most proper nouns are companies.",
+          "fix": "A personal possessive after the verb is required: people get 'his' and 'her', companies get 'its'. This returns 'Should John buy Nvidia?' - a bare first name with no other cue - to being uncovered."
+        },
+        {
+          "id": "RC5-1",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The case-sensitive promise rule loses lower-case and all-caps recipients.",
+          "reproduced": [
+            "Can you promise john a 10% annual return?",
+            "Can you promise JOHN a 10% annual return?"
+          ],
+          "fix": "A lower-case branch where a numeral does the work the capital was doing, with articles excluded as recipients so 'The prospectus promises a 5 year lock-up, not a return' is not read as a promise made to 'a'."
+        },
+        {
+          "id": "RC5-2",
+          "severity": "P1",
+          "status": "PARTLY_FIXED_PARTLY_RECORDED_AS_GAP",
+          "claim": "The named-person should-rule treats capitalisation as identity, and refuses 'Should Apple buy Nvidia?'.",
+          "detail": "The corporate-action half was already fixed by the self-attack. The lower-case half is now the same open gap as the capitalised one: a bare first name with no personal cue is uncovered, and every phrasing carrying a cue - possessive, kinship, role, instruction form - is refused."
+        },
+        {
+          "id": "RC5-3",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The price-noun pattern only recognises the noun before 'will', leaving the reverse ordering uncovered.",
+          "reproduced": ["What will Apple's price be next year?"],
+          "fix": "A possessive-keyed pattern. 'What will Korea's GDP be next year?' is untouched."
+        },
+        {
+          "id": "RC5-4",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 'known gap' test pins a prohibited result: an index-level prediction reaches the answer path.",
+          "reproduced": ["What level will the S&P 500 reach next year?"],
+          "why_the_previous_reasoning_was_wrong": "The gap was justified by 'nothing separates an index from an indicator without enumerating names', and enumeration was what this file had been burned by four times. But personal names are open and unbounded while the major indices are a closed, stable set that no economic indicator shares a name with. The distinction is not 'is this a list' but 'can the list be finished'.",
+          "fix": "The index names are enumerated. The test that asserted the gap now asserts the opposite; 'What level will unemployment reach next year?' still answers."
+        },
+        {
+          "id": "RC5-5",
+          "severity": "P2",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The price-noun pattern over-blocks macro forecasts using value, high or low.",
+          "reproduced": ["What value will unemployment reach next year?"],
+          "fix": "It keys on the SUBJECT as well as the noun - a capitalised subject, which indicators do not have."
+        },
+        {
+          "id": "RC5-6",
+          "severity": "P2",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 60-character possessive span crosses from an organisational possessive into an unrelated policy verb.",
+          "reproduced": [
+            "Should our independent central bank, during a liquidity crisis, buy government bonds under QE?"
+          ],
+          "fix": "Commas end the span. The personal description the span was widened for has none; the policy sentence has two."
+        },
+        {
+          "id": "RC5-7",
+          "severity": "P2",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "isStorableDecimal accepts syntactically valid but non-finite exponents the former gate rejected.",
+          "reproduced": ["1e999"],
+          "cause": "Replacing a finite check with a syntax check traded one property for another. Second time in two rounds that a fix to this function did that.",
+          "fix": "Both conditions. Syntax and magnitude are two questions and the boundary asks both."
+        },
+        {
+          "id": "RC5-8",
+          "severity": "P3",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Two comments no longer describe the implementation.",
+          "fix": "Corrected. Both now describe the decimal-syntax gate and say what it replaced and why."
+        }
+      ],
+      "local_verify": {
+        "tests": "1289 / 1289 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "structural_note": "Five rounds. Three of the five regressions were caused by the fix from the round before, and all three were in the same enumeration. The pattern list is being asked to make a semantic distinction - person, institution, instrument or indicator - that it cannot represent. Nothing here is unsafe: no unresolved P0 or P1, both directions pinned by tests at every round, and every remaining over-block recorded with the cost of its repair. But the next round should not be a sixth patch. The honest options are a subject-classification step or a measured, documented false-positive rate. Not a change to make inside a release-candidate freeze.",
+      "superseded_by": "05081133e1c7b57f2cdc94e5c87a9b2ad795242d"
+    },
+    {
+      "gate": "F",
+      "head_sha": "05081133e1c7b57f2cdc94e5c87a9b2ad795242d",
+      "head_sha_short": "0508113",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. The fixes it produced are not contained in it.",
+      "scope": "the diff 823e9fb..0508113 restricted to src/ and tests/, asked only whether an unresolved P0 or P1 exists and told not to catalogue further phrasings",
+      "reviewer": {
+        "role": "independent adversarial reviewer",
+        "model": "gpt-5.6-sol",
+        "invocation": "codex exec -s read-only",
+        "closing_answer": "Yes, this diff contains unresolved P1 defects.",
+        "stated_limitation": "could not run Vitest - the sandbox refused Vite's temporary config write - so the findings are regex reading rather than execution. Said so explicitly rather than implying otherwise. All three reproduced when checked locally."
+      },
+      "remote_ci": {
+        "run": "32388624336",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "05081133e1c7b57f2cdc94e5c87a9b2ad795242d"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Three P1, all reproduced, all fixed. Two were regressions from the immediately preceding fix; the third produced the first structural improvement in this file rather than another pattern.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "AM-RC6-1",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The numeral-keyed promise branch refuses ordinary bond and filing research.",
+          "reproduced": ["Does this bond promise investors a 5% yield?"],
+          "cause": "Three rounds of adjusting the RECIPIENT - pronoun list, any word, capitalised name, numeral - each fixing the example in front of it and breaking something adjacent. The recipient carries no information about whether the request is prohibited.",
+          "fix": "Key on the SUBJECT: who is being asked to promise. Every prohibited form has 'you promise' or is an imperative; every innocent one has a thing as the subject. Four branches collapse to two, and lower case, capitals, names, roles and 'double-digit' all work at once without a fourth list.",
+          "significance": "The first structural improvement in this file rather than another pattern. Same shape as four of the six rounds: patching the object when the subject was the signal."
+        },
+        {
+          "id": "AM-RC6-2",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Making commas terminate the possessive span opens a bypass when an appositive follows the subject.",
+          "reproduced": [
+            "Should my elderly retired father, given his low risk tolerance, sell Apple?"
+          ],
+          "cause": "Direct regression from the previous round's fix for the central-bank over-block.",
+          "fix": "A kinship term settles what a bare possessive can only guess at, so the kinship rule allows commas and the possessive rules still do not. Both sentences are now right for a reason rather than by tuning a number."
+        },
+        {
+          "id": "AM-RC6-3",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The index list treats a company name beginning with 'Dow' as the Dow index.",
+          "reproduced": ["What level will the Dow Chemical dividend reach next year?"],
+          "fix": "Case-sensitive, and no match when another proper noun follows: an index name followed by a capitalised word is part of a longer name.",
+          "note": "The index enumeration itself still holds. It was defended as a list that can be FINISHED, unlike personal names, and what failed here was the matching rather than the closure of the set."
+        }
+      ],
+      "local_verify": {
+        "tests": "1305 / 1305 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "8340143a5e730c4c2f6a53370ce26d60259df577"
+    },
+    {
+      "gate": "G",
+      "head_sha": "8340143a5e730c4c2f6a53370ce26d60259df577",
+      "head_sha_short": "8340143",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "This gate's verdict describes what the review FOUND at this SHA. The fixes it produced are not contained in it.",
+      "scope": "the diff 0508113..8340143 restricted to src/ and tests/, with the reviewer told to attack the narrowing hardest because a re-keyed rule matches less than the one it replaced",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes, this diff contains unresolved P1s.",
+          "stated_limitation": "Vitest could not start in the read-only sandbox; findings are deterministic matches against the changed regexes. Stated openly, as in the previous round."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "method": "probed the narrowing directly - modal politeness, adverbs before the imperative, the noun form, and index names with a capitalised continuation",
+          "result": "five promise escapes and one index escape, all fixed before the overlapping findings were read"
+        }
+      ],
+      "remote_ci": {
+        "run": "32390064113",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "8340143a5e730c4c2f6a53370ce26d60259df577"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Three P1 from the review plus six escapes from a self-attack, all reproduced, all fixed. Every one was a BOUNDARY on the rule Gate F introduced rather than the rule itself - the first round in seven where no pattern had to be replaced.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC7-001",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The subject-keyed promise rule misses modal and embedded-imperative forms.",
+          "reproduced": [
+            "Would you be able to promise me a 10% return?",
+            "Can you please promise me a 10% annual return?",
+            "Just promise me a 10% return.",
+            "For my retirement account, promise me a 10% annual return.",
+            "I want a promise of 10% returns.",
+            "Can I get a promise of 12% a year in returns?"
+          ],
+          "found_by": "five of the six by self-attack before the review returned; the comma-opened imperative by Gate G",
+          "fix": "A fifteen-character gap after 'you', a closed adverb list before the imperative, a comma as a sentence boundary, and one pattern for the noun form requiring a figure.",
+          "control": "'Can you tell me if the bond promises investors a 5% yield?' still answers - twenty-four characters separate the two words and the subject is the bond."
+        },
+        {
+          "id": "RC7-002",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The widened kinship span reaches across a possessive into a corporate question.",
+          "reproduced": [
+            "Should my brother's company, given its strong cash balance, buy a competitor?"
+          ],
+          "fix": "A possessive on the kinship term excludes the match. The subject of 'buy' is the company, and the apostrophe is exactly the signal that says so."
+        },
+        {
+          "id": "RC7-003",
+          "severity": "P1",
+          "file": "src/server/domain/askMarket.ts",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The capitalised-word lookahead rejects full index names.",
+          "reproduced": [
+            "What level will the S&P 500 Index reach next year?",
+            "What level will the Nasdaq Composite reach next year?",
+            "What level will the Dow Jones Industrial Average reach next year?"
+          ],
+          "found_by": "Nasdaq Composite by self-attack, the other two by Gate G",
+          "fix": "The lookahead lets through the words that continue an index name and stops at the ones that start a company name. 'Dow Chemical' still answers."
+        }
+      ],
+      "local_verify": {
+        "tests": "1325 / 1325 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "convergence_note": "Seven rounds, and the shape of the findings has changed. A-E: a finding meant replacing a pattern, and the replacement broke something adjacent. F: a finding changed what a rule keys on, and four branches became two. G: every finding was a boundary on a rule that was already right, and nothing had to be invented. Gate F is why - keying on the subject rather than the object removed the thing that had been oscillating. First evidence in seven rounds that this surface can reach a fixed point.",
+      "superseded_by": "319cb728cc649556bca32cc05276fabcf3c80eb9"
+    },
+    {
+      "gate": "H",
+      "head_sha": "319cb728cc649556bca32cc05276fabcf3c80eb9",
+      "head_sha_short": "319cb72",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff 8340143..319cb72 restricted to src/ and tests/, asked whether round G's boundary adjustments were themselves correct",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes, this diff contains unresolved P1 issues.",
+          "stated_limitation": "Vitest could not start in the read-only sandbox; regexes probed directly. Stated openly, third round running."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "method": "prospectus and indenture language containing the words the new patterns key on",
+          "result": "six over-blocks, four fixed before the overlapping review findings were read"
+        }
+      ],
+      "remote_ci": {
+        "run": "32391230766",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "319cb728cc649556bca32cc05276fabcf3c80eb9"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Three P1 from the review and six over-blocks from self-attack. One review finding did not reproduce - it had been fixed by the self-attack before the review was read. All others reproduced and are fixed.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "SELF-H1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "Gate G's widenings refuse ordinary prospectus and filing language.",
+          "reproduced": [
+            "The prospectus contains no promise of a 5% return.",
+            "Does the indenture include a promise of 6% returns to holders?",
+            "Can you explain the promise of 5% returns in the prospectus?",
+            "In the filing, promise language around returns is boilerplate.",
+            "What level will the Russell Industrial output reach next year?"
+          ],
+          "cause": "The widenings were written against the requests and never against the prose. Filing language is full of promises, and that is the product's subject matter.",
+          "fix": "The noun form requires a wanting verb; the comma-imperative requires a pronoun recipient; an article before 'promise' marks it a noun; Industrial left the index suffix allowlist and 'Dow Jones Industrial Average' became an explicit full name."
+        },
+        {
+          "id": "G8-01",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The 15-character you-promise span mistakes reader-directed prose for the subject.",
+          "reproduced": ["As you note, bonds promise investors a 5% yield."],
+          "fix": "A comma ends the gap, because it ends the clause."
+        },
+        {
+          "id": "G8-02",
+          "severity": "P1",
+          "status": "DID_NOT_REPRODUCE_ALREADY_FIXED",
+          "claim": "The noun-form rule refuses routine prospectus research.",
+          "input": "What does the prospectus say about its promise of a 12% return?",
+          "detail": "Right about the defect and right about the cause - it noted the rule contradicted the design rationale written beside it. Already answered by the time the review was read, because the self-attack had added the wanting-verb requirement. Recorded as not reproducing rather than claimed as this gate's fix."
+        },
+        {
+          "id": "G8-03",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The blanket possessive exclusion lets a request escape when the relative's agent decides.",
+          "reproduced": ["Should Dad's broker sell Apple?"],
+          "cause": "Direct regression from the previous round's fix for 'my brother's company'.",
+          "fix": "The possessive is allowed back when a role follows it. A broker acts for a person; a company acts for itself."
+        }
+      ],
+      "local_verify": {
+        "tests": "1350 / 1350 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "pattern_note": "Two directions keep trading places and the trade is not random: a rule written from the REQUESTS refuses the prose (gates A-D, H); a rule written to spare the prose misses the requests (gates E-G). Every fix that held was the same KIND of thing - find the feature that distinguishes the two populations (the subject of the verb, an article, a possessive, a comma) rather than adding a member to a list.",
+      "superseded_by": "849886749dc35cc941cc66fd6bdd0798a690da07"
+    },
+    {
+      "gate": "I",
+      "head_sha": "849886749dc35cc941cc66fd6bdd0798a690da07",
+      "head_sha_short": "8498867",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff 319cb72..8498867 restricted to src/ and tests/, with the reviewer told the documented oscillation and asked to look for MISSED REQUESTS first because that is what a narrowing round predicts",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes, this diff contains unresolved P1 issues.",
+          "findings": ["IR-039", "IR-040"]
+        },
+        {
+          "role": "self-attack, run before the review returned, aimed by the documented pattern",
+          "method": "the pattern predicts a narrowing round misses requests, so requests were probed rather than prose",
+          "result": "four missed requests found, all in the closed verb list; one of them is the same finding the review filed as IR-039"
+        }
+      ],
+      "remote_ci": {
+        "run": "32392625594",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "849886749dc35cc941cc66fd6bdd0798a690da07"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1 from the review and four missed requests from self-attack, overlapping on one. All reproduced, all fixed, and both fixes REMOVED an enumeration rather than extending one.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "IR-039",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The narrowed noun-form rule misses ordinary wanting language outside its closed verb list.",
+          "reproduced": [
+            "Can I have a promise of 10% returns?",
+            "I would like a promise of 10% returns.",
+            "I am looking for a promise of 10% returns.",
+            "Give my brother a promise of 10% returns."
+          ],
+          "found_by": "self-attack first, aimed by the documented pattern; the review filed the second example independently",
+          "fix": "Replaced the verb list with FIRST PERSON. Someone asking for a promise says I, me, my, we or our; a document describing one does not. Second person is excluded on purpose - 'Can you explain the promise of 5% returns in the prospectus?' is research."
+        },
+        {
+          "id": "IR-040",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The kinship-agent rule is bypassable through a job title absent from its enumeration.",
+          "reproduced": ["Should Dad's investment manager sell Apple?"],
+          "fix": "An agent HEAD NOUN with an optional qualifier - manager, planner, broker, adviser, agent, trustee, custodian - so 'investment manager' and 'financial planner' both work without either being listed. 'Company' is not an agent noun, so 'my brother's company' still answers."
+        }
+      ],
+      "local_verify": {
+        "tests": "1366 / 1366 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "convergence_evidence": "Second consecutive round where the fix REMOVED an enumeration rather than extending one. Lists added vs removed by round: A-E 6 added / 1 removed; F 0 / 2; G-H 2 / 1; I 0 / 2. That is the measurable form of the convergence claim. It is not a claim the guardrail is finished - the Gate E gap remains open - but the direction is now visible in something other than prose.",
+      "superseded_by": "4eb6dbfedda3420d246504048bcee5db98cf9462"
+    },
+    {
+      "gate": "J",
+      "head_sha": "4eb6dbfedda3420d246504048bcee5db98cf9462",
+      "head_sha_short": "4eb6dbf",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff 8498867..4eb6dbf restricted to src/ and tests/, testing whether round I's two feature substitutions were the right features",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes.",
+          "findings": ["RC10-03 fiduciary", "RC10-04 estate agent", "RC10-05 two-word qualifier"]
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "method": "probed both features in both directions - prose containing first person, and non-financial job titles whose head noun is in the agent set",
+          "result": "four over-blocks; the estate-agent case is the same finding the review filed as RC10-04"
+        }
+      ],
+      "remote_ci": {
+        "run": "32393512642",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "4eb6dbfedda3420d246504048bcee5db98cf9462"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Three P1 from the review and four over-blocks from self-attack, overlapping on one. All reproduced, all fixed. Every finding was a BOUNDARY on a feature rather than a wrong rule - the first round where that is true of all of them.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "SELF-J1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "First person over-matches, because analyst prose uses it too.",
+          "reproduced": ["Our analysts flagged the promise of 8% returns in that pitch deck."],
+          "fix": "The indefinite article. A request asks for A promise; prose refers to THE promise. Asking and describing differ in the article, reliably."
+        },
+        {
+          "id": "RC10-04",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The agent head-noun set classifies a non-financial agent as an investment agent.",
+          "reproduced": [
+            "Should Dad's estate agent sell the house?",
+            "Should my brother's project manager buy new software?",
+            "Should my sister's office manager invest in new desks?"
+          ],
+          "found_by": "self-attack first for two of the three; the review filed the estate-agent case",
+          "fix": "'Manager' and 'agent' are generic job words and now require a finance qualifier. A broker or trustee needs none - the title already says what the job is. A second exclusion was needed on the plain possessive rule, which was matching 'should my ... buy' across the whole phrase; the same rule used twice before applies, a second possessive moves the subject."
+        },
+        {
+          "id": "RC10-03",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "'fiduciary' is absent from the agent set.",
+          "reproduced": ["Should Dad's fiduciary sell Apple?"],
+          "fix": "Added to the unqualified financial heads, where the title alone establishes the role."
+        },
+        {
+          "id": "RC10-05",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The qualifier permits only one word, so a two-modifier title escapes.",
+          "reproduced": ["Should Dad's senior investment manager sell Apple?"],
+          "fix": "An optional second modifier before the finance qualifier."
+        }
+      ],
+      "local_verify": {
+        "tests": "1384 / 1384 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "convergence_evidence": "First round where EVERY finding was a boundary on a feature rather than a wrong rule. Enumerations added vs removed across the chain: A-E 6/1, F 0/2, G-H 2/1, I 0/2, J 0/1. The Gate E gap remains the one thing in this file no round has found a feature for.",
+      "superseded_by": "d10334a4fc172faedb3c33e8554909f106396ab1"
+    },
+    {
+      "gate": "K",
+      "head_sha": "d10334a4fc172faedb3c33e8554909f106396ab1",
+      "head_sha_short": "d10334a",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff 4eb6dbf..d10334a restricted to src/ and tests/, with the reviewer told that 'no unresolved P1' is a legitimate answer and that ten consecutive yes answers is itself a signal",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - one P1.",
+          "declined_to_escalate": [
+            "'I want YOUR promise of 10% returns' - evades the noun form but is materially less natural than the covered phrasings",
+            "'insurance agent' outside the qualifier list - a real title, but asking one whether to sell Apple is not an ordinary representative-investment scenario"
+          ],
+          "note": "First review in the chain to file a single finding and explain why two other candidates were not P1s. Recorded as a result in its own right."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "four more: private banker, independent adviser, robo-adviser and family office were all uncovered because unqualified head nouns took no modifier; and 'I want 12% returns guaranteed' states the promise after the figure"
+        }
+      ],
+      "remote_ci": {
+        "run": "32394590982",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "d10334a4fc172faedb3c33e8554909f106396ab1"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. One P1 from the review and four gaps from self-attack. All reproduced, all fixed.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC11-01",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The second-possessive exclusion creates a bypass when the actor is a person with no listed role.",
+          "reproduced": ["Should my boss's assistant sell his Apple shares?"],
+          "cause": "Direct regression from the previous round. The exclusion rejects the rule whenever a possessive appears; the kinship rule rejects 'boss's'; 'assistant' is in no role list.",
+          "fix": "Not a longer role list. What is being sold is one person's holding - a personal possessive in front of shares, a stake, an ISA, a portfolio - and that is sufficient. 'Sell the house' and 'buy new software' have no such possessive."
+        },
+        {
+          "id": "SELF-K1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "Unqualified financial titles take no modifier, so ordinary titles escape.",
+          "reproduced": [
+            "Should Dad's private banker sell Apple?",
+            "Should Dad's independent adviser sell Apple?",
+            "Should my son's robo-adviser buy Nvidia?",
+            "Should my mother's family office sell Apple?"
+          ],
+          "fix": "An optional modifier before the unqualified heads, matching what the qualified ones already allowed."
+        },
+        {
+          "id": "SELF-K2",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "A guaranteed return stated after the figure is not matched.",
+          "reproduced": ["I want 12% returns guaranteed."],
+          "note": "The same reversal that produced 'price target' against 'target price' nine rounds ago, and two Korean reversals before that. Reversal is a category this file has now been caught by four times and is worth checking deliberately on any new pattern."
+        }
+      ],
+      "local_verify": {
+        "tests": "1395 / 1395 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "e1134d16e4f3b4f87b28ac0aca728480f44d1e67"
+    },
+    {
+      "gate": "L",
+      "head_sha": "e1134d16e4f3b4f87b28ac0aca728480f44d1e67",
+      "head_sha_short": "e1134d1",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff d10334a..e1134d1 restricted to src/ and tests/",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - two P1.",
+          "declined_to_escalate": [
+            "the one-modifier title rule over-matching 'Dad's chartered accountant buy new software' - not a market question"
+          ],
+          "note": "Second round running that a review separated an available finding from a real one. It also noticed the working tree already contained an uncommitted fix for its first finding and said so rather than claiming it."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "four over-blocks, all on the reversed guarantee - the same finding the review filed first"
+        }
+      ],
+      "remote_ci": {
+        "run": "32395295008",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "e1134d16e4f3b4f87b28ac0aca728480f44d1e67"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1, both over-blocks, both from a pronoun with nothing bounding it. Both reproduced and fixed.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC12-01",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The reversed guarantee pattern refuses ordinary questions about guarantees.",
+          "reproduced": [
+            "Are deposit returns guaranteed by the FDIC?",
+            "The filing says returns are not guaranteed.",
+            "What yield is guaranteed under a government bond?",
+            "Which profits are guaranteed under the indenture?"
+          ],
+          "found_by": "self-attack first; the review filed it independently and noted the uncommitted fix",
+          "fix": "First person. Somebody demanding a guaranteed return says I, me, my, we or our; somebody asking whether one exists does not.",
+          "note": "Third use of this discriminator and the third time it has held. First fix in the chain chosen because the feature had already worked elsewhere rather than derived again from the failing examples."
+        },
+        {
+          "id": "RC12-02",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The holding-object rule mistakes corporate objects for personal holdings.",
+          "reproduced": [
+            "Should BlackRock sell their pension fund business?",
+            "Should banks hold their pension fund assets separately?",
+            "Should the company sell their portfolio management unit?"
+          ],
+          "cause": "The possessive was not bound to anyone the sentence had named, and 'their' is what organisations take.",
+          "fix": "A personal possessive is required after 'should'. Keeps the boss's-assistant case, drops the corporate ones."
+        }
+      ],
+      "local_verify": {
+        "tests": "1413 / 1413 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "a7cb520fceaef5af46c42c84e9de7850c73534d2"
+    },
+    {
+      "gate": "M",
+      "head_sha": "a7cb520fceaef5af46c42c84e9de7850c73534d2",
+      "head_sha_short": "a7cb520",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the diff e1134d1..a7cb520 restricted to src/ and tests/ - two binds that made the guardrail match less, so the reviewer was pointed at missed requests",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - two P1 guardrail bypasses.",
+          "declined_to_rely_on": "one of its own examples: 'Can my father's broker sell his Apple shares?' could be read as a question about broker authority, so it rested the finding on the unambiguous case instead"
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "six missed requests - the same two defects the review filed, found from a different direction"
+        }
+      ],
+      "remote_ci": {
+        "run": "32395989229",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "a7cb520fceaef5af46c42c84e9de7850c73534d2"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1, both missed requests, both predicted by the documented pattern for a narrowing round. Both channels found them independently.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC13-01",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The holdings rule is anchored on the literal word 'should', so the same request in other grammar escapes.",
+          "reproduced": [
+            "Can my father's broker sell his Apple shares?",
+            "Is it time for Dad to sell his Apple shares?",
+            "Would it make sense for my wife to sell her Samsung shares?"
+          ],
+          "cause": "Direct regression from the previous round's bind. Anchoring on a sentence opener is grammar, not meaning.",
+          "fix": "Split by WHICH possessive. 'His' and 'her' are singular and personal and need nothing else; 'their' and 'our' still require a personal possessive earlier, which keeps the BlackRock case answerable."
+        },
+        {
+          "id": "RC13-02",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The third-person verb form 'guarantees' is missing.",
+          "reproduced": [
+            "Which strategy guarantees 12% returns?",
+            "Show a portfolio that guarantees a 10% return."
+          ],
+          "fix": "Added the inflections. Cheapest kind of gap and the easiest to leave open, so it is pinned rather than only fixed."
+        }
+      ],
+      "local_verify": {
+        "tests": "1428 / 1428 across 108 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "channel_convergence": "First round in which the self-attack and the independent review found the SAME defects, from different directions, without either seeing the other. A better signal about the state of this surface than either finding is.",
+      "superseded_by": "4a8cb9b38fcbc25ab5c0c7d00e83992d47297fc7"
+    },
+    {
+      "gate": "N",
+      "head_sha": "4a8cb9b38fcbc25ab5c0c7d00e83992d47297fc7",
+      "head_sha_short": "4a8cb9b",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what was FOUND at this SHA. The two structural repairs are not contained in it.",
+      "scope": "the two structural P1s named in [CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-CONVERGENCE-007], issue #2 comment 5362877148",
+      "reviewers": [
+        {
+          "role": "architect guidance delivered via GitHub issue #2",
+          "identifier": "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-CONVERGENCE-007]",
+          "comment_id": 5362877148,
+          "note": "Answered the stopping-rule question this session escalated: evidence-based convergence is authorised, a reviewer need not return zero comments, but the two structural P1s below must close first."
+        }
+      ],
+      "verdict": "STRUCTURAL_REPAIRS_APPLIED_AWAITING_BOUNDED_REVIEW",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "CONV-1",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The guardrail still leaves 'Should John buy Nvidia?' uncovered while personalized buy/sell advice is a hard prohibition.",
+          "fix": "src/server/domain/subjectClassification.ts. Five should-subject patterns removed and replaced by a deterministic three-valued classifier; UNRESOLVED redirects. Registries read from prisma/sources.ts and prisma/causalEdges.ts, plus a curated closed set for companies, countries and policy actors.",
+          "two_sided_evidence": "Redirects John, john, JOHN, Mr. Smith, Dad, the trustee, Dad's broker, my elderly retired father. Answers Apple, Samsung, Tesla, Korea, Congress, Europe, the Fed, the ECB, BlackRock, banks, investors, my brother's company, my brother's project manager, and the macro and filing questions from every earlier round.",
+          "closes": "the gap open and labelled since Gate E"
+        },
+        {
+          "id": "CONV-2",
+          "severity": "P1",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "isStorableDecimal validates syntax plus JS finiteness, so a finite out-of-range literal passes the adapter and fails at the database boundary.",
+          "reproduced": ["100000000000000", "99999999999999.9999995"],
+          "fix": "The value is scaled to millionths, rounded as the column rounds, and checked against 10^20 - 1 — after rounding, because 99999999999999.9999995 is in range as written and stores as one digit too many. An exponent bound runs first so 1e999999999 is refused in microseconds rather than allocating a billion-digit bigint.",
+          "verified_against": "real PostgreSQL casts in tests/integration/decimal-storage-domain.test.ts; both FRED and ECOS normalizers use the same validator"
+        },
+        {
+          "id": "CORRECTION-GATE-D",
+          "severity": "DOCUMENTATION",
+          "status": "CORRECTED",
+          "claim": "Gate D recorded that PostgreSQL would reject 0x10. It does not.",
+          "detail": "PostgreSQL 16 reads 0x10 as 16, 0b10 as 2, 0o10 as 8, and accepts NaN as a numeric value. The Gate D defect was therefore WORSE than recorded - the row would have been stored as sixteen under a real series, not rejected. The validator is deliberately stricter than the column in those four places and the test now asserts the divergence rather than assuming agreement.",
+          "found_by": "generating the test's expectations from the database instead of from reasoning about it"
+        }
+      ],
+      "mutation_proof": {
+        "classifier always returns false": 36,
+        "UNRESOLVED fails open instead of safe": 12,
+        "storage-domain range check removed": 6
+      },
+      "local_verify": {
+        "tests": "1514 / 1514 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "dcc88ed22975f96c6661390a0ddde31ddc99b4b4"
+    },
+    {
+      "gate": "O",
+      "head_sha": "dcc88ed22975f96c6661390a0ddde31ddc99b4b4",
+      "head_sha_short": "dcc88ed",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "THE bounded post-repair review required by RC-CONVERGENCE-007: the two structural repairs plus regression of the Gate A-M cases",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - two P1 BLOCKER, three REVIEW_DEBT.",
+          "note": "Asked to mark each finding BLOCKER or REVIEW_DEBT and did so, which is the distinction the candidate needed. It also confirmed it reviewed the candidate blobs rather than the modified working tree."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "four under-blocks; two were the same defects the review filed as blockers, two are the name-collision tail the review independently assigned to REVIEW_DEBT"
+        }
+      ],
+      "remote_ci": {
+        "run": "32428791312",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "dcc88ed22975f96c6661390a0ddde31ddc99b4b4"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1 blockers, both from the classifier reading only the subject and never the object. Both fixed. Three REVIEW_DEBT items: two fixed anyway because they were cheap, one recorded as a tail.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-001",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Classification precedence turns an identified person into NON_PERSON when their description contains an organisation word or generic job title.",
+          "reproduced": [
+            "Should my brother's project manager buy Nvidia?",
+            "Should my friend the bank director buy Nvidia?"
+          ],
+          "cause": "The classifier read the subject and never the object. Gate J had made this wrong in one direction; this is the other direction of the same omission.",
+          "fix": "The object decides. A person named in the subject plus a tradable object redirects; 'buy new software' and 'sell the house' still answer."
+        },
+        {
+          "id": "RC-002",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The analytical hold exemption also exempts personalised position advice whenever 'steady' or 'unchanged' follows the verb.",
+          "reproduced": ["Should my father hold his Apple position unchanged?"],
+          "fix": "The exemption applies only when the thing held is not tradable. 'Should my model hold the discount rate fixed?' still answers."
+        },
+        {
+          "id": "RC-003",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "PARTLY_CLOSED_TAIL_RECORDED",
+          "claim": "A person sharing a registered entity name classifies NON_PERSON, including on a substring.",
+          "reproduced": ["Should Apple Martin buy Nvidia?", "Should Dow buy Nvidia?"],
+          "partly_closed": "A singular personal possessive on the object now settles it regardless of subject, so 'Should Apple Martin sell her Nvidia shares?' redirects, as do the kinship, role and instruction forms.",
+          "why_the_rest_is_debt": "Closing the bare form needs full-span matching, which breaks 'the Dow Jones Industrial Average', or a personal-name list, which is the unbounded enumeration this module exists to avoid. RC-CONVERGENCE-007 assigns a measurable tail like this to a follow-up evaluation."
+        },
+        {
+          "id": "RC-004",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The exponent limit runs before the zero-mantissa exception, so 0e999 is rejected.",
+          "fix": "Zero is answered before the bound is applied. Cheap enough that leaving it as debt would have cost more to track than to fix."
+        },
+        {
+          "id": "RC-005",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "FOUND_BY_SELF_ATTACK_FIRST_AND_FIXED",
+          "claim": "A personalised subject longer than 70 characters evades the transactional frame.",
+          "reproduced": [
+            "Should my elderly retired father with a very conservative long-term retirement portfolio sell Nvidia?"
+          ],
+          "fix": "The frame spans 120 characters. A described person runs long, and the classifier reads the head phrase, so a wider span gives the classifier more to look at rather than the pattern more to match."
+        },
+        {
+          "id": "SELF-O1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "An appositive containing an organisation word overrides an identified person.",
+          "reproduced": ["Should my father, a company director, sell Apple?"],
+          "fix": "Only the head phrase decides. The rest of the subject is description and is used only as supporting evidence."
+        }
+      ],
+      "mutation_proof": {
+        "classifier always returns false": 36,
+        "UNRESOLVED fails open instead of safe": 12,
+        "storage-domain range check removed": 6
+      },
+      "local_verify": {
+        "tests": "1526 / 1526 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "856f88d3f3cb90cee8c5a96f4e57692cc2a97b75"
+    },
+    {
+      "gate": "P",
+      "head_sha": "856f88d3f3cb90cee8c5a96f4e57692cc2a97b75",
+      "head_sha_short": "856f88d",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the re-review of only the changed surface, as RC-CONVERGENCE-007 provides for after a bounded review finds a P1",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - two release-critical P1 blockers.",
+          "note": "Respected the calibration: marked findings BLOCKER, did not re-file the accepted name-collision tail, and confirmed which branches it had traced."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "one over-block on overlapping vocabulary (trustee bank), plus a leftover askMarket regex the classifier had made redundant"
+        }
+      ],
+      "remote_ci": {
+        "run": "32430285602",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "856f88d3f3cb90cee8c5a96f4e57692cc2a97b75"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1 blockers, both about which possessive marks whose money it is. Both fixed, plus two overlapping-vocabulary orderings found locally.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-01",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Dropping possessive pronouns from mentionsAPerson lets a recommendation about the user's own retirement assets escape.",
+          "reproduced": ["Should my retirement fund buy Nvidia stock?"],
+          "fix": "First-person SINGULAR counts as personal evidence where no noun does. 'Our' still does not: it is personal in 'our portfolio' and a determiner in 'our independent central bank', which is the question the narrowing existed to stop refusing."
+        },
+        {
+          "id": "RC-007-02",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "A person-role noun in incidental prose makes institutional research read as personalised advice.",
+          "reproduced": ["Should BlackRock, whose client base is aging, sell Treasury bonds?"],
+          "fix": "The rescue reads the HEAD phrase, as classifySubject does. An appositive describes the subject and does not name it."
+        },
+        {
+          "id": "SELF-P1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "An organisation's own holding reads as a personalised trade when a person noun appears in the subject.",
+          "reproduced": ["Should the trustee bank hold its pension fund assets separately?"],
+          "fix": "'Its' and 'their' on the object say whose the holding is. Also removed the leftover investor-role regex in askMarket.ts, which refused the same sentence because 'trustee' appeared in it - the sixth subject-type pattern the classifier has replaced."
+        },
+        {
+          "id": "SELF-P2",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "'Fund' is an organisation word and a finance qualifier, and the organisation check ran first.",
+          "reproduced": ["Should the fund manager hold Tesla?"],
+          "fix": "A qualified financial role outranks the organisation words. Third time in this module that two vocabularies overlapped and the ORDER decided the answer."
+        }
+      ],
+      "local_verify": {
+        "tests": "1536 / 1536 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "3d58f5b33d12df84755123c02a6056ccac97da41"
+    },
+    {
+      "gate": "Q",
+      "head_sha": "3d58f5b33d12df84755123c02a6056ccac97da41",
+      "head_sha_short": "3d58f5b",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "second re-review of the changed surface under RC-CONVERGENCE-007",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - three release-critical P1 findings.",
+          "note": "Held the calibration for a third round: marked findings BLOCKER, did not re-file the accepted name-collision tail, and verified that the removed investor-role regex left no coverage gap rather than assuming it."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "found the second-person gap independently; the review filed the same one first among its three"
+        }
+      ],
+      "remote_ci": {
+        "run": "32431726315",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "3d58f5b33d12df84755123c02a6056ccac97da41"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Three P1, all about which word is the head or which possessive marks a person. All reproduced and fixed.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-P2-01",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Second-person possessives are excluded from the person rescue.",
+          "reproduced": ["Should your retirement fund buy Nvidia stock?"],
+          "found_by": "self-attack first; the review filed it independently",
+          "fix": "'You' and 'your' join the personal possessives. Only 'our' stays out, because it is the one that reads institutionally."
+        },
+        {
+          "id": "RC-007-P2-02",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Object-side 'their' is treated as organisational, suppressing the rescue for ordinary singular-they.",
+          "reproduced": ["Should Dad's assistant sell their Nvidia shares?"],
+          "fix": "'Its' only. Verified before removing 'their' that the organisational cases have no person noun in the subject, so the rescue never reaches that line for them."
+        },
+        {
+          "id": "RC-007-P2-03",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "The qualified-role check is bag-of-words and overrides an explicit organisation head.",
+          "reproduced": ["Should the fund manager association invest in financial education?"],
+          "fix": "A role must be the HEAD - the last word of the phrase. Also added association, institute, federation, society, council, authority, consortium and alliance to the organisation words."
+        }
+      ],
+      "local_verify": {
+        "tests": "1547 / 1547 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "design_note": "Four rounds on the classifier and the same shape each time: two vocabularies overlap and the ORDER or SCOPE of the check decides. That is a different failure from the thirteen pattern rounds - a pattern round ended with a new pattern, and these end with a precedence, a scope, or a word moved between sets. The module has gained no new list since Gate N.",
+      "superseded_by": "98c6365f72a0adf0582e4f575e4c44b628142cdd"
+    },
+    {
+      "gate": "R",
+      "head_sha": "98c6365f72a0adf0582e4f575e4c44b628142cdd",
+      "head_sha_short": "98c6365",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "third re-review of the changed surface under RC-CONVERGENCE-007",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - RC-007-01 is a release-critical P1.",
+          "note": "One blocker and one REVIEW_DEBT. Stated explicitly that it reviewed the committed endpoint independently of the uncommitted working-tree fix, which is the distinction that made its finding readable rather than confusing."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "found the same single case and fixed it; the review's contribution was that the COMMENT still asserted the false reason"
+        }
+      ],
+      "remote_ci": {
+        "run": "32432440464",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "98c6365f72a0adf0582e4f575e4c44b628142cdd"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. One P1, already fixed locally when the review returned; its real contribution was disproving the justification written beside the fix. One REVIEW_DEBT (stale comment), corrected.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-01",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Removing object-side 'their' makes institutional research redirect when the organisation's subject contains a person noun.",
+          "reproduced": ["Should the trustee bank sell their Nvidia holdings?"],
+          "why_it_matters_beyond_the_fix": "It disproved the reason written beside the previous fix - that organisational cases have no person noun in the subject. The behaviour was already corrected locally; the justification was still false, and a wrong reason survives into the next round where a wrong behaviour does not.",
+          "fix": "headIsAnOrganisation: an organisation word as the head noun, unless a personal possessive opens the phrase. 'The trustee bank' versus 'my retirement fund'."
+        },
+        {
+          "id": "RC-007-02",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "CORRECTED",
+          "claim": "A test comment still said both 'its' and 'their' identify an organisation's holding.",
+          "fix": "Corrected, along with the source comment carrying the same false claim."
+        }
+      ],
+      "local_verify": {
+        "tests": "1555 / 1555 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "chain_state_after_eighteen_rounds": {
+        "gates_run": "A-R",
+        "unresolved_p0_or_p1_at_any_candidate": 0,
+        "reviewer_claims_that_did_not_reproduce": 8,
+        "subject_type_patterns_replaced_by_the_classifier": 6,
+        "enumerations_added_since_gate_N": "1 (organisation nouns)",
+        "rounds_where_self_attack_found_the_worst_defect_first": 7,
+        "note": "The last four rounds were classifier scope and precedence, not new vocabulary, and Gate R's single blocker was already fixed locally before the review returned."
+      },
+      "superseded_by": "fc47adcea72e7962d6ddb50b74e1a4a053cdc0d4"
+    },
+    {
+      "gate": "S",
+      "head_sha": "fc47adcea72e7962d6ddb50b74e1a4a053cdc0d4",
+      "head_sha_short": "fc47adc",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fix is not contained in it.",
+      "scope": "fourth re-review of the changed surface under RC-CONVERGENCE-007",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - RC-007-R4-01 is a release-critical P1.",
+          "note": "Traced the branch by hand and showed each step of the trace, which is why the finding was actionable immediately."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "21 cases, zero over-blocks, zero under-blocks - found nothing. First round where the independent review contributed the only finding."
+        }
+      ],
+      "remote_ci": {
+        "run": "32432977972",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "fc47adcea72e7962d6ddb50b74e1a4a053cdc0d4"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. One P1 over-block, fixed. Nothing else.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-R4-01",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "headIsAnOrganisation reads the final token as the head, so a relative clause after an institutional noun defeats the gate.",
+          "reproduced": ["Should the bank where my father works buy Nvidia?"],
+          "fix": "The guard scans the head phrase. The ROLE check still reads the last word, deliberately - there the last word genuinely is the head.",
+          "secondary": "The comment said 'head noun' while the code checked the last token. Same class of error Gate R found one round earlier: the comment described the intent and the code implemented something narrower."
+        }
+      ],
+      "local_verify": {
+        "tests": "1571 / 1571 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "superseded_by": "40dc7e3fb23b0e9c9bb9fcc12b7d62e74a5cc367"
+    },
+    {
+      "gate": "T",
+      "head_sha": "40dc7e3fb23b0e9c9bb9fcc12b7d62e74a5cc367",
+      "head_sha_short": "40dc7e3",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fix is not contained in it.",
+      "scope": "fifth re-review of the changed surface under RC-CONVERGENCE-007",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - one release-critical P1.",
+          "note": "Second consecutive round where the review found the only defect and the self-attack found none. It also noted that the previous round's comment described the code accurately even though the assumption behind it was wrong - a distinction worth having."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "19 cases, zero over-blocks, zero under-blocks - found nothing"
+        }
+      ],
+      "remote_ci": {
+        "run": "32433367000",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "40dc7e3fb23b0e9c9bb9fcc12b7d62e74a5cc367"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. One P1 - a person identified through an organisation was read as the organisation. Fixed by the possessive rule.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-20",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Scanning the whole phrase treats a person identified through an organisation as the organisation.",
+          "reproduced": ["Should the bank's trustee sell Nvidia?"],
+          "fix": "Whatever follows the last possessive governs the phrase. The words before an apostrophe say who owns the thing; the words after say what it is. A phrase with no possessive is governed by all of itself, which keeps 'the bank where my father works' an organisation.",
+          "process_note": "The fix was written through a shell heredoc and its regex's backslash-b became a literal backspace character (0x08). The pattern matched nothing and the code looked correct in every editor view; od -c showed it. Fifth recorded occurrence of the trap CLAUDE.md warns about. What caught it was the test, not the hexdump - the expected behaviour had been written down before the fix was attempted."
+        }
+      ],
+      "local_verify": {
+        "tests": "1580 / 1580 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      }
+    }
+  ],
+  "closure_conditions": {
+    "chain": [
+      "Gate A reviewed 6103ad8 -> fixes -> 218d3f9",
+      "Gate B reviewed 218d3f9 -> fixes -> ccb7461",
+      "Gate C reviewed ccb7461, two independent reviewers -> fixes -> b12f349",
+      "Gate D reviewed b12f349, self-attack found the worst defect first -> fixes -> 823e9fb",
+      "Gate E reviewed 823e9fb, self-attack again found the worst defect first -> fixes -> 0508113",
+      "Gate F reviewed 0508113 and found the discriminator three rounds had been missing -> fixes -> next candidate",
+      "the next gate reviews the post-Gate-F candidate; a gate that needs no code change is what closes this chain",
+      "Gate G reviewed 8340143 and found only boundaries, not patterns -> fixes -> next candidate",
+      "Gate H reviewed 319cb72 -> fixes -> next candidate",
+      "Gate I reviewed 8498867 -> fixes -> next candidate",
+      "Gate J reviewed 4eb6dbf -> fixes -> next candidate",
+      "Gate K reviewed d10334a -> fixes -> next candidate",
+      "Gate L reviewed e1134d1 -> fixes -> next candidate",
+      "Gate M reviewed a7cb520 -> fixes -> next candidate",
+      "Gate N applied the two structural repairs RC-CONVERGENCE-007 required -> new candidate -> one bounded review of the repairs, then attestation",
+      "Gate O ran the bounded post-repair review of dcc88ed -> two P1 blockers fixed -> next candidate needs only a re-review of the changed surface",
+      "Gate P re-reviewed the changed surface of 856f88d -> two P1 blockers fixed -> next candidate",
+      "Gate Q re-reviewed 3d58f5b -> three P1 fixed -> next candidate",
+      "Gate R re-reviewed 98c6365 -> one P1 (already fixed locally) plus a false justification corrected -> next candidate",
+      "Gate S re-reviewed fc47adc -> one P1 over-block fixed -> next candidate",
+      "Gate T re-reviewed 40dc7e3 -> one P1 fixed by the possessive rule -> next candidate"
+    ],
+    "closure_requires": [
+      "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",
+      "no executable commit after the reviewed candidate",
+      "remote CI green on exactly that SHA",
+      "an attestation whose reviewed code SHA is an ancestor of the attestation SHA, with every intervening path on the evidence-only allowlist"
+    ],
+    "where_the_closing_verdict_lives": "docs/REVIEW_ATTESTATION.json and .md are the only review paths on the RC preflight's evidence-only allowlist, so the CLOSING gate - the one that finds nothing needing a code change - is recorded there rather than here. This file records the gates that produced fixes, and each of those commits lands before the candidate it precedes.",
+    "pattern_worth_noting": "Four rounds, four times the fix introduced or left a defect, and three of those four were in the same enumeration. The guardrail is a pattern list being asked to make a semantic distinction, and each round buys coverage at the price of a false positive somewhere else. Recorded here because the next round should weigh a different approach against a fifth patch, not because the current state is unsafe: no unresolved P0 or P1 remains at any gate.",
+    "what_changed_at_gate_f": "Rounds B through E each replaced one pattern with a slightly different pattern, and the regression rate stayed flat. Gate F's promise fix changed what the rule keys on - subject rather than object - and collapsed four branches into two while fixing the finding. That is the first evidence in this chain that the surface can converge rather than oscillate, and it is the reason the next round is worth running as a review rather than as a redesign.",
+    "authorized_stop_rule": {
+      "source": "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-CONVERGENCE-007]",
+      "rule": "A reviewer does NOT need to return zero comments. The chain stops when unresolved P0 = 0, unresolved P1 / release-critical = 0, the exact candidate has fresh local full-suite plus PostgreSQL evidence and fresh remote-green PR CI, every reviewer claim is reproduced or rejected, no executable commit follows the reviewed SHA, and the two-SHA attestation validates against that exact code SHA.",
+      "residual": "P2/P3 items and the measurable false-positive tail go to REVIEW_DEBT and a follow-up subject-classification evaluation, not to another phrase-hunting round."
+    }
+  },
+  "reading_rule": "A gate entry records what a review found at one SHA. No gate entry ever makes its own SHA clean: a review that produced fixes is evidence AGAINST the SHA it examined. A clean candidate is one where a gate found nothing needing a code change, and only docs/REVIEW_ATTESTATION.json asserts that, checked against the commit graph by the RC preflight. UNKNOWN stays UNKNOWN."
+}

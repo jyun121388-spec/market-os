@@ -1,0 +1,79 @@
+{
+  "reviewedCodeSha": "c03aa73e2ced798dd65a17c013c4a11051a74b4c",
+  "verdict": "CLEAN",
+  "schema": "market-os/review-attestation/1",
+  "gate": "U",
+  "reviewedRange": "40dc7e3fb23b0e9c9bb9fcc12b7d62e74a5cc367..c03aa73e2ced798dd65a17c013c4a11051a74b4c",
+  "reviewer": {
+    "role": "independent adversarial reviewer",
+    "model": "gpt-5.6-sol",
+    "invocation": "codex exec -s read-only",
+    "verbatimAnswer": "Is there an unresolved P0 or release-critical P1 in this diff? No.",
+    "findings": "No findings.",
+    "statedLimitation": "Automated execution was unavailable in its read-only sandbox; static tracing of the changed helper and both call sites was completed. The same diff was executed locally against the full suite."
+  },
+  "authorizedBy": {
+    "identifier": "[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][RC-CONVERGENCE-007]",
+    "issue": "jyun121388-spec/market-os#2",
+    "commentId": 5362877148,
+    "stopRule": "A reviewer does not need to return zero comments. The chain stops when unresolved P0 = 0, unresolved P1 / release-critical = 0, the exact candidate has fresh local full-suite plus PostgreSQL evidence and fresh remote-green PR CI, every reviewer claim is reproduced or rejected, no executable commit follows the reviewed SHA, and the two-SHA attestation validates against that exact code SHA."
+  },
+  "stopRuleConditions": {
+    "unresolvedP0": 0,
+    "unresolvedP1": 0,
+    "everyReviewerClaimReproducedOrRejected": true,
+    "noExecutableCommitAfterReviewedSha": true,
+    "localFullSuiteAgainstPostgres": "1580 / 1580 across 110 files, no skips",
+    "remoteCiGreenOnExactSha": "GitHub Actions run 32433898532, workflow CI, job verify",
+    "twoShaAttestationValidates": "checked by the RC preflight against the commit graph, not asserted here"
+  },
+  "chain": {
+    "gatesRun": "A through U",
+    "candidatesProduced": 20,
+    "reviewerClaimsThatDidNotReproduce": 9,
+    "subjectTypePatternsReplacedByTheClassifier": 6,
+    "note": "Every gate before U found at least one real defect and produced a new candidate. Each superseded SHA is marked SUPERSEDED_NOT_CLEAN in reviews/market-os-final-review.json with its own superseded_by; none of them may be attested."
+  },
+  "acceptedReviewDebt": [
+    {
+      "id": "NAME_COLLISION_TAIL",
+      "summary": "A person whose name is a registry entry classifies NON_PERSON: 'Should Dow buy Nvidia?', 'Should Apple Martin buy Nvidia?'.",
+      "whyNotFixed": "Every name registry has this property. Closing it needs either full-span matching, which breaks 'the Dow Jones Industrial Average', or a personal-name list, which is the unbounded enumeration the classifier exists to avoid. Every phrasing carrying any other personal cue — a possessive on the object, a kinship word, a role, an instruction frame — is covered.",
+      "pinnedBy": "tests/subjectClassification.test.ts",
+      "assignedBy": "the Gate O review, and not re-filed by Gates P through U"
+    },
+    {
+      "id": "A1_SIGNUP_ENUMERATION",
+      "summary": "signUp discloses whether an email is already registered.",
+      "whyNotFixed": "The remedies require email verification, which is a Human Gate. A product decision, recorded with HG-009.",
+      "revisitBefore": "public launch"
+    },
+    {
+      "id": "C1_CLAIM_LEDGER_CONTENT",
+      "summary": "assertValidClaim validates structure and never claim text.",
+      "whyNotFixed": "Unreachable today: nothing constructs such a claim, the request guardrail refuses those questions at input, and no page renders claims. The fix needs one shared prohibited-language module consumed by the request guardrail, the output scanner and the ledger."
+    }
+  ],
+  "notAttested": [
+    "6103ad820bc6da56fe0fec3edab0ffbaa5399990",
+    "218d3f997d855bb0560e68dba0ce87186c76042c",
+    "ccb7461884f687acca306df0299c4209de7ecb00",
+    "b12f349fa102978dc1589b531a97bd3491224e18",
+    "823e9fbba88619962bd0b3acd8af05e2697d8634",
+    "05081133e1c7b57f2cdc94e5c87a9b2ad795242d",
+    "8340143a5e730c4c2f6a53370ce26d60259df577",
+    "319cb728cc649556bca32cc05276fabcf3c80eb9",
+    "849886749dc35cc941cc66fd6bdd0798a690da07",
+    "4eb6dbfedda3420d246504048bcee5db98cf9462",
+    "d10334a4fc172faedb3c33e8554909f106396ab1",
+    "e1134d16e4f3b4f87b28ac0aca728480f44d1e67",
+    "a7cb520fceaef5af46c42c84e9de7850c73534d2",
+    "4a8cb9b38fcbc25ab5c0c7d00e83992d47297fc7",
+    "dcc88ed22975f96c6661390a0ddde31ddc99b4b4",
+    "856f88d3f3cb90cee8c5a96f4e57692cc2a97b75",
+    "3d58f5b33d12df84755123c02a6056ccac97da41",
+    "98c6365f72a0adf0582e4f575e4c44b628142cdd",
+    "fc47adcea72e7962d6ddb50b74e1a4a053cdc0d4",
+    "40dc7e3fb23b0e9c9bb9fcc12b7d62e74a5cc367"
+  ]
+}

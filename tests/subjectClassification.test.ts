@@ -254,3 +254,52 @@ describe("Gate P — whose money is being traded", () => {
     );
   });
 });
+
+/**
+ * Gate Q — three findings, all about which word is the actual head.
+ *
+ * "Your retirement fund" is the reader's money and "my retirement fund" is mine; excluding second
+ * person left one of them uncovered. Only "our" stays out, because it is the single possessive
+ * that reads institutionally.
+ *
+ * "Their" on an object was treated as organisational for one commit, and it is ordinary
+ * singular-they: "Should Dad's assistant sell THEIR Nvidia shares?" is one person's holding.
+ * Nothing was lost by dropping it — the organisational cases have no person noun in the subject,
+ * so the rescue never reaches that line for them.
+ *
+ * And a role has to be the HEAD, the last word of the phrase, not merely present in it. "The fund
+ * manager association" is an association; bag-of-words matching read it as a fund manager and
+ * refused a question about industry policy.
+ */
+describe("Gate Q — the head is the last word, not any word", () => {
+  it.each([
+    "Should your retirement fund buy Nvidia stock?",
+    "Should Dad's assistant sell their Nvidia shares?",
+    "Should my parents sell their Nvidia shares?",
+    "Should the fund manager hold Tesla?",
+    "Should Dad's investment manager sell Apple?",
+  ])("redirects %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
+  });
+
+  it.each([
+    "Should the fund manager association invest in financial education?",
+    "Should the asset management board buy back stock?",
+    "Should the trustee bank hold its pension fund assets separately?",
+    "Should BlackRock sell their pension fund business?",
+    "Should the company sell their portfolio management unit?",
+  ])("does not redirect %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(false);
+  });
+
+  it("keeps 'our' out of the personal possessives, deliberately", () => {
+    // The one possessive that reads institutionally. Including it refused a monetary-policy
+    // question for a round; excluding it costs "our portfolio", which the person nouns cover.
+    expect(
+      asksWhetherAPersonShouldTrade(
+        "Should our independent central bank, during a liquidity crisis, buy government bonds under QE?",
+      ),
+    ).toBe(false);
+    expect(asksWhetherAPersonShouldTrade("Should my adviser sell our Apple shares?")).toBe(true);
+  });
+});

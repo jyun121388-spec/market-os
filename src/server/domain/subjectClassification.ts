@@ -179,6 +179,14 @@ const ORGANISATION_WORDS = new Set([
   "consumers",
   "households",
   "employers",
+  "association",
+  "institute",
+  "federation",
+  "society",
+  "council",
+  "authority",
+  "consortium",
+  "alliance",
 ]);
 
 /**
@@ -431,7 +439,10 @@ function classifyTokens(tokens: string[]): SubjectClass {
   // A QUALIFIED financial role first, before the organisation words, because the two vocabularies
   // overlap: "fund" is an organisation on its own and a finance qualifier in "fund manager". With
   // the organisation check first, "Should the fund manager hold Tesla?" read as an institution.
-  const hasRoleHead = tokens.some((token) => GENERIC_ROLE_HEADS.has(token));
+  // The role has to be the HEAD — the last word of the phrase — not merely present in it. "The
+  // fund manager association" is an association and "the fund manager" is a person, and
+  // bag-of-words matching read the first as the second, refusing a question about industry policy.
+  const hasRoleHead = GENERIC_ROLE_HEADS.has(tokens[tokens.length - 1]);
   const hasFinanceQualifier = tokens.some((token) => FINANCE_QUALIFIERS.has(token));
   if (hasRoleHead && hasFinanceQualifier) return "PERSON";
 
@@ -570,16 +581,19 @@ const PERSON_NOUNS = new Set(
  * bonds?" is institutional research, and reading the appositive found a person noun in it. Same
  * rule as `classifySubject` — what follows a comma describes the subject and is not the subject.
  *
- * First-person SINGULAR counts as well as a person noun, because "my retirement fund" is the
- * user's own money and no noun in it says so. "Our" deliberately does not: it makes a subject
- * personal in "our portfolio" and is a bare determiner in "our independent central bank", and the
- * second of those is a monetary-policy question this refused for one round.
+ * A personal possessive counts as well as a person noun, because "my retirement fund" and "your
+ * retirement fund" are somebody's own money and no noun in either says so. "Our" deliberately does
+ * not: it makes a subject personal in "our portfolio" and is a bare determiner in "our independent
+ * central bank", and the second of those is a monetary-policy question this refused for one round.
  */
-const FIRST_PERSON_SINGULAR = new Set(["i", "me", "my", "mine", "myself"]);
+// Second person belongs here too: "your retirement fund" is the reader's money as plainly as
+// "my retirement fund" is mine. Only "our" is left out, and only because it is the one
+// possessive that reads institutionally — "our independent central bank".
+const PERSONAL_POSSESSIVES = new Set(["i", "me", "my", "mine", "myself", "you", "your", "yours"]);
 
 function mentionsAPerson(subject: string): boolean {
   const head = tokenise(subject.split(",")[0]);
-  return head.some((token) => PERSON_NOUNS.has(token) || FIRST_PERSON_SINGULAR.has(token));
+  return head.some((token) => PERSON_NOUNS.has(token) || PERSONAL_POSSESSIVES.has(token));
 }
 
 export function asksWhetherAPersonShouldTrade(query: string): boolean {
@@ -632,7 +646,12 @@ export function asksWhetherAPersonShouldTrade(query: string): boolean {
   // fund assets separately?" has a person noun in the subject and a tradable object, and is a
   // question about an institution's balance sheet. "Its" and "their" say whose the holding is, and
   // an organisation's holding is not a personalised trade.
-  if (/\b(its|their)\b/i.test(object)) return false;
+  //
+  // "Its" only. "Their" was here for one commit and is ordinary singular-they — "Should Dad's
+  // assistant sell THEIR Nvidia shares?" is one person's holding. Nothing is lost by dropping it:
+  // the organisational cases it appeared to cover have no person noun in the subject at all, so
+  // the rescue never reaches this line for them.
+  if (/\bits\b/i.test(object)) return false;
 
   return mentionsAPerson(subject) && financialObject;
 }

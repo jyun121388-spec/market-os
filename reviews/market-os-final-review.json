@@ -1633,7 +1633,76 @@
         "format": "PASS",
         "build": "PASS"
       },
-      "design_note": "Four rounds on the classifier and the same shape each time: two vocabularies overlap and the ORDER or SCOPE of the check decides. That is a different failure from the thirteen pattern rounds - a pattern round ended with a new pattern, and these end with a precedence, a scope, or a word moved between sets. The module has gained no new list since Gate N."
+      "design_note": "Four rounds on the classifier and the same shape each time: two vocabularies overlap and the ORDER or SCOPE of the check decides. That is a different failure from the thirteen pattern rounds - a pattern round ended with a new pattern, and these end with a precedence, a scope, or a word moved between sets. The module has gained no new list since Gate N.",
+      "superseded_by": "98c6365f72a0adf0582e4f575e4c44b628142cdd"
+    },
+    {
+      "gate": "R",
+      "head_sha": "98c6365f72a0adf0582e4f575e4c44b628142cdd",
+      "head_sha_short": "98c6365",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "third re-review of the changed surface under RC-CONVERGENCE-007",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - RC-007-01 is a release-critical P1.",
+          "note": "One blocker and one REVIEW_DEBT. Stated explicitly that it reviewed the committed endpoint independently of the uncommitted working-tree fix, which is the distinction that made its finding readable rather than confusing."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "found the same single case and fixed it; the review's contribution was that the COMMENT still asserted the false reason"
+        }
+      ],
+      "remote_ci": {
+        "run": "32432440464",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "98c6365f72a0adf0582e4f575e4c44b628142cdd"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. One P1, already fixed locally when the review returned; its real contribution was disproving the justification written beside the fix. One REVIEW_DEBT (stale comment), corrected.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-01",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Removing object-side 'their' makes institutional research redirect when the organisation's subject contains a person noun.",
+          "reproduced": ["Should the trustee bank sell their Nvidia holdings?"],
+          "why_it_matters_beyond_the_fix": "It disproved the reason written beside the previous fix - that organisational cases have no person noun in the subject. The behaviour was already corrected locally; the justification was still false, and a wrong reason survives into the next round where a wrong behaviour does not.",
+          "fix": "headIsAnOrganisation: an organisation word as the head noun, unless a personal possessive opens the phrase. 'The trustee bank' versus 'my retirement fund'."
+        },
+        {
+          "id": "RC-007-02",
+          "severity": "P2",
+          "marked": "REVIEW_DEBT",
+          "status": "CORRECTED",
+          "claim": "A test comment still said both 'its' and 'their' identify an organisation's holding.",
+          "fix": "Corrected, along with the source comment carrying the same false claim."
+        }
+      ],
+      "local_verify": {
+        "tests": "1555 / 1555 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
+      },
+      "chain_state_after_eighteen_rounds": {
+        "gates_run": "A-R",
+        "unresolved_p0_or_p1_at_any_candidate": 0,
+        "reviewer_claims_that_did_not_reproduce": 8,
+        "subject_type_patterns_replaced_by_the_classifier": 6,
+        "enumerations_added_since_gate_N": "1 (organisation nouns)",
+        "rounds_where_self_attack_found_the_worst_defect_first": 7,
+        "note": "The last four rounds were classifier scope and precedence, not new vocabulary, and Gate R's single blocker was already fixed locally before the review returned."
+      }
     }
   ],
   "closure_conditions": {
@@ -1655,7 +1724,8 @@
       "Gate N applied the two structural repairs RC-CONVERGENCE-007 required -> new candidate -> one bounded review of the repairs, then attestation",
       "Gate O ran the bounded post-repair review of dcc88ed -> two P1 blockers fixed -> next candidate needs only a re-review of the changed surface",
       "Gate P re-reviewed the changed surface of 856f88d -> two P1 blockers fixed -> next candidate",
-      "Gate Q re-reviewed 3d58f5b -> three P1 fixed -> next candidate"
+      "Gate Q re-reviewed 3d58f5b -> three P1 fixed -> next candidate",
+      "Gate R re-reviewed 98c6365 -> one P1 (already fixed locally) plus a false justification corrected -> next candidate"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",

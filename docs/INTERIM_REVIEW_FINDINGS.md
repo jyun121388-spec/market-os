@@ -2745,3 +2745,38 @@ That is not the same failure as the thirteen pattern rounds before it. A pattern
 new pattern; these end with a precedence, a scope, or a word moved from one set to another — and
 each one is a statement about the language that can be checked, argued with, and got wrong
 visibly. The module has gained no new list since Gate N.
+
+## Gate R — one blocker, and it was a claim written down too strongly
+
+Dropping object-side "their" the round before came with a justification: the organisational cases
+have no person noun in the subject, so the rescue can never reach that line for them. Gate R
+disproved it in one input — `Should the trustee bank sell their Nvidia holdings?` has "trustee" in
+the subject and is an institution's balance sheet.
+
+The self-attack had found the same case an hour earlier and fixed it, but the COMMENT was still
+asserting the false reason, and the review was right to say so. What carries the distinction now is
+a property of the subject rather than a hope about which subjects occur: "the trustee bank" ends in
+an organisation word and begins with an article, "my retirement fund" ends in one too and begins
+with a personal possessive.
+
+That is the second time in this chain that a fix was right and the reasoning printed beside it was
+wrong — Gate N corrected the same kind of error about PostgreSQL and `0x10`. Both were caught by
+somebody checking the claim rather than the behaviour, and both are worth more than the fixes they
+sat next to, because a wrong reason survives into the next round and a wrong behaviour does not.
+
+Gate R also filed the stale test comment as REVIEW_DEBT rather than a blocker. Corrected here.
+
+### Where the chain stands after eighteen rounds
+
+|                                                                   |                        |
+| ----------------------------------------------------------------- | ---------------------- |
+| Gates run                                                         | A–R                    |
+| Unresolved P0 / P1 at any candidate                               | 0                      |
+| Reviewer claims that did not reproduce                            | 8                      |
+| Subject-type patterns replaced by the classifier                  | 6                      |
+| Enumerations added since Gate N                                   | 1 (organisation nouns) |
+| Rounds where the self-attack found the round's worst defect first | 7                      |
+
+The last four rounds were all classifier scope and precedence, not new vocabulary, and Gate R's
+single blocker was already fixed locally before the review returned. That is what convergence looks
+like without claiming it has arrived.

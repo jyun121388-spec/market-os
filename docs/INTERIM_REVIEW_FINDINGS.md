@@ -2717,3 +2717,31 @@ The investor-role pattern in `askMarket.ts` was still refusing "Should the trust
 pension fund assets separately?" because "trustee" appeared in it. The classifier recognises the
 same roles and, unlike the pattern, reads the rest of the subject. Removed — six subject-type
 patterns are now gone in total.
+
+## Gate Q — three findings, all about which word is the head
+
+`Should your retirement fund buy Nvidia stock?` was answered. Second person is as personal as first
+— "your retirement fund" is the reader's money — and only "our" belongs outside the set, because it
+is the single possessive that reads institutionally.
+
+`Should Dad's assistant sell their Nvidia shares?` was answered, because object-side "their" had
+been treated as organisational for one commit. It is ordinary singular-they. Nothing was lost by
+dropping it: the organisational cases it appeared to cover have no person noun in the subject at
+all, so the rescue never reaches that line for them. Checking THAT before removing it is what made
+the removal safe rather than hopeful.
+
+`Should the fund manager association invest in financial education?` was refused, because the role
+check asked whether a role word appeared ANYWHERE in the subject. "The fund manager association" is
+an association. A role has to be the HEAD — the last word — and that is now what is checked.
+
+### The property this module keeps demonstrating
+
+Four rounds on the classifier, and the same shape every time: two vocabularies overlap, and the
+ORDER or the SCOPE of the check decides the answer. Person words against organisation words.
+Finance qualifiers against organisation words. Role words anywhere against role words at the head.
+Possessives that mark a person against possessives that mark an institution.
+
+That is not the same failure as the thirteen pattern rounds before it. A pattern round ended with a
+new pattern; these end with a precedence, a scope, or a word moved from one set to another — and
+each one is a statement about the language that can be checked, argued with, and got wrong
+visibly. The module has gained no new list since Gate N.

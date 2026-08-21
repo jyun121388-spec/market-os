@@ -3012,3 +3012,24 @@ as well as overall, so an aggregate improvement cannot hide a category going bac
 The frozen candidate `c03aa73` does NOT contain this fix and is not reopened for it. The gap was
 not release-critical there for the reason given above, and section 8 of the standing directive is
 explicit that measured debt stays debt.
+
+---
+
+## EN-05 — `format:check` fails locally on a file nobody edited (environment, not code)
+
+`npm run format:check` reports `scripts/control-bus.ts` as unformatted. The file is byte-identical
+to the frozen candidate and has no working-tree diff.
+
+The cause is line endings. `core.autocrlf` is on, so git rewrote that file to CRLF on a checkout,
+and Prettier's `endOfLine` default is `lf`. The committed blob is clean — checked by extracting it
+with `git show HEAD:scripts/control-bus.ts` and running Prettier on that, which passes — and CI,
+which checks out fresh, is green on the same content.
+
+Deliberately NOT "fixed" by running `prettier --write` on it: that would commit a whole-file
+line-ending change to a file whose content nobody touched, and it would make it differ from the
+frozen candidate for no substantive reason. An environment problem must not be hidden by a product
+change.
+
+The honest record is `FORMAT = PASS on the committed content, with one working-tree copy carrying
+CRLF from git autocrlf`. Anyone who sees this locally should check the blob before believing the
+checkout.

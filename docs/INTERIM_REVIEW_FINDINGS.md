@@ -2833,3 +2833,60 @@ convenient, which is exactly the condition the rule is written for.
 Worth adding to the record: what caught it was not the hexdump but the TEST. Two assertions failed
 immediately, and the investigation only had somewhere to go because the expected behaviour had been
 written down before the fix was attempted.
+
+---
+
+## IR-084 — The control-bus consumer has no caller, and one of its inputs has no producer (post-RC, follow-up branch)
+
+Found while running the scheduler and the preflight after the release candidate froze, not by a
+reviewer. `npm run control-bus:status` reported `INBOX_BACKLOG · 7 awaiting the consumer`, and the
+question "awaiting which consumer" turned out not to have an answer.
+
+**What is there.** `src/server/controlbus/consumer.ts` is a complete and well-tested decision
+consumer: `assessDecision` classifies a received comment (TEST id, untrusted author, already
+applied, no matching escalation, governance-forbidden, stale, applicable) and
+`state.ts#resolveInboxEntry` records the verdict against the entry.
+
+**What is not.** Neither function is called anywhere outside `tests/`:
+
+```
+$ grep -rn "resolveInboxEntry" src scripts tests --include=*.ts
+src/server/controlbus/state.ts:207:export function resolveInboxEntry(
+tests/controlBus.test.ts:17:  resolveInboxEntry,
+tests/controlBus.test.ts:339:  const resolved = resolveInboxEntry(state, "ESC-009", "APPLIED", "lockout kept");
+```
+
+`openEscalationIds`, `appliedIds` and `trustedAuthors` — the three fields of `ConsumerContext` —
+are likewise supplied only by test files. There is no npm verb that runs the consumer, and no code
+anywhere that derives what escalations are open or which ids have been applied. The watcher reads
+and stores; nothing judges.
+
+**The consequence.** Seven received decisions sit at `RECEIVED_UNVALIDATED` — RC-GATES-001,
+MARKET-RESUME-002, MARKET-RESUME-003, MARKET-RC-CONVERGENCE-RESUME-008, MARKET-GATE-N-REWORK-009,
+MARKET-GATE-O-REWORK-010 and MARKET-ESC011-FINALIZE-011. Every one of them was in fact read,
+validated and acted on; the durable record does not know that. So the bus reports `INBOX_BACKLOG`
+permanently, and the stop sentinel's condition "no received decision waiting to be consumed" can
+never be satisfied by any amount of work. That is a false blocker of the same species as the
+escalation counter in IR-07x: a number that describes the recording rather than the world.
+
+Eight earlier entries DO carry verdicts and machine-generated notes, so the consumer was run at
+least once, by hand, from something that was never committed. The evidence of the run outlived the
+means of repeating it.
+
+**Why the obvious repair is wrong, and this is the part that matters.** Wiring the existing
+consumer to a command and letting it judge the seven would record seven false rejections. Every one
+of them fails `NO_MATCHING_ESCALATION`, because none of them answers an `[ESCALATION]` posted from
+here — they are unsolicited directives, which is what most traffic on this channel actually is. The
+consumer models the channel as request/response, and the channel is not one. `assessDecision`
+would be right about the rule and wrong about all seven.
+
+`REJECTED` is also the wrong resting place for a directive that was carried out. The correct
+handling of an unsolicited trusted directive is a judgement the protocol has not specified, so it
+is being asked rather than guessed — escalated to issue #2 as a protocol question, which blocks
+only this task.
+
+**Status**: `OPEN — ESCALATED`, on `claude/post-rc-followup`. Not release-critical: the frozen
+candidate `c03aa73` does not depend on the inbox reaching a resting state, and the watcher reads
+and stores decisions correctly regardless. The seven entries are deliberately left unresolved
+rather than marked by hand, because a hand-marked record is the same unrepeatable act that produced
+the eight above.

@@ -187,3 +187,28 @@ EVIDENCE:
 - docs/HUMAN_GATE_QUEUE.md HG-009
 - src/server/domain/auth.ts (isLoginLocked)
 ```
+
+---
+
+## `[ESCALATION][ESC-012]` — transmitted as comment 5364659562
+
+- state: WAITING_FOR_REMOTE_DECISION
+- remoteCommentId: 5364659562
+- posted: 2026-08-21
+- read back: `gh api .../comments/5364659562` returned the comment, 3118 bytes, first line intact
+- screened: `screenPublicComment` returned 0 findings before posting
+- blocks: the control-bus consumer wiring, and nothing else
+- evidence: `docs/INTERIM_REVIEW_FINDINGS.md` IR-084
+
+Asks one question: how the bus should record a trusted directive that answers no escalation posted
+from here. Seven such decisions are unresolved in the durable inbox, and the existing
+`NO_MATCHING_ESCALATION` rule would record all seven as rejected — including the one that
+authorised the review chain the release rests on.
+
+Recommended default A: give an unsolicited trusted directive a resting state of `VALIDATED` rather
+than `REJECTED`, keeping the TEST-id refusal, the untrusted-author refusal, the governance
+evaluation and the staleness check exactly as they are.
+
+The state above is deliberately not `QUEUED_NOT_TRANSMITTED`: the packet has left and been read
+back, so what remains is somebody else's turn, and counting it as an outbound debt would report a
+blocker no work here could clear.

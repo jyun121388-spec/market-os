@@ -229,10 +229,23 @@ describe("reading the escalation queue", () => {
     const reading = readQueue(markdown);
     expect(reading.readable, reading.readable ? "" : reading.reason).toBe(true);
     if (!reading.readable) return;
-    expect(reading.packets.map((p) => p.id)).toEqual(["TEST-001", "TEST-002", "ESC-009"]);
-    expect(reading.packets.every((p) => p.state === "TRANSMITTED")).toBe(true);
+    expect(reading.packets.map((p) => p.id)).toEqual([
+      "TEST-001",
+      "TEST-002",
+      "ESC-009",
+      "ESC-012",
+    ]);
+    expect(reading.packets.map((p) => p.state)).toEqual([
+      "TRANSMITTED",
+      "TRANSMITTED",
+      "TRANSMITTED",
+      // Posted and read back, and the answer has not come. Deliberately not TRANSMITTED and
+      // deliberately not QUEUED_NOT_TRANSMITTED: what remains is somebody else's turn, so it is
+      // not an outbound debt, and `pending` below stays zero with it in the file.
+      "WAITING_FOR_REMOTE_DECISION",
+    ]);
     expect(reading.packets.map((p) => p.remoteCommentId)).toEqual([
-      5349296642, 5349417717, 5349422884,
+      5349296642, 5349417717, 5349422884, 5364659562,
     ]);
     expect(reading.pending).toBe(0);
   });

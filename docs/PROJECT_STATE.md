@@ -745,8 +745,10 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-1612 / 1612 PASS across 112 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-20 with the Gate A fixes in the tree.
+1641 / 1641 PASS across 113 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-21 on the post-RC follow-up branch. The frozen release candidate
+c03aa73 measured 1580 / 1580 across 110 files; the three files since are release tooling that is
+deliberately not in it.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real

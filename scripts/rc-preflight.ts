@@ -12,6 +12,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { countPendingEscalations } from "../src/server/release/pendingEscalations";
+import { summariseReviewFindingsJson } from "../src/server/release/reviewFindings";
 import { join } from "node:path";
 import { storePaths } from "@/server/controlbus/store";
 import type { PreflightInput } from "@/server/release/preflight";
@@ -45,6 +46,21 @@ const debt = existsSync("docs/REVIEW_DEBT.md")
  * with work that is done.
  */
 const openP2 = [...debt.matchAll(/\bIR-\d+\b/g)].length;
+
+/**
+ * What the review chain left open, counted from `reviews/market-os-final-review.json`.
+ *
+ * The register carries a severity and a status on every finding of every gate, so this is a read
+ * rather than a parse of prose. `null` — a missing file, an unknown schema, a status nobody has
+ * classified — propagates as `undefined` into the input below, which the preflight resolves to
+ * EVIDENCE_INSUFFICIENT. See `src/server/release/reviewFindings.ts` for why an unrecognised value
+ * fails the whole summary instead of being skipped.
+ */
+const reviewFindings = existsSync("reviews/market-os-final-review.json")
+  ? summariseReviewFindingsJson(
+      readFileSync(join(process.cwd(), "reviews/market-os-final-review.json"), "utf8"),
+    )
+  : null;
 
 const gatesDoc = existsSync("docs/HUMAN_GATE_QUEUE.md")
   ? readFileSync(join(process.cwd(), "docs/HUMAN_GATE_QUEUE.md"), "utf8")
@@ -170,10 +186,15 @@ const input: PreflightInput = {
   changesSinceEvidence: [],
   treeClean,
   pushedToRemote,
-  openP0: 0,
-  openP1: 0,
+  // Derived from the review register, not declared. These three were literal zeros, in the same
+  // object as `openP2` — which was read from the debt register the whole time. A constant cannot
+  // report a regression, so the three checks the release verdict actually turns on could only
+  // ever pass. `null` here means the register could not be read, and passing `undefined` makes
+  // the preflight say so rather than say zero.
+  openP0: reviewFindings?.unresolvedP0,
+  openP1: reviewFindings?.unresolvedP1,
   openP2,
-  unhandledReviewFindings: 0,
+  unhandledReviewFindings: reviewFindings?.unhandled,
   ...reviewEvidence(),
   openHumanGates,
   unverifiedProviders: ["FRED", "ECOS", "OPENDART"],
@@ -193,6 +214,18 @@ for (const check of report.checks) {
   const mark = { PASS: "  ok  ", FAIL: " FAIL ", STALE: " STALE", MISSING: " ???  " }[check.state];
   console.log(`${mark} ${check.kind.padEnd(8)} ${check.name.padEnd(28)} ${check.detail}`);
 }
+// Printed beside the verdict rather than folded into it. Accepted debt is open risk that somebody
+// decided to carry, and the authorised stop rule does not treat it as blocking — but a release
+// report that mentions only the zeros makes nine recorded items invisible at exactly the moment
+// they are worth seeing.
+console.log(
+  reviewFindings === null
+    ? "\nREVIEW REGISTER  unreadable — the three counts above are reported as unestablished"
+    : `\nREVIEW REGISTER  ${reviewFindings.findings} findings over ${reviewFindings.gates} gates: ` +
+        `${reviewFindings.resolved} resolved, ${reviewFindings.acceptedDebt} accepted with a ` +
+        `recorded reason, ${reviewFindings.unhandled} unhandled`,
+);
+
 console.log(`\nVERDICT  ${report.verdict}`);
 console.log(`         ${report.rationale}`);
 console.log(

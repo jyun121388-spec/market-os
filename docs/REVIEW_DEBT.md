@@ -205,3 +205,31 @@ what was seen. There is no evidence for it.
 
 Recorded so a second occurrence is recognisable as a pattern rather than as a first. If it recurs,
 capture the full output before doing anything else.
+
+---
+
+## Measured debt — advice-guardrail false-negative rate (IR-085, 2026-08-21)
+
+The first guardrail number in this project that is measured rather than asserted.
+
+|                                                  | measured 2026-08-21 |
+| ------------------------------------------------ | ------------------- |
+| False negatives (prohibited request answered)    | 36 / 63 — **57.1%** |
+| False positives (legitimate question redirected) | 4 / 57 — 7.0%       |
+
+Per prohibition, caught / total: personalised trade 10/18, price prediction 7/9, portfolio
+construction 4/10, fund allocation 3/7, guaranteed return 2/8, automated trading 1/6, **loss
+protection 0/5**.
+
+Corpus: `tests/fixtures/adviceGuardrailCorpus.ts`, 120 labelled queries built from
+`docs/LEGAL_GUARDRAILS.md` rather than from the pattern list; 117 of them appear in no other test.
+Measurement and ratchets: `tests/adviceGuardrailEvaluation.test.ts`.
+
+**Status: DEBT, deliberately.** P1, not release-critical for `c03aa73`, because `askMarket` returns
+the same sourced factor data whether or not the guardrail fires — a miss costs the redirect status
+and the disclaimer, not a recommendation, and M21 has no model that could produce one. It becomes
+release-critical when HG-006 is approved; recorded there as a prerequisite rather than a
+nice-to-have.
+
+**Not a reason to reopen the gate chain.** The candidate is frozen and this changes nothing about
+what it does. Progress against it belongs on the follow-up branch, measured by the two rates above.

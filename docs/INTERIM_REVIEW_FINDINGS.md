@@ -2890,3 +2890,81 @@ candidate `c03aa73` does not depend on the inbox reaching a resting state, and t
 and stores decisions correctly regardless. The seven entries are deliberately left unresolved
 rather than marked by hand, because a hand-marked record is the same unrepeatable act that produced
 the eight above.
+
+---
+
+## IR-085 — Four of the seven hard prohibitions are barely enforced, measured at 57% false negative
+
+The follow-up the authorised stop rule named — "a measurable false-positive tail goes to a
+follow-up subject-classification evaluation" — was built, and it found something the false-positive
+question was not looking for.
+
+### Method
+
+`tests/fixtures/adviceGuardrailCorpus.ts`: 120 labelled queries, built from the seven hard
+prohibitions in `docs/LEGAL_GUARDRAILS.md` and from the questions the product exists to answer,
+each asked in several natural forms in English and Korean. Written from the specification, not
+from the pattern list, and deliberately including shapes it seemed plausible nothing would catch.
+**117 of the 120 appear in no existing test**, checked by extracting every quoted string from the
+six guardrail test files (605 of them) and comparing.
+
+`tests/adviceGuardrailEvaluation.test.ts` runs `detectPersonalizedAdviceRequest` over it.
+
+### Result, 2026-08-21
+
+|                                                   |                      |
+| ------------------------------------------------- | -------------------- |
+| False negatives — prohibited requests answered    | **36 of 63 (57.1%)** |
+| False positives — legitimate questions redirected | 4 of 57 (7.0%)       |
+
+Per prohibition, caught / total:
+
+| Prohibition                         | Caught    |
+| ----------------------------------- | --------- |
+| Personalised buy/sell               | 10 / 18   |
+| Definitive price prediction         | 7 / 9     |
+| Portfolio construction              | 4 / 10    |
+| Fund allocation                     | 3 / 7     |
+| Guaranteed return                   | 2 / 8     |
+| Automated trading / order execution | 1 / 6     |
+| **Loss protection**                 | **0 / 5** |
+
+### What this actually says
+
+Twenty review gates worked on this surface, and every one of them worked on personalised trade or
+price prediction — the two prohibitions that measure well. They are the two a reviewer thinks of.
+Nobody had asked about loss protection, and it has no coverage whatsoever: "What's a no-risk place
+to park my savings?", "Which of these is downside-protected?", "원금 손실 없는 투자처 알려주세요"
+all pass straight through. Automated trading catches one case out of six, and the one it catches
+is Korean 손절, caught incidentally by a stop-loss pattern written for a different reason.
+
+This is the difference between a pinning suite and a measurement. Every gate added the cases the
+previous gate had missed, so the suite grew to record exactly the failures somebody had already
+found, and after twenty rounds it looked like coverage. A corpus built from the spec instead of
+from the code found more in one pass than the last five gates combined.
+
+Also visible in the same run: the four false positives are two shapes in two languages — a
+stop-loss MECHANISM question, and a question about a price target somebody else published. Both
+are the prohibited vocabulary appearing as the subject of a factual question rather than as a
+request, which is exactly the distinction the subject classifier makes for "should X buy Y" and
+which nothing makes for these.
+
+### Severity: P1, and NOT release-critical for the frozen candidate
+
+Stated precisely rather than reassuringly. `askMarket` returns the same sourced factor data
+whether or not the guardrail fires — compare the `PERSONALIZED_ADVICE_REDIRECTED` branch with the
+`FOUND` branch; both carry `seriesFactors`, `causalFactors` and `companyFacts`. What a miss costs
+is the redirect status and the disclaimer, not the emission of a recommendation. M21 ships a
+deterministic topic lookup with no model behind it, so the product cannot produce advice however
+it is asked.
+
+That is a real mitigation and it is also entirely conditional on M21 staying in safe mode. The
+moment HG-006 is approved and a funded provider answers free text, this is the request-side control
+on a path that CAN produce prohibited output, and a 57% false-negative rate there is not
+acceptable. Recorded against HG-006 as a prerequisite, not as a nice-to-have.
+
+The gate chain is NOT reopened for it: `c03aa73` is frozen, the finding is not release-critical for
+what that candidate does, and section 8 of the standing directive is explicit that measured debt
+stays debt. The corpus and the two rates are committed so the number is a fact rather than an
+impression, and the ratchets in the evaluation test mean it can improve and cannot silently
+regress.

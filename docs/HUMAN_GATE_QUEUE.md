@@ -110,6 +110,11 @@ Three of the eight cost nothing and unblock the most engineering. If only one th
   `LEGAL_GUARDRAILS.md` prohibits. The subject classifier guards the REQUEST path; an output path
   needs its own scanner.
 - **If deferred.** Indefinitely safe. Safe mode is the shipped behaviour and is not a placeholder.
+- **Measured prerequisite, added 2026-08-21.** The request-side guardrail was measured against a
+  120-case corpus built from the prohibitions rather than from its own patterns, and answers
+  **36 of 63** prohibited requests (IR-085). Harmless today, because nothing can produce advice;
+  the moment a provider answers free text, this is the control standing in front of it. Bring that
+  rate down before enabling the path, not after.
 - **Verification that follows approval.** Per the M21 entry in `docs/DECISIONS.md`, in the same
   milestone and not after it: extend `verifyClaim` to cover INFERENCE claims; ship dedicated
   legal-guardrail tests against real model output; and run the output scanner over generated prose

@@ -1486,6 +1486,82 @@
         "lint": "PASS",
         "format": "PASS",
         "build": "PASS"
+      },
+      "superseded_by": "856f88d3f3cb90cee8c5a96f4e57692cc2a97b75"
+    },
+    {
+      "gate": "P",
+      "head_sha": "856f88d3f3cb90cee8c5a96f4e57692cc2a97b75",
+      "head_sha_short": "856f88d",
+      "sha_status": "SUPERSEDED_NOT_CLEAN",
+      "sha_status_detail": "Describes what the review FOUND at this SHA. The fixes are not contained in it.",
+      "scope": "the re-review of only the changed surface, as RC-CONVERGENCE-007 provides for after a bounded review finds a P1",
+      "reviewers": [
+        {
+          "role": "independent adversarial reviewer",
+          "model": "gpt-5.6-sol",
+          "invocation": "codex exec -s read-only",
+          "closing_answer": "Yes - two release-critical P1 blockers.",
+          "note": "Respected the calibration: marked findings BLOCKER, did not re-file the accepted name-collision tail, and confirmed which branches it had traced."
+        },
+        {
+          "role": "self-attack, run before the review returned",
+          "result": "one over-block on overlapping vocabulary (trustee bank), plus a leftover askMarket regex the classifier had made redundant"
+        }
+      ],
+      "remote_ci": {
+        "run": "32430285602",
+        "workflow": "CI",
+        "job": "verify",
+        "conclusion": "success",
+        "head_sha": "856f88d3f3cb90cee8c5a96f4e57692cc2a97b75"
+      },
+      "verdict": "FINDINGS_AT_THIS_SHA_FIXES_IN_A_LATER_SHA",
+      "verdict_basis": "No P0. Two P1 blockers, both about which possessive marks whose money it is. Both fixed, plus two overlapping-vocabulary orderings found locally.",
+      "unresolved_p0": 0,
+      "unresolved_p1": 0,
+      "findings": [
+        {
+          "id": "RC-007-01",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "Dropping possessive pronouns from mentionsAPerson lets a recommendation about the user's own retirement assets escape.",
+          "reproduced": ["Should my retirement fund buy Nvidia stock?"],
+          "fix": "First-person SINGULAR counts as personal evidence where no noun does. 'Our' still does not: it is personal in 'our portfolio' and a determiner in 'our independent central bank', which is the question the narrowing existed to stop refusing."
+        },
+        {
+          "id": "RC-007-02",
+          "severity": "P1",
+          "marked": "BLOCKER",
+          "status": "REPRODUCED_AND_FIXED",
+          "claim": "A person-role noun in incidental prose makes institutional research read as personalised advice.",
+          "reproduced": ["Should BlackRock, whose client base is aging, sell Treasury bonds?"],
+          "fix": "The rescue reads the HEAD phrase, as classifySubject does. An appositive describes the subject and does not name it."
+        },
+        {
+          "id": "SELF-P1",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "An organisation's own holding reads as a personalised trade when a person noun appears in the subject.",
+          "reproduced": ["Should the trustee bank hold its pension fund assets separately?"],
+          "fix": "'Its' and 'their' on the object say whose the holding is. Also removed the leftover investor-role regex in askMarket.ts, which refused the same sentence because 'trustee' appeared in it - the sixth subject-type pattern the classifier has replaced."
+        },
+        {
+          "id": "SELF-P2",
+          "severity": "P1",
+          "status": "FOUND_BY_SELF_ATTACK_AND_FIXED",
+          "claim": "'Fund' is an organisation word and a finance qualifier, and the organisation check ran first.",
+          "reproduced": ["Should the fund manager hold Tesla?"],
+          "fix": "A qualified financial role outranks the organisation words. Third time in this module that two vocabularies overlapped and the ORDER decided the answer."
+        }
+      ],
+      "local_verify": {
+        "tests": "1536 / 1536 across 110 files against a live PostgreSQL 16.10, no skips",
+        "typecheck": "PASS",
+        "lint": "PASS",
+        "format": "PASS",
+        "build": "PASS"
       }
     }
   ],
@@ -1506,7 +1582,8 @@
       "Gate L reviewed e1134d1 -> fixes -> next candidate",
       "Gate M reviewed a7cb520 -> fixes -> next candidate",
       "Gate N applied the two structural repairs RC-CONVERGENCE-007 required -> new candidate -> one bounded review of the repairs, then attestation",
-      "Gate O ran the bounded post-repair review of dcc88ed -> two P1 blockers fixed -> next candidate needs only a re-review of the changed surface"
+      "Gate O ran the bounded post-repair review of dcc88ed -> two P1 blockers fixed -> next candidate needs only a re-review of the changed surface",
+      "Gate P re-reviewed the changed surface of 856f88d -> two P1 blockers fixed -> next candidate"
     ],
     "closure_requires": [
       "a gate that finds no P0 and no P1 requiring a code change at the candidate SHA",

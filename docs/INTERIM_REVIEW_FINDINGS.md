@@ -2683,3 +2683,37 @@ with UNRESOLVED redirecting.
 
 Mutation proof, re-run after these repairs: neutering the classifier fails 36 tests, making
 UNRESOLVED fail open fails 12, removing the storage-domain range check fails 6.
+
+## Gate P — the re-review of the changed surface, and both findings were about whose money it is
+
+Narrowing `mentionsAPerson` to person NOUNS fixed a monetary-policy over-block and opened a
+different hole in the same move. `Should my retirement fund buy Nvidia stock?` contains no person
+noun at all, and it is the user's own money.
+
+First-person SINGULAR says so where no noun does. "Our" still does not, and the reason is the
+sentence that motivated the narrowing: "our portfolio" is personal and "our independent central
+bank" is a policy question, and only the singular distinguishes them reliably.
+
+The second finding was the same reading error one level up. `Should BlackRock, whose CLIENT base is
+aging, sell Treasury bonds?` is institutional research; the person noun is in an appositive that
+DESCRIBES the subject rather than naming it. The rescue reads the head phrase now, exactly as
+`classifySubject` does.
+
+### Two more from self-attack, both about overlapping vocabularies
+
+"Should the trustee bank hold ITS pension fund assets separately?" has a person noun in the subject
+and a tradable object, and is a question about an institution's balance sheet. "Its" and "their"
+say whose the holding is, and an organisation's holding is not a personalised trade.
+
+And "fund" is an organisation word on its own and a finance qualifier in "fund manager", so with
+the organisation check running first, `Should the fund manager hold Tesla?` read as an institution.
+A qualified financial role now outranks the organisation words. That is the third time in this
+module that two vocabularies overlapped and the ORDER decided the answer — worth stating as a
+property of the design rather than as three separate fixes.
+
+### The leftover regex the classifier had made redundant
+
+The investor-role pattern in `askMarket.ts` was still refusing "Should the trustee BANK hold its
+pension fund assets separately?" because "trustee" appeared in it. The classifier recognises the
+same roles and, unlike the pattern, reads the rest of the subject. Removed — six subject-type
+patterns are now gone in total.

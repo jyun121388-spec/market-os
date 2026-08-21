@@ -1,5 +1,220 @@
 # Human Gate Queue
 
+<!-- READINESS PACKETS — added 2026-08-21, after the release candidate closed internally. -->
+
+## Readiness packets — the eight decisions that remain
+
+The release candidate is frozen at `c03aa73` (attestation `fb3a721`) and independently closed:
+Gate U found nothing, `[CHATGPT_VERIFIED][ESC-011]` is APPROVED, posture is
+`READY_FOR_HUMAN_RELEASE_GATES`. Everything below is a decision a person has to take. None is
+blocked on engineering, none blocks the others, and none has been taken here.
+
+Each packet answers the same eight questions, so they can be compared and taken one at a time.
+**Deferring any of them leaves the product operable** — the "if deferred" line says exactly how.
+
+### Cost summary, first, because it is the question that decides most of these
+
+| Gate                         | Cost to approve                                                      |
+| ---------------------------- | -------------------------------------------------------------------- |
+| A FRED key                   | **Free.** No card, no billing.                                       |
+| B ECOS key                   | **Free.** No card, no billing.                                       |
+| C OpenDART key               | **Free.** No card, no billing.                                       |
+| D LLM provider               | **Real per-request money.** The only genuinely funded decision here. |
+| E HG-009 lockout posture     | Free unless a CAPTCHA vendor is chosen.                              |
+| F Signup enumeration posture | Free unless transactional email is bought.                           |
+| G Production deployment      | Hosting and database cost.                                           |
+| H Payment activation         | Processor fees, plus a business/tax decision.                        |
+
+Three of the eight cost nothing and unblock the most engineering. If only one thing is done, do A.
+
+---
+
+### A — FRED live key (HG-002)
+
+- **Decision required.** Obtain a free FRED API key and place it in `.env` as `FRED_API_KEY`.
+- **Why not autonomous.** A credential is a Human Gate under `CLAUDE.md`. Registration is an
+  account action taken in a person's name; nothing here may create one or hold the result.
+- **Current safe default.** The adapter runs against committed fixtures. Every parser, revision
+  path and idempotency guarantee is tested; only the live shape is unverified.
+- **Minimum user action.** Register at `https://fredaccount.stlouisfed.org/apikeys`, copy the key,
+  add one line to `.env`. No card is requested at any point.
+- **Cost.** None.
+- **Security / legal.** The key identifies a rate-limit bucket, not a person's data. It is redacted
+  from every stored error by `redactSecrets`; `.env` is gitignored and only `.env.example` is
+  committed.
+- **If deferred.** Everything continues. FRED-derived figures stay fixture-backed, and the five
+  Macro Regime axes that need FRED remain `NOT_TRACKED` — visibly, not silently.
+- **Verification that follows approval.** `npm run verify:live:edgar` is the model to copy:
+  1. `npm run verify:live:fred` — compares the live response against the committed contract.
+  2. Check nullability, missing fields, revisions, units, dates, timestamps and pagination against
+     the real payload. Provider documentation does not count: EDGAR's was wrong about nullability,
+     and that was the first provider actually checked.
+  3. Fix any drift, add a regression test for each difference found.
+  4. Small real ingest, then re-ingest, and confirm `0 inserted / all unchanged`.
+  5. Confirm provenance on a rendered figure.
+  6. Only then record `LIVE_VERIFIED`. **Until step 1 runs, the state is `UNVERIFIED` — not
+     `FAILED`, and not `COMPLETE`.**
+
+---
+
+### B — ECOS live key (HG-003)
+
+- **Decision required.** Obtain a free Bank of Korea ECOS key; set `ECOS_API_KEY`.
+- **Why not autonomous.** Same as A: an account action in a person's name.
+- **Current safe default.** Fixture-backed. The Korean-language series names and the quarterly and
+  annual cycle parsing are tested against real captured payloads.
+- **Minimum user action.** Register at `https://ecos.bok.or.kr/api/#/AuthKeyApply`, set one
+  variable.
+- **Cost.** None.
+- **Security / legal.** ECOS puts the key in the URL PATH rather than a query parameter, which is
+  why `redactSecrets` redacts by value and not by parameter name.
+- **If deferred.** The BOK base rate series stays fixture-backed. Nothing else is affected.
+- **Verification that follows approval.** The same six steps as A, via `npm run verify:live:ecos`.
+  One ECOS-specific check: the missing-value marker is still unverified against the live API
+  (`src/server/adapters/ecos/types.ts` records this), so confirm what a genuinely absent
+  observation looks like before trusting the skip path. `UNVERIFIED` until it runs.
+
+---
+
+### C — OpenDART live key (HG-004)
+
+- **Decision required.** Obtain a free OpenDART key; set `DART_API_KEY`.
+- **Why not autonomous.** Same as A.
+- **Current safe default.** Fixture-backed against a real Samsung Electronics filing list.
+- **Minimum user action.** Register at `https://opendart.fss.or.kr/`, set one variable.
+- **Cost.** None.
+- **Security / legal.** Key travels as `crtfc_key`; redacted by value and by parameter name.
+- **If deferred.** Korean filings stay fixture-backed. EDGAR is already live-verified, so Company
+  X-Ray works for US issuers regardless.
+- **Verification that follows approval.** Same six steps, via `npm run verify:live:dart`. Check the
+  corpCode-to-company mapping in particular: `financial_facts` is unique on `(sourceId, corpCode)`
+  and a corpCode identifies a company only within one source. `UNVERIFIED` until it runs.
+
+---
+
+### D — Full free-text Ask Market: LLM provider, funding, credential (HG-006)
+
+- **Decision required.** Which provider, how the per-request cost is funded, and the credential.
+- **Why not autonomous.** This is the one decision here that spends money on every request.
+  `CLAUDE.md`'s zero-extra-cost rule is absolute and this cannot be actioned under any reading of
+  it. It is also a legal decision: free-text inference is where
+  `docs/LEGAL_GUARDRAILS.md` stops being enforceable by pattern and starts depending on what a
+  model says.
+- **Current safe default.** `/ask` runs a deterministic topic lookup at zero runtime cost, with the
+  guardrail redirecting personalised requests in English and Korean. No prose is synthesised; every
+  field returned is a direct read of stored FACT or CALCULATION data.
+- **Minimum user action.** Name a provider and a funding source. The credential can follow.
+- **Cost.** Real and recurring, scaling with usage. The only packet here where that is true.
+- **Security / legal.** The largest of the eight. An LLM answering freely can produce personalised
+  advice that no deterministic guardrail intercepted, which is precisely what
+  `LEGAL_GUARDRAILS.md` prohibits. The subject classifier guards the REQUEST path; an output path
+  needs its own scanner.
+- **If deferred.** Indefinitely safe. Safe mode is the shipped behaviour and is not a placeholder.
+- **Verification that follows approval.** Per the M21 entry in `docs/DECISIONS.md`, in the same
+  milestone and not after it: extend `verifyClaim` to cover INFERENCE claims; ship dedicated
+  legal-guardrail tests against real model output; and run the output scanner over generated prose
+  before any of it reaches a user.
+
+---
+
+### E — Login lockout threat model (HG-009)
+
+- **Decision required.** Whether the email-keyed five-attempt / fifteen-minute lockout is the
+  production posture, or whether IP-keyed limiting, a CAPTCHA or a delay curve is wanted.
+- **Why not autonomous.** It is a trade between account-takeover resistance and a denial-of-service
+  vector against a known email address. Which risk matters more is a product judgement.
+- **Current safe default.** Email-keyed lockout, tested, and documented as a pre-launch default
+  rather than a final answer. `signIn` never reveals which field failed or that a lockout is
+  active.
+- **Minimum user action.** Confirm the current posture, or name the preferred alternative.
+- **Cost.** None, unless a paid CAPTCHA is chosen — which would itself be a new Human Gate.
+- **Security / legal.** An attacker who knows an email can lock that account out for fifteen
+  minutes at a time. Against that, the current scheme resists credential stuffing without any
+  third-party dependency.
+- **If deferred.** Safe for pre-launch and for any non-public deployment. It should not survive
+  public launch undecided.
+- **Verification that follows approval.** `tests/loginLockoutThreatModel.test.ts` already pins the
+  current behaviour; extend it to whichever posture is chosen, and add a test asserting the
+  chosen scheme's failure mode is the one accepted rather than a different one.
+
+---
+
+### F — Signup email-enumeration posture (A1, tracked with HG-009)
+
+- **Decision required.** Whether signup may keep telling an unauthenticated caller that an email is
+  already registered.
+- **Why not autonomous.** Every fix requires email verification, which is bulk transactional
+  messaging and a Human Gate of its own. The alternative — a generic failure — strands a user who
+  has forgotten they registered. That is a product call.
+- **Current safe default.** `signUp` throws "An account with this email already exists". Reproduced
+  and recorded as accepted pre-launch posture, not as an oversight.
+- **Minimum user action.** Either accept it for pre-launch, or approve transactional email so
+  verification can be built.
+- **Cost.** None to accept. An email provider costs money and would be a new gate.
+- **Security / legal.** An enumeration oracle: an attacker can test whether an address has an
+  account. Materially worse at public launch than in a closed deployment.
+- **If deferred.** Safe while the deployment is not public. `signIn` is unaffected and leaks
+  nothing.
+- **Verification that follows approval.** If verification is built: assert that signup responds
+  identically for a registered and an unregistered address, and that the difference is observable
+  only in the mailbox.
+
+---
+
+### G — Production deployment (HG-007)
+
+- **Decision required.** Whether to deploy, where, and against which database.
+- **Why not autonomous.** Deployment is named as a Human Gate in `CLAUDE.md`, and it is the first
+  action here that is not reversible by deleting a local folder.
+- **Current safe default.** Nothing is deployed. Ingest jobs run only by manual invocation of
+  `scripts/run-ingest-jobs.ts`.
+- **Minimum user action.** Choose a host and a managed PostgreSQL, and confirm the deployment.
+- **Cost.** Hosting plus database, ongoing.
+- **Security / legal.** `ADMIN_EMAILS` must be set before `/admin` is reachable — it fails closed
+  when empty, which is correct locally and would be a lockout in production if forgotten. Session
+  cookies become `Secure` automatically in production.
+- **If deferred.** Everything runs locally against the portable PostgreSQL. No feature depends on
+  being deployed.
+- **Verification that follows approval.** Apply all 17 migrations to the production database and
+  confirm each applied; verify `/admin` is unreachable without a session and with a non-admin one;
+  confirm `Secure` and `SameSite` on the session cookie over real HTTPS; run one real ingest and
+  then a re-ingest, confirming `0 inserted / all unchanged`; confirm a rendered figure traces to a
+  stored source.
+
+---
+
+### H — Payment / subscription activation (HG-008)
+
+- **Decision required.** Whether to activate payments, with which processor, and which plan gates
+  which feature.
+- **Why not autonomous.** Charging money is a Human Gate, and it is also a tax and business
+  decision that no code change can settle.
+- **Current safe default.** The `Plan` enum and `hasEntitlement` / `canUseFeature` exist and are
+  tested. `FEATURE_PLAN_REQUIREMENTS` is deliberately empty, so no feature is paid-gated and no
+  processor is integrated.
+- **Minimum user action.** Choose a processor and state which features are paid.
+- **Cost.** Processor fees, and whatever the plan structure implies.
+- **Security / legal.** Card data must never reach this application; a hosted checkout keeps it
+  out. Consumer-subscription law varies by jurisdiction and is outside anything decidable here.
+- **If deferred.** Everything is available to every signed-in user, which is the current and
+  intended pre-launch behaviour.
+- **Verification that follows approval.** Confirm no card data touches the application; test each
+  entitlement boundary in both directions; verify a cancelled subscription loses entitlement at the
+  right moment and not before.
+
+---
+
+### What is NOT on this list
+
+Merging PR #1 is a human action but not a separate gate — it is the mechanical consequence of G,
+or a decision to land the code without deploying it. Either way it is not taken here.
+
+The accepted review debt (name-collision tail, A1's classification, C1's Claim Ledger content
+validation) is **debt, not a gate**. It is recorded in `reviews/market-os-final-review.json`, pinned
+by tests, and none of it is release-critical. It does not need a decision to proceed.
+
+---
+
 Items that autonomous work cannot resolve on its own, collected so they can be approved or
 actioned in one pass rather than interrupting development one at a time.
 
@@ -136,6 +351,11 @@ case; "000" and the "013" no-data mapping still need a key.
 ---
 
 ## HG-005 — Independent re-review
+
+**Status**: `RESOLVED` · closed 2026-08-21. Gate U reviewed `40dc7e3..c03aa73` and returned
+"No findings"; `[CHATGPT_VERIFIED][ESC-011]` is APPROVED. Twenty gates ran in total and the
+record is in `docs/INTERIM_REVIEW_FINDINGS.md` and `reviews/market-os-final-review.json`. The
+history below is kept because it explains why the range went unreviewed for so long.
 
 **Status (2026-08-18): NO LONGER BLOCKED — in progress.** The account was upgraded and all three
 Codex models now probe AVAILABLE (`docs/AI_REVIEW_RUNTIME_STATE.md`). The first genuine

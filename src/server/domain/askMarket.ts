@@ -381,25 +381,10 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // which is what keeps "Should BlackRock sell their pension fund business?" answerable.
   /\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(his|her)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
   /\b(my|his|her|your|our)\b[^?!]{0,40}\b(buy|sell|dump|short|hold|invest)\b[^?!]{0,20}\b(their|our|my|your)\s+(\w+\s+)?(shares?|stake|holdings?|portfolio|position|account|isa|pension|401k|fund|savings)\b/i,
-  // Investor roles — someone whose job is to trade on another person's behalf. Deliberately not
-  // "investors", "a company" or "a pension fund": those appear in questions about markets and
-  // regulation far more often than in requests for advice.
-  /\bshould\s+(the|my|our|his|her|their|your)\s+(trustee|broker|adviser|advisor|analyst|banker|desk|fund manager|portfolio manager|money manager|wealth manager|accountant)\b[^?!]{0,25}\b(buy|sell|dump|short|hold|invest)\b/i,
-  // A named person — but a capital letter marks a proper noun, not a person, and in this product
-  // most proper nouns are companies. The bare version of this rule lasted one commit and refused
-  // "Should Apple buy Nvidia?", "Should Samsung sell its display unit?", "Should Tesla invest in a
-  // new gigafactory?" and "Should Europe invest in LNG terminals?" — corporate actions and policy,
-  // which is most of what this product is FOR.
-  //
-  // So the name is not enough on its own. A personal possessive after the verb is what separates
-  // "Should Sarah sell her Tesla shares?" from "Should Samsung sell its display unit?": people get
-  // "his" and "her", companies get "its".
-  //
-  // That leaves "Should John buy Nvidia?" uncovered, and it is a real request for advice. Recorded
-  // as a gap rather than closed, because every way of closing it that has been tried refuses
-  // ordinary research: see docs/INTERIM_REVIEW_FINDINGS.md, Gate E.
-  // "Should I invest?" with no object. The `should i (…|invest in|…)` pattern above requires
-  // "invest IN something", so the bare form slipped through.
+  // NOTE — the investor-role pattern that sat here is gone. `classifySubject` recognises the
+  // same roles and, unlike the pattern, reads the rest of the subject: "Should the trustee BANK
+  // hold its pension fund assets separately?" is an institution, and the pattern refused it
+  // because "trustee" appeared in it.
   /\bshould i (invest|get in|get out|hold|sell out|take profits?|cut (my )?losses)\b/i,
   /\b(good|right|bad) time to (get in|get out|enter|exit|buy in)\b/i,
   // Position-sizing intent regardless of how it is framed. `should i …` was too narrow: the

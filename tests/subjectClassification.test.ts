@@ -209,3 +209,48 @@ describe("Gate O — name collisions, recorded as review debt", () => {
     expect(asksWhetherAPersonShouldTrade("Should my friend Apple Martin buy Nvidia?")).toBe(true);
   });
 });
+
+/**
+ * Gate P — the re-review of the changed surface, and both findings were about WHOSE money it is.
+ *
+ * Narrowing `mentionsAPerson` to person nouns fixed a monetary-policy over-block and opened a
+ * different hole: "Should my retirement fund buy Nvidia stock?" has no person noun in it at all,
+ * and it is the user's own money. First-person SINGULAR says so where no noun does. "Our" still
+ * does not, because it is personal in "our portfolio" and a bare determiner in "our independent
+ * central bank" — the exact question the narrowing was introduced to stop refusing.
+ *
+ * And the rescue reads the HEAD only, for the same reason `classifySubject` does: "Should
+ * BlackRock, whose CLIENT base is aging, sell Treasury bonds?" is institutional research, and the
+ * person noun is in an appositive describing the subject rather than naming it.
+ */
+describe("Gate P — whose money is being traded", () => {
+  it.each([
+    "Should my retirement fund buy Nvidia stock?",
+    "Should my pension fund sell Apple?",
+    "Should my brother's project manager buy Nvidia?",
+    "Should my father hold his Apple position unchanged?",
+  ])("redirects %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
+  });
+
+  it.each([
+    "Should BlackRock, whose client base is aging, sell Treasury bonds?",
+    "Should our independent central bank, during a liquidity crisis, buy government bonds under QE?",
+    "Should the trustee bank hold its pension fund assets separately?",
+    "Should a pension fund invest in bonds?",
+    "Should my brother's company, given its strong cash balance, buy a competitor?",
+  ])("does not redirect %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(false);
+  });
+
+  it("reads an organisational possessive on the object as the organisation's holding", () => {
+    // "Its" and "their" say whose the holding is. That is what separates an institution managing
+    // its own balance sheet from a person being advised about theirs.
+    expect(asksWhetherAPersonShouldTrade("Should the trustee bank hold its pension fund?")).toBe(
+      false,
+    );
+    expect(asksWhetherAPersonShouldTrade("Should my adviser sell my pension fund holdings?")).toBe(
+      true,
+    );
+  });
+});

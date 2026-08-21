@@ -428,13 +428,18 @@ export function classifySubject(subject: string): SubjectClass {
 
 /** The classification rules themselves, applied to one already-tokenised phrase. */
 function classifyTokens(tokens: string[]): SubjectClass {
+  // A QUALIFIED financial role first, before the organisation words, because the two vocabularies
+  // overlap: "fund" is an organisation on its own and a finance qualifier in "fund manager". With
+  // the organisation check first, "Should the fund manager hold Tesla?" read as an institution.
+  const hasRoleHead = tokens.some((token) => GENERIC_ROLE_HEADS.has(token));
+  const hasFinanceQualifier = tokens.some((token) => FINANCE_QUALIFIERS.has(token));
+  if (hasRoleHead && hasFinanceQualifier) return "PERSON";
+
   if (tokens.some((token) => ORGANISATION_WORDS.has(token))) return "NON_PERSON";
 
-  // A generic job word decides on its qualifier, and decides before the person words do — the
-  // possessive in "my brother's project manager" is about my brother, and the subject is not.
-  if (tokens.some((token) => GENERIC_ROLE_HEADS.has(token))) {
-    return tokens.some((token) => FINANCE_QUALIFIERS.has(token)) ? "PERSON" : "NON_PERSON";
-  }
+  // An UNqualified generic job word, and it decides before the person words do — the possessive in
+  // "my brother's project manager" is about my brother, and the subject is not.
+  if (hasRoleHead) return "NON_PERSON";
 
   if (tokens.some((token) => PERSON_WORDS.has(token))) return "PERSON";
 
@@ -558,8 +563,23 @@ const PERSON_NOUNS = new Set(
   ),
 );
 
+/**
+ * Personal evidence in the subject's HEAD, used only to rescue a NON_PERSON head.
+ *
+ * The head, not the whole subject: "Should BlackRock, whose CLIENT base is aging, sell Treasury
+ * bonds?" is institutional research, and reading the appositive found a person noun in it. Same
+ * rule as `classifySubject` — what follows a comma describes the subject and is not the subject.
+ *
+ * First-person SINGULAR counts as well as a person noun, because "my retirement fund" is the
+ * user's own money and no noun in it says so. "Our" deliberately does not: it makes a subject
+ * personal in "our portfolio" and is a bare determiner in "our independent central bank", and the
+ * second of those is a monetary-policy question this refused for one round.
+ */
+const FIRST_PERSON_SINGULAR = new Set(["i", "me", "my", "mine", "myself"]);
+
 function mentionsAPerson(subject: string): boolean {
-  return tokenise(subject).some((token) => PERSON_NOUNS.has(token));
+  const head = tokenise(subject.split(",")[0]);
+  return head.some((token) => PERSON_NOUNS.has(token) || FIRST_PERSON_SINGULAR.has(token));
 }
 
 export function asksWhetherAPersonShouldTrade(query: string): boolean {
@@ -608,5 +628,11 @@ export function asksWhetherAPersonShouldTrade(query: string): boolean {
   // instrument. "Should my brother's project manager buy Nvidia?" is a personalised trade;
   // "Should my brother's project manager buy new software?" is procurement. Same subject, same
   // verb — the object is the only thing that separates them, so it decides.
+  // ...unless the object belongs to the organisation. "Should the trustee bank hold ITS pension
+  // fund assets separately?" has a person noun in the subject and a tradable object, and is a
+  // question about an institution's balance sheet. "Its" and "their" say whose the holding is, and
+  // an organisation's holding is not a personalised trade.
+  if (/\b(its|their)\b/i.test(object)) return false;
+
   return mentionsAPerson(subject) && financialObject;
 }

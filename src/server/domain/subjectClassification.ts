@@ -416,13 +416,29 @@ function tokenise(subject: string): string[] {
  * NON_PERSON. Anything left — a capitalised word no registry knows, most obviously a first name —
  * is UNRESOLVED, and callers are expected to treat that as a person.
  */
+/**
+ * The segment of a phrase that actually governs it: whatever follows the last possessive.
+ *
+ * "The bank's TRUSTEE" is a person and "my brother's COMPANY" is a company, and in both the words
+ * before the apostrophe say who owns the thing rather than what it is. Scanning the whole phrase
+ * gets the first of those wrong — "bank" is in it — which is how a personalised request about a
+ * bank's trustee came to be answered.
+ *
+ * Without a possessive the whole phrase governs, which is what keeps "the bank where my father
+ * works" an organisation: no apostrophe, so nothing is being owned, and "bank" is simply in it.
+ */
+function governingSegment(phrase: string): string {
+  const parts = phrase.split(/['’]s\b/);
+  return parts.length > 1 ? parts[parts.length - 1] : phrase;
+}
+
 export function classifySubject(subject: string): SubjectClass {
   // Only the HEAD phrase decides. An appositive after a comma describes the subject; it is not the
   // subject. "My father, a company DIRECTOR, sell Apple?" put an organisation word in reach of a
   // rule that checks organisation words first, and answered a personalised request — while "my
   // brother's company, given its strong cash balance" needs the organisation word to win, because
   // there it IS the head. Splitting at the comma separates the two without a new list.
-  const head = subject.split(",")[0];
+  const head = governingSegment(subject.split(",")[0]);
   const headTokens = tokenise(head);
   if (headTokens.length > 0) {
     const fromHead = classifyTokens(headTokens);
@@ -607,9 +623,11 @@ const PERSONAL_POSSESSIVES = new Set(["i", "me", "my", "mine", "myself", "you", 
  * association" is an association — so the two checks read the phrase differently on purpose.
  */
 function headIsAnOrganisation(subject: string): boolean {
-  const head = tokenise(subject.split(",")[0]);
-  if (head.length === 0) return false;
-  if (PERSONAL_POSSESSIVES.has(head[0])) return false;
+  const whole = tokenise(subject.split(",")[0]);
+  if (whole.length === 0) return false;
+  if (PERSONAL_POSSESSIVES.has(whole[0])) return false;
+  // Only what the possessive governs. "The bank's trustee" is a trustee.
+  const head = tokenise(governingSegment(subject.split(",")[0]));
   return head.some((token) => ORGANISATION_WORDS.has(token));
 }
 

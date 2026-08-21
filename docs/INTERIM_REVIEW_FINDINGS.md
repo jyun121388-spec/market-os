@@ -2802,3 +2802,34 @@ exactly how a reader ends up trusting the wrong one.
 Self-attack found nothing this round; Gate S found the one thing there was. That is the first round
 in the chain where the independent review contributed the only finding, and it is a better argument
 for keeping the review than any round where the two agreed.
+
+## Gate T — a possessive says who owns the thing, not what it is
+
+Scanning the whole head phrase fixed "the bank where my father works" and broke "the bank's
+TRUSTEE", which is a person. Gate T found it; the self-attack did not.
+
+The rule that resolves both: the words before an apostrophe say who owns the thing and the words
+after it say what it is, so whatever follows the last possessive governs. A phrase with no
+possessive is governed by all of itself, which is what keeps the relative-clause case an
+organisation — nothing there is being owned.
+
+    the bank's trustee        -> PERSON      (a trustee, belonging to a bank)
+    my brother's company      -> NON_PERSON  (a company, belonging to my brother)
+
+Same construction, opposite answers, and only the word after the apostrophe differs.
+
+### The heredoc trap, fifth recorded occurrence
+
+The fix was written into the file through a shell heredoc, and the `` in its regex became a
+literal backspace character. The pattern matched nothing, both new tests failed, and the code read
+correctly in every editor view — `od -c` was what finally showed `s  /` as `s` followed by byte
+0x08.
+
+`CLAUDE.md` says to write anything containing a regex with the editing tools and to reserve
+heredocs for text with no backslashes. That rule exists because this has happened four times
+before. It happened again because the surrounding work was going quickly and the heredoc was
+convenient, which is exactly the condition the rule is written for.
+
+Worth adding to the record: what caught it was not the hexdump but the TEST. Two assertions failed
+immediately, and the investigation only had somewhere to go because the expected behaviour had been
+written down before the fix was attempted.

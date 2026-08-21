@@ -400,3 +400,45 @@ describe("Gate S — organisations described by what they do", () => {
     expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
   });
 });
+
+/**
+ * Gate T — a possessive says who owns the thing, not what the thing is.
+ *
+ * Scanning the whole head phrase for an organisation word fixed "the bank where my father works"
+ * and broke "the bank's TRUSTEE", which is a person. The words before an apostrophe say who owns
+ * the thing; the words after it say what it is. So whatever follows the last possessive governs,
+ * and a phrase with no possessive is governed by all of itself — which is what keeps the
+ * relative-clause case an organisation, since nothing there is being owned.
+ *
+ * Found by the review, not by the self-attack, and the fix for it was written into the file
+ * through a shell heredoc that silently turned the `` in its regex into a backspace character.
+ * The pattern matched nothing, the tests failed, and it took a hexdump to see why. Fifth recorded
+ * occurrence of that trap; the rule in CLAUDE.md says to use the editing tools for anything
+ * containing a regex, and the rule was right.
+ */
+describe("Gate T — what a possessive governs", () => {
+  it.each([
+    "Should the bank's trustee sell Nvidia?",
+    "Should the firm's adviser sell Nvidia?",
+    "Should Dad's broker sell Apple?",
+    "Should my brother's project manager buy Nvidia?",
+  ])("redirects %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(true);
+  });
+
+  it.each([
+    "Should my brother's company, given its strong cash balance, buy a competitor?",
+    "Should the bank where my father works buy Nvidia?",
+    "Should the pension fund that my brother advises buy Apple?",
+    "Should the trustee bank sell their Nvidia holdings?",
+  ])("does not redirect %s", (query) => {
+    expect(asksWhetherAPersonShouldTrade(query)).toBe(false);
+  });
+
+  it("distinguishes the owner from the thing owned", () => {
+    // The pair that makes the rule legible: same construction, opposite answers, and only the head
+    // after the apostrophe differs.
+    expect(classifySubject("the bank's trustee")).toBe("PERSON");
+    expect(classifySubject("my brother's company")).toBe("NON_PERSON");
+  });
+});

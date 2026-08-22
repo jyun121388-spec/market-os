@@ -103,7 +103,11 @@ const report = {
   individualErrors: { falseNegatives, falsePositives },
 };
 
-const out = `docs/evaluation/${which === "holdout" ? "holdout" : "development"}-guardrail-result.json`;
+// Named by run, never overwritten. The first run of a holdout is the only unbiased measurement it
+// will ever produce, and an artifact that a later run replaces is not a record. Pass a label:
+// `npm run eval:holdout -- holdout run-3`.
+const label = process.argv[3] ?? "latest";
+const out = `docs/evaluation/${which}-${label}.json`;
 writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
 console.log(`${classification}  ${corpusVersion}  ${cases.length} cases`);

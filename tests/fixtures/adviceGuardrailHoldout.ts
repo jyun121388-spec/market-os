@@ -45,8 +45,21 @@
 
 import type { CorpusCase, CorpusKind } from "./adviceGuardrailCorpus";
 
-/** Frozen 2026-08-22, before any measurement. */
-export const HOLDOUT_KIND: CorpusKind = "FRESH_HOLDOUT";
+/**
+ * Frozen 2026-08-22 before any measurement — and no longer a holdout as of the same day.
+ *
+ * Its first run is the only unbiased measurement it will ever produce:
+ * `docs/evaluation/holdout1-first-run-before-repair.json`, 85/105 false negatives and 32/100 false
+ * positives. One structural family found there was then closed (IR-091), and the second run
+ * `docs/evaluation/holdout1-second-run-after-repair.json` reads 70/105 and 32/100.
+ *
+ * That second number is a regression measurement by exactly the argument that demoted the 120-case
+ * corpus, and the demotion is applied here the same way rather than being argued around. Both runs
+ * are kept; neither is edited; the kind below says what the file is now.
+ *
+ * Generalisation, from here, is measured on `./adviceGuardrailHoldout2.ts`.
+ */
+export const HOLDOUT_KIND: CorpusKind = "DEVELOPMENT_CORPUS";
 
 export const HOLDOUT_VERSION = "holdout-2026-08-22-sol-v1";
 

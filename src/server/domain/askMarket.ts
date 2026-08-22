@@ -2,7 +2,7 @@ import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
 import { extractKeywords } from "./eventClustering";
 import { asksWhetherAPersonShouldTrade } from "./subjectClassification";
-import { frameExemptsProhibitedVocabulary } from "./requestFrame";
+import { frameExemptsProhibitedVocabulary, requestsAFinancialDecision } from "./requestFrame";
 
 /**
  * Ask Market — deterministic safe-mode MVP (docs/ROADMAP.md M21).
@@ -786,10 +786,23 @@ export function detectPersonalizedAdviceRequest(query: string): boolean {
   // vocabulary rather than a prohibited request, which is what the whole measured false-positive
   // tail turned out to be. See ./requestFrame for why a directive signal wins over a factual one
   // and why an unrecognised frame exempts nothing.
-  return (
+  if (
     VOCABULARY_ONLY_PATTERNS.some((pattern) => pattern.test(query)) &&
     !frameExemptsProhibitedVocabulary(query)
-  );
+  ) {
+    return true;
+  }
+
+  // The structural repair for IR-090, and the last thing asked.
+  //
+  // Everything above is an enumeration of phrasings; a fresh holdout answered 85 of 105 prohibited
+  // requests because it used different words. Twenty-four of those misses had already been
+  // classified REQUEST_DIRECTIVE by the frame classifier, whose answer was consulted only to
+  // EXEMPT. The system knew, and had nowhere to put the knowledge.
+  //
+  // Last rather than first on purpose. The pattern list encodes twenty gates of specific
+  // judgements and keeps its precedence; this catches what falls through it.
+  return requestsAFinancialDecision(query);
 }
 
 const REDIRECT_MESSAGE =

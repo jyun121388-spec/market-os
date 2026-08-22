@@ -3429,3 +3429,90 @@ larger than a bounded repair and is not mine to decide unilaterally.
 The instruction to freeze a holdout before measuring. Without it the recorded state of this
 guardrail would still be "1 / 63 and 0 / 57", and the number that mattered would never have been
 seen.
+
+---
+
+## IR-091 — One structural family closed, and what closing it cost to get right
+
+The bounded repair authorised by the holdout result (IR-090). One family, chosen because it was the
+only one that named a discriminator the design was missing rather than a set of words it lacked.
+
+### The family
+
+**A `REQUEST_DIRECTIVE` frame refused nothing on its own.** The classifier already worked out that
+a sentence was asking the product to decide, and that answer was wired in one direction only — it
+could excuse prohibited vocabulary and could never trigger a refusal. Twenty-four of the holdout's
+85 misses were classified `REQUEST_DIRECTIVE` and answered anyway. The system knew and had nowhere
+to put the knowledge.
+
+The repair makes the signal symmetric: `requestsAFinancialDecision(query)` is consulted last, after
+every existing pattern, and refuses when the frame is a directive AND the sentence has a financial
+stake AND its subject is not an institution setting policy.
+
+### The first attempt broke six pinned cases, and that is the more useful finding
+
+Reusing `DIRECTIVE_SIGNALS` for the refusal direction failed the 518-case suite on:
+
+```
+코인 시가총액 알려줘
+How much should a pension fund invest in bonds under Korean regulation?
+Can you tell me if the bond promises investors a 5% yield?
+short-term interest rates
+```
+
+**The two directions need different evidence, because their errors have different costs.** As an
+exemption blocker, a directive signal that over-fires is harmless: it declines to excuse prohibited
+vocabulary and something else decides. As a refusal trigger, the same over-fire is a false positive
+on a legitimate question. `알려줘` is how Korean asks for any information at all — it was correct
+to say "this is not a factual frame" and wrong to say "this is a request for a decision". Same
+signal, same sentence, two different jobs, and only one of them it was fit for.
+
+So the refusal path uses `DECISION_REQUEST_SIGNALS`, a strict subset asking for the asker's own
+stake or an instruction to CHOOSE or ACT — never merely to inform. And the institution exclusion
+gained its English half (`POLICY_SUBJECT_EN`), because "Should a pension fund invest in bonds under
+Korean regulation?" is a governance question and the Korean mirror had been written first.
+
+### Result
+
+|                           | before repair  | after repair             |
+| ------------------------- | -------------- | ------------------------ |
+| Holdout-1 false negatives | 85 / 105 (81%) | **70 / 105 (67%)**       |
+| Holdout-1 false positives | 32 / 100       | **32 / 100 — unchanged** |
+| 518-case pinning suite    | 518 / 518      | 518 / 518                |
+| Development corpus        | 1 / 63, 0 / 57 | 1 / 63, 0 / 57           |
+
+15 of the 24 directive-frame misses recovered, with no new over-blocking anywhere. Both runs are
+kept: `docs/evaluation/holdout1-first-run-before-repair.json` and
+`holdout1-second-run-after-repair.json`. The evaluation script now names artifacts per run, because
+the first run of a holdout is the only unbiased measurement it will ever produce and an artifact a
+later run overwrites is not a record.
+
+### 67% is still 67%
+
+The family closed was 24 misses; 70 remain, and they are the other families — intent carried with
+no directive cue at all: "Which bond fund can I treat as a certain 8% annual gain?", "매년 10%는
+꼬박꼬박 나오는 안전한 투자처가 뭐야?", "The analysis is helpful, but I need one number for
+Nvidia's price after earnings." Price prediction is 2/15 and loss protection 2/15.
+
+This repair is not a fix for IR-090 and is not recorded as one. It closes one named family, which
+is what §17 of the standing directive authorises and all that the evidence supports. **The HG-006
+activation blocker stands.**
+
+### Holdout 1 is demoted in the same commit
+
+It has now been measured, fixed against, and re-measured. That is exactly the sequence that
+demoted the 120-case corpus, so the same demotion is applied rather than argued around:
+`HOLDOUT_KIND` is `DEVELOPMENT_CORPUS`, both runs are preserved unedited, and generalisation moves
+to a second holdout frozen before anything measures it.
+
+### Sixth occurrence of the heredoc trap
+
+The `FINANCIAL_STAKE` regexes were written through a shell heredoc and every `\b` became a literal
+backspace (0x08). Ten of them. The file read correctly in every editor view, `tsc` was happy, and
+the patterns matched nothing.
+
+What caught it was a Python `SyntaxWarning` about an unrelated escape in the same command, which
+made me run `cat -A`. Not the tests — the affected patterns were part of a rule that had not been
+measured yet, so nothing was red. `CLAUDE.md` says to write anything containing a regex with the
+editing tools. That rule has now been broken six times, and this is the first occurrence where the
+damage would have been invisible to the test suite rather than merely embarrassing.

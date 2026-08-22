@@ -190,10 +190,16 @@ describe("the audit's own honesty", () => {
     // misses 81% of prohibited requests, which is exactly what the fresh holdout measured
     // (IR-090). A well-formed discriminator wired to 4 of 166 patterns is well-formed and narrow.
     // Do not read a green run here as evidence about recall.
+    // The FIRST run of holdout 1, which is the only unbiased measurement that corpus will ever
+    // produce. Deliberately not the post-repair run: pointing this at a number that improves
+    // whenever the guardrail improves would turn the reminder into a moving target.
     const result = JSON.parse(
-      readFileSync(join(process.cwd(), "docs/evaluation/holdout-guardrail-result.json"), "utf8"),
+      readFileSync(
+        join(process.cwd(), "docs/evaluation/holdout1-first-run-before-repair.json"),
+        "utf8",
+      ),
     );
     expect(result.classification).toBe("FRESH_HOLDOUT");
-    expect(result.falseNegatives).toBeGreaterThan(0);
+    expect(result.falseNegatives).toBeGreaterThan(50);
   });
 });

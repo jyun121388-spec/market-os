@@ -161,3 +161,130 @@ const EXEMPTING_FRAMES = new Set<RequestFrame>(["FACTUAL_MECHANISM", "THIRD_PART
 export function frameExemptsProhibitedVocabulary(query: string): boolean {
   return EXEMPTING_FRAMES.has(classifyRequestFrame(query));
 }
+
+/**
+ * Subjects that make a "should X do Y" question a policy question rather than a request.
+ *
+ * The English side of this axis already exists — `./subjectClassification` answers "is the subject
+ * of this trading verb a person or an institution", and it is why "Should the Bank of Korea cut
+ * rates?" is answerable. Korean had no mirror, which is the third time this file has learned that
+ * an English rule without a Korean one is a hole rather than a partial implementation.
+ *
+ * Deliberately institutions only, and deliberately short. A directive addressed to a regulator, a
+ * central bank, an exchange or a government is a governance question; a directive addressed to us
+ * about somebody's money is not, whoever is mentioned elsewhere in the sentence.
+ */
+const POLICY_SUBJECT_KO =
+  /(정부|당국|금융당국|감독당국|규제기관|중앙은행|한국은행|연준|거래소|국회|입법부|공적연금|국민연금|기획재정부|금융위|금감원)(는|은|이|가|에서)/;
+
+/**
+ * Financial stake: is this directive about money, an instrument, or a position?
+ *
+ * Broad on purpose and narrow in one specific way. It has to cover the shapes the holdout found —
+ * an amount with no instrument, a fund, a position, a return, a loss — while not turning every
+ * imperative sentence into a refusal. The guardrail sits in front of a market-intelligence
+ * product, so the cost of breadth here is bounded by what people actually ask it.
+ */
+const FINANCIAL_STAKE = [
+  // Money, named or numbered.
+  /[$₩€£]\s?\d/,
+  /\b\d[\d,.]*\s?(k|m|bn|million|billion|dollars?|won|euros?|pounds?)\b/i,
+  /(\d[\d,]*\s*(원|만원|억|천만|백만))/,
+  /\b(money|cash|savings|bonus|inheritance|capital|funds?|payout|windfall|principal)\b/i,
+  /(돈|자금|현금|예금|목돈|여윳돈|여유자금|퇴직금|성과급|상속|원금|보너스)/,
+  // Instruments and holdings.
+  /\b(stocks?|shares?|equit(y|ies)|bonds?|etfs?|funds?|crypto|bitcoin|futures?|options?|treasur(y|ies)|portfolio|position|holdings?|account|allocation)\b/i,
+  /(주식|종목|채권|펀드|코인|비트코인|선물|옵션|포트폴리오|포지션|보유|계좌|비중|자산)/,
+  // Prices, levels and outcomes.
+  /\b(price|target|level|close|closing|return|returns|gain|profit|loss|losses|yield|rate)\b/i,
+  /(주가|가격|종가|지수|환율|수익|수익률|손실|손해|이익|목표가|고점|저점)/,
+  // Acting in a market.
+  /\b(buy|sell|short|hedge|trade|invest|rebalance|allocate|order|execute)\b/i,
+  /(매수|매도|매매|투자|손절|익절|주문|체결|리밸런싱|헤지)/,
+];
+
+/**
+ * Whether the query asks the product to make a financial decision, independent of any pattern.
+ *
+ * **This is the structural repair for IR-090.** The frame classifier already worked out that a
+ * sentence was a directive, and that answer was consulted only to EXEMPT — it could excuse
+ * prohibited vocabulary and could never refuse anything on its own. 24 of the holdout's 85 misses
+ * were classified `REQUEST_DIRECTIVE` and answered anyway, because being a directive about money
+ * was not, anywhere in the system, a reason to redirect.
+ *
+ * So the classifier becomes symmetric. It is the same signal, read in both directions.
+ *
+ * Two conditions, both required:
+ *
+ * 1. The frame is `REQUEST_DIRECTIVE` — the asker wants a decision, a level, or an action.
+ * 2. The sentence has a financial stake — money, an instrument, a position, a price, or an act of
+ *    trading.
+ *
+ * And one exclusion: a directive whose subject is an institution setting policy is a governance
+ * question. "Should the exchange change its circuit-breaker threshold?" is exactly the kind of
+ * question this product exists for, and Korean carries that in a subject marker the English
+ * subject classifier had no mirror for.
+ *
+ * What this is NOT: a new list of phrasings. It adds no vocabulary the classifier did not already
+ * use, and it closes one named family rather than the 85 sentences that exposed it.
+ */
+/**
+ * A stricter subset of the directive signals, for the direction where over-firing costs something.
+ *
+ * The first version of this repair reused `DIRECTIVE_SIGNALS` and broke six cases in the 518-case
+ * pinning suite, which is the finding rather than an inconvenience:
+ *
+ * **The two directions need different evidence, because their errors have different costs.** As an
+ * exemption blocker, a directive signal that over-fires is harmless — it declines to excuse
+ * prohibited vocabulary, and something else decides. As a refusal trigger, the same over-fire is a
+ * false positive on a legitimate question. `알려줘` is how Korean asks for any information at all;
+ * it was correct to say "this is not a factual frame" and wrong to say "this is a request for a
+ * decision". Likewise "Can you tell me if the bond promises investors a 5% yield?" — an instruction
+ * to inform, not to decide.
+ *
+ * So this list asks for something narrower: the ASKER'S OWN STAKE, or an instruction to CHOOSE or
+ * ACT rather than to explain. A question that merely wants information stays out, whatever verb
+ * ending it uses.
+ */
+const DECISION_REQUEST_SIGNALS: RegExp[] = [
+  // The asker's own stake in the answer.
+  /\bshould\s+(i|we)\b/i,
+  /\bfor (me|us)\b/i,
+  /\bmy\b[^?]{0,18}\b(position|stop|stop[-\s]?loss|portfolio|trade|holdings?|account|allocation|money|cash|savings)\b/i,
+  /\bin my (position|case|situation|shoes)\b/i,
+  /\bif you were me\b/i,
+  // An instruction to choose, set, size or act — never merely to explain.
+  /\b(pick|choose|select|set|place|submit|execute|allocate|rebalance|split|divide|construct|design|build)\b[^?]{0,40}\b(for|my|me|us|order|trade|portfolio|position|amount|weights?)\b/i,
+  /\b(give|show|tell|find)\s+me\b[^?]{0,40}\b(one number|the number|an? (exact|specific|certain)|price target|level|amount|trade|position|stock|fund|investment)\b/i,
+  /\bhow much of (my|our)\b/i,
+  /\bwhat (should|would) (i|we)\b/i,
+  // Korean: the asker's own stake.
+  /(제|내|저희|우리)\s*(상황|경우|포지션|계좌|자산|돈|자금|포트폴리오|비중)/,
+  /(내|제)\s*[^?]{0,10}(팔까|살까|들어갈까|나올까|정리할까)/,
+  // Korean: an instruction to choose, set or act. Deliberately excludes 알려줘 and 설명해 줘, which
+  // ask to be informed.
+  /(정해|골라|잡아|짜|만들어|넣어|바꿔|맞춰|나눠|추천해)\s*(주세요|주실|주시|줘|달라|봐)/,
+  /(사야|팔아야|넣어야|빼야|잡아야|골라야|정해야)\s*(하나요|할까요|되나요|할까|해)/,
+  /얼마로\s*(잡|보|정|설정)/,
+  /(얼마나|몇\s*%|몇\s*퍼센트)\s*[^?]{0,15}(넣어야|투자해야|담아야|줄여야|늘려야)/,
+];
+
+/**
+ * Subjects that make a "should X do Y" question a policy question rather than a request.
+ *
+ * The English half already existed in `./subjectClassification`, which is why "Should the Bank of
+ * Korea cut rates?" is answerable. This adds the shapes that reach the refusal path: an
+ * institution named as the actor, in either language.
+ */
+const POLICY_SUBJECT_EN =
+  /\b(should|must|ought)\s+(the\s+)?(government|regulators?|central bank|fed|federal reserve|exchanges?|authorit(y|ies)|legislators?|policymakers?|pension funds?|treasury|congress|parliament|standard[-\s]setters?)\b/i;
+
+export function requestsAFinancialDecision(query: string): boolean {
+  if (classifyRequestFrame(query) !== "REQUEST_DIRECTIVE") return false;
+  // A directive addressed to an institution is a governance question, which is what this product
+  // is for. Checked before the stake, because a policy question about pensions is full of
+  // financial vocabulary by nature.
+  if (POLICY_SUBJECT_KO.test(query) || POLICY_SUBJECT_EN.test(query)) return false;
+  if (!DECISION_REQUEST_SIGNALS.some((pattern) => pattern.test(query))) return false;
+  return FINANCIAL_STAKE.some((pattern) => pattern.test(query));
+}

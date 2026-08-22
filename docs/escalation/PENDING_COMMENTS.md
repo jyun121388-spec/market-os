@@ -245,9 +245,9 @@ Also stale in that packet: it read as though ESC-012 were closed. It was not.
 
 ---
 
-## `[CLAUDE_APPLIED][ESC-012]` — corrected application, transmitted as comment 5379907275
+## `[CLAUDE_APPLIED][ESC-012]` — second application, transmitted as comment 5379907275
 
-- state: TRANSMITTED
+- state: SUPERSEDED
 - remoteCommentId: 5379907275
 - posted: 2026-08-22
 - implementation: `2c7a2eb9a9efbffd2d8d208c4e1cd2dfb518c75d`
@@ -268,3 +268,30 @@ States what it does not have: `claude/post-rc-followup` has no workflow, so ther
 for this SHA and the packet says so rather than letting a local run read as one.
 
 Awaiting independent verification. Not a debt owed from here — the packet has left.
+
+The project-identity repair in this packet stands and was not reverted. It was superseded because
+independent verification found a second, unrelated defect in the same module: the protocol tag
+pattern matched a prefix and accepted an immediate fourth segment.
+
+---
+
+## `[CLAUDE_APPLIED][ESC-012]` — third application, transmitted as comment 5380234888
+
+- state: TRANSMITTED
+- remoteCommentId: 5380234888
+- posted: 2026-08-22
+- implementation: `6ad8da5c86135e30d46656963c8333091ad75227`
+- supersedes: comments 5379907275 (`2c7a2eb`) and 5378536620 (`399b0ab`)
+- responds to: `[CHATGPT_DECISION][MARKET-ESC012-REWORK-003]`, comment 5379993305
+- read back: `gh api .../comments/5380234888` returned the comment, 6822 bytes, first line intact
+- screened: `screenPublicComment` returned 0 findings before posting
+- deduped: three `[CLAUDE_APPLIED][ESC-012]` comments exist and only this one names `6ad8da5` and
+  the packet it supersedes, so the current application is unambiguous
+- evidence: `docs/INTERIM_REVIEW_FINDINGS.md` IR-089
+
+The tag grammar is exact at its end. Three malformed forms now fail to parse at all three
+production levels; the fourth is a syntactically valid three-segment tag that no grammar can
+distinguish, and the packet says so rather than claiming otherwise — the project gate refuses it.
+18 of 18 mutations discriminated.
+
+Awaiting independent verification. Not a debt owed from here.

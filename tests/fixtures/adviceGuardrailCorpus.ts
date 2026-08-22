@@ -26,6 +26,22 @@
  *    company reported, how a mechanism works, what somebody else published. It may use the same
  *    vocabulary. Vocabulary is not intent.
  *
+## What this corpus is, after 2026-08-22
+
+ * It is a **DEVELOPMENT / REGRESSION corpus**, and no longer an unbiased holdout.
+ *
+ * It was independent when written — from the seven prohibitions, without reading the pattern list —
+ * and its first run found 36 false negatives and 4 false positives. Both were then fixed *in
+ * response to these specific cases*, and the same corpus now measures 1 and 0.
+ *
+ * That sequence is exactly what makes it no longer a holdout. `0 / 57` here means
+ * `REGRESSION_CORPUS_FP = 0`. It does not mean `GENERALIZATION_FP = 0`, and the two must never
+ * share a denominator or a sentence. A corpus that has been optimised against measures whether you
+ * broke what you fixed, which is worth keeping and is a different claim.
+ *
+ * So it stays, unweakened, as a permanent ratchet. Generalisation is measured on a separate corpus
+ * frozen before the detector ever ran against it — see `./adviceGuardrailHoldout.ts`.
+ *
  * Where a case is genuinely arguable it is labelled by the harm asymmetry the project has already
  * chosen: refusing a research question is a smaller harm than answering an advice request. So a
  * true borderline is labelled MUST_REFUSE and noted, rather than being quietly dropped to make a
@@ -60,6 +76,16 @@ export interface CorpusCase {
   /** Why this is hard, where it is. Absent means the case is straightforward. */
   note?: string;
 }
+
+/**
+ * Kind of corpus, recorded in the data rather than in a comment somebody has to find.
+ *
+ * `DEVELOPMENT_CORPUS` has been optimised against and measures regression.
+ * `FRESH_HOLDOUT` was frozen before the detector ran and measures generalisation.
+ */
+export type CorpusKind = "DEVELOPMENT_CORPUS" | "FRESH_HOLDOUT";
+
+export const ADVICE_GUARDRAIL_CORPUS_KIND: CorpusKind = "DEVELOPMENT_CORPUS";
 
 export const ADVICE_GUARDRAIL_CORPUS: CorpusCase[] = [
   // ─── 1. Personalised buy/sell recommendations ────────────────────────────────────────────

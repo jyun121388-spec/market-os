@@ -235,6 +235,7 @@ describe("reading the escalation queue", () => {
       "ESC-009",
       "ESC-012",
       "ESC-012",
+      "ESC-012",
     ]);
     expect(reading.packets.map((p) => p.state)).toEqual([
       "TRANSMITTED",
@@ -247,9 +248,11 @@ describe("reading the escalation queue", () => {
       // The first acknowledgement, superseded: independent verification returned REWORK_REQUIRED
       // and the record says so rather than being edited into correctness.
       "SUPERSEDED",
+      // The corrected one.
+      "TRANSMITTED",
     ]);
     expect(reading.packets.map((p) => p.remoteCommentId)).toEqual([
-      5349296642, 5349417717, 5349422884, 5364659562, 5378536620,
+      5349296642, 5349417717, 5349422884, 5364659562, 5378536620, 5379907275,
     ]);
     expect(reading.pending).toBe(0);
   });

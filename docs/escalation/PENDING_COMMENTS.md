@@ -242,3 +242,29 @@ names — two state machines disagreeing about one message — reintroduced in t
 it. Neither module was wrong read on its own, which is why the module-level tests passed.
 
 Also stale in that packet: it read as though ESC-012 were closed. It was not.
+
+---
+
+## `[CLAUDE_APPLIED][ESC-012]` — corrected application, transmitted as comment 5379907275
+
+- state: TRANSMITTED
+- remoteCommentId: 5379907275
+- posted: 2026-08-22
+- implementation: `2c7a2eb9a9efbffd2d8d208c4e1cd2dfb518c75d`
+- supersedes: comment 5378536620 (`399b0ab`, REWORK_REQUIRED)
+- responds to: `[CHATGPT_VERIFIED][ESC-012]` comment 5379016462
+- read back: `gh api .../comments/5379907275` returned the comment, 7168 bytes, first line intact
+- screened: `screenPublicComment` returned 0 findings before posting
+- deduped: the two `[CLAUDE_APPLIED][ESC-012]` comments on the issue are unambiguous — this one
+  opens with CORRECTED APPLICATION and names both the superseded SHA and the verification comment
+- evidence: `docs/INTERIM_REVIEW_FINDINGS.md` IR-087
+
+One identity, one comparison, both callers: `LOCAL_PROJECT_ID` in committed configuration and
+`matchProject` imported by the consumer and the transport reconciliation alike. Missing local
+identity fails closed in both. Legacy two-segment traffic is untouched, IR-086 compatibility is
+re-asserted through the repaired path, and 16 of 16 mutations are discriminated.
+
+States what it does not have: `claude/post-rc-followup` has no workflow, so there is no remote CI
+for this SHA and the packet says so rather than letting a local run read as one.
+
+Awaiting independent verification. Not a debt owed from here — the packet has left.

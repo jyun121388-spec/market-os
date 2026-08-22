@@ -25,6 +25,17 @@ export interface ProtocolMessage {
   kind: ProtocolKind;
   /** Stable identifier shared by all three messages of one exchange, e.g. `TEST-002`. */
   id: string;
+  /**
+   * The project segment, where the message carries one.
+   *
+   * `CLAUDE.md` documents the tag as `[ESCALATION][<PROJECT_ID>][<ESC_ID>]`, and this parser read
+   * only two segments — so `[ESCALATION][MARKET-OS][ESC-012]` became an exchange whose id was
+   * `MARKET-OS`, and the decision that answered it, tagged `[CHATGPT_DECISION][ESC-012]`, matched
+   * nothing. Reproduced against the real ESC-012 pair (IR-086).
+   *
+   * Absent for a two-segment tag, which is most of the channel's history and stays valid.
+   */
+  project?: string;
   /** GitHub's comment id. Identity comes from this, never from a timestamp. */
   commentId: number;
   author: string;
@@ -38,7 +49,16 @@ export interface RemoteComment {
   created_at: string;
 }
 
-const TAG = /^\[(ESCALATION|CHATGPT_DECISION|CLAUDE_APPLIED)\]\[([A-Z0-9][A-Z0-9-]{0,31})\]/;
+/**
+ * The tag, with the optional project segment the protocol has always documented.
+ *
+ * Two shapes are valid: `[KIND][ID]` and `[KIND][PROJECT][ID]`. When three segments are present
+ * the LAST is the exchange id, because that is what the answering `[CHATGPT_DECISION][ID]` carries
+ * — reading the second segment as the id is what made an escalation and its own decision fail to
+ * match each other.
+ */
+const TAG =
+  /^\[(ESCALATION|CHATGPT_DECISION|CLAUDE_APPLIED)\]\[([A-Z0-9][A-Z0-9-]{0,31})\](?:\[([A-Z0-9][A-Z0-9-]{0,31})\])?/;
 
 /**
  * Reads a comment's protocol tag, or returns null.
@@ -51,9 +71,12 @@ const TAG = /^\[(ESCALATION|CHATGPT_DECISION|CLAUDE_APPLIED)\]\[([A-Z0-9][A-Z0-9
 export function parseProtocolMessage(comment: RemoteComment): ProtocolMessage | null {
   const match = TAG.exec(comment.body.trim());
   if (!match) return null;
+  const [, kind, second, third] = match;
   return {
-    kind: match[1] as ProtocolKind,
-    id: match[2],
+    kind: kind as ProtocolKind,
+    // Three segments: the middle one is the project and the last is the exchange id.
+    id: third ?? second,
+    ...(third ? { project: second } : {}),
     commentId: comment.id,
     author: comment.user.login,
     body: comment.body,
@@ -69,6 +92,14 @@ export type ExchangeState =
   | "APPLIED"
   | "ACK_PENDING"
   | "ACK_POSTED"
+  /**
+   * A trusted directive with no matching escalation. Valid input; nothing applied.
+   *
+   * Added by [CHATGPT_DECISION][ESC-012]. Previously these were DECISION_INVALID, which said the
+   * message was worthless when what was actually true is that this repository had not asked for
+   * it — and it had acted on seven of them.
+   */
+  | "UNSOLICITED_DIRECTIVE"
   | "DECISION_INVALID";
 
 export interface Exchange {
@@ -92,6 +123,14 @@ export interface LocalRecord {
   pendingAckIds: string[];
   /** Escalations composed locally that could not be posted. */
   pendingEscalationIds: string[];
+  /**
+   * GitHub logins whose decisions this repository will read as directives.
+   *
+   * The same allowlist the consumer uses, and it fails closed here for the same reason: the issue
+   * is publicly commentable, so without it an unmatched decision from anyone at all would be
+   * reported as an unsolicited directive rather than as noise.
+   */
+  trustedAuthors?: string[];
 }
 
 export interface ChannelState {
@@ -159,19 +198,40 @@ export function reconcile(comments: RemoteComment[], local: LocalRecord): Channe
       };
     }
     if (decision) {
-      // A decision with no escalation behind it is not obeyed. It may be a test, a stray, or aimed
-      // at another repository, and applying it would be acting on an instruction nobody here asked
-      // for. TEST-001 is exactly this shape and is why the state exists rather than throwing.
+      // Two state machines described the same message differently until ESC-012, and the
+      // inconsistency was the finding rather than a detail: the consumer called an unmatched
+      // trusted directive invalid, and so did this, while the project acted on those directives
+      // as its primary channel.
+      //
+      // The split here is by AUTHOR, because that is the only authorisation fact reconciliation
+      // can see. A trusted author with no matching escalation sent an unsolicited directive; an
+      // untrusted one sent something this repository has no reason to read as anything. Neither
+      // is applied by this function, which reports where an exchange has got to and never moves
+      // it — `applied` stays false in both branches, exactly as before.
+      //
+      // Fails closed with no allowlist: absent `trustedAuthors`, nobody is trusted and an
+      // unmatched decision stays INVALID, so forgetting to configure it cannot widen anything.
+      const trusted = (local.trustedAuthors ?? []).some(
+        (login) => login.toLowerCase() === decision.author.toLowerCase(),
+      );
+      const unsolicited = !escalationPosted && trusted && !/^TEST-/.test(id);
       return {
         id,
-        state: escalationPosted ? "DECISION_RECEIVED" : "DECISION_INVALID",
+        state: escalationPosted
+          ? "DECISION_RECEIVED"
+          : unsolicited
+            ? "UNSOLICITED_DIRECTIVE"
+            : "DECISION_INVALID",
         escalationPosted,
         decisionCommentId: decision.commentId,
         applied: false,
         ackPosted: false,
         note: escalationPosted
           ? "Decision received against a posted escalation; validate before applying."
-          : "Decision has no matching [ESCALATION] on this issue. Not applied.",
+          : unsolicited
+            ? "A trusted directive with no matching [ESCALATION]. Valid input, not yet applied — " +
+              "the consumer judges it and the application prerequisite gates any effect."
+            : "Decision has no matching [ESCALATION] and no trusted author. Not applied.",
       };
     }
     return {

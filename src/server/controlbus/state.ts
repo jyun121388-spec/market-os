@@ -35,6 +35,24 @@ export type InboxStatus =
   /** Rejected — no matching escalation, wrong repository, stale, or forbidden by policy. */
   | "REJECTED";
 
+/**
+ * Whether a received decision answers something this repository asked for.
+ *
+ * Added by `[CHATGPT_DECISION][ESC-012]`. The consumer previously modelled the channel as
+ * request/response and rejected everything else as `NO_MATCHING_ESCALATION`, which was right about
+ * the rule and wrong about the channel: most traffic on issue #2 has been operational directives
+ * nobody here requested, including the one that authorised the twenty-gate review chain.
+ *
+ * Provenance is a description, never a permission. An unsolicited directive passes exactly the
+ * same author, governance, declaration and staleness gates as a solicited one, and neither class
+ * applies anything by itself.
+ */
+export type DecisionProvenance =
+  /** A matching `[ESCALATION]` with this protocol id was posted from here. */
+  | "SOLICITED_DECISION"
+  /** No matching escalation. A trusted author sent an instruction we did not ask for. */
+  | "UNSOLICITED_DIRECTIVE";
+
 export interface InboxEntry {
   protocolId: string;
   githubCommentId: number;
@@ -43,6 +61,16 @@ export interface InboxEntry {
   author: string;
   body: string;
   status: InboxStatus;
+  /**
+   * The project segment from the tag, where the message carried one.
+   *
+   * `[ESCALATION][MARKET-OS][ESC-012]` has one; `[CHATGPT_DECISION][ESC-009]` does not, and most
+   * of this channel's history is the second shape. Absent means the tag named no project, never
+   * that it named this one.
+   */
+  project?: string;
+  /** Set when the consumer judges the entry. Absent while the status is RECEIVED_UNVALIDATED. */
+  provenance?: DecisionProvenance;
   /** Why it was rejected, or how it was applied. Empty until something has happened to it. */
   note?: string;
 }
@@ -177,6 +205,9 @@ export function ingestComments(
       githubCommentId: comment.id,
       receivedAt,
       author: message.author,
+      // Carried through unchanged. The watcher does not judge whether the project matches; it
+      // records what the tag said, and the consumer decides.
+      ...(message.project ? { project: message.project } : {}),
       body: message.body,
       // The only status the watcher may write. Transport observed a message; that is all it knows.
       status: "RECEIVED_UNVALIDATED",
@@ -203,17 +234,27 @@ export function ingestComments(
   };
 }
 
-/** Records the outcome of judging an inbox entry. The watcher never calls this; the consumer does. */
+/**
+ * Records the outcome of judging an inbox entry. The watcher never calls this; the consumer does.
+ *
+ * `provenance` is recorded alongside the status because the two answer different questions and
+ * were being conflated: VALIDATED says a decision passed judgement, and the provenance says
+ * whether it answered something we asked. Reading a validated entry six months later without the
+ * second field, there is no way to tell which.
+ */
 export function resolveInboxEntry(
   state: ControlBusState,
   protocolId: string,
   status: Exclude<InboxStatus, "RECEIVED_UNVALIDATED">,
   note: string,
+  provenance?: DecisionProvenance,
 ): ControlBusState {
   return {
     ...state,
     inbox: state.inbox.map((entry) =>
-      entry.protocolId === protocolId ? { ...entry, status, note } : entry,
+      entry.protocolId === protocolId
+        ? { ...entry, status, note, ...(provenance ? { provenance } : {}) }
+        : entry,
     ),
   };
 }

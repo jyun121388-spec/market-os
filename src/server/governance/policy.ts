@@ -235,9 +235,17 @@ const RULES: Record<ActionKind, Rule> = {
       "spend money, deploy, or disclose a secret is refused identically whether it arrives from " +
       "a comment or from anywhere else.",
     requiredVerification: [
-      "a matching [ESCALATION] with the same protocol id exists on the issue",
+      // Widened by [CHATGPT_DECISION][ESC-012] (issue #2, comment 5364810128), which is the human
+      // authorisation for this exact policy change and nothing wider. The old line required a
+      // matching escalation, which made every unsolicited operational directive unapplicable —
+      // including the one that authorised the review chain the release rests on. Provenance now
+      // has two valid values instead of one; every other requirement is unchanged.
+      "either a matching [ESCALATION] with the same protocol id exists on the issue, or the " +
+        "decision is a trusted unsolicited directive whose provenance the consumer has validated",
+      "the author is on the durable trusted-author allowlist, which fails closed when unset",
       "the decision has not already been applied",
       "every action the decision implies is itself evaluated by this table",
+      "the action's idempotency class permits automatic application at all",
       "the full verification chain passes before the acknowledgement is queued",
     ],
   },

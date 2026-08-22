@@ -40,9 +40,14 @@ true when written and false for most of the session that followed it; see the co
 `docs/HUMAN_GATE_QUEUE.md` (HG-001).
 
 **Post-RC work runs on `claude/post-rc-followup` and never on the candidate**, because an
-executable commit after the reviewed SHA would invalidate the review the release rests on. Open
-there: ESC-012 asks how the control bus should file a trusted directive that answers no
-escalation (IR-084); the consumer wiring waits on the answer and nothing else does.
+executable commit after the reviewed SHA would invalidate the review the release rests on.
+
+ESC-012 is answered and applied there. A trusted directive that answers no escalation is now
+first-class input labelled `UNSOLICITED_DIRECTIVE`, reaching VALIDATED and never APPLIED; the
+seven pre-cutover directives route to a reconciliation path that can only look, and twelve
+mutations of the safety gates are each detected. Implementing it surfaced IR-086: the protocol tag
+has three segments and the parser read two, so the ESC-012 escalation was recorded as an exchange
+called MARKET-OS and its own decision matched nothing.
 
 STATUS
 Local environment is fully operational and reproducible:
@@ -752,7 +757,7 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-1649 / 1649 PASS across 114 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+1685 / 1685 PASS across 115 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment), measured 2026-08-21 on the post-RC follow-up branch. The frozen release candidate
 c03aa73 measured 1580 / 1580 across 110 files; the three files since are release tooling that is
 deliberately not in it.

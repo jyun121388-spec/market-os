@@ -250,9 +250,24 @@ describe("a decision is a message, not an authority", () => {
     expect(assessment.verdict).toBe("APPLICABLE");
   });
 
-  it("refuses a decision with no escalation behind it", () => {
+  it("validates a trusted decision with no escalation behind it, and labels it unsolicited", () => {
+    // This asserted NO_MATCHING_ESCALATION until [CHATGPT_DECISION][ESC-012] (comment 5364810128)
+    // settled the question as Option A. The old rule was right that the decision answers nothing
+    // we asked and wrong that this makes it invalid: seven directives of exactly this shape had
+    // been acted on, including the one authorising the review chain the release rests on.
+    //
+    // What must stay true is the half the old test was really protecting — that arriving by
+    // comment is not authority. It does: the verdict is VALIDATED, not APPLIED, and every gate
+    // below is exercised by its own case.
     const assessment = assessDecision(entry("ESC-777", "Do this."), context, GOVERNED_ACTIONS);
-    expect(assessment.verdict).toBe("NO_MATCHING_ESCALATION");
+    expect(assessment.verdict).toBe("DIRECTIVE_VALIDATED");
+    expect(assessment.provenance).toBe("UNSOLICITED_DIRECTIVE");
+  });
+
+  it("still labels a matched decision as solicited", () => {
+    const assessment = assessDecision(entry("ESC-009", "Keep it."), context, GOVERNED_ACTIONS);
+    expect(assessment.verdict).toBe("APPLICABLE");
+    expect(assessment.provenance).toBe("SOLICITED_DECISION");
   });
 
   it("refuses to apply the same decision twice", () => {

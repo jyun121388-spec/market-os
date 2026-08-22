@@ -3033,3 +3033,74 @@ change.
 The honest record is `FORMAT = PASS on the committed content, with one working-tree copy carrying
 CRLF from git autocrlf`. Anyone who sees this locally should check the blob before believing the
 checkout.
+
+### The four false positives, reproduced against the pattern that causes each
+
+Saved before any repair, because the next step is deliberately NOT to patch these four regexes.
+Each was located by rebuilding all 166 literals in `ADVICE_REQUEST_PATTERNS` from source and
+testing them individually against the query.
+
+| Query                                                         | Matched by                                               | Line             |
+| ------------------------------------------------------------- | -------------------------------------------------------- | ---------------- |
+| How does a stop-loss order actually work on the KRX?          | `/\bstop[-\s]?loss\b/i`                                  | askMarket.ts:466 |
+| 손절 주문은 거래소에서 어떻게 처리되나요?                     | `/(익절\|손절)\s*(할까\|해야\|타이밍\|하나요\|할까요)?/` | askMarket.ts:583 |
+| What price target did analysts publish for Nvidia last month? | `/\bprice target\b/i`                                    | askMarket.ts:209 |
+| 증권사들이 발표한 삼성전자 목표주가는 얼마였나요?             | `/목표\s*(가\|주가\|수익률)/`                            | askMarket.ts:580 |
+
+Three of the four are bare vocabulary matches with no anchor at all. The fourth has an anchor whose
+entire suffix group is optional — `(할까|해야|타이밍|하나요|할까요)?` — which makes it match any
+occurrence of 익절 or 손절 and is indistinguishable from having no anchor.
+
+So the shared defect is one thing said four times: **prohibited vocabulary is being treated as a
+prohibited request.** Patching each regex with its own exception is the loop Gates A through T
+already ran; the repair belongs at the level of the frame the sentence is in, not the words it
+contains.
+
+---
+
+## IR-086 — The protocol tag has three segments and the parser read two, so an escalation could not match its own decision
+
+Found while implementing ESC-012, by checking a claim rather than assuming it. `[CHATGPT_DECISION]
+[MARKET-ESC012-RESUME-002]` required a "wrong project" test, and the question "what project check?"
+had no answer.
+
+`CLAUDE.md` documents the tag as `[ESCALATION][<PROJECT_ID>][<ESC_ID>]`. The parser was
+`/^\[(KIND)\]\[([A-Z0-9][A-Z0-9-]{0,31})\]/` — two segments, second one taken as the id. Probed
+against the real messages:
+
+```
+"[ESCALATION][MARKET-OS][ESC-012] body"        -> ESCALATION / id=MARKET-OS
+"[CHATGPT_DECISION][ESC-012] body"             -> CHATGPT_DECISION / id=ESC-012
+"[ESCALATION][ESC-009] body"                   -> ESCALATION / id=ESC-009
+```
+
+So ESC-012's own escalation was recorded as an exchange called **MARKET-OS**, and the decision that
+answered it matched nothing. Two exchanges where there was one, neither complete.
+
+**What made this worse the same day.** Under the old rule an unmatched decision was
+`NO_MATCHING_ESCALATION` — wrong, but inert. ESC-012 turns an unmatched trusted decision into
+`UNSOLICITED_DIRECTIVE`, which is a substantive label. Without this fix the most solicited message
+on the issue would have been recorded as one nobody asked for, and the audit trail would have said
+so confidently. A parsing defect that was merely wrong became a parsing defect that lies.
+
+**Fix.** The tag accepts `[KIND][ID]` and `[KIND][PROJECT][ID]`; with three segments the LAST is
+the exchange id, because that is what the answering decision carries. Two-segment tags are
+unchanged — most of the channel's history is that shape and a fix that renumbered them would orphan
+every past exchange.
+
+With the project now visible, the check `CLAUDE.md` always required exists. A message tagged for
+another project is refused, and so is one tagged for a project this consumer has no identity to
+compare against: unknown is not a match, and the alternative makes forgetting a configuration line
+into an authorisation. An untagged message still passes.
+
+**Severity: P1 on the follow-up branch, not release-critical.** The control bus is operator
+machinery, not product surface; nothing auto-applies; the frozen candidate `c03aa73` is unaffected
+and is not reopened. Pinned by `tests/unsolicitedDirective.test.ts`, including the real ESC-012
+escalation/decision pair now reconciling to one exchange.
+
+**The general shape, for the record.** The protocol was documented in `CLAUDE.md` and implemented
+in `transport.ts`, and the two had disagreed since the file was written. Nothing compared them,
+because every message anyone had tested with happened to use the two-segment form. The
+three-segment form appeared for the first time in an escalation I posted myself, and I did not
+notice — the format came from the documentation and the parser came from the code, and neither
+looked at the other.

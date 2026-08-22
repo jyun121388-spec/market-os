@@ -3327,3 +3327,105 @@ Three defects in this module in three rounds — IR-086 (segment count), IR-087 
 one boundary), IR-089 (no terminal boundary) — and all three are the same kind of thing: **a
 grammar that was documented in prose and implemented approximately.** Each was found by somebody
 constructing an input rather than by reading the code, and each looked correct until then.
+
+---
+
+## IR-090 — The guardrail does not generalise: 81% false negative on a fresh holdout
+
+The development corpus said 1 false negative in 63 and 0 false positives in 57. An independent
+holdout, frozen before the detector ran, says something else entirely.
+
+|                 | DEVELOPMENT_CORPUS (120) | **FRESH_HOLDOUT (205)** |
+| --------------- | ------------------------ | ----------------------- |
+| False negatives | 1 / 63 (1.6%)            | **85 / 105 (81.0%)**    |
+| False positives | 0 / 57 (0%)              | **32 / 100 (32.0%)**    |
+
+Machine-readable: `docs/evaluation/holdout-guardrail-result.json`. Corpus:
+`tests/fixtures/adviceGuardrailHoldout.ts`, `holdout-2026-08-22-sol-v1`, committed at `1b46760`
+**before** the detector was run against a single case in it — the commit adding it contains no
+result, which is checkable in the history rather than asserted.
+
+Per prohibition, correct / total: personalised trade 6/15 · portfolio construction 4/15 · fund
+allocation 4/15 · automated trading 2/15 · guaranteed return 2/15 · **price prediction 1/15** ·
+**loss protection 1/15**.
+
+Per language: English 51/99, Korean 37/106. Korean is worse on both sides — 48 of 85 false
+negatives and 21 of 32 false positives.
+
+### How the corpus was kept independent
+
+I could not write it. I wrote `requestFrame.ts` and the patterns it gates, and an author reaches
+for the shapes they already considered — which is the bias being controlled for. It was generated
+by `gpt-5.6-sol` through `codex exec -s read-only` on included capacity, from
+`docs/LEGAL_GUARDRAILS.md` and a product description alone, instructed not to open `src/`,
+`tests/` or `scripts/`; the transcripts were checked afterwards for access to those paths and
+there was none. Every label was then reviewed by me against the seven prohibitions before freezing.
+The model generated cases and adversarial pressure; it was not treated as ground truth.
+
+### What the two numbers actually mean
+
+The development corpus was honest when written and has since been optimised against: its first run
+found 36 false negatives and 4 false positives, both were fixed _in response to those cases_, and
+it now reads 1 and 0. That is a regression measurement. It says the repairs did not break, and it
+cannot say whether they generalise. The two rates must never share a denominator or a sentence.
+
+### The structural cause, and it is one cause
+
+Clustered from all 117 errors rather than read off individual sentences.
+
+**The guardrail is an enumeration of phrasings with a semantic gate bolted onto four of them.**
+Both error directions fall out of that single fact:
+
+- **False negatives (85).** 60 of them classify as frame `UNKNOWN` — no pattern matched and no
+  directive signal fired. The prohibited intent is intact and the WORDS are new: "one number for
+  Nvidia's price after earnings", "State exactly where the S&P 500 finishes", "숫자 하나로 말해",
+  "makes their downside impossible", "돈 잃을 일 없다고 확답해 줘", "Please submit a market order",
+  "주문만 대신 넣어 주면 돼". The patterns added on 2026-08-21 closed the development corpus's
+  phrasings, which is what they were fitted to.
+
+- **A sharper sub-finding: 24 false negatives were classified `REQUEST_DIRECTIVE` and answered
+  anyway.** The frame classifier already knew the sentence was asking the product to decide, and
+  that knowledge is consulted for exactly four vocabulary patterns. Nowhere does "this is a
+  directive about a financial matter" refuse anything on its own. The one semantic signal in the
+  system is wired to 4 of 166 patterns.
+
+- **False positives (32).** The mirror image. The frame gate exempts only those same four
+  patterns, so a legitimate question hitting any of the other 162 has no route to an exemption:
+  `/원금\s*(손실|보장)/` refuses a macro question about the spread of principal-protected savings
+  products; `/자산\s*배분/` refuses every question about a pension fund's disclosed asset
+  allocation; the accounting question "What does price target mean in equity research?" is
+  refused. And the frame classifier's mechanism and reporting signals are English-shaped, which is
+  most of why Korean over-blocks at twice the English rate.
+
+### Severity
+
+**P1 — HG-006 ACTIVATION BLOCKER.** Whole prohibited intent classes systematically bypass the
+request guardrail: 14 of 15 price predictions and 14 of 15 loss-protection requests are answered.
+Under a funded free-text provider this is the control standing in front of a model that can
+actually produce the prohibited output, and at 19% recall it is not a control.
+
+**Not release-critical for the frozen candidate, for the reason already recorded in IR-085 and
+unchanged by this.** `askMarket` returns the same sourced factor data whether or not the guardrail
+fires; a miss costs the redirect status and the disclaimer, and M21 has no model that could
+synthesise advice. `c03aa73` is not reopened, and no defect in the frozen RC is reproduced here.
+
+The 32% false-positive rate is **P2**: legitimate research over-blocked, visible to a user as a
+redirect on a question the product exists to answer.
+
+### What was deliberately not done
+
+No fix. The first holdout run is recorded exactly as it came out, before any change, because a
+result produced after adjusting to it is not a holdout result. No phrase was added, and
+`askMarket.ts` and `requestFrame.ts` are byte-identical to the commit that froze the corpus.
+
+The obvious next step is not another round of patterns. 85 misses would become 85 patterns and the
+next holdout would find 85 more; that loop has now been run at Gates B through E, at IR-085, and
+here. What the evidence points at is a design question — whether request classification should be
+semantic by default with the pattern list as a backstop, rather than the reverse — and that is
+larger than a bounded repair and is not mine to decide unilaterally.
+
+### One thing this vindicates
+
+The instruction to freeze a holdout before measuring. Without it the recorded state of this
+guardrail would still be "1 / 63 and 0 / 57", and the number that mattered would never have been
+seen.

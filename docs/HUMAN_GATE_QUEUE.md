@@ -117,6 +117,13 @@ Three of the eight cost nothing and unblock the most engineering. If only one th
   produce advice;
   the moment a provider answers free text, this is the control standing in front of it. Bring that
   rate down before enabling the path, not after.
+- **The measurement that matters, added 2026-08-22.** An independent holdout of 205 cases, frozen
+  before the detector ran, puts the request guardrail at **85 / 105 prohibited requests answered
+  (81%)** and 32 / 100 legitimate questions refused (IR-090). The 1 / 63 figure above is a
+  regression number on a corpus that was optimised against; it says the repairs held, not that
+  they generalise. **This is the activation blocker.** Price prediction and loss protection are
+  each 1 / 15. A control at 19% recall is not a control, and free-text inference is where it would
+  matter.
 - **Verification that follows approval.** Per the M21 entry in `docs/DECISIONS.md`, in the same
   milestone and not after it: extend `verifyClaim` to cover INFERENCE claims; ship dedicated
   legal-guardrail tests against real model output; and run the output scanner over generated prose

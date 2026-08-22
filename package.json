@@ -37,7 +37,8 @@
     "control-bus:stop": "tsx scripts/control-bus.ts stop",
     "control-bus:once": "tsx scripts/control-bus.ts once",
     "rc:preflight": "tsx scripts/rc-preflight.ts",
-    "rc:verify-pair": "tsx scripts/verify-frozen-pair.ts"
+    "rc:verify-pair": "tsx scripts/verify-frozen-pair.ts",
+    "eval:holdout": "tsx scripts/evaluate-guardrail-holdout.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

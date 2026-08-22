@@ -240,12 +240,13 @@ describe("reading the escalation queue", () => {
       "TRANSMITTED",
       "TRANSMITTED",
       "TRANSMITTED",
-      // The question, archived once its answer arrived and was applied. It briefly sat at
+      // The question, archived once its answer arrived. It briefly sat at
       // WAITING_FOR_REMOTE_DECISION, which was never an outbound debt either — the packet had
       // left and what remained was somebody else's turn.
       "ARCHIVED",
-      // The acknowledgement that closes it.
-      "TRANSMITTED",
+      // The first acknowledgement, superseded: independent verification returned REWORK_REQUIRED
+      // and the record says so rather than being edited into correctness.
+      "SUPERSEDED",
     ]);
     expect(reading.packets.map((p) => p.remoteCommentId)).toEqual([
       5349296642, 5349417717, 5349422884, 5364659562, 5378536620,

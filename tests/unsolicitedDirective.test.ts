@@ -16,7 +16,8 @@ import {
 } from "@/server/controlbus/reconcile";
 import { mayAutoApply } from "@/server/controlbus/application";
 import { GOVERNED_ACTIONS } from "@/server/governance/policy";
-import { parseProtocolMessage, reconcile } from "@/server/escalation/transport";
+import { matchProject, parseProtocolMessage, reconcile } from "@/server/escalation/transport";
+import { LOCAL_PROJECT_ID } from "@/server/controlbus/identity";
 
 /**
  * `[CHATGPT_DECISION][ESC-012]`, comment 5364810128, Option A.
@@ -342,6 +343,139 @@ describe("historical directives are reconciled, never replayed", () => {
     // Its only import is a type import, so nothing it depends on can act either.
     const imports = [...source.matchAll(/^import .*$/gm)].map((m) => m[0]);
     for (const line of imports) expect(line, line).toMatch(/^import type /);
+  });
+});
+
+/**
+ * Both production paths, driven from a raw comment body rather than from a hand-built entry.
+ *
+ * The first ESC-012 application was verified REWORK_REQUIRED for exactly the gap a helper-level
+ * test could not see: `consumer.ts` had a project gate and `reconcile()` did not, so the same
+ * `[CHATGPT_DECISION][OTHER-REPO][ESC-X]` was WRONG_PROJECT to one machine and a valid
+ * UNSOLICITED_DIRECTIVE to the other. Nothing was wrong with either module read on its own.
+ *
+ * So these go end to end — parse -> reconcile, and parse -> ingest -> assess — and assert the two
+ * agree. A boundary that two callers define differently is not a boundary.
+ */
+describe("both state machines, end to end, agree about the same comment", () => {
+  const raw = (body: string, login = TRUSTED) => ({
+    id: 1,
+    user: { login },
+    body,
+    created_at: "2026-08-22T00:00:00Z",
+  });
+
+  /** Runs one comment through BOTH production paths and reports what each concluded. */
+  const both = (body: string, localProject: string | undefined, login = TRUSTED) => {
+    const comment = raw(body, login);
+    const channel = reconcile([comment], {
+      appliedIds: [],
+      pendingAckIds: [],
+      pendingEscalationIds: [],
+      trustedAuthors: [TRUSTED],
+      project: localProject,
+    });
+    const { admitted } = ingestComments(emptyState(2), [comment], "2026-08-22T00:00:00.000Z");
+    const assessment = assessDecision(
+      admitted[0],
+      { openEscalationIds: [], appliedIds: [], trustedAuthors: [TRUSTED], project: localProject },
+      GOVERNED_ACTIONS,
+    );
+    return { transport: channel.exchanges[0].state, consumer: assessment.verdict };
+  };
+
+  it("A: a matching project is a valid directive to both", () => {
+    expect(both("[CHATGPT_DECISION][MARKET-OS][ESC-X] Proceed.", LOCAL_PROJECT_ID)).toEqual({
+      transport: "UNSOLICITED_DIRECTIVE",
+      consumer: "DIRECTIVE_VALIDATED",
+    });
+  });
+
+  it("B: a foreign project from a trusted author is refused by both", () => {
+    // The reproduced defect. Before the repair this returned UNSOLICITED_DIRECTIVE from transport
+    // and WRONG_PROJECT from the consumer — a trusted author was enough for one of them.
+    expect(both("[CHATGPT_DECISION][OTHER-REPO][ESC-X] Proceed.", LOCAL_PROJECT_ID)).toEqual({
+      transport: "DECISION_INVALID",
+      consumer: "WRONG_PROJECT",
+    });
+  });
+
+  it("C: a project-tagged message with no local identity fails closed in both", () => {
+    expect(both("[CHATGPT_DECISION][MARKET-OS][ESC-X] Proceed.", undefined)).toEqual({
+      transport: "DECISION_INVALID",
+      consumer: "WRONG_PROJECT",
+    });
+  });
+
+  it("D: legacy two-segment traffic keeps working in both", () => {
+    // Most of this channel's history. A project gate that orphaned it would be a worse defect
+    // than the one being fixed.
+    expect(both("[CHATGPT_DECISION][ESC-X] Proceed.", LOCAL_PROJECT_ID)).toEqual({
+      transport: "UNSOLICITED_DIRECTIVE",
+      consumer: "DIRECTIVE_VALIDATED",
+    });
+  });
+
+  it("keeps the real ESC-012 pair as one exchange, with the local identity enforced", () => {
+    // IR-086 compatibility, re-asserted through the repaired path: the three-segment escalation
+    // and its two-segment answer are still one logical exchange, and the project now checks out
+    // rather than merely being parsed.
+    const channel = reconcile(
+      [
+        raw("[ESCALATION][MARKET-OS][ESC-012] One decision."),
+        { ...raw("[CHATGPT_DECISION][ESC-012] Option A."), id: 2 },
+      ],
+      {
+        appliedIds: [],
+        pendingAckIds: [],
+        pendingEscalationIds: [],
+        trustedAuthors: [TRUSTED],
+        project: LOCAL_PROJECT_ID,
+      },
+    );
+    expect(channel.exchanges).toHaveLength(1);
+    expect(channel.exchanges[0].id).toBe("ESC-012");
+    expect(channel.exchanges[0].state).toBe("DECISION_RECEIVED");
+  });
+
+  it("refuses a foreign project before it asks who sent it", () => {
+    // Ordering, asserted. If trust ran first, an untrusted foreign-project message would report
+    // the author problem and hide the addressing one — and the reverse mistake, trusting an author
+    // into a foreign project, is the defect this repair exists to close.
+    expect(
+      both("[CHATGPT_DECISION][OTHER-REPO][ESC-X] Proceed.", LOCAL_PROJECT_ID, "a-passer-by")
+        .transport,
+    ).toBe("DECISION_INVALID");
+  });
+});
+
+describe("matchProject is the single definition", () => {
+  it.each([
+    [undefined, "MARKET-OS", "UNTAGGED"],
+    ["MARKET-OS", undefined, "LOCAL_IDENTITY_UNKNOWN"],
+    ["MARKET-OS", "MARKET-OS", "MATCHES"],
+    ["market-os", "MARKET-OS", "MATCHES"],
+    [" MARKET-OS ", "MARKET-OS", "MATCHES"],
+    ["OTHER-REPO", "MARKET-OS", "FOREIGN"],
+    [undefined, undefined, "UNTAGGED"],
+  ])("%s against %s is %s", (message, local, expected) => {
+    expect(matchProject(message, local)).toBe(expected);
+  });
+
+  it("is imported by both machines rather than reimplemented in either", () => {
+    // The defect was two comparisons, not a wrong one. A test that only checked behaviour would
+    // pass again the next time someone inlines a third.
+    const consumerSource = readFileSync(
+      join(process.cwd(), "src/server/controlbus/consumer.ts"),
+      "utf8",
+    );
+    expect(consumerSource).toContain("matchProject");
+    expect(consumerSource).not.toMatch(/entry\.project\s*!==\s*context\.project/);
+    const transportSource = readFileSync(
+      join(process.cwd(), "src/server/escalation/transport.ts"),
+      "utf8",
+    );
+    expect(transportSource).toContain("matchProject(decision.project, local.project)");
   });
 });
 

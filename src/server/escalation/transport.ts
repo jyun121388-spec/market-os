@@ -83,6 +83,43 @@ export function parseProtocolMessage(comment: RemoteComment): ProtocolMessage | 
   };
 }
 
+/**
+ * Whether a message is addressed to this repository.
+ *
+ * The single definition, imported by both state machines. It exists as a function rather than as
+ * two inline comparisons because two inline comparisons is exactly what went wrong: the consumer
+ * grew a project gate, `reconcile()` did not, and the same foreign-project directive was
+ * `WRONG_PROJECT` to one and a valid `UNSOLICITED_DIRECTIVE` to the other.
+ */
+export type ProjectMatch =
+  /** The tag names this project. */
+  | "MATCHES"
+  /** The tag names a different project. */
+  | "FOREIGN"
+  /** The tag names no project. Legacy, valid, and most of this channel's history. */
+  | "UNTAGGED"
+  /** The tag names a project and we have no identity to compare it against. */
+  | "LOCAL_IDENTITY_UNKNOWN";
+
+/**
+ * Compares a message's project segment against this repository's own.
+ *
+ * `LOCAL_IDENTITY_UNKNOWN` is deliberately a distinct answer from `FOREIGN`, and both callers
+ * refuse on either. Collapsing them would either report a configuration gap as somebody else's
+ * message, or — far worse the other way — let an unconfigured deployment accept instructions
+ * addressed to any repository at all. Unknown is not a match.
+ */
+export function matchProject(
+  messageProject: string | undefined,
+  localProject: string | undefined,
+): ProjectMatch {
+  if (messageProject === undefined) return "UNTAGGED";
+  if (localProject === undefined) return "LOCAL_IDENTITY_UNKNOWN";
+  return messageProject.trim().toUpperCase() === localProject.trim().toUpperCase()
+    ? "MATCHES"
+    : "FOREIGN";
+}
+
 /** Where one exchange has got to. Transport and decision states are separate fields on purpose. */
 export type ExchangeState =
   | "CLAUDE_ESCALATED"
@@ -131,6 +168,14 @@ export interface LocalRecord {
    * reported as an unsolicited directive rather than as noise.
    */
   trustedAuthors?: string[];
+  /**
+   * This repository's project id, from committed configuration — `controlbus/identity`.
+   *
+   * A parameter rather than an import so this module stays pure and every case is testable
+   * without a repository. Absent means a project-tagged message is refused here exactly as the
+   * consumer refuses it: unknown is not a match.
+   */
+  project?: string;
 }
 
 export interface ChannelState {
@@ -211,6 +256,30 @@ export function reconcile(comments: RemoteComment[], local: LocalRecord): Channe
       //
       // Fails closed with no allowlist: absent `trustedAuthors`, nobody is trusted and an
       // unmatched decision stays INVALID, so forgetting to configure it cannot widen anything.
+      // Addressed to us? Asked FIRST, and asked through the same function the consumer calls.
+      //
+      // The first ESC-012 application gave the consumer a project gate and left this one without
+      // it, so `[CHATGPT_DECISION][OTHER-REPO][ESC-X]` was WRONG_PROJECT to one state machine and
+      // a valid UNSOLICITED_DIRECTIVE to the other. Two definitions of one boundary means the
+      // answer depends on which caller you ask, which is not a boundary.
+      const projectMatch = matchProject(decision.project, local.project);
+      if (projectMatch === "FOREIGN" || projectMatch === "LOCAL_IDENTITY_UNKNOWN") {
+        return {
+          id,
+          state: "DECISION_INVALID",
+          escalationPosted,
+          decisionCommentId: decision.commentId,
+          applied: false,
+          ackPosted: false,
+          note:
+            projectMatch === "FOREIGN"
+              ? `Tagged for project ${decision.project}, which is not this repository. Not a ` +
+                "directive here, whoever sent it and whatever it says."
+              : `Tagged for project ${decision.project}, and no local project identity was ` +
+                "supplied to compare it against. Unknown is not a match.",
+        };
+      }
+
       const trusted = (local.trustedAuthors ?? []).some(
         (login) => login.toLowerCase() === decision.author.toLowerCase(),
       );

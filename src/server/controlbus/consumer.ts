@@ -41,6 +41,7 @@
 
 import type { ActionKind } from "../governance/policy";
 import { evaluateAction } from "../governance/policy";
+import { matchProject } from "../escalation/transport";
 import type { DecisionProvenance, InboxEntry } from "./state";
 
 export type DecisionVerdict =
@@ -210,15 +211,19 @@ export function assessDecision(
   // project we cannot check against is also refused: unknown is not a match, and the alternative
   // is obeying an instruction aimed at another repository because nobody configured an identity.
   // A tag with NO project passes — most of this channel's history is that shape and it is valid.
-  if (entry.project !== undefined && entry.project !== context.project) {
+  // Through `matchProject`, which the transport reconciliation also calls. One definition, because
+  // the first version of this gate lived only here and the two machines disagreed about the same
+  // message — see that function for what that cost.
+  const projectMatch = matchProject(entry.project, context.project);
+  if (projectMatch === "FOREIGN" || projectMatch === "LOCAL_IDENTITY_UNKNOWN") {
     return {
       ...base,
       verdict: "WRONG_PROJECT",
       reason:
-        context.project === undefined
-          ? `Tagged for project ${entry.project}, and this consumer was given no project identity ` +
-            "to compare it against. Unknown is not a match."
-          : `Tagged for project ${entry.project}, and this repository is ${context.project}.`,
+        projectMatch === "FOREIGN"
+          ? `Tagged for project ${entry.project}, and this repository is ${context.project}.`
+          : `Tagged for project ${entry.project}, and this consumer was given no project identity ` +
+            "to compare it against. Unknown is not a match.",
     };
   }
 

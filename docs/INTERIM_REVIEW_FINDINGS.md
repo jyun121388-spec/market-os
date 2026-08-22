@@ -3104,3 +3104,71 @@ because every message anyone had tested with happened to use the two-segment for
 three-segment form appeared for the first time in an escalation I posted myself, and I did not
 notice — the format came from the documentation and the parser came from the code, and neither
 looked at the other.
+
+---
+
+## IR-087 — The project gate was added to one state machine and not the other
+
+Found by independent verification of the first ESC-012 application
+(`[CHATGPT_VERIFIED][ESC-012]` REWORK_REQUIRED, comment 5379016462), not by me, and not by any test
+in the commit it reviewed.
+
+### Reproduced
+
+```
+                     transport                consumer
+foreign project      UNSOLICITED_DIRECTIVE    WRONG_PROJECT
+matching project     UNSOLICITED_DIRECTIVE    DIRECTIVE_VALIDATED
+legacy two-segment   UNSOLICITED_DIRECTIVE    DIRECTIVE_VALIDATED
+```
+
+`[CHATGPT_DECISION][OTHER-REPO][ESC-X]` from a trusted author: the consumer refused it and the
+transport reconciliation reported it as a valid directive. `ProtocolMessage.project` was parsed
+and `reconcile()` never looked at it; `LocalRecord` had no project identity to look at it with.
+
+### Why the tests did not catch it
+
+Every test asserted one module at a time, and **neither module is wrong read on its own**. The
+consumer's project gate is correct. The transport's author-based classification is correct as far
+as it goes. The defect exists only in the relationship between them, and nothing in the suite held
+both at once.
+
+This is the same defect ESC-012 was raised about — two state machines describing one message
+differently — reintroduced by the commit that fixed it. `399b0ab` even changed `transport.ts` to
+end that disagreement for the author question, and left the project question open in the same
+edit.
+
+### Repair
+
+One identity, one comparison, both callers.
+
+- `src/server/controlbus/identity.ts` — `LOCAL_PROJECT_ID`, committed configuration. Not inferred
+  from the comment, its author, its id, or its prose. A constant precisely so it cannot be derived
+  from the thing being judged.
+- `matchProject(messageProject, localProject)` in `transport.ts`, returning `MATCHES` / `FOREIGN` /
+  `UNTAGGED` / `LOCAL_IDENTITY_UNKNOWN`. Both machines call it. `LOCAL_IDENTITY_UNKNOWN` is a
+  distinct answer from `FOREIGN` and both callers refuse on either: unknown is not a match, and an
+  unconfigured deployment must not accept instructions addressed to any repository at all.
+- `LocalRecord.project` carries the identity into reconciliation, as a parameter rather than an
+  import, so the module stays pure and every case is testable without a repository.
+
+Legacy two-segment messages are `UNTAGGED` and proceed exactly as before. Most of this channel's
+history is that shape, and a project gate that orphaned it would be a worse defect than the one
+being closed.
+
+### Tests
+
+Six end-to-end cases driven from a raw comment body through **both** production paths — parse →
+reconcile, and parse → ingest → assess — asserting the two agree: matching project, foreign project
+from a trusted author, project-tagged with no local identity, legacy two-segment, the real ESC-012
+three-segment/two-segment pair reconciling to one exchange, and ordering (a foreign project is
+refused before the author is considered). Plus a structural test that `matchProject` is imported by
+both rather than reimplemented in either — the defect was two comparisons, not a wrong one, and a
+behaviour-only test would pass again the next time somebody inlines a third.
+
+### The general lesson, which is not about projects
+
+A test per module cannot see a disagreement between modules. Both of these files had good coverage
+and the gap sat exactly in the space between them. Where two components must agree on a boundary,
+the test has to exercise both from one input — and better, the boundary should exist once so there
+is nothing to disagree about.

@@ -214,22 +214,31 @@ back, so what remains is somebody else's turn, and counting it as an outbound de
 blocker no work here could clear.
 
 Answered by `[CHATGPT_DECISION][ESC-012]` (comment 5364810128) on 2026-08-21: **Option A**,
-unsolicited directives are first-class control-bus input and validation is not application.
-Implemented on `claude/post-rc-followup` at `399b0abefaec135ca4fd4736848bd58d4cc3f4c9` and
-acknowledged below. Archived rather than deleted: the question and its answer are the record of
-why the consumer works the way it does.
+unsolicited directives are first-class control-bus input and validation is not application. The
+QUESTION is closed; the escalation is archived because it has its answer. Whether the answer was
+correctly APPLIED is a separate matter and was not — see the two acknowledgement records below.
+Archived rather than deleted: the question and its answer are the record of why the consumer works
+the way it does.
 
 ---
 
-## `[CLAUDE_APPLIED][ESC-012]` — transmitted as comment 5378536620
+## `[CLAUDE_APPLIED][ESC-012]` — first application, transmitted as comment 5378536620
 
-- state: TRANSMITTED
+- state: SUPERSEDED
 - remoteCommentId: 5378536620
 - posted: 2026-08-22
-- read back: `gh api .../comments/5378536620` returned the comment, 6290 bytes, first line intact,
-  and exactly one `[CLAUDE_APPLIED][ESC-012]` exists on the issue
+- implementation: `399b0abefaec135ca4fd4736848bd58d4cc3f4c9`
+- verified: `[CHATGPT_VERIFIED][ESC-012]` **REWORK_REQUIRED**, comment 5379016462
+- read back: `gh api .../comments/5378536620` returned the comment, 6290 bytes, first line intact
 - screened: `screenPublicComment` returned 0 findings before posting
 
-Carries the implementation SHA, the changed files, the gate-by-gate evidence, the 12-of-12 mutation
-proof, IR-086, the verification totals, and the limitations that remain — including that nothing is
-wired to apply anything yet.
+Kept, not deleted, and not edited. It was an honest account of what had been built and it was
+incomplete, and a record that quietly becomes correct is not a record.
+
+**What it got wrong.** The project gate was added to `consumer.ts` and not to `reconcile()`, so
+`[CHATGPT_DECISION][OTHER-REPO][ESC-X]` from a trusted author came back `WRONG_PROJECT` from one
+state machine and a valid `UNSOLICITED_DIRECTIVE` from the other. The same defect ESC-012 itself
+names — two state machines disagreeing about one message — reintroduced in the commit that fixed
+it. Neither module was wrong read on its own, which is why the module-level tests passed.
+
+Also stale in that packet: it read as though ESC-012 were closed. It was not.

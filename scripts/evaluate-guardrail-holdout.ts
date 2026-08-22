@@ -24,14 +24,27 @@ import {
   HOLDOUT_KIND,
   HOLDOUT_VERSION,
 } from "../tests/fixtures/adviceGuardrailHoldout";
+import {
+  ADVICE_GUARDRAIL_HOLDOUT2,
+  HOLDOUT2_KIND,
+  HOLDOUT2_VERSION,
+} from "../tests/fixtures/adviceGuardrailHoldout2";
 
-const which = process.argv[2] === "development" ? "development" : "holdout";
+const arg = process.argv[2];
+const which: "development" | "holdout" | "holdout2" =
+  arg === "development" ? "development" : arg === "holdout" ? "holdout" : "holdout2";
 
-const cases: CorpusCase[] =
-  which === "holdout" ? ADVICE_GUARDRAIL_HOLDOUT : ADVICE_GUARDRAIL_CORPUS;
-const classification: CorpusKind =
-  which === "holdout" ? HOLDOUT_KIND : ADVICE_GUARDRAIL_CORPUS_KIND;
-const corpusVersion = which === "holdout" ? HOLDOUT_VERSION : "development-2026-08-21-v1";
+const SOURCES: Record<string, { cases: CorpusCase[]; kind: CorpusKind; version: string }> = {
+  development: {
+    cases: ADVICE_GUARDRAIL_CORPUS,
+    kind: ADVICE_GUARDRAIL_CORPUS_KIND,
+    version: "development-2026-08-21-v1",
+  },
+  holdout: { cases: ADVICE_GUARDRAIL_HOLDOUT, kind: HOLDOUT_KIND, version: HOLDOUT_VERSION },
+  holdout2: { cases: ADVICE_GUARDRAIL_HOLDOUT2, kind: HOLDOUT2_KIND, version: HOLDOUT2_VERSION },
+};
+
+const { cases, kind: classification, version: corpusVersion } = SOURCES[which];
 
 interface Bucket {
   caught: number;
@@ -86,7 +99,7 @@ const report = {
   classification,
   // True by construction for the holdout: the fixture was committed before the detector ran, and
   // the commit that adds it contains no result. Checkable in the history rather than asserted.
-  createdBeforeDetectorRun: which === "holdout",
+  createdBeforeDetectorRun: classification === "FRESH_HOLDOUT",
   caseCount: cases.length,
   languages: Object.fromEntries(Object.entries(perLanguage).map(([k, v]) => [k, v.total])),
   conceptCounts: Object.fromEntries(Object.entries(perConcept).map(([k, v]) => [k, v.total])),

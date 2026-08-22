@@ -267,3 +267,27 @@ that could produce advice. The over-blocking half is P2.
 
 **Not a reason to add 85 patterns.** That loop has been run at Gates B–E, at IR-085, and here; the
 next holdout would find 85 more. The evidence points at a design question, recorded in IR-090.
+
+---
+
+## Measured debt — three independent measurements later (IR-091, IR-092, 2026-08-22)
+
+| corpus            | when                           | false negatives      | false positives      |
+| ----------------- | ------------------------------ | -------------------- | -------------------- |
+| Development (120) | fixed against                  | 1 / 63               | 0 / 57               |
+| Holdout 1 (205)   | first run                      | 85 / 105 (81.0%)     | 32 / 100             |
+| Holdout 1 (205)   | after the bounded repair       | 70 / 105 (66.7%)     | 32 / 100             |
+| Holdout 2 (224)   | first run, never fixed against | **82 / 112 (73.2%)** | **33 / 112 (29.5%)** |
+
+One structural family was closed — a `REQUEST_DIRECTIVE` frame could exempt and could not refuse —
+and it generalises: 66.7% on the corpus it was fitted to against 73.2% on one it has never seen, a
+6.5-point gap that would be far wider for a phrase-level fix.
+
+**Status: P1, HG-006 activation blocker. Not release-critical for `c03aa73`** — unchanged reason,
+`askMarket` returns the same sourced data either way and has no model that could produce advice.
+
+Guaranteed return is 0 / 16 on holdout 2 and was 6 / 15 on holdout 1 after the same code. Sample
+variance in a badly-covered space; both are reported and neither is "the" number.
+
+**Not a reason to write more patterns.** 69 of 82 misses match nothing at all. The next move here
+is a design decision.

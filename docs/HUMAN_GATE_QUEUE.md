@@ -124,6 +124,10 @@ Three of the eight cost nothing and unblock the most engineering. If only one th
   they generalise. **This is the activation blocker.** Price prediction and loss protection are
   each 1 / 15. A control at 19% recall is not a control, and free-text inference is where it would
   matter.
+- **Confirmed on a second independent holdout, 2026-08-22.** 82 / 112 (73%) after one structural
+  repair, on 224 cases with zero overlap with the first (IR-092). Guaranteed return 0 / 16, price
+  prediction 1 / 16, loss protection 2 / 16. The repair generalises — 66.7% fitted against 73.2%
+  unseen — and the guardrail does not. Three measurements now say the same thing.
 - **Verification that follows approval.** Per the M21 entry in `docs/DECISIONS.md`, in the same
   milestone and not after it: extend `verifyClaim` to cover INFERENCE claims; ship dedicated
   legal-guardrail tests against real model output; and run the output scanner over generated prose

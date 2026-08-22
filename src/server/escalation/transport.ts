@@ -52,13 +52,33 @@ export interface RemoteComment {
 /**
  * The tag, with the optional project segment the protocol has always documented.
  *
- * Two shapes are valid: `[KIND][ID]` and `[KIND][PROJECT][ID]`. When three segments are present
- * the LAST is the exchange id, because that is what the answering `[CHATGPT_DECISION][ID]` carries
- * — reading the second segment as the id is what made an escalation and its own decision fail to
- * match each other.
+ * Two shapes are valid and no others: `[KIND][ID]` and `[KIND][PROJECT][ID]`. When three segments
+ * are present the LAST is the exchange id, because that is what the answering
+ * `[CHATGPT_DECISION][ID]` carries — reading the second segment as the id is what made an
+ * escalation and its own decision fail to match each other (IR-086).
+ *
+ * **The trailing `(?=\s|$)` is the grammar, not a detail.** Without it the pattern matched a
+ * PREFIX of the tag and ignored whatever followed, which did not merely accept a malformed
+ * message — it silently reassigned identity:
+ *
+ *     [CHATGPT_DECISION][ESC-X][EXTRA]        -> project=ESC-X,     id=EXTRA
+ *     [CHATGPT_DECISION][MARKET-OS][ESC-X     -> project=undefined, id=MARKET-OS
+ *     [CHATGPT_DECISION][MARKET-OS][]         -> project=undefined, id=MARKET-OS
+ *
+ * The last two are IR-086's failure mode reachable through a typo: the project segment becomes the
+ * exchange id, so a directive addressed to MARKET-OS is filed as an exchange CALLED MARKET-OS and
+ * the project gate never sees a project at all.
+ *
+ * With the boundary, all four malformed forms fail to parse entirely. The regex backtracks out of
+ * the optional third segment, finds the two-segment reading also bounded by `[`, and gives up —
+ * which is the right answer: a tag this parser cannot read exactly is not a tag it may read
+ * approximately. `reconcile()` collects it as `malformed`, so it is visible rather than dropped.
+ *
+ * Ordinary prose after a valid tag is unaffected: the boundary asks for whitespace, and every real
+ * message has some.
  */
 const TAG =
-  /^\[(ESCALATION|CHATGPT_DECISION|CLAUDE_APPLIED)\]\[([A-Z0-9][A-Z0-9-]{0,31})\](?:\[([A-Z0-9][A-Z0-9-]{0,31})\])?/;
+  /^\[(ESCALATION|CHATGPT_DECISION|CLAUDE_APPLIED)\]\[([A-Z0-9][A-Z0-9-]{0,31})\](?:\[([A-Z0-9][A-Z0-9-]{0,31})\])?(?=\s|$)/;
 
 /**
  * Reads a comment's protocol tag, or returns null.

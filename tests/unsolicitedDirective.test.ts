@@ -449,6 +449,135 @@ describe("both state machines, end to end, agree about the same comment", () => 
   });
 });
 
+/**
+ * The tag grammar, at its boundary.
+ *
+ * The pattern matched a PREFIX of the tag and ignored whatever followed, which did not merely
+ * accept a malformed message — it silently reassigned identity. `[CHATGPT_DECISION][MARKET-OS]
+ * [ESC-X` parsed with id `MARKET-OS`: IR-086's exact failure mode, reachable through a typo,
+ * after IR-086 was fixed.
+ *
+ * Every case below is checked at all three production levels, because a parser test alone is what
+ * missed the last two defects in this file.
+ */
+describe("a tag this parser cannot read exactly is not one it may read approximately", () => {
+  const raw = (body: string) => ({
+    id: 1,
+    user: { login: TRUSTED },
+    body,
+    created_at: "2026-08-22T00:00:00Z",
+  });
+
+  /** Parser, transport reconciliation, and consumer assessment, from one raw body. */
+  const levels = (body: string) => {
+    const comment = raw(body);
+    const local = {
+      appliedIds: [],
+      pendingAckIds: [],
+      pendingEscalationIds: [],
+      trustedAuthors: [TRUSTED],
+      project: LOCAL_PROJECT_ID,
+    };
+    const channel = reconcile([comment], local);
+    const { admitted } = ingestComments(emptyState(2), [comment], "2026-08-22T00:00:00.000Z");
+    const context = {
+      openEscalationIds: [],
+      appliedIds: [],
+      trustedAuthors: [TRUSTED],
+      project: LOCAL_PROJECT_ID,
+    };
+    return {
+      parsed: parseProtocolMessage(comment),
+      exchange: channel.exchanges[0],
+      malformed: channel.malformed.length,
+      admitted: admitted.length,
+      verdict: admitted.length
+        ? assessDecision(admitted[0], context, GOVERNED_ACTIONS).verdict
+        : null,
+      startable: startableDecisionCount(admitted, context, GOVERNED_ACTIONS),
+    };
+  };
+
+  describe("valid", () => {
+    it.each([
+      ["two segments, no prose", "[CHATGPT_DECISION][ESC-X]", undefined],
+      ["two segments and prose", "[CHATGPT_DECISION][ESC-X] Proceed.", undefined],
+      ["three segments, no prose", "[CHATGPT_DECISION][MARKET-OS][ESC-X]", "MARKET-OS"],
+      ["three segments and prose", "[CHATGPT_DECISION][MARKET-OS][ESC-X] Proceed.", "MARKET-OS"],
+    ])("%s", (_label, body, project) => {
+      const r = levels(body);
+      expect(r.parsed?.id).toBe("ESC-X");
+      expect(r.parsed?.project).toBe(project);
+      expect(r.exchange.state).toBe("UNSOLICITED_DIRECTIVE");
+      expect(r.verdict).toBe("DIRECTIVE_VALIDATED");
+      expect(r.startable).toBe(1);
+    });
+
+    it("accepts a tag followed by a newline and a body, which is what real messages look like", () => {
+      const r = levels("[CHATGPT_DECISION][MARKET-OS][ESC-X]\n\nStatus: PROCEED.\n\nDetail.");
+      expect(r.parsed?.id).toBe("ESC-X");
+      expect(r.verdict).toBe("DIRECTIVE_VALIDATED");
+    });
+  });
+
+  describe("malformed — no valid directive at any level", () => {
+    it.each([
+      ["an immediate fourth segment", "[CHATGPT_DECISION][MARKET-OS][ESC-X][EXTRA] Proceed."],
+      ["a truncated final bracket", "[CHATGPT_DECISION][MARKET-OS][ESC-X Proceed."],
+      ["an empty final segment", "[CHATGPT_DECISION][MARKET-OS][] Proceed."],
+    ])("rejects %s", (_label, body) => {
+      const r = levels(body);
+      expect(r.parsed).toBeNull();
+      // Reported as malformed rather than dropped: it opens with a bracket and does not match, so
+      // it is a typo in a tag and somebody should see it.
+      expect(r.malformed).toBe(1);
+      expect(r.exchange).toBeUndefined();
+      expect(r.admitted).toBe(0);
+      expect(r.verdict).toBeNull();
+      expect(r.startable).toBe(0);
+    });
+
+    it("does not let a truncated tag promote the project segment to an exchange id", () => {
+      // The specific harm. Before the boundary check this parsed with id MARKET-OS — a directive
+      // ADDRESSED to the project filed as an exchange NAMED after it, with no project left for the
+      // project gate to check.
+      expect(parseProtocolMessage(raw("[CHATGPT_DECISION][MARKET-OS][ESC-X"))).toBeNull();
+      expect(parseProtocolMessage(raw("[CHATGPT_DECISION][MARKET-OS][]"))).toBeNull();
+    });
+  });
+
+  describe("the one malformed shape the grammar cannot see, stopped by the next gate", () => {
+    it("refuses [KIND][ESC-X][EXTRA] at both machines, though it parses", () => {
+      // Stated plainly rather than claimed fixed. `[CHATGPT_DECISION][ESC-X][EXTRA]` is a
+      // syntactically perfect three-segment tag: two segments matching the id charset, correctly
+      // bounded. Nothing in the GRAMMAR distinguishes it from `[MARKET-OS][ESC-012]`, and the only
+      // thing that could is knowing which values are project ids — which belongs in
+      // `identity.ts`, downstream, not in a parser that must also be able to SEE foreign-project
+      // messages in order to report them as such.
+      //
+      // So it parses as project=ESC-X, id=EXTRA, and the project gate refuses it at both
+      // machines. No valid directive, no work item, which is the property that matters.
+      const r = levels("[CHATGPT_DECISION][ESC-X][EXTRA] Proceed.");
+      expect(r.parsed?.project).toBe("ESC-X");
+      expect(r.exchange.state).toBe("DECISION_INVALID");
+      expect(r.verdict).toBe("WRONG_PROJECT");
+      expect(r.startable).toBe(0);
+      expect(r.exchange.applied).toBe(false);
+    });
+  });
+
+  it("keeps the real ESC-012 pair parsing exactly as before", () => {
+    // IR-086 compatibility under the tighter grammar. Both real messages, both shapes.
+    expect(
+      parseProtocolMessage(raw("[ESCALATION][MARKET-OS][ESC-012] One decision.")),
+    ).toMatchObject({ kind: "ESCALATION", id: "ESC-012", project: "MARKET-OS" });
+    expect(parseProtocolMessage(raw("[CHATGPT_DECISION][ESC-012] Option A."))).toMatchObject({
+      kind: "CHATGPT_DECISION",
+      id: "ESC-012",
+    });
+  });
+});
+
 describe("matchProject is the single definition", () => {
   it.each([
     [undefined, "MARKET-OS", "UNTAGGED"],

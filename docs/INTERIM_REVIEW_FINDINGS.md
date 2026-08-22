@@ -3260,3 +3260,70 @@ you the code is fine, it is telling you which assertion you never wrote.
 "How high can Nvidia go from here?" is unchanged and still counted. It is the GAP-INDEX-LEVEL
 instrument-versus-indicator gap, not a missing phrase, and a ticker list to reach 0/63 would be the
 enumeration the subject classifier exists to avoid. The metric is not being beautified.
+
+---
+
+## IR-089 — The tag pattern matched a prefix, and a malformed tag silently reassigned identity
+
+Found by independent verification of the corrected ESC-012 application
+(`[CHATGPT_VERIFIED][ESC-012]` REWORK_REQUIRED, then
+`[CHATGPT_DECISION][MARKET-ESC012-REWORK-003]`, comment 5379993305).
+
+### Reproduced
+
+The pattern had no terminal boundary, so it matched a PREFIX of the tag and ignored the rest:
+
+```
+[CHATGPT_DECISION][MARKET-OS][ESC-X][EXTRA]   -> project=MARKET-OS, id=ESC-X   (extra ignored)
+[CHATGPT_DECISION][ESC-X][EXTRA]              -> project=ESC-X,     id=EXTRA
+[CHATGPT_DECISION][MARKET-OS][ESC-X           -> project=undefined, id=MARKET-OS
+[CHATGPT_DECISION][MARKET-OS][]               -> project=undefined, id=MARKET-OS
+```
+
+The verification named the first. The other three are worse, and the last two are the point: **a
+truncated tag promotes the project segment to the exchange id.** That is IR-086's exact failure
+mode — a directive ADDRESSED to MARKET-OS filed as an exchange NAMED MARKET-OS — reachable through
+a typo, after IR-086 was fixed. And with the project consumed as the id there is no project left
+for the project gate to check, so the fix from IR-087 is bypassed at the same stroke.
+
+### Fix
+
+One lookahead: `(?=\s|$)` after the optional third segment. The grammar is now exactly `[KIND][ID]`
+and `[KIND][PROJECT][ID]`, terminated by whitespace or end of input.
+
+The backtracking does the rest. For `[KIND][A][B][EXTRA]` the three-segment reading is bounded by
+`[`, the two-segment reading is also bounded by `[`, and the whole match fails — which is the right
+answer. `reconcile()` already collects a body that opens with `[` and does not parse as
+`malformed`, so it is visible rather than dropped.
+
+Ordinary prose after a valid tag is unaffected; every real message has whitespace there, including
+the newline before a body.
+
+### The one shape the grammar cannot see, stated rather than claimed fixed
+
+`[CHATGPT_DECISION][ESC-X][EXTRA]` still parses, as project `ESC-X` and id `EXTRA`. It is a
+syntactically perfect three-segment tag: two segments matching the id charset, correctly bounded.
+**Nothing in the grammar distinguishes it from `[MARKET-OS][ESC-012]`** — the only thing that
+could is knowing which values are project ids, and that belongs in `identity.ts`, downstream, not
+in a parser that must also be able to SEE a foreign-project message in order to report it as one.
+
+So it is stopped by the next gate instead: project `ESC-X` is not `MARKET-OS`, giving
+`DECISION_INVALID` at the transport and `WRONG_PROJECT` at the consumer. No valid directive, no
+work item, `applied` false. The property that matters holds; the claim that it fails to parse would
+not have been true.
+
+### Tests
+
+Every form is checked at all three production levels — `parseProtocolMessage`, parse → `reconcile`,
+and parse → `ingestComments` → `assessDecision` — because a parser test alone is what missed both
+previous defects in this file. Valid two-segment and three-segment forms with and without prose, a
+tag followed by a newline and a body, the three malformed forms (no parse, `malformed` count 1, no
+exchange, nothing admitted, zero startable), the truncated-tag identity harm asserted directly, and
+the real ESC-012 pair still parsing as before.
+
+### Pattern worth keeping
+
+Three defects in this module in three rounds — IR-086 (segment count), IR-087 (two definitions of
+one boundary), IR-089 (no terminal boundary) — and all three are the same kind of thing: **a
+grammar that was documented in prose and implemented approximately.** Each was found by somebody
+constructing an input rather than by reading the code, and each looked correct until then.

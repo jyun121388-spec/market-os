@@ -234,18 +234,21 @@ describe("reading the escalation queue", () => {
       "TEST-002",
       "ESC-009",
       "ESC-012",
+      "ESC-012",
     ]);
     expect(reading.packets.map((p) => p.state)).toEqual([
       "TRANSMITTED",
       "TRANSMITTED",
       "TRANSMITTED",
-      // Posted and read back, and the answer has not come. Deliberately not TRANSMITTED and
-      // deliberately not QUEUED_NOT_TRANSMITTED: what remains is somebody else's turn, so it is
-      // not an outbound debt, and `pending` below stays zero with it in the file.
-      "WAITING_FOR_REMOTE_DECISION",
+      // The question, archived once its answer arrived and was applied. It briefly sat at
+      // WAITING_FOR_REMOTE_DECISION, which was never an outbound debt either — the packet had
+      // left and what remained was somebody else's turn.
+      "ARCHIVED",
+      // The acknowledgement that closes it.
+      "TRANSMITTED",
     ]);
     expect(reading.packets.map((p) => p.remoteCommentId)).toEqual([
-      5349296642, 5349417717, 5349422884, 5364659562,
+      5349296642, 5349417717, 5349422884, 5364659562, 5378536620,
     ]);
     expect(reading.pending).toBe(0);
   });

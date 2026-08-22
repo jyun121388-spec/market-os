@@ -192,7 +192,7 @@ EVIDENCE:
 
 ## `[ESCALATION][ESC-012]` — transmitted as comment 5364659562
 
-- state: WAITING_FOR_REMOTE_DECISION
+- state: ARCHIVED
 - remoteCommentId: 5364659562
 - posted: 2026-08-21
 - read back: `gh api .../comments/5364659562` returned the comment, 3118 bytes, first line intact
@@ -212,3 +212,24 @@ evaluation and the staleness check exactly as they are.
 The state above is deliberately not `QUEUED_NOT_TRANSMITTED`: the packet has left and been read
 back, so what remains is somebody else's turn, and counting it as an outbound debt would report a
 blocker no work here could clear.
+
+Answered by `[CHATGPT_DECISION][ESC-012]` (comment 5364810128) on 2026-08-21: **Option A**,
+unsolicited directives are first-class control-bus input and validation is not application.
+Implemented on `claude/post-rc-followup` at `399b0abefaec135ca4fd4736848bd58d4cc3f4c9` and
+acknowledged below. Archived rather than deleted: the question and its answer are the record of
+why the consumer works the way it does.
+
+---
+
+## `[CLAUDE_APPLIED][ESC-012]` — transmitted as comment 5378536620
+
+- state: TRANSMITTED
+- remoteCommentId: 5378536620
+- posted: 2026-08-22
+- read back: `gh api .../comments/5378536620` returned the comment, 6290 bytes, first line intact,
+  and exactly one `[CLAUDE_APPLIED][ESC-012]` exists on the issue
+- screened: `screenPublicComment` returned 0 findings before posting
+
+Carries the implementation SHA, the changed files, the gate-by-gate evidence, the 12-of-12 mutation
+proof, IR-086, the verification totals, and the limitations that remain — including that nothing is
+wired to apply anything yet.

@@ -757,7 +757,7 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-1699 / 1699 PASS across 115 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+1729 / 1729 PASS across 116 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment), measured 2026-08-21 on the post-RC follow-up branch. The frozen release candidate
 c03aa73 measured 1580 / 1580 across 110 files; the three files since are release tooling that is
 deliberately not in it.

@@ -3172,3 +3172,91 @@ A test per module cannot see a disagreement between modules. Both of these files
 and the gap sat exactly in the space between them. Where two components must agree on a boundary,
 the test has to exercise both from one input — and better, the boundary should exist once so there
 is nothing to disagree about.
+
+---
+
+## IR-088 — The false-positive tail was one defect written four times, and closed once
+
+The measured tail from IR-085: 4 false positives of 57, in two shapes across two languages.
+
+| Query                                                         | Matched by                                               |
+| ------------------------------------------------------------- | -------------------------------------------------------- |
+| How does a stop-loss order actually work on the KRX?          | `/\bstop[-\s]?loss\b/i`                                  |
+| 손절 주문은 거래소에서 어떻게 처리되나요?                     | `/(익절\|손절)\s*(할까\|해야\|타이밍\|하나요\|할까요)?/` |
+| What price target did analysts publish for Nvidia last month? | `/\bprice target\b/i`                                    |
+| 증권사들이 발표한 삼성전자 목표주가는 얼마였나요?             | `/목표\s*(가\|주가\|수익률)/`                            |
+
+Three are bare vocabulary with no anchor. The fourth has an anchor whose suffix group is entirely
+optional, which is the same thing written at greater length. **Prohibited vocabulary was being
+treated as a prohibited request.**
+
+### Why not four exceptions
+
+Because that is the loop Gates A through T already ran. Five rounds replaced one pattern with a
+slightly different pattern and the regression rate stayed flat; Gate F was the first round that
+changed what a rule KEYS ON rather than what it matches, and it is the only one that converged.
+Four exceptions here would have produced four more phrasings next round.
+
+### The discriminator
+
+`src/server/domain/requestFrame.ts`. Deterministic, no model, no network, five outputs:
+`REQUEST_DIRECTIVE`, `FACTUAL_MECHANISM`, `THIRD_PARTY_REPORTED_FACT`, `DESCRIPTIVE_ANALYSIS`,
+`UNKNOWN`.
+
+Two properties carry the safety:
+
+1. **A directive signal is checked first and wins outright.** "Where should I set my stop-loss on
+   the KRX?" contains a mechanism-shaped phrase and is a request for a trading instruction. A
+   classifier that found the mechanism frame first would exempt it.
+2. **Only `FACTUAL_MECHANISM` and `THIRD_PARTY_REPORTED_FACT` exempt anything.** `UNKNOWN` exempts
+   nothing, so an unanticipated phrasing keeps being refused. `DESCRIPTIVE_ANALYSIS` exempts
+   nothing either — "What was the price target last year?" names no source and is close enough to
+   asking for one that refusing is the right side to err on. Exempting it would buy one case and
+   widen the hole by a whole frame.
+
+It is consulted by exactly the four measured patterns, now `VOCABULARY_ONLY_PATTERNS` in
+`askMarket.ts`. Every other pattern is unchanged and unconsulted, because every other pattern
+already carries its own anchor. A repair that routed all 166 through a new discriminator would be
+far larger than the measurement justifies and would put an untested gate in front of twenty gates'
+worth of settled behaviour.
+
+### Result
+
+|                        | before        | after                 |
+| ---------------------- | ------------- | --------------------- |
+| False positives        | 4 / 57 (7.0%) | **0 / 57**            |
+| False negatives        | 1 / 63        | 1 / 63 — unchanged    |
+| Existing pinning suite | 518 / 518     | 518 / 518 — unchanged |
+
+The ratchet is tightened to zero in the same commit. All eleven controls behave: the four
+mechanism/reporting questions are answered, and "Set a stop-loss for me", "Where should I put my
+stop-loss?", "손절가를 얼마로 잡아야 하나요?", "Give me a price target for Nvidia", "What price
+target should I use?", "삼성전자 목표주가를 정해 주세요", "삼성전자 목표주가 얼마로 봐야 하나요?"
+are all still refused.
+
+One signal was widened while writing the tests: `my <object>` missed "my price target", because a
+word sat between the possessive and the object. Found by a test expectation that disagreed with the
+classifier — the behaviour was safe either way (UNKNOWN exempts nothing), and the classification
+was wrong, which is the kind of thing only an explicit frame assertion catches.
+
+### Mutation proof, and the one it missed first
+
+Eight mutants, seven detected on the first pass: disable the exemption (5 tests fail) · make every
+sentence factual (14) · check the mechanism frame before the directive frame (2) · let UNKNOWN
+exempt (3) · let DESCRIPTIVE_ANALYSIS exempt (1) · bypass the classifier entirely (13) · fire the
+vocabulary patterns unconditionally again (5).
+
+**Missed: accepting a reporting source with no reporting verb.** Every case in the file that
+mentioned analysts also carried a directive signal, so the verb requirement was untested while
+looking tested — the tests would have passed with that half of the rule deleted. Closed by adding
+"What is the analyst price target for Nvidia?", which names a source and no act of reporting and is
+therefore refused. Eight of eight after that.
+
+Worth recording as a pattern rather than a detail: a mutation that survives is usually not telling
+you the code is fine, it is telling you which assertion you never wrote.
+
+### The remaining false negative stays
+
+"How high can Nvidia go from here?" is unchanged and still counted. It is the GAP-INDEX-LEVEL
+instrument-versus-indicator gap, not a missing phrase, and a ticker list to reach 0/63 would be the
+enumeration the subject classifier exists to avoid. The metric is not being beautified.

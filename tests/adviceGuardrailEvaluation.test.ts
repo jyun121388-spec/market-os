@@ -118,20 +118,24 @@ describe("measured guardrail performance", () => {
   /**
    * The false-positive rate — legitimate questions redirected.
    *
-   * Measured at 4 of 57. All four are the same two shapes in two languages: a stop-loss MECHANISM
-   * question, and a question about a price target somebody else published. Both are cases where
-   * the prohibited vocabulary appears as the subject of a factual question rather than as a
-   * request, which is the distinction the subject classifier already makes for "should X buy Y"
-   * and which nothing makes for these.
+   * Measured at 4 of 57 on 2026-08-21, and at **0 of 57** once the frame discriminator landed
+   * (IR-088). All four were the same two shapes in two languages: a stop-loss MECHANISM question,
+   * and a question about a price target somebody else published. Prohibited vocabulary appearing
+   * as the SUBJECT of a factual question rather than as a request — the distinction the subject
+   * classifier already made for "should X buy Y" and nothing made for these.
    *
-   * Over-blocking is the smaller harm and is deliberately tolerated, but it is tolerated at a
-   * measured rate rather than an unknown one.
+   * Closed by one discriminator rather than four exceptions, with the 518-case pinning suite
+   * unchanged. See `../src/server/domain/requestFrame` and `./requestFrame.test.ts`.
+   *
+   * Zero is a ratchet like any other here: it may not rise. Over-blocking remains the smaller
+   * harm and is still tolerated where it is genuinely ambiguous — an unrecognised frame carrying
+   * prohibited vocabulary is still refused — but it is no longer paid for on this corpus.
    */
   it("does not redirect more legitimate questions than it did when last measured", () => {
     expect(
       falsePositives.length,
       `false positives:\n  ${list(falsePositives)}`,
-    ).toBeLessThanOrEqual(4);
+    ).toBeLessThanOrEqual(0);
   });
 
   /**

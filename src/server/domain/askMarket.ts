@@ -2,6 +2,7 @@ import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
 import { extractKeywords } from "./eventClustering";
 import { asksWhetherAPersonShouldTrade } from "./subjectClassification";
+import { frameExemptsProhibitedVocabulary } from "./requestFrame";
 
 /**
  * Ask Market — deterministic safe-mode MVP (docs/ROADMAP.md M21).
@@ -206,7 +207,6 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   // "price target" — the same prohibited concept with the words the other way round, which the
   // pattern above does not match. Price targets are named explicitly in LEGAL_GUARDRAILS.md's
   // hard-prohibitions list, so having only one word order covered was a real hole.
-  /\bprice target\b/i,
   /\bwill .* (hit|reach|go to) [\d,.]+\b/i,
   // A definitive price prediction asked with "what" and no numeral: "What will Apple trade at
   // next year?". The numeral pattern above cannot see it, and the `where … will … trade` pattern
@@ -463,7 +463,6 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
 
   // Order mechanics. These name a price or level to act at, which is advice with the reasoning
   // omitted rather than anything factual.
-  /\bstop[-\s]?loss\b/i,
   /\b(entry|exit)\s+price\b/i,
   /\bwhere\b[\s\S]{0,20}\bset\b[\s\S]{0,20}\b(stop|limit)\b/i,
 
@@ -577,10 +576,8 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
   /수익\s*(보장|확정)/, // guaranteed returns
   // 목표가 / 목표주가 — "price target". The direct Korean counterpart of the English pattern
   // added above, and an explicitly prohibited output.
-  /목표\s*(가|주가|수익률)/,
   // 익절 / 손절 — take-profit and stop-loss. Extremely common Korean retail-investing verbs and
   // unambiguously requests for a trading instruction, not for analysis.
-  /(익절|손절)\s*(할까|해야|타이밍|하나요|할까요)?/,
   // "지금 들어가도 될까요?" / "지금 나와도" — enter/exit a position, the positional equivalent
   // of 사도/팔아도 which was already covered.
   /(들어가도|나와도|들어갈까|나올까)\s*(될까요|되나요|되나|될까|요)?/,
@@ -707,6 +704,33 @@ const ADVICE_REQUEST_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Prohibited VOCABULARY, which is not the same thing as a prohibited request.
+ *
+ * These four were measured as the guardrail's entire false-positive tail: 4 of 57 legitimate
+ * questions redirected, in two shapes across two languages. Three of them are bare words with no
+ * anchor; the fourth has an anchor whose suffix group is entirely optional, which is the same
+ * thing at greater length.
+ *
+ * They stay — a bare "stop-loss" or "목표주가" in a request IS the request — but they no longer fire
+ * unconditionally. `frameExemptsProhibitedVocabulary` decides, and it exempts only a clear
+ * mechanism or third-party-reporting frame. A directive signal beats both, and an unrecognised
+ * frame exempts nothing, so the failure mode stays over-blocking.
+ *
+ * Deliberately NOT four separate exceptions bolted onto four regexes. That is the loop Gates A
+ * through T ran five times: replace one pattern with a slightly different pattern, watch the
+ * regression rate stay flat. The defect these four share is one defect.
+ */
+const VOCABULARY_ONLY_PATTERNS: RegExp[] = [
+  /\bstop[-\s]?loss\b/i,
+  /\bprice target\b/i,
+  /목표\s*(가|주가|수익률)/,
+  // The suffix group here was optional, so it matched any occurrence of 익절 or 손절 anywhere. Kept
+  // as it was rather than tightened: the frame now carries what the optional group was pretending
+  // to, and two half-anchors would be worse than one honest one.
+  /(익절|손절)\s*(할까|해야|타이밍|하나요|할까요)?/,
+];
+
+/**
  * Phrases that contain a prohibited term but are ordinary financial-reporting vocabulary.
  *
  * "fair value" was blocking "What is fair value accounting under ASC 820?" and "Apple fair value
@@ -756,7 +780,16 @@ export function detectPersonalizedAdviceRequest(query: string): boolean {
   // could not be answered by the pattern list, and why an unrecognised subject redirects.
   if (asksWhetherAPersonShouldTrade(query)) return true;
 
-  return ADVICE_REQUEST_PATTERNS.some((pattern) => pattern.test(query));
+  if (ADVICE_REQUEST_PATTERNS.some((pattern) => pattern.test(query))) return true;
+
+  // The frame gate, and the ONLY place it is consulted. Four patterns matched prohibited
+  // vocabulary rather than a prohibited request, which is what the whole measured false-positive
+  // tail turned out to be. See ./requestFrame for why a directive signal wins over a factual one
+  // and why an unrecognised frame exempts nothing.
+  return (
+    VOCABULARY_ONLY_PATTERNS.some((pattern) => pattern.test(query)) &&
+    !frameExemptsProhibitedVocabulary(query)
+  );
 }
 
 const REDIRECT_MESSAGE =

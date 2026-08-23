@@ -40,6 +40,8 @@
  * checking fixes it if dates are atoms at all.
  */
 
+import { isStorableDecimal } from "./observationIngest";
+
 /** The quantity kinds the existing producers emit. Closed; an unlisted kind supports nothing. */
 export type QuantitativeKind =
   "OBSERVATION_VALUE" | "ABSOLUTE_CHANGE" | "PERCENT_CHANGE" | "BPS_CHANGE";
@@ -53,8 +55,16 @@ export type QuantitativeKind =
 export interface QuantitativeAtom {
   premiseClaimId: string;
   kind: QuantitativeKind;
-  /** Signed. `-2.1` and `2.1` are different quantities and a sign is part of a financial fact. */
-  canonicalValue: number;
+  /**
+   * Signed, and an EXACT decimal string rather than a number.
+   *
+   * `Decimal(20,6)` holds fourteen integer digits and six decimals, and a JS double cannot
+   * separate `90000000000000.000001` from `90000000000000.000002` — both round to the same
+   * value and compared equal (IR-095 candidate I). Financial provenance must not become
+   * approximate because it crossed a `Number()` call, so the value stays as the column gave
+   * it and comparison reuses `sameDecimalValue`, which scales to millionths exactly.
+   */
+  canonicalValue: string;
   /** Canonical unit token: a series unit verbatim, or `percent` / `bps` for the change kinds. */
   unit: string;
   /** The series the quantity describes. */
@@ -84,8 +94,10 @@ export function factAtoms(premise: PremiseRow, rows: PremiseEvidenceRows): Quant
   const observation = rows.observation;
   const unit = rows.seriesUnit;
   if (!observation || !unit) return [];
-  const canonicalValue = Number(observation.value.toString());
-  if (!Number.isFinite(canonicalValue)) return [];
+  // Straight from the column, unparsed. Validated as storable rather than converted: the
+  // point is that no numeric conversion happens anywhere on this path.
+  const canonicalValue = observation.value.toString();
+  if (!isStorableDecimal(canonicalValue)) return [];
   return [
     {
       premiseClaimId: premise.id,
@@ -117,6 +129,11 @@ export function calculationAtoms(
   const subjectId = typeof evidence?.seriesId === "string" ? evidence.seriesId : null;
   if (!subjectId) return [];
 
+  // A change is computed by `computeChange` as a JS number, so it arrives here as one and its
+  // exactness is bounded by that producer rather than by this module. Converted to a string at
+  // the boundary so every atom has one representation, and recorded as a residual: an atom is
+  // exactly as precise as the producer that made it, and only the observation path is exact
+  // end to end.
   const pairs: [QuantitativeKind, unknown, string][] = [
     ["ABSOLUTE_CHANGE", evidence?.absoluteChange, rows.seriesUnit ?? ""],
     ["PERCENT_CHANGE", evidence?.percentChange, "percent"],
@@ -128,7 +145,7 @@ export function calculationAtoms(
     .map(([kind, value, unit]) => ({
       premiseClaimId: premise.id,
       kind,
-      canonicalValue: value as number,
+      canonicalValue: String(value),
       unit,
       subjectId,
     }));

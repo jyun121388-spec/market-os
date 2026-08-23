@@ -167,9 +167,14 @@ function describeMalformedInferenceEvidence(
       if (c === null || typeof c !== "object") {
         return `quantitativeCitations[${i}] is not an object`;
       }
-      for (const field of ["premiseClaimId", "kind", "surfaceText"]) {
+      for (const field of ["premiseClaimId", "kind", "surfaceText", "subjectId"]) {
         if (typeof c[field] !== "string" || (c[field] as string).length === 0) {
           return `quantitativeCitations[${i}].${field} is missing or not a non-empty string`;
+        }
+      }
+      for (const field of ["assertionStart", "assertionEnd"]) {
+        if (!Number.isInteger(c[field])) {
+          return `quantitativeCitations[${i}].${field} is missing or not an integer offset`;
         }
       }
       if (!Array.isArray(evidence.premiseClaimIds)) continue;

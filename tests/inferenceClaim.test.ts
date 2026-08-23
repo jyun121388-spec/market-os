@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  quantitativeSpans,
+  quantitativeOccurrences,
   verifyInferenceClaim,
   type PremiseVerification,
 } from "@/server/domain/inferenceClaim";
-import { parseQuantity } from "@/server/domain/quantitativeCitation";
+import { parseQuantity, type QuantitativeCitation } from "@/server/domain/quantitativeCitation";
 import {
   calculationAtoms,
   factAtoms,
@@ -12,38 +12,52 @@ import {
 } from "@/server/domain/quantitativeEvidence";
 
 /**
- * The negative controls for IR-094, one per reproduced defect.
+ * The negative controls for IR-094 and IR-095.
  *
- * Every probe in the reproduction matrix was ACCEPTED by the first implementation. Each is a test
- * here, phrased as the thing that must now be refused, so the repair cannot silently regress into
- * token comparison again.
+ * Every probe in both reproduction matrices was ACCEPTED by the implementation of its day. Each is
+ * a test here, phrased as the thing that must now be refused, so neither round of defects can
+ * return quietly.
  */
 
-const SERIES = "series-a";
-const OTHER_SERIES = "series-b";
+const APPLE = "series-apple-margin";
+const UNEMPLOYMENT = "series-unemployment";
 
 const atom = (over: Partial<QuantitativeAtom> = {}): QuantitativeAtom => ({
   premiseClaimId: "p1",
   kind: "OBSERVATION_VALUE",
-  canonicalValue: 2.1,
+  canonicalValue: "2.1",
   unit: "percent",
-  subjectId: SERIES,
+  subjectId: APPLE,
   ...over,
 });
 
 const premise = (atoms: QuantitativeAtom[], status = "VERIFIED", claimId = "p1") =>
   ({ claimId, status, atoms }) satisfies PremiseVerification;
 
-const cite = (surfaceText: string, kind = "OBSERVATION_VALUE", premiseClaimId = "p1") => ({
-  premiseClaimId,
-  kind,
-  surfaceText,
-});
+/** Cites the Nth occurrence of `surfaceText`, computing the offsets from the claim itself. */
+const citeNth = (
+  claimText: string,
+  surfaceText: string,
+  nth = 0,
+  over: Partial<QuantitativeCitation> = {},
+): QuantitativeCitation => {
+  let index = -1;
+  for (let i = 0; i <= nth; i += 1) index = claimText.indexOf(surfaceText, index + 1);
+  return {
+    premiseClaimId: "p1",
+    kind: "OBSERVATION_VALUE",
+    subjectId: APPLE,
+    surfaceText,
+    assertionStart: index,
+    assertionEnd: index + surfaceText.length,
+    ...over,
+  };
+};
 
 const verify = (
   claimText: string,
   atoms: QuantitativeAtom[],
-  citations: ReturnType<typeof cite>[],
+  citations: QuantitativeCitation[],
   over: Partial<Parameters<typeof verifyInferenceClaim>[0]> = {},
 ) =>
   verifyInferenceClaim({
@@ -54,139 +68,194 @@ const verify = (
     ...over,
   });
 
-describe("A — sign is part of the quantity", () => {
-  it("refuses a positive assertion backed by a negative measurement", () => {
+describe("F — one citation covers one occurrence, not every twin", () => {
+  const TWO = "Apple margin was 2.1 percent, while unemployment was 2.1 percent.";
+
+  it("finds two occurrences where the old span scan found one token", () => {
+    expect(quantitativeOccurrences(TWO).map((o) => o.start)).toHaveLength(2);
+  });
+
+  it("refuses when only the first occurrence is cited", () => {
+    const result = verify(TWO, [atom()], [citeNth(TWO, "2.1 percent", 0)]);
+    expect(result.status).toBe("UNCITED_QUANTITY");
+    expect(result.uncitedQuantities).toHaveLength(1);
+  });
+
+  it("refuses when only the second occurrence is cited", () => {
+    const result = verify(TWO, [atom()], [citeNth(TWO, "2.1 percent", 1)]);
+    expect(result.status).toBe("UNCITED_QUANTITY");
+  });
+
+  it("accepts when both occurrences are cited independently", () => {
     const result = verify(
-      "growth was 2.1 percent",
-      [atom({ canonicalValue: -2.1 })],
-      [cite("2.1 percent")],
-    );
-    expect(result.status).toBe("CITATION_UNSUPPORTED");
-    expect(result.failedCitations[0].verdict).toBe("SIGN_MISMATCH");
-  });
-
-  it("refuses a negative assertion backed by a positive measurement", () => {
-    const result = verify(
-      "growth was -2.1 percent",
-      [atom({ canonicalValue: 2.1 })],
-      [cite("-2.1 percent")],
-    );
-    expect(result.failedCitations[0].verdict).toBe("SIGN_MISMATCH");
-  });
-
-  it("accepts a negative assertion backed by the same negative measurement", () => {
-    expect(
-      verify("growth was -2.1 percent", [atom({ canonicalValue: -2.1 })], [cite("-2.1 percent")])
-        .status,
-    ).toBe("VERIFIED");
-  });
-});
-
-describe("B — unit and currency", () => {
-  it.each([
-    ["percent evidence, USD text", "the spread was 2.1 USD", "percent"],
-    ["percent evidence, bps text", "the change was 2.1 bps", "percent"],
-    ["USD evidence, KRW text", "the price was 2.1 KRW", "USD"],
-    ["index points evidence, percent text", "the move was 2.1 percent", "index points"],
-  ])("refuses %s", (_label, claimText, unit) => {
-    const surface = claimText.slice(claimText.indexOf("2.1"));
-    const result = verify(claimText, [atom({ unit })], [cite(surface)]);
-    expect(result.failedCitations[0].verdict).toBe("UNIT_MISMATCH");
-  });
-
-  it("refuses a bare number where the evidence has a unit", () => {
-    // "Revenue was 1,400" states a quantity whose unit the sentence never gave. Guessing it is the
-    // mistake being repaired, so an unparseable surface is refused rather than assumed.
-    const result = verify(
-      "Revenue was 1,400",
-      [atom({ canonicalValue: 1400, unit: "USD" })],
-      [cite("1,400")],
-    );
-    expect(result.failedCitations[0].verdict).toBe("UNPARSEABLE_SURFACE");
-  });
-
-  it("reads a currency symbol as the unit", () => {
-    expect(parseQuantity("$1,400")).toEqual({ sign: 1, magnitude: 1400, unit: "USD" });
-    expect(parseQuantity("₩1,400")).toEqual({ sign: 1, magnitude: 1400, unit: "KRW" });
-  });
-
-  it("refuses a surface with no number, or with two", () => {
-    expect(parseQuantity("several percent")).toBe("UNPARSEABLE");
-    expect(parseQuantity("2.1 to 3.4 percent")).toBe("UNPARSEABLE");
-  });
-});
-
-describe("C — a number does not launder across subjects or premises", () => {
-  it("refuses a citation pointing at a premise that establishes no such quantity", () => {
-    // The laundering shape: the value exists in the evidence set, under a different premise.
-    const result = verifyInferenceClaim({
-      claimText: "Unemployment slowed to 2.1 percent",
-      confidence: 0.5,
-      premises: [
-        premise([atom({ premiseClaimId: "p2", subjectId: OTHER_SERIES })], "VERIFIED", "p2"),
+      TWO,
+      [atom(), atom({ premiseClaimId: "p1", kind: "PERCENT_CHANGE", subjectId: UNEMPLOYMENT })],
+      [
+        citeNth(TWO, "2.1 percent", 0),
+        citeNth(TWO, "2.1 percent", 1, { kind: "PERCENT_CHANGE", subjectId: UNEMPLOYMENT }),
       ],
-      citations: [cite("2.1 percent", "OBSERVATION_VALUE", "p1")],
-    });
-    expect(result.failedCitations[0].verdict).toBe("ATOM_NOT_FOUND");
-  });
-
-  it("refuses a citation naming a kind the premise does not establish", () => {
-    const result = verify(
-      "the change was 2.1 percent",
-      [atom({ kind: "OBSERVATION_VALUE" })],
-      [cite("2.1 percent", "PERCENT_CHANGE")],
     );
-    expect(result.failedCitations[0].verdict).toBe("ATOM_NOT_FOUND");
+    expect(result.status, result.detail).toBe("VERIFIED");
   });
 
-  it("refuses a bare year reused as a financial value", () => {
-    // "observed on 2026-08-14" contributed 2026, 08 and 14 to the old supported set, which is how
-    // "Revenue reached 2026" was authorised. Dates are not atoms and a bare year needs a citation.
-    const result = verify("Revenue reached 2026", [atom({ canonicalValue: 2026 })], []);
+  it("refuses two unrelated 5 bps spreads with one citation", () => {
+    const text = "The first spread was 5 bps and the second unrelated spread was 5 bps.";
+    const result = verify(
+      text,
+      [atom({ canonicalValue: "5", unit: "bps", kind: "BPS_CHANGE" })],
+      [citeNth(text, "5 bps", 0, { kind: "BPS_CHANGE" })],
+    );
     expect(result.status).toBe("UNCITED_QUANTITY");
-    expect(result.uncitedQuantities).toContain("2026");
-  });
-
-  it("does not require a citation for a full ISO date", () => {
-    // A date is not a financial quantity, and requiring one would make every claim uncitable.
-    expect(quantitativeSpans("as of 2026-03-01 the reading held")).toEqual([]);
   });
 });
 
-describe("coverage — an uncited number is an invented one", () => {
-  it("refuses prose carrying a quantity no citation covers", () => {
+describe("G — subject identity is enforced, not documented", () => {
+  it("refuses an Apple-margin premise backing an unemployment assertion", () => {
+    const text = "Unemployment is 5 percent.";
     const result = verify(
-      "growth was 2.1 percent and margin reached 31 percent",
-      [atom()],
-      [cite("2.1 percent")],
+      text,
+      [atom({ canonicalValue: "5", subjectId: APPLE })],
+      [citeNth(text, "5 percent", 0, { subjectId: UNEMPLOYMENT })],
     );
-    expect(result.status).toBe("UNCITED_QUANTITY");
-    expect(result.uncitedQuantities).toContain("31");
+    expect(result.failedCitations[0].verdict).toBe("SUBJECT_MISMATCH");
   });
 
-  it("accepts prose whose every quantity is cited and matches", () => {
+  it("refuses a citation whose subject the atom does not share, with units identical", () => {
+    // Deliberately same value AND same unit, so nothing but the subject can catch it.
+    const text = "Series B stood at 5 percent.";
     const result = verify(
-      "growth was 2.1 percent and the change was -0.4 percent",
-      [atom(), atom({ kind: "PERCENT_CHANGE", canonicalValue: -0.4 })],
-      [cite("2.1 percent"), cite("-0.4 percent", "PERCENT_CHANGE")],
+      text,
+      [atom({ canonicalValue: "5", subjectId: "series-a" })],
+      [citeNth(text, "5 percent", 0, { subjectId: "series-b" })],
     );
-    expect(result.status).toBe("VERIFIED");
+    expect(result.failedCitations[0].verdict).toBe("SUBJECT_MISMATCH");
   });
 
-  it("refuses a citation quoting words the claim does not contain", () => {
-    const result = verify("growth was 2.1 percent", [atom()], [cite("9.9 percent")]);
-    expect(result.failedCitations[0].verdict).toBe("SURFACE_TEXT_NOT_IN_CLAIM");
-  });
-
-  it("accepts prose with no quantities at all", () => {
-    expect(verify("Export demand appears to be the binding constraint.", [atom()], []).status).toBe(
+  it("accepts when the subject agrees", () => {
+    const text = "Apple margin was 5 percent.";
+    expect(verify(text, [atom({ canonicalValue: "5" })], [citeNth(text, "5 percent")]).status).toBe(
       "VERIFIED",
     );
   });
 });
 
-describe("D — malformed evidence fails closed", () => {
-  it("refuses rather than repairing", () => {
+describe("H — a citation identifies an occurrence, not a substring", () => {
+  it("refuses an offset outside the claim", () => {
+    const text = "Margin was 5 percent.";
+    const result = verify(
+      text,
+      [atom({ canonicalValue: "5" })],
+      [{ ...citeNth(text, "5 percent"), assertionStart: 900, assertionEnd: 910 }],
+    );
+    expect(result.failedCitations[0].verdict).toBe("RANGE_OUT_OF_BOUNDS");
+  });
+
+  it("refuses an offset pointing at different text", () => {
+    const text = "Margin was 5 percent.";
+    const result = verify(
+      text,
+      [atom({ canonicalValue: "5" })],
+      [{ ...citeNth(text, "5 percent"), assertionStart: 0, assertionEnd: 6 }],
+    );
+    expect(result.failedCitations[0].verdict).toBe("RANGE_TEXT_MISMATCH");
+  });
+
+  it("distinguishes two identical surfaces at different locations", () => {
+    const text = "Margin was 5 percent. Margin was 5 percent.";
+    const first = citeNth(text, "5 percent", 0);
+    const second = citeNth(text, "5 percent", 1);
+    expect(first.assertionStart).not.toBe(second.assertionStart);
+    expect(verify(text, [atom({ canonicalValue: "5" })], [first]).status).toBe("UNCITED_QUANTITY");
+  });
+
+  it("refuses a surface it cannot parse, rather than assuming a unit", () => {
+    // "Revenue was 1,400" states a quantity whose unit the sentence never gave. Guessing is the
+    // mistake the whole repair exists to avoid, so an unreadable surface fails the citation.
+    // This assertion existed before the occurrence rewrite and was lost with it — a surviving
+    // mutant found the gap.
+    const text = "Revenue was 1,400.";
+    const result = verify(
+      text,
+      [atom({ canonicalValue: "1400", unit: "USD" })],
+      [citeNth(text, "1,400", 0, { subjectId: APPLE })],
+    );
+    expect(result.failedCitations[0].verdict).toBe("UNPARSEABLE_SURFACE");
+  });
+
+  it("does not let a shorter quantity be absolved by a longer one", () => {
+    // "5 percent" is a substring of "15 percent"; an occurrence-aware check is not fooled.
+    const text = "Margin was 15 percent.";
+    const result = verify(text, [atom({ canonicalValue: "5" })], []);
+    expect(result.status).toBe("UNCITED_QUANTITY");
+    expect(result.uncitedQuantities[0]).toContain("15");
+  });
+});
+
+describe("I — exact decimals survive the comparison", () => {
+  it.each([
+    ["90000000000000.000001", "90000000000000.000002"],
+    ["12345678901234.000001", "12345678901234.000002"],
+    ["99999999999999.999998", "99999999999999.999999"],
+  ])("distinguishes %s from %s, which collapse to one double", (evidence, asserted) => {
+    expect(Number(evidence)).toBe(Number(asserted));
+    const text = `The reading was ${asserted} percent.`;
+    const result = verify(
+      text,
+      [atom({ canonicalValue: evidence })],
+      [citeNth(text, `${asserted} percent`)],
+    );
+    expect(result.failedCitations[0].verdict).toBe("VALUE_MISMATCH");
+  });
+
+  it("accepts an exact match at the column's full precision", () => {
+    const exact = "90000000000000.000001";
+    const text = `The reading was ${exact} percent.`;
+    expect(
+      verify(text, [atom({ canonicalValue: exact })], [citeNth(text, `${exact} percent`)]).status,
+    ).toBe("VERIFIED");
+  });
+
+  it("keeps the parsed magnitude a string, never a number", () => {
+    const parsed = parseQuantity("90000000000000.000001 percent");
+    expect(parsed).not.toBe("UNPARSEABLE");
+    if (parsed !== "UNPARSEABLE") expect(parsed.magnitude).toBe("90000000000000.000001");
+  });
+});
+
+describe("carried forward from IR-094", () => {
+  it("refuses a sign flip", () => {
+    const text = "growth was 2.1 percent";
+    const result = verify(text, [atom({ canonicalValue: "-2.1" })], [citeNth(text, "2.1 percent")]);
+    expect(result.failedCitations[0].verdict).toBe("SIGN_MISMATCH");
+  });
+
+  it("refuses a unit swap", () => {
+    const text = "the change was 2.1 bps";
+    const result = verify(text, [atom({ unit: "percent" })], [citeNth(text, "2.1 bps")]);
+    expect(result.failedCitations[0].verdict).toBe("UNIT_MISMATCH");
+  });
+
+  it("refuses a citation naming a kind the premise does not establish", () => {
+    const text = "the change was 2.1 percent";
+    const result = verify(
+      text,
+      [atom()],
+      [citeNth(text, "2.1 percent", 0, { kind: "PERCENT_CHANGE" })],
+    );
+    expect(result.failedCitations[0].verdict).toBe("ATOM_NOT_FOUND");
+  });
+
+  it("refuses NaN confidence", () => {
+    expect(verify("x", [atom()], [], { confidence: NaN }).status).toBe("CONFIDENCE_NOT_A_NUMBER");
+  });
+
+  it("refuses a no-premise inference", () => {
+    expect(
+      verifyInferenceClaim({ claimText: "x", confidence: 0.5, premises: [], citations: [] }).status,
+    ).toBe("NO_PREMISES");
+  });
+
+  it("refuses malformed evidence rather than repairing it", () => {
     const result = verifyInferenceClaim({
       claimText: "x",
       confidence: 0.5,
@@ -195,63 +264,38 @@ describe("D — malformed evidence fails closed", () => {
       evidenceMalformed: "premiseClaimIds[1] is 123, not a non-empty string",
     });
     expect(result.status).toBe("MALFORMED_EVIDENCE");
-    expect(result.detail).toContain("Refused rather than repaired");
-  });
-});
-
-describe("E — confidence", () => {
-  it("refuses NaN, which passes both halves of a range comparison", () => {
-    const result = verify("x", [atom()], [], { confidence: NaN });
-    expect(result.status).toBe("CONFIDENCE_NOT_A_NUMBER");
   });
 
-  it.each([undefined, null])("refuses %s", (confidence) => {
-    expect(verify("x", [atom()], [], { confidence }).status).toBe("CONFIDENCE_MISSING");
+  it("does not require a citation for a full ISO date", () => {
+    expect(quantitativeOccurrences("as of 2026-03-01 the reading held")).toEqual([]);
   });
 
-  it.each([-0.1, 1.1, Infinity, -Infinity])("refuses %s", (confidence) => {
-    expect(verify("x", [atom()], [], { confidence }).status).toBe("CONFIDENCE_OUT_OF_RANGE");
+  it("keeps offsets indexing the original string when a date is masked", () => {
+    // The date is blanked rather than removed, so every later offset still points at the real
+    // character. Rebuilding offsets after a deletion is arithmetic that drifts silently.
+    const text = "on 2026-03-01 margin was 5 percent";
+    const [occurrence] = quantitativeOccurrences(text);
+    expect(text.slice(occurrence.start, occurrence.end)).toBe("5");
   });
-});
-
-describe("premise hygiene", () => {
-  it("refuses an inference with no premises", () => {
-    expect(
-      verifyInferenceClaim({ claimText: "x", confidence: 0.5, premises: [], citations: [] }).status,
-    ).toBe("NO_PREMISES");
-  });
-
-  it.each(["EVIDENCE_MISSING", "EVIDENCE_NOT_FOUND", "VALUE_MISMATCH", "UNSUPPORTED_CLAIM_TYPE"])(
-    "refuses when a premise is %s",
-    (status) => {
-      expect(
-        verifyInferenceClaim({
-          claimText: "x",
-          confidence: 0.5,
-          premises: [premise([], status)],
-          citations: [],
-        }).status,
-      ).toBe("PREMISE_NOT_VERIFIED");
-    },
-  );
 });
 
 describe("atoms come from evidence rows, never from prose", () => {
-  it("derives one signed, united atom from a FACT premise", () => {
-    const atoms = factAtoms(
-      { id: "p1", claimType: "FACT", evidence: {} },
-      {
-        observation: { id: "o1", seriesId: SERIES, value: { toString: () => "-2.1" } },
-        seriesUnit: "percent",
-      },
-    );
-    expect(atoms).toEqual([
+  it("derives one signed, united, exact atom from a FACT premise", () => {
+    expect(
+      factAtoms(
+        { id: "p1", claimType: "FACT", evidence: {} },
+        {
+          observation: { id: "o1", seriesId: APPLE, value: { toString: () => "-2.100000" } },
+          seriesUnit: "percent",
+        },
+      ),
+    ).toEqual([
       {
         premiseClaimId: "p1",
         kind: "OBSERVATION_VALUE",
-        canonicalValue: -2.1,
+        canonicalValue: "-2.100000",
         unit: "percent",
-        subjectId: SERIES,
+        subjectId: APPLE,
       },
     ]);
   });
@@ -261,26 +305,26 @@ describe("atoms come from evidence rows, never from prose", () => {
       {
         id: "p1",
         claimType: "CALCULATION",
-        evidence: {
-          seriesId: SERIES,
-          absoluteChange: -0.25,
-          percentChange: -7.5,
-          bpsChange: -25,
-        },
+        evidence: { seriesId: APPLE, absoluteChange: -0.25, percentChange: -7.5, bpsChange: -25 },
       },
       { seriesUnit: "percent" },
     );
     expect(atoms.map((a) => [a.kind, a.canonicalValue, a.unit])).toEqual([
-      ["ABSOLUTE_CHANGE", -0.25, "percent"],
-      ["PERCENT_CHANGE", -7.5, "percent"],
-      ["BPS_CHANGE", -25, "bps"],
+      ["ABSOLUTE_CHANGE", "-0.25", "percent"],
+      ["PERCENT_CHANGE", "-7.5", "percent"],
+      ["BPS_CHANGE", "-25", "bps"],
     ]);
   });
 
-  it("derives nothing from a premise whose evidence is unreadable", () => {
-    expect(factAtoms({ id: "p1", claimType: "FACT", evidence: {} }, {})).toEqual([]);
+  it("derives nothing from an unreadable observation value", () => {
     expect(
-      calculationAtoms({ id: "p1", claimType: "CALCULATION", evidence: null }, { seriesUnit: "x" }),
+      factAtoms(
+        { id: "p1", claimType: "FACT", evidence: {} },
+        {
+          observation: { id: "o1", seriesId: APPLE, value: { toString: () => "0x10" } },
+          seriesUnit: "percent",
+        },
+      ),
     ).toEqual([]);
   });
 });

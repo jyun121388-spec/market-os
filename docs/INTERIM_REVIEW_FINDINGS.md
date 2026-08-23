@@ -3803,3 +3803,94 @@ detail says so in words.
 
 HG-006 activation work, not a frozen-RC repair. There is no INFERENCE producer, no provider, and no
 model. The frozen candidate has no free-text inference path and is not reopened.
+
+---
+
+## IR-095 — Second-order review: the structured boundary had five more holes
+
+Adversarial review of the structured provenance boundary shipped at `7761e40`. Six candidates
+named, **five reproduced and one resolved as a design gap rather than a bug**. Matrix completed
+before a line changed.
+
+### Reproduction matrix
+
+| #     | probe                                                                        | before                                               |
+| ----- | ---------------------------------------------------------------------------- | ---------------------------------------------------- |
+| **F** | `"margin was 2.1 percent, while unemployment was 2.1 percent"`, ONE citation | **ACCEPTS** — `quantitativeSpans` returned `["2.1"]` |
+| **F** | two unrelated `5 bps` spreads, ONE citation                                  | **ACCEPTS**                                          |
+| **G** | Apple-margin premise cited for `"Unemployment is 5 percent"`                 | **ACCEPTS** — subject never compared                 |
+| **H** | `"Margin was 5 percent. Margin was 5 percent."`, ONE citation                | **ACCEPTS**                                          |
+| **I** | `90000000000000.000001` evidence vs `...002` asserted                        | **ACCEPTS** — same double                            |
+| **J** | `assertValidClaim({confidence: NaN})`                                        | **ACCEPTED**, persisted, and **rendered**            |
+| **K** | INFERENCE with absent / wrong-typed evidence at write time                   | accepted, and no lifecycle existed                   |
+
+**G is the sharp one.** `QuantitativeAtom.subjectId` existed, was documented as the thing that
+prevents cross-subject laundering, and was compared to nothing — the citation had no subject to
+compare it against. Documentation-only safety, which is the same failure as the `$1400` comment in
+IR-094: the assurance surface asserting a property the code does not have.
+
+**J is worse than a range bug.** Infinity was caught; NaN was not, because every comparison with
+NaN is false. `createClaim` persisted it and `formatClaimForDisplay` rendered it — a stored claim
+with a nonsense confidence one call from a user.
+
+**K is not a bug so much as a missing distinction**, which §12 of the directive asked to establish
+before assuming. There was no lifecycle at all: `claimLedger` never mentions `verifyClaim`, and
+`formatClaimForDisplay` called `assertValidClaim` and rendered whatever passed. Persistence WAS
+publication safety.
+
+### Repairs, one per structural class
+
+**Occurrence identity (F, H).** `quantitativeOccurrences` returns `{start, end, surfaceText}` with
+no de-duplication; a citation carries `assertionStart`/`assertionEnd`; coverage asks whether each
+occurrence falls inside a cited range. Offsets are producer-supplied and therefore never trusted —
+the verifier slices the text and requires the slice to equal `surfaceText`. Dates are BLANKED
+rather than removed so every offset still indexes the original string; rebuilding offsets after a
+deletion is arithmetic that drifts silently.
+
+**Subject binding (G).** The citation carries `subjectId` and the atom must agree. Required at the
+evidence boundary as well as compared in the checker.
+
+**Exactness (I).** `canonicalValue` is a decimal string, straight from the column. Comparison
+reuses `sameDecimalValue` from `observationIngest` — the existing utility that scales to millionths
+exactly as `Decimal(20,6)` does — rather than a new numeric model or a wider epsilon. §8 asked for
+that and the utility already existed.
+
+**Write-time (J).** `Number.isFinite` before the range check, at the ledger.
+
+**Lifecycle (K).** Made explicit: `WRITE_ALLOWED` stays permissive because refusing to record a
+producer's output destroys the evidence it misbehaved; `PUBLISH_ALLOWED` requires a `VERIFIED`
+verdict that only `verifyClaim` can honestly produce. Publishing an inference is now a
+type-level distinct permission from storing one.
+
+### The residual limitation, stated rather than glossed
+
+Subject binding ties the producer's structured PLAN to the evidence. It does **not** establish that
+the PROSE is about that subject — doing so would mean extracting entities from arbitrary generated
+text, which is the enumeration this project has been burned by repeatedly. The intended chain puts
+a renderer between plan and prose so the words are generated FROM the subject rather than parsed
+back out of it. That renderer does not exist. **Until it does, a producer that writes a correct
+citation beside the wrong sentence is not caught here**, and that is recorded in the module rather
+than left for a reader to discover.
+
+Second residual: only the observation path is exact end to end. A CALCULATION's change is computed
+by `computeChange` as a JS number, so an atom is exactly as precise as the producer that made it.
+
+### Mutation
+
+Nineteen mutants. Three survived the first run and each was investigated rather than waved through:
+
+- **`skip range bounds validation`** — a mis-specified mutant, not a missing assertion. It removed
+  one of four bounds clauses and `end > claimText.length` still caught the case. Re-specified to
+  remove the whole guard.
+- **`require no subjectId on a citation`** — a real gap. Nothing constructed a stored citation
+  missing that field, so the evidence validator's required-field list was untested for it.
+- **`an unparseable surface is treated as supported`** — a real gap. The assertion existed before
+  the occurrence rewrite and was lost with it.
+
+Both gaps closed with tests. Fourth, fifth and sixth times in this project that a surviving mutant
+has named an assertion nobody wrote; it remains the most reliable review instrument here.
+
+### Scope
+
+HG-006 activation work. No producer, no provider, no model, no network. The frozen candidate has no
+inference path and is not reopened.

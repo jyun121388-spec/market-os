@@ -1,55 +1,69 @@
 /**
- * Comparing what an inference SAID against what its premises SUPPORT.
+ * Comparing what an inference SAID against what its premises SUPPORT, occurrence by occurrence.
  *
- * Two sides, derived independently, then compared. That separation is the whole design:
+ * Two sides, derived independently, then compared:
  *
  *     text side        parse the prose        -> the assertions a reader would take away
  *     structured side  read the database      -> the quantities the premises establish
  *
- * The previous version derived both from prose, which meant it was comparing the model's output
- * with itself and could only ever check that a digit sequence appeared twice. IR-094 has the probe
- * matrix.
+ * ## What the second-order review changed (IR-095)
  *
- * ## Where the unit vocabulary lives, and why that is not the forbidden enumeration
+ * The first structured version fixed sign, unit and premise binding, and left three holes that a
+ * probe matrix found immediately:
  *
- * Parsing "2.1 percent" into `{ sign: +, magnitude: 2.1, unit: percent }` needs to know a few unit
- * words, and the standing rule is not to answer a structural defect by growing a word list. The
- * difference is which way the list fails:
+ * - **Occurrence.** `"margin was 2.1 percent, while unemployment was 2.1 percent"` needed one
+ *   citation, because coverage compared a de-duplicated SET of numeric tokens and asked whether
+ *   each appeared inside some cited surface. Two assertions, one citation, verified.
+ * - **Subject.** `subjectId` existed on the atom, was documented as preventing cross-subject
+ *   laundering, and was never compared to anything — the citation had no subject to compare it
+ *   with. An Apple-margin premise authorised "Unemployment is 5 percent."
+ * - **Exactness.** `canonicalValue` was a JS number, so `90000000000000.000001` and
+ *   `90000000000000.000002` — two distinct values a `Decimal(20,6)` column holds — became the same
+ *   double and compared equal.
  *
- *     the old figuresIn        unrecognised shape -> the number is still supported  (fails open)
- *     this parser              unrecognised shape -> UNPARSEABLE, the citation fails (fails closed)
+ * A citation now names a RANGE in the claim text, a SUBJECT, and an exact decimal string. One
+ * citation covers one occurrence, and nothing else.
  *
- * A vocabulary that refuses what it does not recognise cannot be walked past by inventing a new
- * phrasing; it can only be made stricter than intended, which shows up as a false refusal and not
- * as an unsupported number reaching a reader.
+ * ## Where the unit vocabulary lives, and why it is not the forbidden enumeration
+ *
+ * Parsing "2.1 percent" needs a few unit words, and the standing rule is not to answer a structural
+ * defect by growing a word list. The difference is the direction of failure: an unrecognised shape
+ * here is `UNPARSEABLE` and the citation fails, so the list can only ever be too strict — which
+ * shows up as a false refusal, never as an unsupported number reaching a reader.
  */
 
+import { sameDecimalValue } from "./observationIngest";
 import type { QuantitativeAtom } from "./quantitativeEvidence";
 
 /**
- * A producer's claim that one span of its prose is supported by one premise quantity.
+ * A producer's claim that one exact span of its prose is supported by one premise quantity.
  *
- * `surfaceText` is what the prose says; the rest names which atom is supposed to back it. Both are
- * required, because the citation has to be checkable in both directions — the atom must exist, and
- * the words must actually appear in the sentence.
+ * `assertionStart`/`assertionEnd` are character offsets into `claimText`. They are the whole point
+ * of the second-order repair: a citation identifies an OCCURRENCE, not a substring that happens to
+ * exist somewhere. Offsets are never trusted — the verifier slices the text and requires the slice
+ * to equal `surfaceText`.
+ *
+ * `subjectId` is what the producer's structured plan says this assertion is ABOUT. See the residual
+ * limitation in `./inferenceClaim`: this binds the plan to the evidence, and binding the PROSE to
+ * the plan is the renderer's job.
  */
 export interface QuantitativeCitation {
   premiseClaimId: string;
   kind: string;
+  subjectId: string;
   surfaceText: string;
+  assertionStart: number;
+  assertionEnd: number;
 }
 
 export interface ParsedQuantity {
   sign: 1 | -1;
-  magnitude: number;
+  /** Exact decimal digits as written, separators stripped. A string, never a number. */
+  magnitude: string;
   unit: string;
 }
 
-/**
- * Canonical unit tokens, and the surface forms that mean them.
- *
- * Short on purpose. Anything absent is `UNPARSEABLE`, which fails the citation.
- */
+/** Canonical unit tokens, and the surface forms that mean them. Anything absent is UNPARSEABLE. */
 const UNIT_FORMS: [RegExp, string][] = [
   [/^%$/, "percent"],
   [/^(percent|percentage|퍼센트)$/i, "percent"],
@@ -69,11 +83,10 @@ const CURRENCY_PREFIX: [string, string][] = [
 ];
 
 /**
- * Parses one surface span into a signed magnitude and a canonical unit, or refuses.
+ * Parses one surface span into a signed exact magnitude and a canonical unit, or refuses.
  *
- * Refuses when there is no number, more than one number, or no recognisable unit. A span with no
- * unit at all is refused rather than treated as dimensionless: "Revenue was 1,400" is a quantity
- * whose unit the sentence did not state, and guessing it is exactly the mistake being repaired.
+ * The magnitude stays a string. Converting it to a number here would reintroduce the precision
+ * collapse the whole repair exists to close, one line after the value left the database intact.
  */
 export function parseQuantity(surfaceText: string): ParsedQuantity | "UNPARSEABLE" {
   const text = surfaceText.trim();
@@ -81,12 +94,8 @@ export function parseQuantity(surfaceText: string): ParsedQuantity | "UNPARSEABL
   const numbers = text.match(/-?\d[\d,]*(\.\d+)?/g) ?? [];
   if (numbers.length !== 1) return "UNPARSEABLE";
   const raw = numbers[0];
-  const magnitude = Math.abs(Number(raw.replace(/,/g, "")));
-  if (!Number.isFinite(magnitude)) return "UNPARSEABLE";
-
-  // A leading minus on the number itself, or an explicit "minus"/"down"/"fell" is not inferred —
-  // only the sign character counts, because reading direction out of a verb is interpretation.
-  const sign: 1 | -1 = raw.trimStart().startsWith("-") ? -1 : 1;
+  const sign: 1 | -1 = raw.startsWith("-") ? -1 : 1;
+  const magnitude = raw.replace(/^-/, "").replace(/,/g, "");
 
   const before = text.slice(0, text.indexOf(raw));
   const after = text.slice(text.indexOf(raw) + raw.length).trim();
@@ -95,7 +104,6 @@ export function parseQuantity(surfaceText: string): ParsedQuantity | "UNPARSEABL
     if (before.includes(symbol)) return { sign, magnitude, unit };
   }
 
-  // The unit is the token immediately after the number, or the token after a scale word.
   const afterTokens = after.split(/[\s,.;:)]+/).filter(Boolean);
   if (afterTokens.length === 0) return "UNPARSEABLE";
   const candidates = [afterTokens[0], afterTokens.slice(0, 2).join(" ")];
@@ -109,8 +117,10 @@ export function parseQuantity(surfaceText: string): ParsedQuantity | "UNPARSEABL
 
 export type CitationVerdict =
   | "SUPPORTED"
-  | "SURFACE_TEXT_NOT_IN_CLAIM"
+  | "RANGE_OUT_OF_BOUNDS"
+  | "RANGE_TEXT_MISMATCH"
   | "ATOM_NOT_FOUND"
+  | "SUBJECT_MISMATCH"
   | "UNPARSEABLE_SURFACE"
   | "SIGN_MISMATCH"
   | "UNIT_MISMATCH"
@@ -122,9 +132,31 @@ export interface CitationCheck {
   detail: string;
 }
 
-/** Floating-point comparison at the precision a rendered figure actually carries. */
-function sameValue(a: number, b: number): boolean {
-  return Math.abs(a - b) < 1e-9;
+/**
+ * Exact decimal equality, reusing the comparison the ingest path already applies to this column.
+ *
+ * `sameDecimalValue` scales both operands to millionths the way `Decimal(20,6)` does and compares
+ * integers, so it is exact at the column's own precision rather than at the precision a double
+ * happens to survive. It throws on an unreadable operand, which is caught and reported as a value
+ * mismatch: a comparison that cannot read an operand has not decided anything.
+ */
+function sameExactValue(a: string, b: string): boolean {
+  try {
+    return sameDecimalValue(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/** Absolute value of an exact decimal string, without going through a number. */
+function magnitudeOf(exact: string): string {
+  return exact.trim().replace(/^[+-]/, "");
+}
+
+function signOf(exact: string): 1 | -1 | 0 {
+  const trimmed = exact.trim();
+  if (/^[+-]?0*(\.0*)?$/.test(trimmed)) return 0;
+  return trimmed.startsWith("-") ? -1 : 1;
 }
 
 /**
@@ -143,11 +175,26 @@ export function checkCitation(
     detail,
   });
 
-  if (!claimText.includes(citation.surfaceText)) {
+  // Offsets are producer-supplied and therefore not trusted. Bounds first, then the slice.
+  const { assertionStart: start, assertionEnd: end } = citation;
+  if (
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start < 0 ||
+    end > claimText.length ||
+    start >= end
+  ) {
     return fail(
-      "SURFACE_TEXT_NOT_IN_CLAIM",
-      `The citation quotes "${citation.surfaceText}", which does not appear in the claim text. A ` +
-        "citation that does not point at the words it claims to support proves nothing.",
+      "RANGE_OUT_OF_BOUNDS",
+      `[${start}, ${end}) is not a valid range within a claim of length ${claimText.length}.`,
+    );
+  }
+  if (claimText.slice(start, end) !== citation.surfaceText) {
+    return fail(
+      "RANGE_TEXT_MISMATCH",
+      `The claim text at [${start}, ${end}) is "${claimText.slice(start, end)}", not ` +
+        `"${citation.surfaceText}". A citation that does not point at the words it quotes ` +
+        "identifies no occurrence.",
     );
   }
 
@@ -161,16 +208,26 @@ export function checkCitation(
     );
   }
 
+  // Subject before value, because the interesting failure is the one where the numbers agree.
+  if (citation.subjectId !== atom.subjectId) {
+    return fail(
+      "SUBJECT_MISMATCH",
+      `The assertion is about ${citation.subjectId} and the evidence is about ${atom.subjectId}. ` +
+        "The same number measured on a different subject is a different fact.",
+    );
+  }
+
   const parsed = parseQuantity(citation.surfaceText);
   if (parsed === "UNPARSEABLE") {
     return fail(
       "UNPARSEABLE_SURFACE",
       `"${citation.surfaceText}" does not parse into a signed magnitude and a known unit. ` +
-        "Refused rather than assumed: an unreadable quantity is not a supported one.",
+        "Refused rather than assumed.",
     );
   }
 
-  if (parsed.sign !== Math.sign(atom.canonicalValue) && atom.canonicalValue !== 0) {
+  const atomSign = signOf(atom.canonicalValue);
+  if (atomSign !== 0 && parsed.sign !== atomSign) {
     return fail(
       "SIGN_MISMATCH",
       `The text says ${parsed.sign < 0 ? "a fall" : "a rise"} and the evidence says the opposite ` +
@@ -186,12 +243,16 @@ export function checkCitation(
     );
   }
 
-  if (!sameValue(parsed.magnitude, Math.abs(atom.canonicalValue))) {
+  if (!sameExactValue(parsed.magnitude, magnitudeOf(atom.canonicalValue))) {
     return fail(
       "VALUE_MISMATCH",
-      `The text says ${parsed.magnitude} and the evidence says ${Math.abs(atom.canonicalValue)}.`,
+      `The text says ${parsed.magnitude} and the evidence says ${magnitudeOf(atom.canonicalValue)}.`,
     );
   }
 
-  return { citation, verdict: "SUPPORTED", detail: "sign, unit and value all match the evidence" };
+  return {
+    citation,
+    verdict: "SUPPORTED",
+    detail: "range, subject, sign, unit and exact value all match the evidence",
+  };
 }

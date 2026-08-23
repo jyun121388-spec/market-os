@@ -187,6 +187,25 @@ describeIfDb("claim verification (integration)", () => {
    * reaches the fail-closed branch, and that a stored NaN confidence is refused. IR-094 reproduced
    * every one of these as an acceptance before the repair.
    */
+  /** Builds a citation whose offsets are computed from the claim text itself. */
+  const cite = (
+    claimText: string,
+    surfaceText: string,
+    premiseClaimId: string,
+    subjectId: string,
+    kind = "OBSERVATION_VALUE",
+  ) => {
+    const start = claimText.indexOf(surfaceText);
+    return {
+      premiseClaimId,
+      kind,
+      subjectId,
+      surfaceText,
+      assertionStart: start,
+      assertionEnd: start + surfaceText.length,
+    };
+  };
+
   const factPremise = async () => {
     const observation = await prisma.observation.findUniqueOrThrow({
       where: { id: observationId },
@@ -219,20 +238,15 @@ describeIfDb("claim verification (integration)", () => {
     const { premise, observation } = await factPremise();
     const value = observation.value.toString();
     const unit = observation.series.unit;
+    const claimText = `The reading stood at ${value} ${unit} on that date.`;
     const inference = await prisma.claim.create({
       data: {
-        claimText: `The reading stood at ${value} ${unit} on that date.`,
+        claimText,
         claimType: "INFERENCE",
         confidence: 0.5,
         evidence: {
           premiseClaimIds: [premise.id],
-          quantitativeCitations: [
-            {
-              premiseClaimId: premise.id,
-              kind: "OBSERVATION_VALUE",
-              surfaceText: `${value} ${unit}`,
-            },
-          ],
+          quantitativeCitations: [cite(claimText, `${value} ${unit}`, premise.id, seriesId)],
         },
       },
     });
@@ -261,16 +275,15 @@ describeIfDb("claim verification (integration)", () => {
     // quotes a different number fails even though the number is present in the prose.
     const { premise, observation } = await factPremise();
     const unit = observation.series.unit;
+    const claimText = `The reading stood at 99 ${unit} on that date.`;
     const inference = await prisma.claim.create({
       data: {
-        claimText: `The reading stood at 99 ${unit} on that date.`,
+        claimText,
         claimType: "INFERENCE",
         confidence: 0.5,
         evidence: {
           premiseClaimIds: [premise.id],
-          quantitativeCitations: [
-            { premiseClaimId: premise.id, kind: "OBSERVATION_VALUE", surfaceText: `99 ${unit}` },
-          ],
+          quantitativeCitations: [cite(claimText, `99 ${unit}`, premise.id, seriesId)],
         },
       },
     });
@@ -296,6 +309,36 @@ describeIfDb("claim verification (integration)", () => {
     expect(result.detail).toContain("MALFORMED_EVIDENCE");
   });
 
+  it("refuses a stored citation with no subjectId", async () => {
+    // The evidence validator lists the fields a citation must carry. Nothing exercised the
+    // subjectId entry, so deleting it from that list changed no test — a surviving mutant found
+    // the gap. Subject binding is the IR-095 candidate G repair; it has to be required at the
+    // boundary as well as compared in the checker.
+    const { premise } = await factPremise();
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: "Nothing numeric here.",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: {
+          premiseClaimIds: [premise.id],
+          quantitativeCitations: [
+            {
+              premiseClaimId: premise.id,
+              kind: "OBSERVATION_VALUE",
+              surfaceText: "x",
+              assertionStart: 0,
+              assertionEnd: 1,
+            },
+          ],
+        },
+      },
+    });
+    const result = await verifyClaim(inference.id);
+    expect(result.detail).toContain("MALFORMED_EVIDENCE");
+    expect(result.detail).toContain("subjectId");
+  });
+
   it("refuses a citation pointing outside premiseClaimIds", async () => {
     const { premise } = await factPremise();
     const inference = await prisma.claim.create({
@@ -306,7 +349,14 @@ describeIfDb("claim verification (integration)", () => {
         evidence: {
           premiseClaimIds: [premise.id],
           quantitativeCitations: [
-            { premiseClaimId: "some-other-claim", kind: "OBSERVATION_VALUE", surfaceText: "x" },
+            {
+              premiseClaimId: "some-other-claim",
+              kind: "OBSERVATION_VALUE",
+              subjectId: seriesId,
+              surfaceText: "x",
+              assertionStart: 0,
+              assertionEnd: 1,
+            },
           ],
         },
       },
@@ -316,6 +366,10 @@ describeIfDb("claim verification (integration)", () => {
   });
 
   it("refuses a stored NaN confidence, which PostgreSQL accepts", async () => {
+    // Written with prisma.claim.create rather than createClaim ON PURPOSE. The ledger now refuses
+    // NaN at write time (IR-095 candidate J), so this is the historical-or-tampered row: a value
+    // already in the database that the current writer would never produce. Defence in depth is the
+    // whole reason the verifier keeps its own check.
     // IR-094 candidate E, production-reachable: double precision stores NaN, Prisma round-trips
     // it, and `NaN < 0 || NaN > 1` is false, so the old range check passed it.
     const { premise } = await factPremise();
@@ -352,11 +406,12 @@ describeIfDb("claim verification (integration)", () => {
         evidence: {
           premiseClaimIds: [premise.id],
           quantitativeCitations: [
-            {
-              premiseClaimId: premise.id,
-              kind: "OBSERVATION_VALUE",
-              surfaceText: `${value} ${unit}`,
-            },
+            cite(
+              `The reading stood at ${value} ${unit}.`,
+              `${value} ${unit}`,
+              premise.id,
+              seriesId,
+            ),
           ],
         },
       },

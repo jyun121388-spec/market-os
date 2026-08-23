@@ -8,8 +8,8 @@
  * 1. **Every premise verifies.** An inference resting on a FACT that does not check out is not
  *    verified, whatever it says.
  * 2. **No premise is missing.** An inference with no premises is an assertion.
- * 3. **Every quantity in the prose is cited, and every citation matches structured evidence** on
- *    sign, unit and value. This is the one a language model fails.
+ * 3. **Every quantity OCCURRENCE in the prose is cited, and every citation matches structured
+ *    evidence** on subject, sign, unit and exact value. This is the one a language model fails.
  * 4. **Confidence is a real number in range.** `NaN` is not.
  *
  * ## What replaced the first version, and why
@@ -34,6 +34,16 @@
  * verifier that let a caller read it that way would be the Claim Ledger's own failure mode: a label
  * doing work the check never did. It means provenance exists, premises verify, every quantitative
  * assertion is traceable, and the confidence metadata is valid. Semantic truth is outside it.
+ *
+ * ## The residual limitation, stated because it is real
+ *
+ * Subject binding ties the producer's structured PLAN to the evidence: the citation says which
+ * subject the assertion is about, and the atom must agree. It does NOT establish that the
+ * PROSE is about that subject — checking that would mean extracting entities from arbitrary
+ * generated text, which is the enumeration this project has already been burned by. The
+ * intended chain puts a renderer between the plan and the prose so the words are generated FROM
+ * the subject rather than parsed back out of it; that renderer does not exist yet, and until it
+ * does, a producer that writes a correct citation beside the wrong sentence is not caught here.
  *
  * Pure and synchronous. The database work belongs to the caller.
  */
@@ -89,17 +99,38 @@ export interface InferenceClaimInput {
   evidenceMalformed?: string;
 }
 
+/** One quantity as it occurs in the prose, at one place. */
+export interface QuantitativeOccurrence {
+  start: number;
+  end: number;
+  surfaceText: string;
+}
+
 /**
- * Quantities a reader would take away from the prose, as spans.
+ * Every quantity a reader would take away, as OCCURRENCES rather than as distinct tokens.
  *
- * A full ISO date is excluded: `2026-03-01` is not a financial quantity, no producer emits it as
- * one, and requiring a citation for it would make every claim text uncitable. A BARE year is not
- * excluded — `Revenue reached 2026` must still be cited, which is exactly the laundering case the
- * old version waved through.
+ * The previous version returned a de-duplicated set of strings, and coverage asked whether each
+ * appeared inside some cited surface. "Apple margin was 2.1 percent, while unemployment was 2.1
+ * percent" therefore needed one citation for two assertions (IR-095 candidate F). Two occurrences
+ * are two things to account for, whatever they happen to spell.
+ *
+ * A full ISO date is excluded: it is not a financial quantity and no producer emits one. A BARE
+ * year is not excluded — `Revenue reached 2026` still needs a citation.
  */
-export function quantitativeSpans(text: string): string[] {
-  const withoutIsoDates = text.replace(/\d{4}-\d{2}-\d{2}/g, " ");
-  return [...new Set(withoutIsoDates.match(/-?\d[\d,]*(\.\d+)?%?/g) ?? [])];
+export function quantitativeOccurrences(text: string): QuantitativeOccurrence[] {
+  // Dates are blanked rather than removed so every remaining offset still indexes the ORIGINAL
+  // string. Rebuilding offsets after a deletion is the kind of arithmetic that silently drifts.
+  const masked = text.replace(/\d{4}-\d{2}-\d{2}/g, (match) => " ".repeat(match.length));
+  const pattern = /-?\d[\d,]*(\.\d+)?%?/g;
+  const occurrences: QuantitativeOccurrence[] = [];
+  for (let match = pattern.exec(masked); match !== null; match = pattern.exec(masked)) {
+    occurrences.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      surfaceText: text.slice(match.index, match.index + match[0].length),
+    });
+  }
+  return occurrences;
 }
 
 /**
@@ -187,12 +218,19 @@ export function verifyInferenceClaim(input: InferenceClaimInput): InferenceVerif
     };
   }
 
-  // Coverage. Structured citations alone are not enough: prose may still contain a number nobody
-  // cited, and an uncited number is exactly what a model invents.
-  const supportedSpans = checks.map((c) => c.citation.surfaceText);
-  const uncitedQuantities = quantitativeSpans(input.claimText).filter(
-    (span) => !supportedSpans.some((surface) => surface.includes(span)),
-  );
+  // Coverage, per OCCURRENCE. Structured citations alone are not enough: prose may still contain a
+  // number nobody cited, and one citation must not absolve every other place the same number
+  // appears. An occurrence is covered when a cited range contains it.
+  const uncitedQuantities = quantitativeOccurrences(input.claimText)
+    .filter(
+      (occurrence) =>
+        !checks.some(
+          (check) =>
+            check.citation.assertionStart <= occurrence.start &&
+            check.citation.assertionEnd >= occurrence.end,
+        ),
+    )
+    .map((occurrence) => `${occurrence.surfaceText}@${occurrence.start}`);
   if (uncitedQuantities.length > 0) {
     return {
       status: "UNCITED_QUANTITY",

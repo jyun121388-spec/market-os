@@ -4050,3 +4050,116 @@ against the Claim Ledger rather than against a list the caller wrote.
 
 Holdout 2 stays frozen and read-only. Any accuracy claim after this design changes needs a new
 holdout frozen before implementation sees its labels.
+
+### The repair, and the after matrix
+
+The model is now an **untrusted planner**. It returns a plan naming stored records; the repository
+renders those records. `InferenceSink.generate(query): string` became
+`generatePlan(query): unknown`, and there is no field in the contract through which a planner's
+sentence can become a reader's answer — which is a different kind of statement from "the scanner is
+good at its job".
+
+Two segment kinds, a closed list with no default branch and no `SAFE_PROSE`:
+
+| kind                     | authority         | rendered from                                                                          |
+| ------------------------ | ----------------- | -------------------------------------------------------------------------------------- |
+| `EVIDENCE_BOUND_CLAIM`   | a Claim Ledger id | IR-100's `resolvePublishableClaim` — load once, verify that object, render that object |
+| `REPOSITORY_EXPLANATION` | a `CausalEdge` id | the stored row, including its required counterexample                                  |
+
+`CausalEdge` qualifies because §11 asked whether authoritative repository-owned explanatory content
+exists rather than assuming it: those rows are written by `prisma/seedCausalEdges.ts` and by nothing
+else — no user, request or model can create one. Without it the `FACTUAL_MECHANISM` frame would
+admit questions nothing could ever answer.
+
+A plan may also carry `proposedNarration`, and it is worth being precise about why that is not
+`SAFE_PROSE` with a nicer name: **it is never rendered**, and the only two things done with it can
+reduce what publishes, never permit it. The detector runs over it, so a planner proposing advice is
+reported as proposing advice; and every figure in it must appear in the text the repository is about
+to publish. That second rule is what replaces `attributableFigures` — same job, opposite direction
+of authority. The old list came from the caller asking for publication; this one is derived from the
+verified claims themselves, so there is nothing a caller can assert to widen it.
+
+| #            | before     | after                                                                                                       |
+| ------------ | ---------- | ----------------------------------------------------------------------------------------------------------- |
+| **P1/P2/P3** | PUBLISHED  | suppressed, `UNVERIFIABLE`, and **not one phrase added to any pattern list**                                |
+| **Q1**       | PUBLISHED  | suppressed — the parameter that carried the assertion no longer exists (`answerWithInference.length === 2`) |
+| **R1**       | PUBLISHED  | suppressed, `UNSUPPORTED_FIGURE`; smuggled as a segment field instead, `MODEL_AUTHORED_PROSE`               |
+| **S1**       | suppressed | still suppressed, and the validated half does not leak either                                               |
+
+### Two questions the repair had to answer rather than assume
+
+**Freshness.** `docs/DATA_POLICY.md` says stale data must never be shown as current, and publication
+is exactly that moment. Rather than invent a threshold, publication reuses `staleness.ts`'s existing
+3x-median rule through `economicCalendar.ts`'s existing cadence projection. A series too thin to
+project a cadence is `FRESHNESS_UNKNOWN`, which suppresses — unknown is not fresh. That has a real
+cost, stated rather than softened: a genuinely current value from a two-observation series will not
+publish.
+
+**A latent IR-100 defect, found by the first positive control.** `resolvePublishableClaim` did not
+pass `evidence` to the renderer, and `assertValidClaim` requires it for CALCULATION — so every
+CALCULATION claim was unpublishable. IR-100 shipped without noticing because all of its publication
+tests were INFERENCE. Positive control B found it on the first run, which is the argument for
+positive controls: the negative ones all passed.
+
+### Mutation, and the one that is the actual test
+
+Twelve mutants, **12 resolved, 0 survivors, 0 skipped** — after two survivors on the first run, each
+naming an assertion nobody had written (the fifth and sixth time in this series):
+
+- `the narration detector is skipped` survived because every existing test reached that branch with
+  an empty plan, so the branch that runs _after_ all segments validate was never executed. That is
+  the OH-051/099/119 shape from the holdout, and it now has a test.
+- `the final detector over rendered output is bypassed` survived because nothing constructed a
+  stored record whose rendering trips a pattern. A deliberately rogue seeded `CausalEdge` does.
+
+The twelfth mutant is judged by a different question. It deletes **every** prohibited-construction
+pattern and asks two things: did the mutation have an effect (yes — the diagnostic assertions go
+red), and can unbacked prose publish now (**no**). A dedicated block of tests is phrased to survive
+that deletion: it asserts only that prose naming no repository authority cannot publish, never that
+anything is `BLOCKED`. If that block ever goes red the boundary is a negative filter again, and no
+amount of green elsewhere would mean anything.
+
+### The frozen holdout, first run
+
+160 cases, half English half Korean, generated by an independent model from `LEGAL_GUARDRAILS.md`,
+`DATA_POLICY.md` and the seven-rule contract, labelled from those rules, frozen with
+`sha256 762ea317c2f3b766e5723a5edc84d8131d839a7dc9eccc12416b22e8231930d2` before `outputPlan.ts`
+existed. The mapping from case to plan was fixed before the run and applied blind to labels.
+
+| axis                                                   | result      |
+| ------------------------------------------------------ | ----------- |
+| strict three-way agreement                             | **108/160** |
+| withheld-vs-published, the axis that matters           | **156/160** |
+| legitimate answers published                           | **41/41**   |
+| over-published                                         | **4**       |
+| cases where the planner's own words reached the caller | **0**       |
+
+**The 47 largest disagreements are all `BLOCKED` expected, `UNVERIFIABLE` observed** — suppressed,
+but reported generically because the finite pattern list does not cover the phrasing. That is a
+reporting loss, not a safety loss, and it is the expected consequence of refusing to grow the list.
+
+**The 4 over-published cases are the honest result and nothing was changed to improve them.** Three
+(OH-051, OH-099, OH-119) pair real verified authority with a narration the detector misses — "zero
+downside", "investment-worthiness score of 64", "guarantees your capital". What published in each
+was the repository's rendering of the verified claim, not the advice; the contract still says the
+answer should have been withheld because the planner proposed a prohibition, and it was not. The
+fourth (OH-123) is a sign mismatch with identical digits — "verifies a 0.9% decline, but the text
+reports a 0.9% increase" — which figure coverage cannot see, and which was predicted before the run
+rather than discovered by it.
+
+Closing those by adding phrases is precisely what this project has measured not to work, so they
+stay open and named. The residual, stated plainly: **a misbehaving planner's proposal is not always
+reported, though it is never rendered.**
+
+### Scope and limits
+
+HG-006 activation work. No provider, no model, no network, no credential, no cost. Semantic
+equivalence between a narration and a verified claim is still not established and is not claimed —
+§9's restriction stands, which is why the narration is discarded rather than published. Holdout 1
+and Holdout 2 and the request-side guardrail were not touched. PR #1 and the frozen candidate are
+untouched, and the concurrent session's control-bus work is untouched and disjoint from every file
+changed here.
+
+Build: `npm run build` (turbopack) fails on the worktree's `node_modules` junction, before reading
+any source; `npx next build --webpack` completes, all ten routes. Full suite 1878/1878 across 120
+files against real PostgreSQL.

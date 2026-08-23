@@ -1,37 +1,27 @@
 /**
- * The other boundary: what a model said, checked independently of what it was asked.
+ * A detector for named prohibited constructions. **Not** a publication authority.
  *
- * A request gate cannot establish that generated prose is free of a personalised recommendation, a
- * price target, a guarantee or an allocation instruction. It can only establish that the question
- * was a reasonable one to ask. Those are different facts, and treating the first as evidence for
- * the second is the mistake this file exists to make impossible:
+ * It used to be one, and IR-101 measured what that was worth: novel advisory prose in two languages
+ * matched nothing here and was published, because the effective rule had become "no pattern fired
+ * and every digit appeared in a list the caller supplied, therefore safe". Absence of a match is
+ * not evidence, and a finite list of phrasings over free text is absence by construction. The
+ * request-side holdouts had already measured the same thing from the other direction — 81% false
+ * negative on the first fresh corpus — which is why the answer is not a longer list.
  *
- *     AUTHORIZED REQUEST -> MODEL -> OUTPUT POLICY -> CLAIM/PROVENANCE -> USER
- *                                   ^^^^^^^^^^^^^
+ * Publication authority now lives in `./outputPlan`: a model names stored records, and the
+ * repository renders them. Nothing a model writes reaches a reader, so there is no free text for a
+ * scanner to be the last line of defence over.
  *
- * **Independent of the input classification, deliberately.** This function is not told what frame
- * the request had, whether it was authorized, or what the prompt said, and it must not be — a
- * scanner that trusts the request has no way to catch the case that matters, which is a
- * well-formed factual question answered with advice.
+ * ## What this is still good for
  *
- * ## Fail closed, and what that means for prose
+ * When a planner proposes something unpublishable, "it proposed advice" and "it proposed something
+ * unrecognised" are different reports, and the first is worth naming. A misbehaving planner that
+ * says `you should buy Samsung` should be recorded as `PERSONALISED_RECOMMENDATION`, not as a
+ * generic malformed segment. That is a diagnosis, and diagnoses are allowed to be incomplete.
  *
- * A guardrail over free text cannot enumerate what prose may say. So the verdict is not
- * "clean / not clean" but three-valued, and only the first is publishable:
- *
- *  - `CLEAR` — no prohibited construction found AND every figure is attributable.
- *  - `BLOCKED` — a prohibited construction was found. Named, so the failure is auditable.
- *  - `UNVERIFIABLE` — nothing prohibited was found and something could not be checked. Not
- *    publishable. This is the state an absence-based scanner would call clean, and it is where a
- *    generation path leaks.
- *
- * No provider is required to build, test or reason about any of this, and none is used. The
- * interface, the policy contract, the fixtures and the tests are the deliverable; the model is not
- * part of it and is not approved (HG-006).
+ * The load-bearing property, asserted by mutation: **deleting every pattern below must not make
+ * anything publishable.** If it did, this file would be the safety boundary again.
  */
-
-/** What the scanner found. Only `CLEAR` may be shown to a user. */
-export type OutputVerdict = "CLEAR" | "BLOCKED" | "UNVERIFIABLE";
 
 /**
  * The prohibited constructions, one per hard prohibition in `docs/LEGAL_GUARDRAILS.md`.
@@ -55,27 +45,11 @@ export interface OutputFinding {
   evidence: string;
 }
 
-export interface OutputScan {
-  verdict: OutputVerdict;
+export interface OutputDetection {
+  /** True when at least one named prohibited construction was found. Never a licence when false. */
+  blocked: boolean;
   findings: OutputFinding[];
-  /** Why the verdict is what it is, in words. */
   reason: string;
-}
-
-/**
- * What the caller must supply for a figure to be publishable.
- *
- * Deliberately a required input rather than an optional one. A scanner that accepted "no
- * attribution information provided" and returned CLEAR would make forgetting to wire provenance
- * indistinguishable from having it, and `docs/DATA_POLICY.md` is the whole reason that must not be
- * possible.
- */
-export interface OutputContext {
-  /**
-   * Numeric strings the caller can attribute to a stored source, exactly as they appear in the
-   * text. Empty is a valid answer and means "no figure in this output is attributable".
-   */
-  attributableFigures: string[];
 }
 
 const VIOLATION_PATTERNS: { violation: OutputViolation; patterns: RegExp[] }[] = [
@@ -144,16 +118,16 @@ const VIOLATION_PATTERNS: { violation: OutputViolation; patterns: RegExp[] }[] =
   },
 ];
 
-/** Any run of digits that could be a figure a reader would rely on. */
-const FIGURE = /\d[\d,]*(\.\d+)?%?/g;
-
 /**
- * Scans generated prose. Independent of the request, and fail-closed on anything it cannot check.
+ * Runs the pattern list over text and names what it found.
  *
- * Returns `BLOCKED` on the first kind of violation found and every other kind found alongside it,
- * because a reviewer needs the whole list rather than the first hit.
+ * Returns every kind of violation present rather than the first, because a reviewer reading a
+ * rejected plan needs the whole list. Takes only text: there is no context parameter, and that is
+ * deliberate — the caller-supplied `attributableFigures` this function used to accept was IR-101
+ * candidates Q and R, a caller vouching for its own numbers. Numeric authority is a verified stored
+ * claim (`./outputPlan`), and there is no argument to this function that could substitute for one.
  */
-export function scanGeneratedOutput(text: string, context: OutputContext): OutputScan {
+export function detectProhibitedConstructions(text: string): OutputDetection {
   const findings: OutputFinding[] = [];
 
   for (const { violation, patterns } of VIOLATION_PATTERNS) {
@@ -166,38 +140,19 @@ export function scanGeneratedOutput(text: string, context: OutputContext): Outpu
     }
   }
 
-  if (findings.length > 0) {
+  if (findings.length === 0) {
     return {
-      verdict: "BLOCKED",
-      findings,
-      reason: `Prohibited construction in generated output: ${findings
-        .map((f) => f.violation)
-        .join(", ")}.`,
-    };
-  }
-
-  // Nothing prohibited was found, which is where an absence-based scanner would stop. Every figure
-  // still has to be attributable, because an unsourced number is its own prohibition
-  // (docs/DATA_POLICY.md) and a model produces those effortlessly.
-  const attributable = new Set(context.attributableFigures);
-  const unattributed = [...new Set(text.match(FIGURE) ?? [])].filter(
-    (figure) => !attributable.has(figure),
-  );
-
-  if (unattributed.length > 0) {
-    return {
-      verdict: "UNVERIFIABLE",
+      blocked: false,
       findings: [],
       reason:
-        `Nothing prohibited was found, and ${unattributed.length} figure(s) could not be traced ` +
-        `to a stored source: ${unattributed.slice(0, 5).join(", ")}. Not publishable. "Nothing ` +
-        'prohibited was found" is not the same as "this is safe to show".',
+        "No named prohibited construction found. This is not a statement that the text is safe — " +
+        "see the module docstring; publication authority is structural and lives elsewhere.",
     };
   }
 
   return {
-    verdict: "CLEAR",
-    findings: [],
-    reason: "No prohibited construction, and every figure traces to a stored source.",
+    blocked: true,
+    findings,
+    reason: `Prohibited construction found: ${findings.map((f) => f.violation).join(", ")}.`,
   };
 }

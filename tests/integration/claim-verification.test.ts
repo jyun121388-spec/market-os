@@ -570,16 +570,31 @@ describeIfDb("claim verification (integration)", () => {
     it("renders the verified object, not a fresh read", async () => {
       // Structural: publication loads once. Asserted by source shape because a race is not
       // reproducible under an append-only ledger — see the transaction note in the module.
+      //
+      // The single load moved into `resolvePublishableClaim` when IR-101 needed structured reasons
+      // rather than an exception, so that is where the assertion points. Strictly stronger than
+      // before: the outer function is now required to contain no database access at all, which is
+      // a shorter route to "it cannot re-read" than counting the reads it makes.
       const source = readFileSync(
         join(process.cwd(), "src/server/domain/claimVerification.ts"),
         "utf8",
       );
-      const decl = source.indexOf("export async function publishClaimForDisplay");
-      const end = source.indexOf("\n}\n", decl);
-      expect(end).toBeGreaterThan(decl);
-      const body = source.slice(decl, end);
-      expect(body.split("findUnique").length - 1).toBe(1);
-      expect(body).toContain("verifyLoadedClaim(claim)");
+      const bodyOf = (name: string) => {
+        const decl = source.indexOf(`export async function ${name}`);
+        expect(decl).toBeGreaterThan(-1);
+        const end = source.indexOf("\n}\n", decl);
+        expect(end).toBeGreaterThan(decl);
+        return source.slice(decl, end);
+      };
+
+      const resolver = bodyOf("resolvePublishableClaim");
+      expect(resolver.split("findUnique").length - 1).toBe(1);
+      expect(resolver).toContain("verifyLoadedClaim(claim)");
+      expect(resolver).toContain("claimText: claim.claimText");
+
+      const publisher = bodyOf("publishClaimForDisplay");
+      expect(publisher).not.toContain("prisma.");
+      expect(publisher).toContain("resolvePublishableClaim(claimId)");
     });
   });
 

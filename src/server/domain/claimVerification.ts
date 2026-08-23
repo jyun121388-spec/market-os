@@ -101,28 +101,71 @@ export async function verifyLoadedClaim(claim: {
  * test that reproduced N by calling `prisma.claim.update` directly is the shape it would take.
  */
 export async function publishClaimForDisplay(claimId: string): Promise<string> {
-  const claim = await prisma.claim.findUnique({ where: { id: claimId } });
-  if (!claim) {
+  const resolved = await resolvePublishableClaim(claimId);
+  if (resolved.status === "NOT_FOUND") {
     throw new InvalidClaimError(
       `No claim ${claimId} exists. Publication is anchored to a stored ledger identity, so there ` +
         "is nothing here to publish.",
     );
   }
+  if (resolved.status === "NOT_VERIFIED") {
+    throw new InvalidClaimError(
+      `Claim ${claimId} did not verify (${resolved.verification.status}): ` +
+        resolved.verification.detail,
+    );
+  }
+  return resolved.renderedText;
+}
+
+/** A claim row as publication needs it: enough to verify, render and check freshness. */
+export interface LoadedClaim {
+  id: string;
+  claimType: string;
+  claimText: string;
+  sourceId: string | null;
+  confidence: unknown;
+  evidence: unknown;
+}
+
+export type PublishableClaim =
+  | { status: "PUBLISHABLE"; claim: LoadedClaim; renderedText: string }
+  | { status: "NOT_FOUND" }
+  | { status: "NOT_VERIFIED"; verification: VerificationResult };
+
+/**
+ * Load, verify and render one claim — the single place any of that happens for publication.
+ *
+ * `publishClaimForDisplay` is this plus a throw, and the output-plan layer (IR-101) is this plus a
+ * freshness check, because a plan needs to distinguish "no such claim" from "did not verify" and an
+ * exception carrying a string cannot be asked which it was without parsing the string.
+ *
+ * The one load is the point. IR-100 candidate N is a verdict obtained from one read and applied to
+ * another, and the defence is that no caller is ever handed a claim id to re-read: they are handed
+ * the verified object and the text rendered from it, together.
+ */
+export async function resolvePublishableClaim(claimId: string): Promise<PublishableClaim> {
+  const claim = await prisma.claim.findUnique({ where: { id: claimId } });
+  if (!claim) {
+    return { status: "NOT_FOUND" };
+  }
 
   const verification = await verifyLoadedClaim(claim);
   if (verification.status !== "VERIFIED") {
-    throw new InvalidClaimError(
-      `Claim ${claimId} did not verify (${verification.status}): ${verification.detail}`,
-    );
+    return { status: "NOT_VERIFIED", verification };
   }
 
   // Rendered from the SAME object that was verified, never from a fresh read.
-  return formatVerifiedClaim({
+  // `evidence` travels too: `assertValidClaim` requires it for CALCULATION, and omitting it made
+  // every CALCULATION unpublishable. IR-100 shipped without noticing because its tests were all
+  // INFERENCE; IR-101's first positive control found it on the first run.
+  const renderedText = formatVerifiedClaim({
     claimText: claim.claimText,
     claimType: claim.claimType,
     sourceId: claim.sourceId,
     confidence: claim.confidence,
+    evidence: claim.evidence,
   });
+  return { status: "PUBLISHABLE", claim, renderedText };
 }
 
 /**

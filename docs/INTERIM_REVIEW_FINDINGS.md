@@ -3997,3 +3997,56 @@ recorded as EN-05; the six files touched here pass `prettier --check` individual
 HG-006 activation work, in the isolated worktree. No producer, no provider, no model, no network.
 PR #1 and the frozen candidate untouched; the concurrent session's control-bus work untouched and
 disjoint from every file changed here.
+
+---
+
+## IR-101 — The output scanner returns CLEAR for advice it has no pattern for
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][ASK-OUTPUT-AUTHORITY-20260823]`, read from issue #2 by
+hand — `ProtocolKind` does not know that tag, so the durable inbox will never hand it over, and the
+comment is real traffic regardless. It names two gaps in `scanGeneratedOutput`. Both reproduced
+through the production path before anything was modified. **Repair not yet made; this entry is the
+matrix.**
+
+### Reproduction, via `answerWithInference` with a stub sink
+
+Carrier query `"How does a stop-loss order actually work on the KRX?"` — proven `FACTUAL_MECHANISM`,
+so every row below is an OUTPUT failure and not a request-gate failure. The control row confirms it:
+plain factual prose returns `ANSWERED / CLEAR`.
+
+| #      | generated text                                                                                                  | before                                          |
+| ------ | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| **P1** | "Given the mechanism, the prudent course is to lighten exposure well ahead of the print."                       | **PUBLISHED** `ANSWERED / CLEAR`                |
+| **P2** | "Honestly, loading the boat here is the obvious move for anyone with a spare paycheque."                        | **PUBLISHED**                                   |
+| **P3** | "지금은 비중을 늘릴 시점입니다. 반도체는 정리하시는 편이 낫습니다."                                             | **PUBLISHED**                                   |
+| **Q1** | "Transmission is running at 43.7 percent…", attribution provider declares every figure it is shown              | **PUBLISHED**                                   |
+| **R1** | "The latest reading came in at 9.87 percent.", caller declares `"9.87"` attributable; stored observation is `3` | **PUBLISHED**                                   |
+| **S1** | control — one attributed figure, one not                                                                        | suppressed, `UNVERIFIABLE`, whole text withheld |
+
+P is the absence-based hole stated plainly: no digits, so the figure check never runs; no pattern
+match, so the violation check never fires; therefore `CLEAR`. Three phrasings in two languages, none
+exotic. The file's own docstring promises a three-valued fail-closed contract and **`UNVERIFIABLE`
+is unreachable for non-numeric prose** — the same shape as IR-094's `$1400` comment and IR-095's
+`subjectId`: an assurance surface asserting a property the code does not have. Third time. It is
+worth naming the pattern rather than the instance.
+
+Q and R are one defect seen twice. `attributableFigures: string[]` is supplied by the same caller
+that wants the text published, so "attributable" means "the caller said so". Q is the faulty or
+hostile provider; R is the ordinary bug — a caller that matched a surface string and never compared
+it to a stored value. Neither needs bad faith and both publish an unsourced number, which
+`docs/DATA_POLICY.md` prohibits outright.
+
+S is the one property that already holds: a single unverifiable figure withholds the entire text
+rather than the offending sentence, and `OUTPUT_SUPPRESSED` has no `text` field to leak through.
+
+### What the repair has to be, and what it must not be
+
+Not another pattern set. The guidance says so and Gates A–T said so first: the enumeration strategy
+is exactly what the 81% holdout failure measured. The direction is the same one IR-100 just applied
+one layer down — publishability becomes positive authority. Every output claim is either classified
+into a narrow allowed class and checked against stored evidence, or it is `UNVERIFIABLE` and
+suppressed; and the numeric binding is claim/span → source or claim id → stored value, verified
+against the Claim Ledger rather than against a list the caller wrote.
+
+Holdout 2 stays frozen and read-only. Any accuracy claim after this design changes needs a new
+holdout frozen before implementation sees its labels.

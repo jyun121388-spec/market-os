@@ -179,65 +179,69 @@ describeIfDb("claim verification (integration)", () => {
     expect(result.status).toBe("VALUE_MISMATCH");
   });
 
-  it("refuses an INFERENCE that rests on nothing", async () => {
-    // This asserted UNSUPPORTED_CLAIM_TYPE until 2026-08-23, when INFERENCE gained a verifier. The
-    // pin was correct at the time and would now be pinning the absence of a feature.
-    //
-    // What replaces it is a stronger claim about the SAME input: an inference with no premises is
-    // not unsupported, it is unfounded. A confident sentence with nothing behind it is the most
-    // dangerous thing a generation path can emit, and under a "nothing to contradict it" rule it
-    // would verify cleanly.
-    const claim = await prisma.claim.create({
+  /**
+   * INFERENCE, through the real verifyClaim path against real PostgreSQL.
+   *
+   * The pure tests in tests/inferenceClaim.test.ts hold the rules. These hold the WIRING: that
+   * atoms are derived from the observation rows rather than from prose, that malformed evidence
+   * reaches the fail-closed branch, and that a stored NaN confidence is refused. IR-094 reproduced
+   * every one of these as an acceptance before the repair.
+   */
+  const factPremise = async () => {
+    const observation = await prisma.observation.findUniqueOrThrow({
+      where: { id: observationId },
+      include: { series: true, source: true },
+    });
+    const premise = await prisma.claim.create({
       data: {
-        claimText: "this suggests further easing",
-        claimType: "INFERENCE",
-        confidence: 0.6,
+        claimText: buildFactClaimText(observation),
+        claimType: "FACT",
+        sourceId,
+        evidence: { observationId, seriesId },
       },
+    });
+    return { premise, observation };
+  };
+
+  it("refuses an INFERENCE that rests on nothing", async () => {
+    // This asserted UNSUPPORTED_CLAIM_TYPE until INFERENCE gained a verifier. An inference with no
+    // premises is not unsupported, it is unfounded — and under a "nothing to contradict it" rule
+    // a confident sentence with no evidence verifies cleanly.
+    const claim = await prisma.claim.create({
+      data: { claimText: "this suggests further easing", claimType: "INFERENCE", confidence: 0.6 },
     });
     const result = await verifyClaim(claim.id);
     expect(result.status).toBe("VALUE_MISMATCH");
     expect(result.detail).toContain("NO_PREMISES");
   });
 
-  it("verifies an INFERENCE whose every figure comes from a verified premise", async () => {
-    const observation = await prisma.observation.findUniqueOrThrow({
-      where: { id: observationId },
-      include: { series: true, source: true },
-    });
-    const premise = await prisma.claim.create({
-      data: {
-        claimText: buildFactClaimText(observation),
-        claimType: "FACT",
-        sourceId,
-        evidence: { observationId, seriesId },
-      },
-    });
+  it("verifies an INFERENCE whose every quantity cites matching structured evidence", async () => {
+    const { premise, observation } = await factPremise();
+    const value = observation.value.toString();
+    const unit = observation.series.unit;
     const inference = await prisma.claim.create({
       data: {
-        claimText: "Momentum looks unchanged on this reading.",
+        claimText: `The reading stood at ${value} ${unit} on that date.`,
         claimType: "INFERENCE",
         confidence: 0.5,
-        evidence: { premiseClaimIds: [premise.id] },
+        evidence: {
+          premiseClaimIds: [premise.id],
+          quantitativeCitations: [
+            {
+              premiseClaimId: premise.id,
+              kind: "OBSERVATION_VALUE",
+              surfaceText: `${value} ${unit}`,
+            },
+          ],
+        },
       },
     });
-    expect((await verifyClaim(inference.id)).status).toBe("VERIFIED");
+    const result = await verifyClaim(inference.id);
+    expect(result.status, result.detail).toBe("VERIFIED");
   });
 
-  it("refuses an INFERENCE carrying a figure no premise establishes", async () => {
-    // The check a language model actually fails, exercised end to end against the database rather
-    // than against a hand-built premise list.
-    const observation = await prisma.observation.findUniqueOrThrow({
-      where: { id: observationId },
-      include: { series: true, source: true },
-    });
-    const premise = await prisma.claim.create({
-      data: {
-        claimText: buildFactClaimText(observation),
-        claimType: "FACT",
-        sourceId,
-        evidence: { observationId, seriesId },
-      },
-    });
+  it("refuses an invented figure the prose never cited", async () => {
+    const { premise } = await factPremise();
     const inference = await prisma.claim.create({
       data: {
         claimText: "Growth accelerated to 9.87 percent on this reading.",
@@ -248,13 +252,134 @@ describeIfDb("claim verification (integration)", () => {
     });
     const result = await verifyClaim(inference.id);
     expect(result.status).toBe("VALUE_MISMATCH");
-    expect(result.detail).toContain("UNSUPPORTED_FIGURE");
+    expect(result.detail).toContain("UNCITED_QUANTITY");
     expect(result.detail).toContain("9.87");
   });
 
+  it("refuses a citation whose value does not match the observation row", async () => {
+    // The atom comes from the observation, not from the premise sentence, so a citation that
+    // quotes a different number fails even though the number is present in the prose.
+    const { premise, observation } = await factPremise();
+    const unit = observation.series.unit;
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: `The reading stood at 99 ${unit} on that date.`,
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: {
+          premiseClaimIds: [premise.id],
+          quantitativeCitations: [
+            { premiseClaimId: premise.id, kind: "OBSERVATION_VALUE", surfaceText: `99 ${unit}` },
+          ],
+        },
+      },
+    });
+    const result = await verifyClaim(inference.id);
+    expect(result.status).toBe("VALUE_MISMATCH");
+    expect(result.detail).toContain("CITATION_UNSUPPORTED");
+  });
+
+  it("refuses malformed premiseClaimIds instead of dropping the bad members", async () => {
+    // IR-094 candidate D. This verified cleanly: the adapter kept the string and discarded 123,
+    // null and {} — malformed evidence normalised into valid evidence.
+    const { premise } = await factPremise();
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: "Nothing numeric here.",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: { premiseClaimIds: [premise.id, 123, null, {}] },
+      },
+    });
+    const result = await verifyClaim(inference.id);
+    expect(result.status).toBe("VALUE_MISMATCH");
+    expect(result.detail).toContain("MALFORMED_EVIDENCE");
+  });
+
+  it("refuses a citation pointing outside premiseClaimIds", async () => {
+    const { premise } = await factPremise();
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: "Nothing numeric here.",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: {
+          premiseClaimIds: [premise.id],
+          quantitativeCitations: [
+            { premiseClaimId: "some-other-claim", kind: "OBSERVATION_VALUE", surfaceText: "x" },
+          ],
+        },
+      },
+    });
+    const result = await verifyClaim(inference.id);
+    expect(result.detail).toContain("MALFORMED_EVIDENCE");
+  });
+
+  it("refuses a stored NaN confidence, which PostgreSQL accepts", async () => {
+    // IR-094 candidate E, production-reachable: double precision stores NaN, Prisma round-trips
+    // it, and `NaN < 0 || NaN > 1` is false, so the old range check passed it.
+    const { premise } = await factPremise();
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: "Nothing numeric here.",
+        claimType: "INFERENCE",
+        confidence: NaN,
+        evidence: { premiseClaimIds: [premise.id] },
+      },
+    });
+    const stored = await prisma.claim.findUniqueOrThrow({ where: { id: inference.id } });
+    expect(Number.isNaN(stored.confidence)).toBe(true);
+    const result = await verifyClaim(inference.id);
+    expect(result.detail).toContain("CONFIDENCE_NOT_A_NUMBER");
+  });
+
+  it("refuses an INFERENCE resting on an INFERENCE that would itself verify", async () => {
+    // The control the mutation proof asked for. The other nested case uses an inner inference that
+    // fails on its own, so deleting the nested-INFERENCE guard changed nothing and the mutant
+    // survived: the guard was in the code and not load-bearing.
+    //
+    // Here the inner claim verifies. Without the guard the outer would accept it as a premise and
+    // pass — a chain of inferences standing in for evidence, which is what the guard exists to
+    // stop. Third time a surviving mutant has named an assertion nobody wrote.
+    const { premise, observation } = await factPremise();
+    const value = observation.value.toString();
+    const unit = observation.series.unit;
+    const inner = await prisma.claim.create({
+      data: {
+        claimText: `The reading stood at ${value} ${unit}.`,
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: {
+          premiseClaimIds: [premise.id],
+          quantitativeCitations: [
+            {
+              premiseClaimId: premise.id,
+              kind: "OBSERVATION_VALUE",
+              surfaceText: `${value} ${unit}`,
+            },
+          ],
+        },
+      },
+    });
+    expect((await verifyClaim(inner.id)).status, "the inner claim must verify on its own").toBe(
+      "VERIFIED",
+    );
+
+    const outer = await prisma.claim.create({
+      data: {
+        claimText: "Conditions appear unchanged.",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: { premiseClaimIds: [inner.id] },
+      },
+    });
+    const result = await verifyClaim(outer.id);
+    expect(result.status).toBe("VALUE_MISMATCH");
+    expect(result.detail).toContain("PREMISE_NOT_VERIFIED");
+    expect(result.detail).toContain("UNSUPPORTED_CLAIM_TYPE");
+  });
+
   it("refuses an INFERENCE resting on an INFERENCE", async () => {
-    // One level only. A chain of inferences is not evidence, and following it would let an
-    // invented number be laundered through an intermediate claim.
     const inner = await prisma.claim.create({
       data: { claimText: "inner", claimType: "INFERENCE", confidence: 0.5 },
     });
@@ -267,7 +392,19 @@ describeIfDb("claim verification (integration)", () => {
       },
     });
     const result = await verifyClaim(outer.id);
-    expect(result.status).toBe("VALUE_MISMATCH");
+    expect(result.detail).toContain("PREMISE_NOT_VERIFIED");
+  });
+
+  it("refuses when a premise claim does not exist", async () => {
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: "x",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: { premiseClaimIds: ["00000000-0000-0000-0000-000000000000"] },
+      },
+    });
+    const result = await verifyClaim(inference.id);
     expect(result.detail).toContain("PREMISE_NOT_VERIFIED");
   });
 

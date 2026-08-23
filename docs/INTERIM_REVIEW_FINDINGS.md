@@ -3706,3 +3706,100 @@ any file. It makes the ASSERTIONS independent of a difference that git is entitl
 Worth generalising: a test that reads source or documentation from disk on Windows should
 normalise, and one that slices on a found index should check the index was found. `indexOf`
 returning -1 into `slice` is silent, and silence is what let it through.
+
+---
+
+## IR-094 — "Every figure traces to a premise" was five different false statements
+
+Adversarial review of the INFERENCE verifier shipped at `b599586`. Five candidate defects were
+named; **all five reproduced**, and the probe matrix was completed before a line was changed.
+
+### Reproduction matrix — every probe was ACCEPTED
+
+| #   | premise                                     | inference                    | verdict before                         |
+| --- | ------------------------------------------- | ---------------------------- | -------------------------------------- |
+| A   | `growth was -2.1%`                          | `growth was 2.1%`            | ACCEPTS                                |
+| A   | `growth was 2.1%`                           | `growth was -2.1%`           | ACCEPTS                                |
+| B   | `Revenue was $1,400`                        | `Revenue was 1,400`          | ACCEPTS                                |
+| B   | `The index was 1,400`                       | `Revenue was $1,400`         | ACCEPTS                                |
+| B   | `growth was 2.1 percent`                    | `the spread was 2.1 USD`     | ACCEPTS                                |
+| B   | `the change was 2.1 percent`                | `the change was 2.1 bps`     | ACCEPTS                                |
+| B   | `the price was 1400 KRW`                    | `the price was 1400 USD`     | ACCEPTS                                |
+| C   | `Apple revenue was 2.1 billion USD`         | `Unemployment slowed to 2.1` | ACCEPTS                                |
+| C   | `observed on 2026-08-14`                    | `Revenue reached 2026`       | ACCEPTS                                |
+| C   | `5 filings were published`                  | `the price moved 5`          | ACCEPTS                                |
+| D   | `premiseClaimIds: [validId, 123, null, {}]` | —                            | **VERIFIED**                           |
+| E   | `confidence: NaN`                           | —                            | **VERIFIED**, and stored by PostgreSQL |
+
+`figuresIn` began matching at a digit, so `$1,400` tokenised to `1400` and `-2.1%` to `2.1%`. The
+check was never "traces to a premise" — it was "this digit sequence occurs somewhere nearby".
+
+Two findings inside the matrix deserve naming separately:
+
+**The source comment was false, and provably.** It said "a premise establishing 1400 does not
+establish $1400". The probe shows it does. A comment asserting a safety property the code does not
+have is worse than no comment: it is the assurance surface lying.
+
+**Candidate E is production-reachable.** PostgreSQL `double precision` stores `NaN`, Prisma
+round-trips it, and `NaN < 0 || NaN > 1` is false because every comparison with NaN is false. Not a
+helper-contract curiosity — a stored claim verified cleanly with a nonsense confidence.
+
+### The repair is not a bigger regex
+
+Growing the token pattern to understand minus signs, currency symbols and unit words would be the
+phrase-enumeration failure already measured in the request guardrail, one layer down. **Prose
+stopped being the authority.**
+
+    text side        WHAT DID THE OUTPUT SAY?         -> quantities needing a citation
+    structured side  WHAT DOES THE EVIDENCE SUPPORT?  -> atoms from the database rows
+                     then compare
+
+- `quantitativeEvidence.ts` — `QuantitativeAtom { premiseClaimId, kind, canonicalValue, unit,
+subjectId }`, derived from the observation row and the recomputed change, never from a sentence.
+  Four kinds, because that is exactly what the two real producers emit. **A date is not an atom**,
+  which is what closes the `2026` case at the root rather than by unit-checking it.
+- `quantitativeCitation.ts` — an inference cites `{ premiseClaimId, kind, surfaceText }`; the
+  verifier parses the surface into a signed magnitude and a canonical unit and compares all three
+  against the atom.
+- Coverage: every quantity in the prose must be covered by a citation, so structured citations
+  cannot be paired with an uncited invented number.
+- Malformed evidence fails closed. Absent evidence is distinguished from malformed — an INFERENCE
+  with no evidence field has NO_PREMISES, which is a missing producer input, not a broken one.
+
+**On the unit vocabulary in the parser.** It is a short list and the standing rule is not to answer
+a structural defect with a word list. The difference is which way it fails: the old `figuresIn` let
+an unrecognised shape through as supported (fails open), while an unrecognised surface here is
+`UNPARSEABLE` and the citation fails (fails closed). A vocabulary that refuses what it does not
+recognise cannot be walked past by inventing a phrasing.
+
+### After the repair — same matrix, re-run
+
+Every probe refused, with a named reason: `SIGN_MISMATCH`, `UNIT_MISMATCH`, `UNPARSEABLE_SURFACE`,
+`ATOM_NOT_FOUND`, `UNCITED_QUANTITY`, `MALFORMED_EVIDENCE`, `CONFIDENCE_NOT_A_NUMBER`. Positive
+controls still pass — matching value/unit/sign verifies, a matching negative verifies, and prose
+with no quantities verifies.
+
+### Mutation — 11 of 11, and the eleventh was missed first
+
+ignore sign (2) · ignore unit (4) · any atom with the same value supports (3) · unparseable surface
+treated as supported (1) · allow uncited quantities (3) · derive supported quantities from the
+inference text (3) · allow a no-premise inference (2) · skip premise verification (6) · ignore NaN
+(2) · silently drop malformed premise ids (2) · follow a nested INFERENCE premise (added).
+
+**`follow a nested INFERENCE premise` survived the first run.** The only nested case in the suite
+used an inner inference that failed on its own, so removing the guard produced the same outcome
+through a different route. Closed with an inner inference that verifies. **Third time in three days
+that a surviving mutant has named the assertion nobody wrote** — it is the most reliable review
+instrument in this project.
+
+### What VERIFIED still does not mean
+
+Not true, and not logically sound. It means provenance exists, every premise verifies, every
+quantitative assertion is traceable to structured evidence on sign, unit and value, and the
+confidence metadata is valid. Semantic truth is outside any deterministic verifier and the status
+detail says so in words.
+
+### Scope
+
+HG-006 activation work, not a frozen-RC repair. There is no INFERENCE producer, no provider, and no
+model. The frozen candidate has no free-text inference path and is not reopened.

@@ -1,108 +1,142 @@
 /**
  * Verifying an inference, which cannot mean what verifying a fact means.
  *
- * `verifyClaim` re-derives a FACT or a CALCULATION from the database and compares. An inference
- * has nothing to re-derive — that is what makes it an inference — so the same question asked of it
- * returns `UNSUPPORTED_CLAIM_TYPE`, and has since the ledger was written. The comment there says to
- * extend it when a real producer exists, and that reasoning was right: speculative support for a
- * caller nobody has written is how you get a verifier shaped around an imagined producer.
- *
- * What changed is that the producer's SHAPE is now fixed. `./inferenceAuthorization` decides what
- * may reach a model, `./outputPolicy` decides what may leave one, and
- * `[CHATGPT_ARCHITECT_GUIDANCE][ASK-HOLDOUT-20260823]` names claim/provenance verification as the
- * stage between the second of those and the user. The contract is buildable now and the model is
- * still not approved, which is the order the guidance asks for.
- *
- * ## What verification of an inference actually is
- *
- * Not "is this true" — no deterministic check establishes that, and any function claiming to would
- * be lying about a harder problem. Four things that CAN be established:
+ * `verifyClaim` re-derives a FACT or a CALCULATION from the database and compares. An inference has
+ * nothing to re-derive — that is what makes it an inference — so the four things this establishes
+ * are deliberately weaker and deliberately checkable:
  *
  * 1. **Every premise verifies.** An inference resting on a FACT that does not check out is not
- *    verified, whatever it says. The caller supplies each premise's own verification result.
+ *    verified, whatever it says.
  * 2. **No premise is missing.** An inference with no premises is an assertion.
- * 3. **Every figure in the text comes from a premise.** This is the sharp one. A model that writes
- *    "growth slowed to 2.1%" when no premise contains 2.1 has invented a number, and inventing
- *    numbers is precisely what a language model does effortlessly and a database cannot.
- * 4. **Confidence is present and in range.** Already enforced at write time by the ledger; checked
- *    again here because a verifier that trusts an upstream invariant is one refactor from not
- *    checking it at all.
+ * 3. **Every quantity in the prose is cited, and every citation matches structured evidence** on
+ *    sign, unit and value. This is the one a language model fails.
+ * 4. **Confidence is a real number in range.** `NaN` is not.
  *
- * ## Fail closed
+ * ## What replaced the first version, and why
  *
- * There is no `VERIFIED_WITH_CAVEAT`. An inference either passes all four or it does not pass, and
- * the reason is named so the failure is auditable rather than a boolean somebody has to
- * investigate.
+ * The first version compared numeric tokens: it pulled digits out of the premise's `claimText` with
+ * a regex and out of the inference's, and asked whether the sets overlapped. A probe matrix
+ * (IR-094) showed all five ways that fails — sign lost, unit lost, currency lost, subject lost, and
+ * a date component authorising a financial value. Every probe was ACCEPTED.
  *
- * Pure and synchronous. The database work belongs to the caller, which keeps every case here
- * testable without one.
+ * The repair is not a longer regex. Prose stopped being the authority:
+ *
+ *     text side        WHAT DID THE OUTPUT SAY?         -> quantities that need a citation
+ *     structured side  WHAT DOES THE EVIDENCE SUPPORT?  -> atoms from the database
+ *                      then compare, in ./quantitativeCitation
+ *
+ * The text side still finds the numbers — that is legitimately its job — but it no longer decides
+ * what backs them.
+ *
+ * ## What VERIFIED does not mean
+ *
+ * Not "true", and not "the reasoning is sound". No deterministic check establishes either, and a
+ * verifier that let a caller read it that way would be the Claim Ledger's own failure mode: a label
+ * doing work the check never did. It means provenance exists, premises verify, every quantitative
+ * assertion is traceable, and the confidence metadata is valid. Semantic truth is outside it.
+ *
+ * Pure and synchronous. The database work belongs to the caller.
  */
+
+import type { QuantitativeAtom } from "./quantitativeEvidence";
+import {
+  checkCitation,
+  type CitationCheck,
+  type QuantitativeCitation,
+} from "./quantitativeCitation";
 
 /** How a premise verified, as reported by whoever verified it. */
 export interface PremiseVerification {
   claimId: string;
   /** Anything other than `VERIFIED` disqualifies the inference resting on it. */
   status: string;
-  /**
-   * Figures this premise establishes, exactly as they would appear in prose.
-   *
-   * The caller derives these from the premise's own evidence, not from the inference text — the
-   * whole point is to compare what the model wrote against what the data says, and deriving both
-   * sides from the model's output would compare it with itself.
-   */
-  figures: string[];
+  /** Quantities this premise establishes, derived from its evidence rows and never from prose. */
+  atoms: QuantitativeAtom[];
 }
 
 export type InferenceVerificationStatus =
   | "VERIFIED"
   | "NO_PREMISES"
   | "PREMISE_NOT_VERIFIED"
-  | "UNSUPPORTED_FIGURE"
+  | "MALFORMED_EVIDENCE"
+  | "UNCITED_QUANTITY"
+  | "CITATION_UNSUPPORTED"
   | "CONFIDENCE_MISSING"
+  | "CONFIDENCE_NOT_A_NUMBER"
   | "CONFIDENCE_OUT_OF_RANGE";
 
 export interface InferenceVerificationResult {
   status: InferenceVerificationStatus;
   detail: string;
-  /** Figures in the text that no premise establishes. Empty unless the status says otherwise. */
-  unsupportedFigures: string[];
+  /** Quantities in the prose that no citation covers. */
+  uncitedQuantities: string[];
+  /** Every citation that failed, with the reason. */
+  failedCitations: CitationCheck[];
 }
 
 export interface InferenceClaimInput {
   claimText: string;
   confidence: number | null | undefined;
   premises: PremiseVerification[];
+  citations: QuantitativeCitation[];
+  /**
+   * Set when the stored evidence could not be read exactly as the contract requires.
+   *
+   * Fails the whole claim rather than being repaired. Silently dropping the members of
+   * `premiseClaimIds` that are not strings is how `[validId, 123, null, {}]` verified cleanly
+   * (IR-094 candidate D) — malformed evidence normalised into valid evidence.
+   */
+  evidenceMalformed?: string;
 }
 
 /**
- * Every numeric token in prose, normalised the way a reader would compare two of them.
+ * Quantities a reader would take away from the prose, as spans.
  *
- * Thousands separators are dropped and a trailing percent sign is kept, because "1,234" and "1234"
- * are the same figure and "2.1" and "2.1%" are not. Deliberately does not strip currency symbols:
- * a premise establishing 1400 does not establish $1400.
+ * A full ISO date is excluded: `2026-03-01` is not a financial quantity, no producer emits it as
+ * one, and requiring a citation for it would make every claim text uncitable. A BARE year is not
+ * excluded — `Revenue reached 2026` must still be cited, which is exactly the laundering case the
+ * old version waved through.
  */
-export function figuresIn(text: string): string[] {
-  const matches = text.match(/\d[\d,]*(\.\d+)?%?/g) ?? [];
-  return [...new Set(matches.map((figure) => figure.replace(/,/g, "")))];
+export function quantitativeSpans(text: string): string[] {
+  const withoutIsoDates = text.replace(/\d{4}-\d{2}-\d{2}/g, " ");
+  return [...new Set(withoutIsoDates.match(/-?\d[\d,]*(\.\d+)?%?/g) ?? [])];
 }
 
 /**
- * Verifies an inference against its premises. Deterministic, no model, no network, no database.
+ * Verifies an inference against its premises and citations. No model, no network, no database.
  *
- * Order matters only for which failure gets reported first, and it runs cheapest-and-most-basic
- * first so the detail is the most actionable one rather than the most specific.
+ * Cheapest and most basic checks first, so the reported failure is the most actionable one.
  */
 export function verifyInferenceClaim(input: InferenceClaimInput): InferenceVerificationResult {
-  const none: string[] = [];
+  const empty = { uncitedQuantities: [] as string[], failedCitations: [] as CitationCheck[] };
+
+  if (input.evidenceMalformed) {
+    return {
+      status: "MALFORMED_EVIDENCE",
+      detail:
+        `The claim's evidence could not be read as the contract requires: ${input.evidenceMalformed}. ` +
+        "Refused rather than repaired — dropping the parts that do not parse turns malformed " +
+        "evidence into valid evidence.",
+      ...empty,
+    };
+  }
 
   if (input.confidence === undefined || input.confidence === null) {
     return {
       status: "CONFIDENCE_MISSING",
+      detail: "An INFERENCE claim must carry a confidence score.",
+      ...empty,
+    };
+  }
+
+  if (Number.isNaN(input.confidence)) {
+    return {
+      status: "CONFIDENCE_NOT_A_NUMBER",
       detail:
-        "An INFERENCE claim must carry a confidence score. The ledger enforces this at write " +
-        "time; it is checked again here because a verifier that trusts an upstream invariant is " +
-        "one refactor away from not checking it.",
-      unsupportedFigures: none,
+        "confidence is NaN. Checked explicitly because NaN passes both halves of a range " +
+        "comparison — `NaN < 0` and `NaN > 1` are each false — and PostgreSQL stores it happily " +
+        "in a double precision column, so this was reachable from production data.",
+      ...empty,
     };
   }
 
@@ -110,7 +144,7 @@ export function verifyInferenceClaim(input: InferenceClaimInput): InferenceVerif
     return {
       status: "CONFIDENCE_OUT_OF_RANGE",
       detail: `confidence ${input.confidence} is outside [0, 1].`,
-      unsupportedFigures: none,
+      ...empty,
     };
   }
 
@@ -120,7 +154,7 @@ export function verifyInferenceClaim(input: InferenceClaimInput): InferenceVerif
       detail:
         "An inference with no premises is an assertion. There is nothing for it to rest on and " +
         "nothing to check it against.",
-      unsupportedFigures: none,
+      ...empty,
     };
   }
 
@@ -132,33 +166,52 @@ export function verifyInferenceClaim(input: InferenceClaimInput): InferenceVerif
         `${unverified.length} of ${input.premises.length} premises did not verify: ` +
         unverified.map((p) => `${p.claimId} (${p.status})`).join(", ") +
         ". An inference is at most as good as what it rests on.",
-      unsupportedFigures: none,
+      ...empty,
     };
   }
 
-  // The check a language model actually fails. Everything above is hygiene.
-  const supported = new Set(
-    input.premises.flatMap((p) => p.figures.map((f) => f.replace(/,/g, ""))),
-  );
-  const unsupportedFigures = figuresIn(input.claimText).filter((f) => !supported.has(f));
+  // Only a verified premise contributes atoms. An unverified one has already failed above; this
+  // keeps the set honest if that ordering ever changes.
+  const atoms = input.premises.filter((p) => p.status === "VERIFIED").flatMap((p) => p.atoms);
 
-  if (unsupportedFigures.length > 0) {
+  const checks = input.citations.map((citation) => checkCitation(citation, input.claimText, atoms));
+  const failedCitations = checks.filter((c) => c.verdict !== "SUPPORTED");
+  if (failedCitations.length > 0) {
     return {
-      status: "UNSUPPORTED_FIGURE",
+      status: "CITATION_UNSUPPORTED",
       detail:
-        `The text contains ${unsupportedFigures.length} figure(s) no premise establishes: ` +
-        `${unsupportedFigures.join(", ")}. A number that appears in an inference and in none of ` +
-        "its premises was invented somewhere between them.",
-      unsupportedFigures,
+        `${failedCitations.length} citation(s) do not hold: ` +
+        failedCitations.map((c) => `${c.verdict} — ${c.detail}`).join(" | "),
+      uncitedQuantities: [],
+      failedCitations,
+    };
+  }
+
+  // Coverage. Structured citations alone are not enough: prose may still contain a number nobody
+  // cited, and an uncited number is exactly what a model invents.
+  const supportedSpans = checks.map((c) => c.citation.surfaceText);
+  const uncitedQuantities = quantitativeSpans(input.claimText).filter(
+    (span) => !supportedSpans.some((surface) => surface.includes(span)),
+  );
+  if (uncitedQuantities.length > 0) {
+    return {
+      status: "UNCITED_QUANTITY",
+      detail:
+        `The text states ${uncitedQuantities.length} quantity/quantities no citation covers: ` +
+        `${uncitedQuantities.join(", ")}. Every number a reader would take away has to be ` +
+        "attributable to a premise, and an uncited one was invented somewhere.",
+      uncitedQuantities,
+      failedCitations: [],
     };
   }
 
   return {
     status: "VERIFIED",
     detail:
-      `${input.premises.length} premise(s) verified, every figure in the text traces to one of ` +
-      "them, and confidence is present and in range. This says the inference is well-founded, " +
-      "not that it is correct — no deterministic check establishes that.",
-    unsupportedFigures: none,
+      `${input.premises.length} premise(s) verified, ${checks.length} citation(s) match their ` +
+      "evidence on sign, unit and value, every quantity in the prose is cited, and confidence is " +
+      "a real number in range. This says the inference is well-founded and traceable, not that " +
+      "it is correct — no deterministic check establishes that.",
+    ...empty,
   };
 }

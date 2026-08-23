@@ -2,7 +2,9 @@ import { prisma } from "@/server/db/client";
 import { buildFactClaimText } from "./claimStore";
 import { buildChangeClaimText } from "./whatChanged";
 import { computeChange } from "./seriesReadings";
-import { figuresIn, verifyInferenceClaim, type PremiseVerification } from "./inferenceClaim";
+import { verifyInferenceClaim, type PremiseVerification } from "./inferenceClaim";
+import type { QuantitativeCitation } from "./quantitativeCitation";
+import { calculationAtoms, factAtoms, type QuantitativeAtom } from "./quantitativeEvidence";
 
 export type VerificationStatus =
   | "VERIFIED"
@@ -56,17 +58,21 @@ export async function verifyClaim(claimId: string): Promise<VerificationResult> 
 }
 
 /**
- * INFERENCE verification, wired to the pure rules in `./inferenceClaim`.
+ * INFERENCE verification, wired to the structured rules in `./inferenceClaim`.
  *
- * **Premise figures come from the premise's own verified claimText, never from the inference.**
- * That text was re-derived from the database and compared by exact string equality by the
- * verifiers below, so its figures are database-backed. Taking them from the inference instead
- * would compare the model's output with itself, which is the shape of every hallucination check
- * that does not work.
+ * **Quantitative authority is the database, not the prose.** The first version derived a premise's
+ * supported figures by running a regex over its `claimText`; IR-094 reproduced all five ways that
+ * fails. Atoms now come from the observation and change rows themselves, via
+ * `./quantitativeEvidence`, and the inference must cite them explicitly.
+ *
+ * **Malformed evidence fails closed.** The previous adapter kept the string members of
+ * `premiseClaimIds` and discarded the rest, so `[validId, 123, null, {}]` verified cleanly — it
+ * repaired the evidence instead of refusing it. A member of the wrong type is now the whole
+ * claim's problem.
  *
  * A premise that is itself an INFERENCE is not followed. One level, deliberately: a chain of
- * inferences resting on inferences is not evidence, and permitting it would let a model launder an
- * invented number through an intermediate claim.
+ * inferences is not evidence, and following it would let an invented number be laundered through
+ * an intermediate claim.
  */
 async function verifyInferenceClaimFromDb(claim: {
   id: string;
@@ -74,30 +80,42 @@ async function verifyInferenceClaimFromDb(claim: {
   confidence: unknown;
   evidence: unknown;
 }): Promise<VerificationResult> {
-  const evidence = claim.evidence as { premiseClaimIds?: unknown } | null;
-  const ids = Array.isArray(evidence?.premiseClaimIds)
-    ? (evidence.premiseClaimIds as unknown[]).filter((v): v is string => typeof v === "string")
-    : [];
+  const evidence = claim.evidence as {
+    premiseClaimIds?: unknown;
+    quantitativeCitations?: unknown;
+  } | null;
+
+  const malformed = describeMalformedInferenceEvidence(evidence);
+  if (malformed) {
+    const refused = verifyInferenceClaim({
+      claimText: claim.claimText,
+      confidence: null,
+      premises: [],
+      citations: [],
+      evidenceMalformed: malformed,
+    });
+    return { status: "VALUE_MISMATCH", detail: `${refused.status}: ${refused.detail}` };
+  }
+
+  const ids = (evidence?.premiseClaimIds ?? []) as string[];
+  const citations = (evidence?.quantitativeCitations ?? []) as QuantitativeCitation[];
 
   const premises: PremiseVerification[] = [];
   for (const premiseId of ids) {
     const premise = await prisma.claim.findUnique({ where: { id: premiseId } });
     if (!premise) {
-      premises.push({ claimId: premiseId, status: "EVIDENCE_NOT_FOUND", figures: [] });
+      premises.push({ claimId: premiseId, status: "EVIDENCE_NOT_FOUND", atoms: [] });
       continue;
     }
     if (premise.claimType === "INFERENCE") {
-      premises.push({ claimId: premiseId, status: "UNSUPPORTED_CLAIM_TYPE", figures: [] });
+      premises.push({ claimId: premiseId, status: "UNSUPPORTED_CLAIM_TYPE", atoms: [] });
       continue;
     }
     const verified = await verifyClaim(premiseId);
     premises.push({
       claimId: premiseId,
       status: verified.status,
-      // Only a VERIFIED premise contributes figures. An unverified one disqualifies the inference
-      // anyway, and letting its numbers into the supported set would be the wrong kind of
-      // generous.
-      figures: verified.status === "VERIFIED" ? figuresIn(premise.claimText) : [],
+      atoms: verified.status === "VERIFIED" ? await atomsForPremise(premise) : [],
     });
   }
 
@@ -105,6 +123,7 @@ async function verifyInferenceClaimFromDb(claim: {
     claimText: claim.claimText,
     confidence: typeof claim.confidence === "number" ? claim.confidence : null,
     premises,
+    citations,
   });
 
   // Mapped onto the existing VerificationStatus vocabulary so a caller does not need to know which
@@ -114,6 +133,88 @@ async function verifyInferenceClaimFromDb(claim: {
     status: result.status === "VERIFIED" ? "VERIFIED" : "VALUE_MISMATCH",
     detail: `${result.status}: ${result.detail}`,
   };
+}
+
+/**
+ * Names the first way the stored evidence departs from the contract, or `null` if it holds.
+ *
+ * Strict about types on purpose. Everything it rejects was previously either silently dropped or
+ * silently coerced, and both turn a producer bug into a passing verification.
+ */
+function describeMalformedInferenceEvidence(
+  evidence: { premiseClaimIds?: unknown; quantitativeCitations?: unknown } | null,
+): string | null {
+  // Absent is not malformed. An INFERENCE with no evidence field has no premises, which the next
+  // check names precisely; calling it malformed would report a producer bug where there is only a
+  // missing one. Evidence that is PRESENT and not an object is malformed.
+  if (evidence === null || evidence === undefined) return null;
+  if (typeof evidence !== "object") return "evidence is present and not an object";
+  const ids = evidence.premiseClaimIds;
+  if (ids !== undefined) {
+    if (!Array.isArray(ids)) return "premiseClaimIds is present and not an array";
+    const bad = ids.findIndex((v) => typeof v !== "string" || v.length === 0);
+    if (bad !== -1) {
+      return `premiseClaimIds[${bad}] is ${JSON.stringify(ids[bad])}, not a non-empty string`;
+    }
+  }
+  const citations = evidence.quantitativeCitations;
+  if (citations !== undefined) {
+    if (!Array.isArray(citations)) {
+      return "quantitativeCitations is present and not an array";
+    }
+    for (let i = 0; i < citations.length; i += 1) {
+      const c = citations[i] as Record<string, unknown> | null;
+      if (c === null || typeof c !== "object") {
+        return `quantitativeCitations[${i}] is not an object`;
+      }
+      for (const field of ["premiseClaimId", "kind", "surfaceText"]) {
+        if (typeof c[field] !== "string" || (c[field] as string).length === 0) {
+          return `quantitativeCitations[${i}].${field} is missing or not a non-empty string`;
+        }
+      }
+      if (!Array.isArray(evidence.premiseClaimIds)) continue;
+      if (!(evidence.premiseClaimIds as string[]).includes(c.premiseClaimId as string)) {
+        return `quantitativeCitations[${i}] cites ${String(c.premiseClaimId)}, which is not in premiseClaimIds`;
+      }
+    }
+  }
+  return null;
+}
+
+/** Loads the rows a premise's atoms are derived from, then derives them. */
+async function atomsForPremise(premise: {
+  id: string;
+  claimType: string;
+  evidence: unknown;
+}): Promise<QuantitativeAtom[]> {
+  const evidence = premise.evidence as {
+    observationId?: unknown;
+    seriesId?: unknown;
+  } | null;
+
+  if (premise.claimType === "FACT") {
+    const observationId =
+      typeof evidence?.observationId === "string" ? evidence.observationId : null;
+    if (!observationId) return [];
+    const observation = await prisma.observation.findUnique({
+      where: { id: observationId },
+      include: { series: true },
+    });
+    if (!observation) return [];
+    return factAtoms(premise, {
+      observation,
+      seriesUnit: observation.series.unit,
+    });
+  }
+
+  if (premise.claimType === "CALCULATION") {
+    const seriesId = typeof evidence?.seriesId === "string" ? evidence.seriesId : null;
+    if (!seriesId) return [];
+    const series = await prisma.series.findUnique({ where: { id: seriesId } });
+    return calculationAtoms(premise, { seriesUnit: series?.unit ?? null });
+  }
+
+  return [];
 }
 
 async function verifyFactClaim(claim: {

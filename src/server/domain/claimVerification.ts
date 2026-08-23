@@ -2,6 +2,8 @@ import { prisma } from "@/server/db/client";
 import { buildFactClaimText } from "./claimStore";
 import { buildChangeClaimText } from "./whatChanged";
 import { computeChange } from "./seriesReadings";
+import { computeCalendarEntry } from "./economicCalendar";
+import { evaluateStaleness } from "./staleness";
 import { formatVerifiedClaim, InvalidClaimError } from "./claimLedger";
 import { verifyInferenceClaim, type PremiseVerification } from "./inferenceClaim";
 import type { QuantitativeCitation } from "./quantitativeCitation";
@@ -102,6 +104,9 @@ export async function verifyLoadedClaim(claim: {
  */
 export async function publishClaimForDisplay(claimId: string): Promise<string> {
   const resolved = await resolvePublishableClaim(claimId);
+  if (resolved.status === "PUBLISHABLE") {
+    return resolved.renderedText;
+  }
   if (resolved.status === "NOT_FOUND") {
     throw new InvalidClaimError(
       `No claim ${claimId} exists. Publication is anchored to a stored ledger identity, so there ` +
@@ -114,7 +119,9 @@ export async function publishClaimForDisplay(claimId: string): Promise<string> {
         resolved.verification.detail,
     );
   }
-  return resolved.renderedText;
+  throw new InvalidClaimError(
+    `Claim ${claimId} is not publishable (${resolved.status}): ${resolved.detail}`,
+  );
 }
 
 /** A claim row as publication needs it: enough to verify, render and check freshness. */
@@ -130,7 +137,111 @@ export interface LoadedClaim {
 export type PublishableClaim =
   | { status: "PUBLISHABLE"; claim: LoadedClaim; renderedText: string }
   | { status: "NOT_FOUND" }
-  | { status: "NOT_VERIFIED"; verification: VerificationResult };
+  | { status: "NOT_VERIFIED"; verification: VerificationResult }
+  | { status: "STALE_EVIDENCE"; detail: string }
+  | { status: "FRESHNESS_UNKNOWN"; detail: string }
+  | { status: "CLAIM_TYPE_NOT_PUBLISHABLE"; detail: string };
+
+/**
+ * The claim types Ask Market may render, which is a shorter list than the types it may verify.
+ *
+ * **Verification and publication class are different questions**, and IR-102 is what happens when
+ * one stands in for the other. `verifyClaim` asks whether the evidence supports the stored
+ * proposition. It cannot ask whether the proposition is one this product is allowed to say, because
+ * that is a fact about meaning and the verifier works on provenance. A stored INFERENCE reading
+ * "Capital placed here is effectively shielded from drawdown" rests perfectly well on a real
+ * premise, carries a valid confidence, asserts no unsourced figure — and verifies. Six such claims
+ * published, in two languages, as repository-rendered `[INFERENCE] ...` text.
+ *
+ * FACT and CALCULATION are deterministic restatements of stored numbers: `buildFactClaimText` and
+ * `buildChangeClaimText` compose them, and verification reconstructs the text and compares it byte
+ * for byte. Their meaning is bounded by a template this repository owns.
+ *
+ * An INFERENCE's `claimText` is not bounded by anything. Until it is generated FROM a structured
+ * proposition rather than parsed back out of prose, verification proves the numbers and says
+ * nothing about the sentence — so INFERENCE is fail-closed here. That is a real capability loss and
+ * the deliberate one: the alternative is a finite list of forbidden phrasings deciding what a user
+ * sees, which is the design IR-101 removed from the planner path and left standing here.
+ */
+export const PUBLISHABLE_CLAIM_TYPES = ["FACT", "CALCULATION"] as const;
+
+/**
+ * Is the observation behind this claim fresh enough to show as current?
+ *
+ * `docs/DATA_POLICY.md` says stale data must never be displayed as current, and publication is
+ * exactly that moment. The rule is `staleness.ts`'s existing one — three times the series' own
+ * median observation interval — applied through `economicCalendar.ts`'s existing cadence
+ * projection. No threshold is invented here and none should be.
+ *
+ * **Transitively, through premises.** IR-102 candidate U: a FACT on a series last observed 71 days
+ * ago was refused when a plan named it directly, and published as `5.3 percent` when an inference
+ * named that FACT as its premise. The check read `evidence.seriesId`, an inference carries
+ * `premiseClaimIds`, and "no series here" was read as "freshness does not apply". So premises are
+ * walked, and an inference is no fresher than the premises holding it up.
+ *
+ * A claim whose evidence names neither a series nor premises returns `null`: not applicable rather
+ * than unknown. Conflating those would suppress everything that is not an observation.
+ */
+async function checkFreshness(
+  evidence: unknown,
+  depth = 0,
+): Promise<{ status: "STALE_EVIDENCE" | "FRESHNESS_UNKNOWN"; detail: string } | null> {
+  if (typeof evidence !== "object" || evidence === null || Array.isArray(evidence)) return null;
+  const record = evidence as Record<string, unknown>;
+
+  const seriesId = record.seriesId;
+  if (typeof seriesId === "string" && seriesId.length > 0) {
+    const entry = await computeCalendarEntry(seriesId);
+    if (entry.status === "INSUFFICIENT_DATA" || entry.medianIntervalDays === undefined) {
+      return {
+        status: "FRESHNESS_UNKNOWN",
+        detail:
+          `Series ${seriesId} has too little history to project a cadence, so whether this value ` +
+          "is current is unknown. Unknown is not fresh.",
+      };
+    }
+    const staleness = evaluateStaleness({
+      lastObservedDate: entry.lastObservedDate as string,
+      medianIntervalDays: entry.medianIntervalDays,
+    });
+    if (staleness.status !== "FRESH") {
+      return {
+        status: "STALE_EVIDENCE",
+        detail:
+          `Series ${seriesId} was last observed ${staleness.daysSinceLastObservation} days ago ` +
+          `against a median interval of ${entry.medianIntervalDays} days.`,
+      };
+    }
+    return null;
+  }
+
+  const premiseIds = record.premiseClaimIds;
+  if (!Array.isArray(premiseIds) || premiseIds.length === 0) return null;
+  if (depth > 3) {
+    return {
+      status: "FRESHNESS_UNKNOWN",
+      detail:
+        "Premise chain deeper than four levels; refusing to keep walking rather than guessing.",
+    };
+  }
+
+  for (const premiseId of premiseIds) {
+    if (typeof premiseId !== "string") continue;
+    // `findUniqueOrThrow`, not a null branch. Verification has already run and refuses an
+    // inference whose premise is missing, so a null here is impossible — and a mutant that removed
+    // the null branch survived every test, which is how that was established rather than assumed.
+    // Untestable defensive code is worse than a loud failure if the ordering ever changes.
+    const premise = await prisma.claim.findUniqueOrThrow({ where: { id: premiseId } });
+    const inherited = await checkFreshness(premise.evidence, depth + 1);
+    if (inherited) {
+      return {
+        status: inherited.status,
+        detail: `Through premise ${premiseId}: ${inherited.detail}`,
+      };
+    }
+  }
+  return null;
+}
 
 /**
  * Load, verify and render one claim — the single place any of that happens for publication.
@@ -152,6 +263,26 @@ export async function resolvePublishableClaim(claimId: string): Promise<Publisha
   const verification = await verifyLoadedClaim(claim);
   if (verification.status !== "VERIFIED") {
     return { status: "NOT_VERIFIED", verification };
+  }
+
+  // Freshness before class, so both branches stay reachable and both stay tested: an inference on
+  // stale premises reports the staleness, one on fresh premises reports the class. Either way it
+  // does not publish, and if the class list is ever widened the freshness rule is already right.
+  const freshness = await checkFreshness(claim.evidence);
+  if (freshness) {
+    return freshness;
+  }
+
+  if (
+    !PUBLISHABLE_CLAIM_TYPES.includes(claim.claimType as (typeof PUBLISHABLE_CLAIM_TYPES)[number])
+  ) {
+    return {
+      status: "CLAIM_TYPE_NOT_PUBLISHABLE",
+      detail:
+        `A ${claim.claimType} claim verifies its provenance but carries no bounded meaning, so it ` +
+        "is not renderable as user-facing output. Publishable types are " +
+        `${PUBLISHABLE_CLAIM_TYPES.join(", ")}.`,
+    };
   }
 
   // Rendered from the SAME object that was verified, never from a fresh read.

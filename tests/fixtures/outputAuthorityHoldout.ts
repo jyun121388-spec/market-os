@@ -37,8 +37,18 @@ export interface OutputHoldoutCase {
   rationale: string;
 }
 
-/** Development corpus or holdout? Holdout, until something here drives a change. */
-export const OUTPUT_HOLDOUT_KIND = "FRESH_HOLDOUT" as const;
+/**
+ * **Demoted on 2026-08-24, after its one holdout run.** IR-102 changed the implementation
+ * underneath it — a publication-class boundary and transitive premise freshness — so this corpus
+ * is now regression evidence and nothing more. Its first-run numbers (108/160 strict, 156/160 on
+ * withheld-vs-published, 4 over-published) remain valid as a measurement of the code as it stood
+ * on 2026-08-24; they are not evidence about the code that stands now.
+ *
+ * The demotion is not because a case here drove a change — T/U/V came from an independent probe —
+ * but the rule does not turn on that. Once the implementation moves, a corpus it has been run
+ * against stops being a holdout. **A new one must be frozen before any fresh generalisation claim.**
+ */
+export const OUTPUT_HOLDOUT_KIND = "REGRESSION_EVIDENCE" as const;
 
 export const OUTPUT_HOLDOUT_SHA256 =
   "762ea317c2f3b766e5723a5edc84d8131d839a7dc9eccc12416b22e8231930d2";

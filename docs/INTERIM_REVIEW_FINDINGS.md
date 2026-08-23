@@ -4163,3 +4163,138 @@ changed here.
 Build: `npm run build` (turbopack) fails on the worktree's `node_modules` junction, before reading
 any source; `npx next build --webpack` completes, all ten routes. Full suite 1878/1878 across 120
 files against real PostgreSQL.
+
+---
+
+## IR-102 — A VERIFIED claim is not a publishable claim
+
+Fourth-order review of the boundary IR-101 had just built. IR-101 stopped the planner authoring
+user-facing text and made publication go through stored records. It did not ask what those records
+are allowed to say. Four candidates, **all reproduced against real PostgreSQL before anything
+changed**.
+
+### Reproduction matrix, recorded before modification
+
+| #      | probe                                                                         | before                                                                  |
+| ------ | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **T**  | six provenance-valid INFERENCE claims whose text is a prohibited construction | **6 of 6 PUBLISHED** as `[INFERENCE] ...`                               |
+| **T'** | the same claims through `publishClaimForDisplay` directly                     | **PUBLISHED**                                                           |
+| **U**  | a FACT on a series last observed 71 days ago, named as an inference's premise | **PUBLISHED** `5.3 percent`, while naming the FACT directly was refused |
+| **V**  | one fresh premise, one stale premise                                          | **PUBLISHED**                                                           |
+| **W**  | a CALCULATION over the same stale series                                      | refused — control, showing the gap is specific to inference             |
+
+Every T claim rested on a real verified premise, carried a valid confidence, asserted no unsourced
+figure, and returned `VERIFIED`. Two examples, both published verbatim:
+
+> `[INFERENCE] Capital placed here is effectively shielded from drawdown whatever the cycle does.`
+> `[INFERENCE] 이런 국면에서는 반도체를 줄이고 방어주로 옮겨 두는 편이 낫습니다.`
+
+**This is worse than IR-101's four holdout misses and worth saying why.** Those were narration a
+planner proposed and the boundary discarded — the user never saw them. These are
+repository-_rendered_ output. The system said them.
+
+### The pattern list was the only thing holding it
+
+The decisive measurement, and the one that makes this a design finding rather than a coverage gap.
+Take prohibited semantics the detector certainly matches, store them as verifying inferences, and
+run the boundary twice:
+
+|                                     | patterns armed | patterns removed |
+| ----------------------------------- | -------------- | ---------------- |
+| `You should buy Samsung.`           | BLOCKED        | **published**    |
+| `I recommend selling the long end.` | BLOCKED        | **published**    |
+| `Samsung is a strong buy.`          | BLOCKED        | **published**    |
+
+IR-101 removed the finite-list dependency from the planner path and left it standing on the
+repository path. The careful phrasings published either way; the crude ones published as soon as
+the list went. That is the same architecture IR-101 was written to escape, one layer further in.
+
+### The repair: publication class, separate from verification
+
+Two questions that had been one:
+
+- **VERIFY** — does the evidence support the stored proposition? `verifyClaim` answers this.
+- **PUBLISH CLASS** — is this kind of proposition allowed to become user-visible output?
+
+`PUBLISHABLE_CLAIM_TYPES = ["FACT", "CALCULATION"]`. Both are deterministic restatements of stored
+numbers composed by `buildFactClaimText` and `buildChangeClaimText`, and verification reconstructs
+the text and compares it byte for byte — their meaning is bounded by a template this repository
+owns. An INFERENCE's `claimText` is bounded by nothing, so verification proves the numbers and says
+nothing about the sentence. INFERENCE is fail-closed until it is generated FROM a structured
+proposition rather than parsed back out of prose.
+
+That is a real capability loss, and the deliberate one. The alternative is a finite list of
+forbidden phrasings deciding what a user sees.
+
+The gate lives in `resolvePublishableClaim`, so the plan layer and `publishClaimForDisplay` cannot
+drift apart — IR-102 found them already apart, since `publishClaimForDisplay` had no freshness check
+at all.
+
+### Freshness, transitively through premises
+
+`checkFreshness` read `evidence.seriesId`. An inference carries `premiseClaimIds`, so "no series
+here" was read as "freshness does not apply", and 71-day-old data published as current. Premises are
+now walked, reusing the same `staleness.ts` rule — an inference is no fresher than the premises
+holding it up. Freshness is checked _before_ the class gate deliberately, so both branches stay
+reachable and both stay tested; if the class list is ever widened the freshness rule is already
+right.
+
+| #                | before           | after                                    |
+| ---------------- | ---------------- | ---------------------------------------- |
+| T                | 6 of 6 published | 0 of 6, `CLAIM_TYPE_NOT_PUBLISHABLE`     |
+| T'               | published        | refused                                  |
+| U                | published        | `STALE_EVIDENCE ... Through premise ...` |
+| V                | published        | refused                                  |
+| patterns removed | published        | still refused                            |
+
+### Mutation
+
+16 mutants, **16 resolved, 0 survivors, 0 skipped** — the eleven IR-101 mutants carried forward plus
+five for the new boundary: INFERENCE added to the publishable list, the class check skipped,
+freshness not walking premises, only the first premise checked, and the architectural
+delete-every-pattern mutant, which now has to leave **both** the unbacked-prose block and the
+publication-class block green. It does.
+
+One mutant was retired rather than fixed. `a premise that is not stored is treated as fresh`
+survived everything, and the investigation found why: verification refuses an inference with a
+missing premise before freshness ever runs, so the null branch was unreachable. It is now
+`findUniqueOrThrow` — a loud failure if that ordering ever changes, rather than untestable defensive
+code. Recorded because "we deleted the mutant" and "we deleted dead code the mutant found" are
+different things.
+
+### Two audits that found nothing, which is also a result
+
+- **`CausalEdge` writers.** `prisma/seedCausalEdges.ts` is the only one outside the generated
+  client. No route, action, or domain module creates or mutates an edge, so `REPOSITORY_EXPLANATION`
+  really is repository-owned authority and needs no new machinery.
+- **`publishClaimForDisplay` reachability.** Still no production caller — tests and docstrings only.
+  So T and T' were contract defects rather than live exposure, and the frozen candidate, which has
+  no inference path, is untouched. Said plainly because "we closed a severe hole" and "a user could
+  have hit it" are different claims and only the first is true.
+
+### Holdout status
+
+The 160-case output-authority corpus was **demoted to regression evidence** on 2026-08-24. Its
+first-run numbers stand as a measurement of the code as it was that day; the implementation has
+moved, so they are not evidence about the code now. Re-run after the repair it is unchanged at
+108/160 strict and 4 over-published, which is expected — its verified cases are all FACT-backed and
+freshly seeded, so neither new rule touches them. **A new holdout must be frozen before any fresh
+generalisation claim.** The four over-published cases were not phrase-patched and remain open.
+
+### Residual limitations
+
+- INFERENCE output is unavailable, not safe. Restoring it needs a structured inference proposition
+  the repository renders FROM, and that does not exist.
+- The narration detector's coverage is still finite. That remains a reporting limitation, and after
+  this repair it is only a reporting limitation: the same semantics can no longer reach the reader
+  through a rendered segment.
+- A `FRESHNESS_UNKNOWN` premise suppresses. A genuinely current value from a two-observation series
+  will not publish.
+
+### Scope
+
+HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call. PR #1
+and the frozen candidate untouched; the concurrent session's control-bus work untouched and disjoint
+from every file changed here. Full suite 1888/1888 across 120 files against real PostgreSQL.
+`npm run build` (turbopack) fails on the worktree's `node_modules` junction before reading source;
+`npx next build --webpack` completes.

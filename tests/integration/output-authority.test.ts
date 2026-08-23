@@ -28,6 +28,8 @@ describeIfDb("output authority (integration)", () => {
   let prisma: typeof PrismaClientInstance;
   let answerWithInference: typeof import("@/server/domain/askMarketInference").answerWithInference;
   let validateOutputPlan: typeof import("@/server/domain/outputPlan").validateOutputPlan;
+  let publishClaimForDisplay: typeof import("@/server/domain/claimVerification").publishClaimForDisplay;
+  let verifyClaim: typeof import("@/server/domain/claimVerification").verifyClaim;
   let createFactClaimFromObservation: typeof import("@/server/domain/claimStore").createFactClaimFromObservation;
   let computeSeriesChange: typeof import("@/server/domain/whatChanged").computeSeriesChange;
 
@@ -52,6 +54,7 @@ describeIfDb("output authority (integration)", () => {
     ({ prisma } = await import("@/server/db/client"));
     ({ answerWithInference } = await import("@/server/domain/askMarketInference"));
     ({ validateOutputPlan } = await import("@/server/domain/outputPlan"));
+    ({ publishClaimForDisplay, verifyClaim } = await import("@/server/domain/claimVerification"));
     ({ createFactClaimFromObservation } = await import("@/server/domain/claimStore"));
     ({ computeSeriesChange } = await import("@/server/domain/whatChanged"));
 
@@ -214,17 +217,19 @@ describeIfDb("output authority (integration)", () => {
     });
 
     it("C — several verified segments, joined by the repository", async () => {
+      // Held an INFERENCE segment until IR-102 made that type fail-closed; a CALCULATION is the
+      // second real authority now.
       const outcome = await answer({
         segments: [
           claimSegment(factClaimId),
-          claimSegment(inferenceClaimId),
+          claimSegment(calcClaimId),
           { kind: "REPOSITORY_EXPLANATION", explanationId },
         ],
       });
       expect(outcome.status).toBe("ANSWERED");
       if (outcome.status === "ANSWERED") {
         expect(outcome.text).toContain("[FACT]");
-        expect(outcome.text).toContain("[INFERENCE]");
+        expect(outcome.text).toContain("[CALCULATION]");
         expect(outcome.text).toContain("[MECHANISM]");
         // The seeded limitation travels with the mechanism, because LEGAL_GUARDRAILS requires
         // analytical output to state its limits rather than imply certainty.
@@ -453,6 +458,144 @@ describeIfDb("output authority (integration)", () => {
           "MODEL_AUTHORED_PROSE",
           "CLAIM_NOT_FOUND",
         ]);
+      }
+    });
+  });
+
+  describe("verification is not semantic publication authority — IR-102", () => {
+    /**
+     * Six provenance-valid inferences published before this, in two languages, as
+     * repository-rendered `[INFERENCE] ...` text: a recommendation, an allocation preference, two
+     * capital-protection assurances, a "sensible course of action". Each rested on a real verified
+     * premise, carried a valid confidence and asserted no unsourced number, so `verifyClaim`
+     * returned VERIFIED and every downstream check agreed.
+     *
+     * The detector was the only thing between them and a reader, and it is finite by design: with
+     * the pattern list armed the crudest phrasings were BLOCKED and the careful ones published.
+     * That is the arrangement IR-101 removed from the planner path and left standing here.
+     */
+    const inferenceSaying = async (claimText: string) => {
+      const claim = await prisma.claim.create({
+        data: {
+          claimText,
+          claimType: "INFERENCE",
+          confidence: 0.5,
+          evidence: { premiseClaimIds: [factClaimId] },
+        },
+      });
+      return claim.id;
+    };
+
+    const PROHIBITED = [
+      "Holders in your position are better served trimming semiconductors and leaning into utilities.",
+      "A heavier tilt toward short-duration paper is the sensible posture for a book like yours.",
+      "Capital placed here is effectively shielded from drawdown whatever the cycle does.",
+      "이런 국면에서는 반도체를 줄이고 방어주로 옮겨 두는 편이 낫습니다.",
+      "여기에 넣어 둔 원금은 사실상 흔들리지 않습니다.",
+    ];
+
+    it("T — a VERIFIED inference carrying prohibited semantics does not publish", async () => {
+      for (const claimText of PROHIBITED) {
+        const id = await inferenceSaying(claimText);
+        await expect(verifyClaim(id)).resolves.toMatchObject({ status: "VERIFIED" });
+        const outcome = await answer({ segments: [claimSegment(id)] });
+        expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+        expect(JSON.stringify(outcome)).not.toContain(claimText);
+        if (outcome.status === "OUTPUT_SUPPRESSED") {
+          // The reason must be the class, not a pattern hit — otherwise the finite list is doing
+          // the work again and deleting it would reopen this.
+          expect(outcome.scan.reason).toContain("CLAIM_TYPE_NOT_PUBLISHABLE");
+        }
+      }
+    });
+
+    it("refuses the citation-bound inference that positive control C used to publish", async () => {
+      // Fully verifying, quantitatively cited, subject-bound, fresh premise — everything IR-094 and
+      // IR-095 built. It was a published segment in control C until IR-102, which is the clearest
+      // statement of the finding: all that provenance work was real and none of it was authority
+      // over what the sentence means.
+      await expect(verifyClaim(inferenceClaimId)).resolves.toMatchObject({ status: "VERIFIED" });
+      const outcome = await answer({ segments: [claimSegment(inferenceClaimId)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("CLAIM_TYPE_NOT_PUBLISHABLE");
+      }
+    });
+
+    it("refuses an entirely innocuous inference too, so it is the class and not the content", async () => {
+      const id = await inferenceSaying("Transmission appears to operate with the usual lag.");
+      await expect(verifyClaim(id)).resolves.toMatchObject({ status: "VERIFIED" });
+      const outcome = await answer({ segments: [claimSegment(id)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+    });
+
+    it("the publishable class list is closed and does not contain INFERENCE", async () => {
+      const { PUBLISHABLE_CLAIM_TYPES } = await import("@/server/domain/claimVerification");
+      expect([...PUBLISHABLE_CLAIM_TYPES]).toEqual(["FACT", "CALCULATION"]);
+    });
+
+    it("T' — the direct publication route refuses the same claims", async () => {
+      // `publishClaimForDisplay` is a second route into publication and had drifted from the plan
+      // layer. One gate now serves both, which is why the check lives in resolvePublishableClaim.
+      const id = await inferenceSaying(PROHIBITED[0]);
+      await expect(publishClaimForDisplay(id)).rejects.toThrow(/CLAIM_TYPE_NOT_PUBLISHABLE/);
+    });
+  });
+
+  describe("an inference is no fresher than its premises — IR-102 U and V", () => {
+    const inferenceOver = async (premiseIds: string[], claimText: string) =>
+      (
+        await prisma.claim.create({
+          data: {
+            claimText,
+            claimType: "INFERENCE",
+            confidence: 0.5,
+            evidence: { premiseClaimIds: premiseIds },
+          },
+        })
+      ).id;
+
+    it("U — a stale premise cannot be laundered through an inference", async () => {
+      // The control is two tests down: naming the stale FACT directly was already refused. Naming
+      // an inference whose premise IS that FACT published `5.3 percent` as current, because the
+      // freshness check read `evidence.seriesId` and an inference carries `premiseClaimIds`.
+      const id = await inferenceOver([staleClaimId], "The reading is unchanged.");
+      await expect(verifyClaim(id)).resolves.toMatchObject({ status: "VERIFIED" });
+      const outcome = await answer({ segments: [claimSegment(id)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("STALE_EVIDENCE");
+        expect(outcome.scan.reason).toContain("Through premise");
+      }
+    });
+
+    it("V — one fresh premise does not rescue a stale one", async () => {
+      const id = await inferenceOver([factClaimId, staleClaimId], "The reading is unchanged.");
+      const outcome = await answer({ segments: [claimSegment(id)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("STALE_EVIDENCE");
+      }
+    });
+
+    it("a premise whose freshness cannot be projected suppresses as well", async () => {
+      const id = await inferenceOver([unknownCadenceClaimId], "The reading is unchanged.");
+      const outcome = await answer({ segments: [claimSegment(id)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("FRESHNESS_UNKNOWN");
+      }
+    });
+
+    it("a premise that is not stored suppresses — at verification, before freshness", async () => {
+      // Worth pinning where this is caught. A mutant that removed the missing-premise branch from
+      // the freshness walk survived everything, because verification refuses first and the branch
+      // was unreachable. It is now a throw rather than untestable defensive code.
+      const id = await inferenceOver(["cl00000000000000000000000"], "The reading is unchanged.");
+      const outcome = await answer({ segments: [claimSegment(id)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("CLAIM_NOT_VERIFIED");
       }
     });
   });

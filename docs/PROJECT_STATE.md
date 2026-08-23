@@ -757,10 +757,11 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-1878 / 1878 PASS across 120 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-24 on the ask-guardrail architecture branch (1847 on 2026-08-23, 1838
-on 2026-08-21; the thirty-one since are IR-100 publication-authority and IR-101 output-authority
-controls). Counts here are measured, never estimated. The frozen release candidate
+1888 / 1888 PASS across 120 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-24 on the ask-guardrail architecture branch (1878 earlier the same
+day, 1847 on 2026-08-23, 1838 on 2026-08-21; the forty-one since are IR-100 publication-authority,
+IR-101 output-authority and IR-102 publication-class controls). Counts here are measured, never
+estimated. The frozen release candidate
 c03aa73 measured 1580 / 1580 across 110 files; the three files since are release tooling that is
 deliberately not in it.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the

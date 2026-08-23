@@ -42,8 +42,6 @@
  * verifying claim A says nothing about a sentence someone wrote next to A.
  */
 
-import { computeCalendarEntry } from "./economicCalendar";
-import { evaluateStaleness } from "./staleness";
 import { detectProhibitedConstructions, type OutputFinding } from "./outputPolicy";
 import { resolvePublishableClaim } from "./claimVerification";
 import { quantitativeOccurrences } from "./inferenceClaim";
@@ -122,6 +120,7 @@ export type SegmentRejection =
   | "EXPLANATION_NOT_FOUND"
   | "STALE_EVIDENCE"
   | "FRESHNESS_UNKNOWN"
+  | "CLAIM_TYPE_NOT_PUBLISHABLE"
   | "UNSUPPORTED_FIGURE"
   | "PROHIBITED_CONSTRUCTION";
 
@@ -167,55 +166,6 @@ function stringsIn(value: unknown, depth = 0): string[] {
   if (Array.isArray(value)) return value.flatMap((v) => stringsIn(v, depth + 1));
   if (isRecord(value)) return Object.values(value).flatMap((v) => stringsIn(v, depth + 1));
   return [];
-}
-
-/**
- * Is the observation behind this claim fresh enough to show as current?
- *
- * `docs/DATA_POLICY.md` says stale data must never be displayed as current, and publication is
- * exactly the moment that would happen. The rule is `staleness.ts`'s existing one — three times the
- * series' own median observation interval — applied through `economicCalendar.ts`'s existing
- * cadence projection. No threshold is invented here and none should be: a freshness number chosen
- * to make a test pass is worse than no check.
- *
- * A series with too little history to project a cadence is `FRESHNESS_UNKNOWN`, which suppresses.
- * That is the fail-closed reading of "unknown is not success", and it is a real cost — a genuinely
- * current value from a two-observation series will not publish. Stated rather than softened.
- *
- * Claims whose evidence names no series (a CALCULATION over two observations, an INFERENCE over
- * premises) return `null`: freshness is not applicable rather than unknown, and conflating those
- * would suppress everything that is not a plain observation.
- */
-async function checkFreshness(
-  evidence: unknown,
-): Promise<{ reason: SegmentRejection; detail: string } | null> {
-  if (!isRecord(evidence)) return null;
-  const seriesId = evidence.seriesId;
-  if (typeof seriesId !== "string" || seriesId.length === 0) return null;
-
-  const entry = await computeCalendarEntry(seriesId);
-  if (entry.status === "INSUFFICIENT_DATA" || entry.medianIntervalDays === undefined) {
-    return {
-      reason: "FRESHNESS_UNKNOWN",
-      detail:
-        `Series ${seriesId} has too little history to project a cadence, so whether this value ` +
-        "is current is unknown. Unknown is not fresh.",
-    };
-  }
-
-  const staleness = evaluateStaleness({
-    lastObservedDate: entry.lastObservedDate as string,
-    medianIntervalDays: entry.medianIntervalDays,
-  });
-  if (staleness.status !== "FRESH") {
-    return {
-      reason: "STALE_EVIDENCE",
-      detail:
-        `Series ${seriesId} was last observed ${staleness.daysSinceLastObservation} days ago ` +
-        `against a median interval of ${entry.medianIntervalDays} days.`,
-    };
-  }
-  return null;
 }
 
 /**
@@ -312,10 +262,11 @@ async function validateSegment(
           `(${resolved.verification.status}): ${resolved.verification.detail}`,
       );
     }
-
-    const freshness = await checkFreshness(resolved.claim.evidence);
-    if (freshness) {
-      return reject(freshness.reason, `Segment ${index}: ${freshness.detail}`);
+    if (resolved.status !== "PUBLISHABLE") {
+      // Stale evidence, unknown freshness, or a claim type with no bounded meaning. The single
+      // publication gate lives in `resolvePublishableClaim` so that this route and
+      // `publishClaimForDisplay` cannot drift apart — IR-102 found them already apart.
+      return reject(resolved.status, `Segment ${index}: ${resolved.detail}`);
     }
 
     return {

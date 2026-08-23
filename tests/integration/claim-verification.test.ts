@@ -23,6 +23,10 @@ describeIfDb("claim verification (integration)", () => {
   let otherSeriesId: string;
   let currentObsId: string;
   let previousObsId: string;
+  let freshSeriesId: string;
+  let freshFactId: string;
+  let freshFactText: string;
+  let freshValue: string;
 
   beforeAll(async () => {
     ({ prisma } = await import("@/server/db/client"));
@@ -72,6 +76,49 @@ describeIfDb("claim verification (integration)", () => {
       },
     });
     observationId = observation.id;
+
+    // A series whose cadence is projectable and current, added when IR-102 made publication
+    // conditional on freshness. The series above deliberately keeps its fixed dates because two
+    // tests assert on the exact rendered claim text, and it has one observation, so no cadence can
+    // be projected for it — which is FRESHNESS_UNKNOWN, which now suppresses. The publication
+    // controls need a claim that is genuinely publishable, so they get their own.
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const daysAgo = (n: number) => {
+      const d = new Date(Date.now() - n * MS_PER_DAY);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    };
+    const freshSeries = await prisma.series.create({
+      data: {
+        sourceId,
+        externalId: "TESTVERIFY_FRESH",
+        name: "Test Verify Fresh Series",
+        unit: "percent",
+        frequency: "weekly",
+      },
+    });
+    freshSeriesId = freshSeries.id;
+    await prisma.observation.create({
+      data: {
+        seriesId: freshSeries.id,
+        sourceId,
+        observationDate: daysAgo(7),
+        value: "1.10",
+        raw: {},
+      },
+    });
+    const freshObservation = await prisma.observation.create({
+      data: {
+        seriesId: freshSeries.id,
+        sourceId,
+        observationDate: daysAgo(0),
+        value: "2.40",
+        raw: {},
+      },
+    });
+    freshValue = freshObservation.value.toString();
+    const freshFact = await createFactClaimFromObservation(freshObservation.id);
+    freshFactId = freshFact.id;
+    freshFactText = freshFact.claimText;
 
     // A second series (same source) for the CALCULATION-claim tests, plus a series belonging
     // to OTHER_SOURCE_CODE used for the "different series" tampering test.
@@ -493,9 +540,36 @@ describeIfDb("claim verification (integration)", () => {
       return { inference, premise, claimText };
     };
 
-    it("publishes a stored inference that verifies, rendering exactly what was verified", async () => {
-      const { inference, claimText } = await goodInference();
-      await expect(publishClaimForDisplay(inference.id)).resolves.toBe(`[INFERENCE] ${claimText}`);
+    it("publishes a stored FACT that verifies, rendering exactly what was verified", async () => {
+      // The positive control used a verifying INFERENCE until IR-102, which established that
+      // provenance verification is not semantic publication authority and made INFERENCE
+      // fail-closed. L/M/N/O are about a verdict's identity, not about a claim type, so they keep
+      // their inferences; this one needs a claim that is actually publishable.
+      await expect(publishClaimForDisplay(freshFactId)).resolves.toBe(`[FACT] ${freshFactText}`);
+    });
+
+    it("refuses a stored INFERENCE even when it verifies perfectly — IR-102 candidate T", async () => {
+      // Built on the fresh premise so freshness cannot be the reason. Six claims of this shape
+      // published as `[INFERENCE] ...` before the repair, in two languages, every one of them
+      // provenance-valid.
+      const claimText = `The reading stood at ${freshValue} percent.`;
+      const inference = await prisma.claim.create({
+        data: {
+          claimText,
+          claimType: "INFERENCE",
+          confidence: 0.5,
+          evidence: {
+            premiseClaimIds: [freshFactId],
+            quantitativeCitations: [
+              cite(claimText, `${freshValue} percent`, freshFactId, freshSeriesId),
+            ],
+          },
+        },
+      });
+      await expect(verifyClaim(inference.id)).resolves.toMatchObject({ status: "VERIFIED" });
+      await expect(publishClaimForDisplay(inference.id)).rejects.toThrow(
+        /CLAIM_TYPE_NOT_PUBLISHABLE/,
+      );
     });
 
     it("refuses an inference that does not verify — L, the forged literal", async () => {
@@ -516,7 +590,6 @@ describeIfDb("claim verification (integration)", () => {
     it("cannot publish claim B with claim A's authority — M", async () => {
       // The verdict is no longer a value that can travel. Verifying A and asking to publish B
       // simply verifies B, which fails.
-      const { inference: good } = await goodInference();
       const { premise } = await factPremise();
       const bad = await prisma.claim.create({
         data: {
@@ -526,18 +599,28 @@ describeIfDb("claim verification (integration)", () => {
           evidence: { premiseClaimIds: [premise.id] },
         },
       });
-      await expect(publishClaimForDisplay(good.id)).resolves.toContain("[INFERENCE]");
+      // A publishes; asking to publish B verifies B, which fails. There is no verdict object in
+      // between for the two to share.
+      await expect(publishClaimForDisplay(freshFactId)).resolves.toContain("[FACT]");
       await expect(publishClaimForDisplay(bad.id)).rejects.toThrow(/did not verify/);
     });
 
     it("refuses after the claim text is mutated — N, the stale verdict", async () => {
-      const { inference } = await goodInference();
-      await expect(publishClaimForDisplay(inference.id)).resolves.toContain("[INFERENCE]");
+      // Its own claim over the fresh observation, so mutating it cannot disturb the other controls.
+      const own = await createFactClaimFromObservation(
+        (
+          await prisma.observation.findFirstOrThrow({
+            where: { seriesId: freshSeriesId },
+            orderBy: { observationDate: "desc" },
+          })
+        ).id,
+      );
+      await expect(publishClaimForDisplay(own.id)).resolves.toContain("[FACT]");
       await prisma.claim.update({
-        where: { id: inference.id },
+        where: { id: own.id },
         data: { claimText: "The reading stood at 99999 nonsense." },
       });
-      await expect(publishClaimForDisplay(inference.id)).rejects.toThrow(/did not verify/);
+      await expect(publishClaimForDisplay(own.id)).rejects.toThrow(/did not verify/);
     });
 
     it("refuses after the evidence is tampered", async () => {

@@ -3584,3 +3584,125 @@ modest one: the repair generalises; the guardrail does not.
 
 No further phrase work. The next move on this surface is a design decision, not an engineering one,
 and the evidence for it is now three independent measurements deep.
+
+---
+
+## IR-093 — A gate in front of the model, because the filter behind it cannot be one
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][ASK-HOLDOUT-20260823]` (comment 5383289675) read the
+holdout evidence as an architecture finding rather than a coverage one, and authorised bounded
+structural work: a fail-closed pre-generation authority boundary and an independent output-side
+boundary. Neither activates a provider and none is approved.
+
+Built in an isolated worktree — see the concurrency note at the end.
+
+### The distinction the whole design turns on
+
+    a filter asks   "did anything match?"      and lets the unmatched through
+    a gate asks     "was this proven safe?"    and holds the unproven back
+
+`detectPersonalizedAdviceRequest` is a filter and a good one. It is not a gate, and the numbers say
+so: on a blind holdout it answered 82 of 112 prohibited requests, **69 of them because nothing
+matched at all**. Under the rule "not detected as prohibited, therefore may reach the model", every
+one of those 69 would have been handed to a generator.
+
+So `src/server/domain/inferenceAuthorization.ts` grants eligibility rather than inferring it. A
+query reaches generation only when it is affirmatively classified `FACTUAL_MECHANISM` or
+`THIRD_PARTY_REPORTED_FACT`. `UNKNOWN` is ineligible. `REQUEST_DIRECTIVE` is ineligible. So is
+`DESCRIPTIVE_ANALYSIS`, which the redirect guardrail is perfectly happy to answer — a deterministic
+lookup answering "what was the price target last year" reads stored data, and a model answering it
+invents a number. **The permitted set is deliberately narrower for generation than for the
+deterministic path**, because the two produce different kinds of wrong.
+
+The existing guardrail runs FIRST inside the gate, so a sentence carrying a mechanism question and
+a prohibited request together cannot buy its way in with the half that looks factual.
+
+### Proving unreachability, not proving a label
+
+`src/server/domain/askMarketInference.ts` is the only place a future model could be called from,
+and the sink is a parameter. Every test counts calls to a spy.
+
+`sinkCalls === 0` is a fact about the production path. `eligible === false` is a fact about a
+function, and the whole reason these findings exist is that a well-formed, well-tested helper sat
+behind a path that did not consult it for most of its inputs.
+
+**Through the full blind holdout: 0 of 112 prohibited requests reach the sink.** With a control in
+the same file asserting that some legitimate questions still do — a gate that blocks everything
+passes the first test trivially.
+
+Holdout 2 is used here read-only, as evidence about reachability. No label changed, no miss
+patched, nothing tuned. It remains a fresh holdout for the request guardrail; what this file
+asserts is a property, not a rate.
+
+### The output boundary, independent by construction
+
+`src/server/domain/outputPolicy.ts` is not told the frame, the authorization, or the prompt, and
+must not be. A scanner that trusts the request cannot catch the case that matters: a well-formed
+factual question answered with advice. A test asserts exactly that case.
+
+Three-valued, because a guardrail over free prose cannot enumerate what prose may say:
+
+- `CLEAR` — nothing prohibited AND every figure traces to a stored source.
+- `BLOCKED` — a named prohibited construction, with the matched span as evidence.
+- `UNVERIFIABLE` — nothing prohibited found and something could not be checked. **Not
+  publishable.** This is the state an absence-based scanner calls clean, and it is where a
+  generation path leaks.
+
+Attribution is a required input rather than an optional one, so forgetting to wire provenance is
+distinguishable from having it.
+
+### Mutation — 8 of 8, and the eighth was missed first
+
+UNKNOWN reaches generation (2 tests fail) · REQUEST_DIRECTIVE reaches generation (3) · the
+guardrail is not consulted (1) · **the absence-based rule (10)** · the eligible-frame list is not
+enforced (1) · bypass the gate entirely (13) · the output scan is ignored (3) · UNVERIFIABLE
+treated as publishable (1).
+
+`REQUEST_DIRECTIVE reaches generation` **survived the first run**. Every directive in the test file
+was also caught by the request guardrail a step earlier, so deleting the directive check changed
+nothing and the suite stayed green — the check was in the code and not load-bearing. Closed by
+three controls that are directive-framed AND guardrail misses. Second time in two days a surviving
+mutant has named an assertion nobody wrote, and it is becoming the most reliable review tool here.
+
+### Status
+
+**Nothing is activated.** No provider, no credential, no API call, no network. `InferenceSink` is
+an interface nothing in this repository implements, so there is no path from this code to a bill.
+
+HG-006 remains a Human Gate AND is now additionally safety-design blocked: the request guardrail's
+73% blind false-negative rate is unchanged by any of this, and this work is what makes that rate
+survivable rather than what fixes it. The frozen RC is untouched and has no inference producer.
+
+### Concurrency
+
+Another session's uncommitted control-bus liveness refactor (2,713 lines, referencing IR-096 and
+IR-098) was present in the main worktree. It was left completely untouched: read-only inspection,
+a patch exported outside the repository, and all of this work done in a separate `git worktree` at
+`claude/ask-guardrail-architecture-20260823`, created from the committed SHA `c83ca4a` rather than
+from the dirty tree. The main worktree's `git status --porcelain` hash is identical before and
+after.
+
+---
+
+## EN-06 — Two tests passed in one checkout of a commit and failed in another checkout of the same commit
+
+Found by creating a fresh `git worktree` from `c83ca4a` and running the suite there.
+
+`tests/requestFrameAudit.test.ts` and `tests/documentedCounts.test.ts` both compare multi-line
+spans of a file read from disk. `core.autocrlf` is on, so git delivers CRLF to a fresh checkout,
+while the files in the original worktree were written by tooling with LF. Same commit, same bytes
+in the object store, two different strings in memory.
+
+The documentation guard failed in the more dangerous way. `state.indexOf("TESTS
+")` returned -1,
+`state.slice(-1)` became a single newline, and the section assertions then examined that newline
+instead of the section — a test that had been checking nothing at all would have reported green if
+the other assertion in it had happened to pass.
+
+Both now normalise line endings on read. This is not the EN-05 environment note being papered
+over: EN-05 says do not rewrite a file because the checkout gave it CRLF, and this does not rewrite
+any file. It makes the ASSERTIONS independent of a difference that git is entitled to introduce.
+
+Worth generalising: a test that reads source or documentation from disk on Windows should
+normalise, and one that slices on a found index should check the index was found. `indexOf`
+returning -1 into `slice` is silent, and silence is what let it through.

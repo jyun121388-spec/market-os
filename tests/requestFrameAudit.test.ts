@@ -29,8 +29,19 @@ const ALL_FRAMES: RequestFrame[] = [
   "UNKNOWN",
 ];
 
-const askMarketSource = readFileSync(join(process.cwd(), "src/server/domain/askMarket.ts"), "utf8");
-const frameSource = readFileSync(join(process.cwd(), "src/server/domain/requestFrame.ts"), "utf8");
+/**
+ * Read with line endings normalised.
+ *
+ * These assertions compare multi-line source spans, and `core.autocrlf` hands out CRLF on one
+ * checkout and LF on another — the same commit, the same bytes in git, two different strings in
+ * memory. A structural property must not depend on which worktree it is read from, and this failed
+ * in a fresh `git worktree` while passing in the original for exactly that reason (EN-05).
+ */
+const readSource = (relative: string) =>
+  readFileSync(join(process.cwd(), relative), "utf8").replace(/\r\n/g, "\n");
+
+const askMarketSource = readSource("src/server/domain/askMarket.ts");
+const frameSource = readSource("src/server/domain/requestFrame.ts");
 
 describe("PROPERTY 1 — the directive frame is evaluated before any factual exemption", () => {
   /**

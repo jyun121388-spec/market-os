@@ -32,7 +32,15 @@ function countTestFiles(): number {
 }
 
 describe("PROJECT_STATE's headline numbers", () => {
-  const state = readFileSync(join(process.cwd(), "docs/PROJECT_STATE.md"), "utf8");
+  // Line endings normalised on read. `state.indexOf("TESTS\n")` returned -1 in a fresh
+  // `git worktree` on Windows, where `core.autocrlf` delivers CRLF — the slice then silently
+  // became the last character of the file, and the section assertions were checking a newline.
+  // Passing in one checkout of a commit and failing in another checkout of the SAME commit is
+  // EN-05, and a documentation guard is the wrong place to be sensitive to it.
+  const state = readFileSync(join(process.cwd(), "docs/PROJECT_STATE.md"), "utf8").replace(
+    /\r\n/g,
+    "\n",
+  );
 
   it("makes exactly one suite-size claim, so there is one thing to keep true", () => {
     const claims = state.match(/\d+ \/ \d+ PASS across \d+ files/g) ?? [];

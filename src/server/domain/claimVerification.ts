@@ -2,6 +2,7 @@ import { prisma } from "@/server/db/client";
 import { buildFactClaimText } from "./claimStore";
 import { buildChangeClaimText } from "./whatChanged";
 import { computeChange } from "./seriesReadings";
+import { formatVerifiedClaim, InvalidClaimError } from "./claimLedger";
 import { verifyInferenceClaim, type PremiseVerification } from "./inferenceClaim";
 import type { QuantitativeCitation } from "./quantitativeCitation";
 import { calculationAtoms, factAtoms, type QuantitativeAtom } from "./quantitativeEvidence";
@@ -39,7 +40,27 @@ export interface VerificationResult {
  */
 export async function verifyClaim(claimId: string): Promise<VerificationResult> {
   const claim = await prisma.claim.findUniqueOrThrow({ where: { id: claimId } });
+  return verifyLoadedClaim(claim);
+}
 
+/**
+ * Verifies a claim row the caller has already loaded.
+ *
+ * Extracted so that publication can verify the EXACT object it is about to render. `verifyClaim`
+ * loads by id and `publishClaimForDisplay` loads by id, and if publication called the former it
+ * would be verifying one read and rendering another — a window IR-100 candidate N walked through
+ * with nothing more exotic than an UPDATE between the two.
+ *
+ * No verification logic is duplicated: `verifyClaim` is now this function plus a load.
+ */
+export async function verifyLoadedClaim(claim: {
+  id: string;
+  claimType: string;
+  claimText: string;
+  sourceId: string | null;
+  confidence: unknown;
+  evidence: unknown;
+}): Promise<VerificationResult> {
   if (claim.claimType === "FACT") {
     return verifyFactClaim(claim);
   }
@@ -55,6 +76,53 @@ export async function verifyClaim(claimId: string): Promise<VerificationResult> 
     status: "UNSUPPORTED_CLAIM_TYPE",
     detail: `verifyClaim does not yet support ${claim.claimType} claims`,
   };
+}
+
+/**
+ * The only way to publish an INFERENCE, and the reason it takes an id rather than a claim.
+ *
+ * A third-order review (IR-100) reproduced four ways a caller-supplied verdict fails to be an
+ * authority: the literal string is forgeable, a verdict for claim A publishes claim B, a verdict
+ * survives the claim being mutated underneath it, and a synthetic object that was never stored
+ * publishes fine. All four have the same root — the caller was being asked to vouch for itself.
+ *
+ * So this function takes the one thing a caller cannot fake into meaning something else: an
+ * identity in the ledger. It loads that row, verifies THAT OBJECT, and renders the same object it
+ * verified. There is no parameter to get wrong and no verdict to carry around.
+ *
+ * ## On transactions, which are deliberately absent
+ *
+ * Verification reads premise rows and observation rows after the claim row, so in principle the
+ * three could come from different moments. That was checked before adding machinery for it: no
+ * production code path updates, deletes or upserts a `Claim` — the ledger is append-only, and the
+ * only `claim.update` occurrences in the repository are inside generated Prisma docstrings. With
+ * no writer to race, a snapshot would be complexity bought against a scenario the application
+ * cannot currently produce. **If a claim mutation path is ever added, this needs one**, and the
+ * test that reproduced N by calling `prisma.claim.update` directly is the shape it would take.
+ */
+export async function publishClaimForDisplay(claimId: string): Promise<string> {
+  const claim = await prisma.claim.findUnique({ where: { id: claimId } });
+  if (!claim) {
+    throw new InvalidClaimError(
+      `No claim ${claimId} exists. Publication is anchored to a stored ledger identity, so there ` +
+        "is nothing here to publish.",
+    );
+  }
+
+  const verification = await verifyLoadedClaim(claim);
+  if (verification.status !== "VERIFIED") {
+    throw new InvalidClaimError(
+      `Claim ${claimId} did not verify (${verification.status}): ${verification.detail}`,
+    );
+  }
+
+  // Rendered from the SAME object that was verified, never from a fresh read.
+  return formatVerifiedClaim({
+    claimText: claim.claimText,
+    claimType: claim.claimType,
+    sourceId: claim.sourceId,
+    confidence: claim.confidence,
+  });
 }
 
 /**

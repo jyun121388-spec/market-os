@@ -3894,3 +3894,99 @@ has named an assertion nobody wrote; it remains the most reliable review instrum
 
 HG-006 activation work. No producer, no provider, no model, no network. The frozen candidate has no
 inference path and is not reopened.
+
+---
+
+## IR-100 — A VERIFIED string is not a verification capability
+
+Third-order adversarial review of the publication boundary IR-095 had just built. IR-095 closed
+candidate K by making `formatClaimForDisplay` demand `verdict: "VERIFIED"` before it would render an
+inference, and wrote that the caller "can only honestly obtain" that from `verifyClaim`. The word
+doing all the work in that sentence is _honestly_. Four candidates were named; **all four
+reproduced**, against real PostgreSQL, before a line was changed.
+
+Numbered IR-100 rather than IR-096 because a concurrent session is already using 096 and 098 for the
+control-bus liveness refactor.
+
+### Reproduction matrix, recorded before modification
+
+`verifyClaim(A) = VERIFIED`, `verifyClaim(B) = VALUE_MISMATCH`, established first so that every row
+below is a publication failure rather than a verification failure.
+
+| #     | probe                                                                  | before                                                          |
+| ----- | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **L** | unverified inference + the literal `"VERIFIED"`, verifier never called | **RENDERED** `[INFERENCE] Growth accelerated to 9.87 percent.`  |
+| **M** | `resultA.status` (a genuine verdict, for A) used to publish B          | **RENDERED** the same                                           |
+| **N** | verdict obtained, claim then UPDATEd, verdict reused                   | **RENDERED** `[INFERENCE] The reading stood at 99999 nonsense.` |
+| **O** | synthetic `ClaimInput` that was never stored, plus `"VERIFIED"`        | **RENDERED** `[INFERENCE] Samsung will outperform this year.`   |
+
+L is the obvious one and the least interesting. **M, N and O need no forgery at all** — each uses a
+verdict that a verifier genuinely produced, against the wrong claim, the wrong version of the right
+claim, or no stored claim whatsoever. That is why branding the type would not have been a repair:
+branding raises the cost of L and leaves M, N and O exactly where they are. A parameter asking the
+caller to vouch for itself is not made trustworthy by making the vouching harder to spell.
+
+### Repair: delete the parameter, do not defend it
+
+`formatClaimForDisplay` no longer takes a verdict. It refuses INFERENCE unconditionally, whatever
+the caller says, and the error names the route that works. Publication of an inference now goes
+through one function:
+
+    publishClaimForDisplay(claimId)   // claimVerification.ts
+
+which loads the stored row, verifies **that object**, refuses unless `VERIFIED`, and renders the
+same object it verified. There is no verdict value in the system that can travel between claims,
+survive a mutation, or exist without a ledger identity behind it. `claimId` is the argument
+precisely because it is the one thing a caller cannot redefine into meaning a different claim.
+
+`verifyLoadedClaim(claim)` was extracted from `verifyClaim(claimId)` to make that possible without
+duplicating a line of verification logic — `verifyClaim` is now that function plus a load. Had
+publication called `verifyClaim` instead, it would have verified one read and rendered another, and
+candidate N walks through that window with nothing more exotic than an UPDATE in between.
+
+### Two questions answered by evidence rather than by adding machinery
+
+**Should publication run in a transaction?** No, and the reason is recorded in the module beside the
+code. Verification reads premise and observation rows after the claim row, so in principle they
+could come from different moments — but no production path updates, deletes or upserts a `Claim`.
+Every `claim.update` occurrence in the repository is inside a generated Prisma docstring. The ledger
+is append-only, so there is no writer to race, and a snapshot would be complexity bought against a
+scenario the application cannot produce. **The condition that changes this is written down**: if a
+claim mutation path is ever added, publication needs a transaction, and the test that reproduced N
+by calling `prisma.claim.update` directly is the shape it would take.
+
+**How reachable was any of this?** `formatClaimForDisplay` has no production caller — tests only. So
+L–O were contract defects rather than live exposure, and the frozen V1 candidate, which has no
+inference path at all, is untouched by both the defect and the repair. Recorded because "we fixed a
+severe hole" and "a user could have hit it" are different claims and only the first one is true.
+
+### Proof
+
+Nine integration cases against real PostgreSQL, one per reproduction plus the ones the repair makes
+possible to ask: a good inference publishes; L, M, N refuse; tampered evidence, a NaN confidence
+written after the fact, and a deleted premise each refuse with their own verifier status; an id
+naming nothing refuses; and publication loads exactly once. Full suite 1847 passed / 119 files.
+
+Mutation: 23 mutants, **23 detected, 0 skipped, 0 survivors** — the eighteen provenance mutants
+carried forward from IR-094/IR-095 plus five publication mutants. The one that matters most is
+`publication verifies a different read than it renders`, killed by exactly one test — the structural
+assertion that `publishClaimForDisplay` contains a single `findUnique`. A race is not reproducible
+under an append-only ledger, so that assertion is the only thing standing between the code and a
+silent reintroduction of N, and the mutation run is what proves it is load-bearing rather than
+decorative.
+
+### Environment, stated not glossed
+
+`npm run build` fails in this worktree with `Symlink [project]/node_modules is invalid, it points
+out of the filesystem root` — Turbopack refusing the Windows junction that gives the worktree its
+dependencies. It fails during dependency resolution, before any source is read, and is unrelated to
+these changes. `tsc --noEmit` is clean. `npm run format:check` reports 297 files for the CRLF reason
+already recorded as EN-05; the four files touched here pass `prettier --check` individually.
+
+Build status here is **VERIFIED_WITH_LIMITATION**, not passing.
+
+### Scope
+
+HG-006 activation work, in the isolated worktree. No producer, no provider, no model, no network.
+PR #1 and the frozen candidate untouched; the concurrent session's control-bus work untouched and
+disjoint from every file changed here.

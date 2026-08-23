@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { prisma as PrismaClientInstance } from "@/server/db/client";
 
@@ -13,6 +15,7 @@ describeIfDb("claim verification (integration)", () => {
   let computeSeriesChange: typeof import("@/server/domain/whatChanged").computeSeriesChange;
   let verifyClaim: typeof import("@/server/domain/claimVerification").verifyClaim;
   let buildFactClaimText: typeof import("@/server/domain/claimStore").buildFactClaimText;
+  let publishClaimForDisplay: typeof import("@/server/domain/claimVerification").publishClaimForDisplay;
   let sourceId: string;
   let otherSourceId: string;
   let observationId: string;
@@ -27,6 +30,7 @@ describeIfDb("claim verification (integration)", () => {
     ({ computeSeriesChange } = await import("@/server/domain/whatChanged"));
     ({ verifyClaim } = await import("@/server/domain/claimVerification"));
     ({ buildFactClaimText } = await import("@/server/domain/claimStore"));
+    ({ publishClaimForDisplay } = await import("@/server/domain/claimVerification"));
 
     for (const code of [TEST_SOURCE_CODE, OTHER_SOURCE_CODE]) {
       const existing = await prisma.source.findUnique({ where: { code } });
@@ -461,6 +465,122 @@ describeIfDb("claim verification (integration)", () => {
     });
     const result = await verifyClaim(inference.id);
     expect(result.detail).toContain("PREMISE_NOT_VERIFIED");
+  });
+
+  /**
+   * Publication authority, IR-100. Every case below rendered before the repair.
+   *
+   * The unit tests hold the shape of the boundary; these hold the thing that actually matters —
+   * that a claim which does not verify cannot reach a reader through any route this module offers.
+   */
+  describe("publication obtains its own authority for the exact stored claim", () => {
+    const goodInference = async () => {
+      const { premise, observation } = await factPremise();
+      const value = observation.value.toString();
+      const unit = observation.series.unit;
+      const claimText = `The reading stood at ${value} ${unit}.`;
+      const inference = await prisma.claim.create({
+        data: {
+          claimText,
+          claimType: "INFERENCE",
+          confidence: 0.5,
+          evidence: {
+            premiseClaimIds: [premise.id],
+            quantitativeCitations: [cite(claimText, `${value} ${unit}`, premise.id, seriesId)],
+          },
+        },
+      });
+      return { inference, premise, claimText };
+    };
+
+    it("publishes a stored inference that verifies, rendering exactly what was verified", async () => {
+      const { inference, claimText } = await goodInference();
+      await expect(publishClaimForDisplay(inference.id)).resolves.toBe(`[INFERENCE] ${claimText}`);
+    });
+
+    it("refuses an inference that does not verify — L, the forged literal", async () => {
+      // Before the repair the caller wrote "VERIFIED" and this rendered. There is now no argument
+      // to write: publication asks the verifier.
+      const { premise } = await factPremise();
+      const bad = await prisma.claim.create({
+        data: {
+          claimText: "Growth accelerated to 9.87 percent.",
+          claimType: "INFERENCE",
+          confidence: 0.5,
+          evidence: { premiseClaimIds: [premise.id] },
+        },
+      });
+      await expect(publishClaimForDisplay(bad.id)).rejects.toThrow(/did not verify/);
+    });
+
+    it("cannot publish claim B with claim A's authority — M", async () => {
+      // The verdict is no longer a value that can travel. Verifying A and asking to publish B
+      // simply verifies B, which fails.
+      const { inference: good } = await goodInference();
+      const { premise } = await factPremise();
+      const bad = await prisma.claim.create({
+        data: {
+          claimText: "Margin reached 42 percent.",
+          claimType: "INFERENCE",
+          confidence: 0.5,
+          evidence: { premiseClaimIds: [premise.id] },
+        },
+      });
+      await expect(publishClaimForDisplay(good.id)).resolves.toContain("[INFERENCE]");
+      await expect(publishClaimForDisplay(bad.id)).rejects.toThrow(/did not verify/);
+    });
+
+    it("refuses after the claim text is mutated — N, the stale verdict", async () => {
+      const { inference } = await goodInference();
+      await expect(publishClaimForDisplay(inference.id)).resolves.toContain("[INFERENCE]");
+      await prisma.claim.update({
+        where: { id: inference.id },
+        data: { claimText: "The reading stood at 99999 nonsense." },
+      });
+      await expect(publishClaimForDisplay(inference.id)).rejects.toThrow(/did not verify/);
+    });
+
+    it("refuses after the evidence is tampered", async () => {
+      const { inference } = await goodInference();
+      await prisma.claim.update({
+        where: { id: inference.id },
+        data: { evidence: { premiseClaimIds: [] } },
+      });
+      await expect(publishClaimForDisplay(inference.id)).rejects.toThrow(/NO_PREMISES/);
+    });
+
+    it("refuses after the confidence is changed to something invalid", async () => {
+      const { inference } = await goodInference();
+      await prisma.claim.update({ where: { id: inference.id }, data: { confidence: NaN } });
+      await expect(publishClaimForDisplay(inference.id)).rejects.toThrow(/CONFIDENCE_NOT_A_NUMBER/);
+    });
+
+    it("refuses after a premise is deleted", async () => {
+      const { inference, premise } = await goodInference();
+      await prisma.claim.delete({ where: { id: premise.id } });
+      await expect(publishClaimForDisplay(inference.id)).rejects.toThrow(/PREMISE_NOT_VERIFIED/);
+    });
+
+    it("refuses an id that names no stored claim — O has no synthetic route", async () => {
+      await expect(publishClaimForDisplay("00000000-0000-0000-0000-000000000000")).rejects.toThrow(
+        /No claim/,
+      );
+    });
+
+    it("renders the verified object, not a fresh read", async () => {
+      // Structural: publication loads once. Asserted by source shape because a race is not
+      // reproducible under an append-only ledger — see the transaction note in the module.
+      const source = readFileSync(
+        join(process.cwd(), "src/server/domain/claimVerification.ts"),
+        "utf8",
+      );
+      const decl = source.indexOf("export async function publishClaimForDisplay");
+      const end = source.indexOf("\n}\n", decl);
+      expect(end).toBeGreaterThan(decl);
+      const body = source.slice(decl, end);
+      expect(body.split("findUnique").length - 1).toBe(1);
+      expect(body).toContain("verifyLoadedClaim(claim)");
+    });
   });
 
   describe("H2 adversarial regressions (structural, not substring, verification)", () => {

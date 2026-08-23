@@ -101,18 +101,19 @@ describe("claim ledger invariants", () => {
       expect(() => assertValidClaim(inference)).not.toThrow();
     });
 
-    it("refuses to DISPLAY an INFERENCE with no verification verdict", () => {
-      // IR-095 candidate K. `formatClaimForDisplay` called `assertValidClaim` and rendered whatever
-      // passed, so persistence was standing in for publication safety. It no longer can: the
-      // verdict argument is obtainable only from verifyClaim.
+    it("cannot publish an INFERENCE at all, whatever the caller passes", () => {
+      // IR-095 candidate K made this require a verdict; IR-100 showed a caller-supplied verdict is
+      // not an authority — forgeable, reusable across claims, and survivable across a mutation. So
+      // there is no argument that makes this function publish an inference. The route is
+      // `publishClaimForDisplay(claimId)`, which verifies the row it renders.
       expect(() => formatClaimForDisplay(inference)).toThrow(InvalidClaimError);
-      expect(() => formatClaimForDisplay(inference, "NOT_VERIFIED")).toThrow(InvalidClaimError);
+      expect(() => formatClaimForDisplay(inference)).toThrow(/publishClaimForDisplay/);
     });
 
-    it("displays an INFERENCE once it carries a VERIFIED verdict", () => {
-      expect(formatClaimForDisplay(inference, "VERIFIED")).toBe(
-        "[INFERENCE] this suggests further easing",
-      );
+    it("has no parameter a caller could use to vouch for an inference", () => {
+      // Structural: the signature is the boundary. A second parameter would be the forgeable
+      // channel coming back, whatever it was named or branded.
+      expect(formatClaimForDisplay.length).toBe(1);
     });
 
     it("leaves FACT and CALCULATION publication unchanged", () => {

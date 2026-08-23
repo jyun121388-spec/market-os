@@ -72,27 +72,57 @@ export function assertValidClaim(claim: ClaimInput): void {
  *     WRITE_ALLOWED     the ledger invariants hold; store it, verified or not
  *     VERIFY_ALLOWED    verifyClaim may examine anything that was stored
  *     PUBLISH_ALLOWED   a FACT or CALCULATION that passed its invariants, or an INFERENCE that
- *                       has a VERIFIED verdict from verifyClaim
+ *                       `publishClaimForDisplay` has just verified for itself
  *
- * Persistence is not evidence of publication safety, and the type system now says so: publishing
- * an inference requires a verdict argument that only the verifier produces.
+ * Persistence is not evidence of publication safety, and neither is a caller saying so. The
+ * boundary obtains its own authority for the exact stored state it renders; nothing about it is
+ * passed in.
  */
-export type PublicationVerdict = "VERIFIED" | "NOT_VERIFIED";
-
 /**
  * Renders a claim for presentation, always prefixed with its type label.
  *
- * An INFERENCE requires `verdict: "VERIFIED"`, which the caller can only honestly obtain from
- * `verifyClaim`. FACT and CALCULATION are unchanged: their invariants are structural and
- * `assertValidClaim` is the whole of what publication needs from this function.
+ * **This function cannot publish an INFERENCE, and there is no argument that makes it able to.**
+ *
+ * It briefly took a `verdict` parameter that the caller supplied, and a third-order review took
+ * that apart in four ways (IR-100): a caller could pass the literal `"VERIFIED"` without ever
+ * running the verifier; a verdict obtained for claim A published claim B; a verdict obtained
+ * before a claim was mutated still published it afterwards; and a synthetic object that had never
+ * been stored published fine. A string saying VERIFIED is a claim about verification, not
+ * verification — and asking the caller for it is asking the caller to vouch for itself.
+ *
+ * Branding the type would have made the forgery inconvenient rather than impossible, and would
+ * have left M, N and O standing: none of them requires a forged value, only a genuine value used
+ * against the wrong claim, the wrong version, or no stored claim at all.
+ *
+ * So the parameter is gone. Publishing an inference goes through
+ * `publishClaimForDisplay(claimId)` in `./claimVerification`, which loads the stored claim,
+ * verifies THAT object, and renders the same object it verified. The caller cannot say "trust me";
+ * the publication boundary asks the verifier itself.
+ *
+ * FACT and CALCULATION are unchanged here — see the reachability note in IR-100 before widening
+ * that, and note that this function has no production caller today.
  */
-export function formatClaimForDisplay(claim: ClaimInput, verdict?: PublicationVerdict): string {
+/**
+ * Renders a claim whose verification the CALLER has already established for that exact object.
+ *
+ * Internal to the publication path: `publishClaimForDisplay` in ./claimVerification loads a stored
+ * claim, verifies that object, and calls this with the same object. It is exported only because
+ * the verifier lives in another module, and it is deliberately not the function anyone reaches for
+ * — the one with the friendly name refuses inferences outright.
+ */
+export function formatVerifiedClaim(claim: ClaimInput): string {
   assertValidClaim(claim);
-  if (claim.claimType === "INFERENCE" && verdict !== "VERIFIED") {
+  return `[${claim.claimType}] ${claim.claimText}`;
+}
+
+export function formatClaimForDisplay(claim: ClaimInput): string {
+  assertValidClaim(claim);
+  if (claim.claimType === "INFERENCE") {
     throw new InvalidClaimError(
-      "An INFERENCE may not be displayed without a VERIFIED verdict from verifyClaim. Storing a " +
-        "claim and publishing it are different permissions; passing the ledger's write invariants " +
-        "is not evidence that the inference traces to anything.",
+      "An INFERENCE cannot be published through formatClaimForDisplay. Use " +
+        "publishClaimForDisplay(claimId), which verifies the stored claim it renders. Passing the " +
+        "ledger's write invariants is not evidence that an inference traces to anything, and a " +
+        "caller-supplied verdict is not evidence that anyone checked.",
     );
   }
   return `[${claim.claimType}] ${claim.claimText}`;

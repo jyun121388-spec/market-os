@@ -106,19 +106,138 @@ export function nameOccursIn(storedName: string, query: string): boolean {
   return normalizeSubject(query).includes(` ${name} `);
 }
 
+/** Where a stored name sits in the normalized query. Half-open, over normalized characters. */
+interface Occurrence {
+  start: number;
+  end: number;
+}
+
 /**
- * Drops any match whose name is wholly contained in a longer match's name.
+ * Every place this stored name occurs in the query, as spans over the NORMALIZED text.
  *
- * Maximal specificity. A question naming "Ruritania core producer price index" contains the whole
- * of "producer price index" too, and treating that as a second subject would make every question
- * about a specific series ambiguous with its own family. The longer identity is the one the asker
- * actually wrote.
+ * Offsets are computed here, from strings this repository normalized itself, and are verified by
+ * slicing: a span is only recorded if the normalized query really does read that name at that
+ * position. Nothing outside this module supplies an offset — IR-095 learned what producer-supplied
+ * offsets are worth, and a planner's would be worth less.
+ *
+ * Normalization changes character counts, so these are not offsets into the original query and are
+ * never used as such. Comparing spans to spans in one coordinate system is the whole job.
  */
-function maximalOnly<T>(matches: T[], nameOf: (m: T) => string): T[] {
-  const names = matches.map((m) => normalizeSubject(nameOf(m)).trim());
+function occurrencesOf(storedName: string, normalizedQuery: string): Occurrence[] {
+  const name = normalizeSubject(storedName).trim();
+  if (!name) return [];
+  const needle = ` ${name} `;
+  const found: Occurrence[] = [];
+  for (let at = normalizedQuery.indexOf(needle); at !== -1;) {
+    const start = at + 1;
+    const end = start + name.length;
+    // Verified, not assumed: the slice must be the name.
+    if (normalizedQuery.slice(start, end) === name) found.push({ start, end });
+    at = normalizedQuery.indexOf(needle, at + 1);
+  }
+  return found;
+}
+
+const inside = (inner: Occurrence, outer: Occurrence) =>
+  outer.start <= inner.start &&
+  inner.end <= outer.end &&
+  !(outer.start === inner.start && outer.end === inner.end);
+
+/**
+ * Keeps the subjects the question actually names, by occurrence rather than by name containment.
+ *
+ * Maximal specificity was right about the incidental case and blind to the explicit one. "core
+ * Vespucci wage index" contains the whole of "Vespucci wage index", so a question naming only the
+ * longer one should not be ambiguous with its own family — that part was working. But the old test
+ * was `is this name a substring of that name`, which is a fact about the two stored names and says
+ * nothing about the question. IR-105 candidate Z2: "…about Vespucci wage index and core Vespucci
+ * wage index?" names both, and the shorter one was dropped for being nestable, leaving the longer
+ * authorized on its own.
+ *
+ * So the question is asked of the query instead. A subject survives if it occurs somewhere that is
+ * not inside an occurrence of a longer matched subject. Two explicit subjects then reach the
+ * ambiguity rule, which is where a question naming two things belongs.
+ */
+function explicitlyNamed<T>(matches: T[], nameOf: (m: T) => string, query: string): T[] {
+  const normalized = normalizeSubject(query);
+  const spans = matches.map((m) => occurrencesOf(nameOf(m), normalized));
   return matches.filter((_, i) =>
-    names.every((other, j) => i === j || !` ${other} `.includes(` ${names[i]} `)),
+    spans[i].some((own) =>
+      spans.every((otherSpans, j) => i === j || !otherSpans.some((other) => inside(own, other))),
+    ),
   );
+}
+
+/**
+ * The closed set of constructions from which a causal direction can be read off syntactically.
+ *
+ * Each entry is a sequence of literal markers: the cause lies between the first and second, the
+ * effect between the second and the third (or after the second when there is no third). The
+ * evidence is the named construction — a verb with its arguments, or `connects … to …` where the
+ * preposition carries the orientation — never the order two names happen to appear in. "Whichever
+ * name comes first is the cause" is word-order guessing with a rule's face on, and it is exactly
+ * what the guidance forbids.
+ *
+ * **English only, and that is a stated limitation rather than an oversight.** Korean marks the
+ * roles with particles that attach to the preceding word, so `가` is not separable by literal
+ * marker splitting after normalization, and a Korean directional parser worth trusting is more than
+ * this repair should contain. A Korean mechanism question is `DIRECTION_UNRESOLVED` and publishes
+ * nothing — the fail-closed side, and a real capability gap.
+ */
+const DIRECTIONAL_CONSTRUCTIONS: readonly (readonly [string, string, string | null])[] = [
+  ["connects", " to ", null],
+  ["links", " to ", null],
+  ["", " affects ", null],
+  ["", " affect ", null],
+  ["", " influences ", null],
+  ["", " influence ", null],
+  ["", " impacts ", null],
+  ["", " impact ", null],
+  ["", " drives ", null],
+  ["", " drive ", null],
+  ["", " feeds into ", null],
+  ["", " feed into ", null],
+  ["", " passes through to ", null],
+  ["effect of ", " on ", null],
+  ["impact of ", " on ", null],
+  ["influence of ", " on ", null],
+];
+
+export interface DirectionEvidence {
+  /** The normalized text in which the cause must be named. */
+  cause: string;
+  /** The normalized text in which the effect must be named. */
+  effect: string;
+  construction: string;
+}
+
+/**
+ * Reads a cause and an effect region out of the query, or returns null if no construction applies.
+ *
+ * Null is the common case and the safe one: a question that names two variables without saying
+ * which acts on which has not established a direction, and IR-105 candidate Z1 is what happens when
+ * a sole stored edge is treated as the answer anyway.
+ */
+export function directionEvidence(query: string): DirectionEvidence | null {
+  const normalized = normalizeSubject(query);
+  for (const [before, split, after] of DIRECTIONAL_CONSTRUCTIONS) {
+    const from = before ? normalized.indexOf(` ${before.trim()} `) : -1;
+    if (before && from === -1) continue;
+    const searchFrom = before ? from + before.length : 0;
+    const at = normalized.indexOf(split, searchFrom);
+    if (at === -1) continue;
+    const causeEnd = at + 1;
+    const causeStart = before ? from + before.length + 1 : 0;
+    const effectStart = at + split.length - 1;
+    const effectEnd = after ? normalized.indexOf(after, effectStart) : -1;
+    if (after && effectEnd === -1) continue;
+    return {
+      cause: normalized.slice(causeStart, causeEnd),
+      effect: normalized.slice(effectStart, effectEnd === -1 ? undefined : effectEnd),
+      construction: [before, split.trim(), after].filter(Boolean).join(" … "),
+    };
+  }
+  return null;
 }
 
 const NOT_ELIGIBLE = (frame: RequestFrame, detail: string): SubjectAuthority => ({
@@ -150,7 +269,7 @@ export async function resolveSubjectAuthority(
       select: { id: true, name: true },
     });
     const occurring = series.filter((s) => nameOccursIn(s.name, query));
-    const resolved = maximalOnly(occurring, (s) => s.name);
+    const resolved = explicitlyNamed(occurring, (s) => s.name, query);
 
     if (resolved.length === 0) {
       return NOT_ELIGIBLE(
@@ -201,6 +320,32 @@ export async function resolveSubjectAuthority(
           "one endpoint is a different relation.",
       );
     }
+
+    // IR-105 candidate Z1. Both endpoints named establishes WHICH PAIR, and says nothing about
+    // which way round. With exactly one stored edge the old code let the pair stand in for the
+    // relation, so "what mechanism connects B to A" published the stored A -> B.
+    const direction = directionEvidence(query);
+    if (!direction) {
+      return NOT_ELIGIBLE(
+        frame,
+        "The question names both variables but no construction in it establishes which acts on " +
+          "which, so the direction is unproven. Reading it off word order would be a guess.",
+      );
+    }
+    const oriented = complete.filter(
+      (e) =>
+        nameOccursIn(e.fromVariable, direction.cause) &&
+        nameOccursIn(e.toVariable, direction.effect),
+    );
+    if (oriented.length === 0) {
+      return NOT_ELIGIBLE(
+        frame,
+        `The question asks about a relation running the other way (${direction.construction}); ` +
+          "no stored mechanism runs in the direction asked about.",
+      );
+    }
+    complete.length = 0;
+    complete.push(...oriented);
     if (complete.length > 1) {
       // Candidate Y5. Two stored relations over the same pair — typically A->B and B->A — and
       // nothing mechanical in the question settles which direction was asked about. Working it out

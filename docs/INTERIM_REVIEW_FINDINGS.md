@@ -4588,3 +4588,157 @@ and the frozen candidate untouched; the concurrent session's control-bus work un
 from every file changed here. Full suite 1918/1918 across 121 files against real
 PostgreSQL. `npm run build` (turbopack) fails on the worktree's `node_modules` junction before
 reading source; `npx next build --webpack` completes.
+
+---
+
+## IR-105 — A pair of names is not a relation, and a nested name is not a demotion
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][ASK-DIRECTION-NESTED-SUBJECT-AUTHORITY-20260824]`, read
+from issue #2 by hand. IR-104 separated retrieval from authority and closed adjacent-subject
+substitution. It left two exact-authority holes, both of which publish something authentic in
+answer to a question nobody asked.
+
+### Reproduction, before modification, eligibility measured first
+
+| #       | probe                                                                           | before                                                             |
+| ------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Z1**  | one stored `A -> B`, no reverse; the question asks `B -> A` (`connects B to A`) | **PUBLISHED**                                                      |
+| **Z1'** | the same, phrased `explain how B affects A`                                     | **PUBLISHED**                                                      |
+| control | the forward question                                                            | published, correctly                                               |
+| **Z2**  | `"…about Vespucci wage index and core Vespucci wage index?"`                    | **PUBLISHED** the longer, as though the shorter had not been named |
+| control | only the longer named                                                           | resolves to the longer                                             |
+| control | only the shorter named                                                          | resolves to the shorter                                            |
+
+**Z2 took two attempts, and the first one matters.** The pair was `Vespucci wage index` /
+`Vespucci private sector wage index`, where the modifier is _infixed_. The shorter name is therefore
+not a contiguous substring of the longer, `maximalOnly` never dropped it, and the probe came back
+correctly `AMBIGUOUS`. Reported at that point it would have read as "not reproduced". The guidance's
+own example — `CPI` inside `core CPI` — has a _prefix_ modifier, and with that shape it reproduced
+immediately. A probe that fails to reproduce is evidence about the probe until the construction has
+been checked.
+
+### Direction: a named construction, or nothing
+
+Both endpoints being named establishes **which pair**. It says nothing about **which way round**,
+and IR-104's `complete.length > 1 => AMBIGUOUS` rule only ever protected the two-edge case. With one
+stored relation the pair stood in for the relation.
+
+Reading direction off word order was not an option — "whichever name comes first is the cause" is
+guessing with a rule's face on. So direction now comes from a closed table of sixteen English
+constructions, each a sequence of literal markers delimiting a cause region and an effect region:
+`connects … to …`, `links … to …`, `A affects B`, `A drives B`, `effect of A on B`, and so on. The
+stored edge must have its `fromVariable` named in the cause region and its `toVariable` in the
+effect region. **No construction found means the direction is unproven, and unproven fails closed
+with zero planner calls.**
+
+The grammar lives in `subjectAuthority.ts`, not in `requestFrame.ts`: request eligibility is
+unchanged, which keeps the three authorities separate and keeps this repair from quietly widening
+what may be asked.
+
+**Korean mechanism questions are direction-unresolved.** Korean marks the roles with particles that
+attach to the preceding word, so literal marker splitting cannot separate them after normalization,
+and a Korean directional parser worth trusting is more than this repair should contain. A real
+capability gap, on the fail-closed side, stated rather than approximated.
+
+### Nesting: an occurrence in the query, not a containment between two names
+
+`maximalOnly` asked whether one stored name contains another. That is a fact about two stored names
+and says nothing about the question, which is why an explicitly named shorter subject vanished.
+
+Authority now reasons over **occurrences**. Every match's spans are located in the normalized query,
+verified by slicing — the span must actually read that name — and a subject survives if it occurs
+somewhere that is not inside an occurrence of a longer matched subject. Two survivors reach the
+ambiguity rule, which is where a question naming two things belongs. Offsets are computed here from
+strings this repository normalized itself; they are never accepted from a planner and are never
+treated as offsets into the original query, since normalization changes character counts.
+
+| #                                                           | after                                                                             |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Z1, Z1'                                                     | `UNRESOLVED`, **planner calls 0**; the forward question still publishes           |
+| Z2                                                          | `AMBIGUOUS`, **planner calls 0**; longer-only and shorter-only both still resolve |
+| no construction at all (`"what mechanism relates A and B"`) | `UNRESOLVED` — the sole stored edge does not win by default                       |
+| the longer subject named twice                              | one subject, still authorized                                                     |
+| two non-nested subjects                                     | ambiguous, as before                                                              |
+
+**One IR-104 test changed meaning, in the right direction.** Y5 asserted that two stored relations
+over one pair are ambiguous. With direction provable, `connects A to B` resolves that pair to the
+matching edge and refuses the reverse — the guidance's control D — so Y5 became controls D and E.
+
+**A second measured Korean limitation, found by a control rather than reasoned about.** The KO
+explicit-nesting case returns `UNRESOLVED` rather than `AMBIGUOUS`: `index와` and `index는` are single
+tokens after normalization, so the stored name no longer occurs at a token boundary. Both outcomes
+withhold. The test records what was measured instead of stripping particles — deciding that
+`index는` contains `index` is morphology, and morphology by pattern list is how a matcher becomes an
+alias table.
+
+### Mutation
+
+38 mutants, **38 resolved, 0 survivors, 0 skipped**, five of them new:
+a singleton edge authorized without direction proof, the stored relation not required to run the way
+the question asked, direction read from word order, nesting decided by name containment again, and
+an occurrence inside a longer one still counting as explicit.
+
+Two survived the first run and neither was a false alarm:
+
+- `a mechanism needs only one endpoint named` survived because the direction filter downstream needs
+  both anyway. The gates are not redundant to a reader of the log — one says the question is about a
+  different pair, the other says the direction is unproven — so the reason string is now asserted.
+- `two stored relations over one pair pick the first` survived because direction resolves the
+  `A->B` / `B->A` case. What remains reachable is a genuine duplicate: two distinct stored relations
+  running the SAME way, which is exactly when picking one silently would be worst. Now covered.
+
+One mutant was retired: `maximal specificity is dropped` mutated a function that no longer exists.
+
+**Four isolation proofs**, each removing one layer and nothing else:
+
+| removed                                    | its own block | existence / verification / freshness / class / all-or-nothing |
+| ------------------------------------------ | ------------- | ------------------------------------------------------------- |
+| membership (IR-103)                        | fails         | all green                                                     |
+| subject + operation (IR-104)               | fails         | all green                                                     |
+| the direction guard alone (IR-105)         | fails         | all green                                                     |
+| explicit-occurrence nesting alone (IR-105) | fails         | all green                                                     |
+
+### Holdout status
+
+No new holdout was frozen and none is quoted. This is a bounded repair whose evidence is the
+pre-change reproductions, the positive and negative controls, and the mutation isolation. The
+166-case subject-authority corpus keeps its first-run numbers as a permanent record and is not
+re-quoted as fresh evidence for changed behaviour; a broad direction or nested-subject
+generalisation claim would need a new corpus frozen first.
+
+### An earlier guidance, reconciled
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][ASK-PUBLICATION-SUBJECT-RESOLUTION-20260824]`
+(comment 5387629814, anchored at `b3d87c7`) was read
+during this unit and is already satisfied by IR-104: retrieval separated from authority, one
+deterministic resolver returning resolved / ambiguous / unresolved, ambiguity failing closed, the
+empty-envelope zero-call property and membership recheck preserved, the 140-case corpus demoted to
+regression evidence, a new unseen EN/KO holdout frozen with adjacent identities and ambiguity and
+no-record controls, and mutants for both "retrieval used directly as authority" and "ambiguity
+treated as resolved".
+
+One item it raises is **not** implemented and is recorded rather than skipped quietly: it suggests
+binding series identity by _source + externalId_ and by _repository-managed aliases with stable
+provenance_, and the resolver uses the exact normalized name alone. A question naming a series by
+its provider code does not resolve today. That is an over-exclusion, so it fails closed, and it
+belongs with the same alias feature the Korean gaps need.
+
+### Residual limitations
+
+- **Korean mechanism questions cannot establish direction**, and a Korean question whose subject
+  carries an attached particle does not resolve at all. Both fail closed; both are real gaps that
+  belong with a repository-owned alias and morphology feature, not with a pattern list here.
+- Direction is English-only and covers sixteen constructions. Anything else is unproven and
+  publishes nothing.
+- **The request gate remains the binding capability constraint** — 1 of 166 corpus questions is
+  frame-eligible — and is deliberately untouched here. It is the next unit.
+- CALCULATION output remains unavailable through Ask; structured INFERENCE output remains disabled;
+  everything IR-100 to IR-104 established still holds and is still enforced.
+
+### Scope
+
+HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call. PR #1
+and the frozen candidate untouched; the concurrent session's control-bus work untouched and disjoint
+from every file changed here. Full suite 1933/1933 across 121 files against real
+PostgreSQL. `npm run build` (turbopack) fails on the worktree's `node_modules` junction before
+reading source; `npx next build --webpack` completes.

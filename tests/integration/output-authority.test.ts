@@ -996,10 +996,10 @@ describeIfDb("output authority (integration)", () => {
       }
     });
 
-    it("Y5 — two stored relations over the same pair leave the direction unproven", async () => {
-      // The reverse edge exists only for this test: with both directions stored, nothing mechanical
-      // in the question settles which was asked about, and guessing from word order would be a
-      // grammar rule pretending to be a fact.
+    it("Y5 — with both directions stored, the construction picks one and refuses the other", async () => {
+      // Was an ambiguity control until IR-105 gave direction its own evidence. Both relations are
+      // stored; `connects A to B` names which one was asked about, so the pair is no longer
+      // ambiguous — and the reverse edge, authentic and equally fresh, is not a candidate.
       const reverse = await prisma.causalEdge.create({
         data: {
           fromVariable: "Test Output shipping cost",
@@ -1007,20 +1007,36 @@ describeIfDb("output authority (integration)", () => {
           direction: "POSITIVE",
           confidence: "LOW",
           mechanism: "Shipping costs feed back into the freight index.",
-          evidence: "Seeded for the IR-104 direction control.",
+          evidence: "Seeded for the direction control.",
           lag: "1 quarter",
           counterexamples: "Breaks under administered tariffs.",
         },
       });
-      const envelope = await deriveCandidateEnvelope(MECHANISM);
-      expect(envelope.status).toBe("AMBIGUOUS");
-      const { calls, sink } = countingSink({
-        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: reverse.id }],
-      });
-      const outcome = await answerWithInference(MECHANISM, sink);
-      expect(calls).toHaveLength(0);
-      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
-      await prisma.causalEdge.delete({ where: { id: reverse.id } });
+      try {
+        const envelope = await deriveCandidateEnvelope(MECHANISM);
+        expect(envelope.status).toBe("AUTHORIZED");
+        expect(envelope.causalEdgeIds).toEqual([explanationId]);
+
+        const refused = await answerWithInference(
+          MECHANISM,
+          planning({ segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: reverse.id }] }),
+        );
+        expect(refused.status).toBe("OUTPUT_SUPPRESSED");
+
+        // Control E: the mirror question authorizes the mirror edge, and only that one.
+        const mirror =
+          "What mechanism connects the Test Output shipping cost to the Test Output freight index?";
+        const mirrorEnvelope = await deriveCandidateEnvelope(mirror);
+        expect(mirrorEnvelope.status).toBe("AUTHORIZED");
+        expect(mirrorEnvelope.causalEdgeIds).toEqual([reverse.id]);
+        const answered = await answerWithInference(
+          mirror,
+          planning({ segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: reverse.id }] }),
+        );
+        expect(answered.status).toBe("ANSWERED");
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: reverse.id } });
+      }
     });
 
     it("Y6 — the right subject answering the wrong question", async () => {
@@ -1084,6 +1100,212 @@ describeIfDb("output authority (integration)", () => {
         FACTUAL_MECHANISM: "STORED_MECHANISM",
         THIRD_PARTY_REPORTED_FACT: "REPORTED_OBSERVATION",
       });
+    });
+  });
+
+  describe("direction and explicit nesting — IR-105", () => {
+    /**
+     * Two exact-authority holes IR-104 left, each of which published something authentic in answer
+     * to a question nobody asked.
+     *
+     *  - A sole stored `A -> B` was authorized for a question about `B -> A`, because both
+     *    endpoints being named established the PAIR and was taken for the RELATION.
+     *  - Maximal specificity asked whether one stored name contains another, which is a fact about
+     *    two stored names and says nothing about the question. A question naming both nested
+     *    subjects collapsed to the longer one instead of being ambiguous.
+     */
+
+    it("Z1 — a sole stored relation does not answer the reverse question", async () => {
+      const reverse =
+        "What mechanism connects the Test Output shipping cost to the Test Output freight index?";
+      const envelope = await deriveCandidateEnvelope(reverse);
+      expect(envelope.status).toBe("UNRESOLVED");
+      const { calls, sink } = countingSink({
+        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+      });
+      const outcome = await answerWithInference(reverse, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("Z1' — and the same refusal through a different directional construction", async () => {
+      const reverse =
+        "Explain how the Test Output shipping cost affects the Test Output freight index.";
+      const envelope = await deriveCandidateEnvelope(reverse);
+      expect(envelope.status).toBe("UNRESOLVED");
+    });
+
+    it("a question naming both variables without a construction proves no direction", async () => {
+      // Control C. Nothing in "what mechanism relates X and Y" says which acts on which, and the
+      // fail-closed answer is that nothing publishes — not that the sole stored edge wins.
+      const undirected =
+        "What mechanism relates the Test Output freight index and the Test Output shipping cost?";
+      const envelope = await deriveCandidateEnvelope(undirected);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.detail).toContain("direction is unproven");
+      const { calls, sink } = countingSink({
+        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+      });
+      const outcome = await answerWithInference(undirected, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("direction is read from a named construction, never from word order", async () => {
+      const { directionEvidence } = await import("@/server/domain/subjectAuthority");
+      expect(directionEvidence("What mechanism connects alpha to beta?")).toMatchObject({
+        construction: "connects … to",
+      });
+      expect(directionEvidence("Explain how alpha affects beta.")).toMatchObject({
+        construction: "affects",
+      });
+      // Two names and no construction is not a direction, however suggestive the order.
+      expect(directionEvidence("Explain how alpha and beta are related.")).toBeNull();
+      expect(directionEvidence("What mechanism relates alpha and beta?")).toBeNull();
+    });
+
+    it("Korean mechanism questions are direction-unresolved, and that is a stated gap", async () => {
+      // The particles that mark the roles attach to the preceding word, so literal marker splitting
+      // cannot separate them after normalization. A Korean directional parser worth trusting is
+      // more than this repair should contain, so Korean mechanism questions publish nothing.
+      const { directionEvidence } = await import("@/server/domain/subjectAuthority");
+      expect(directionEvidence("알파가 베타에 미치는 영향은 어떻게 작동하나요?")).toBeNull();
+    });
+
+    it("Z2 — a question naming both nested subjects is ambiguous, not the longer one", async () => {
+      const both = `What did analysts publish about the freight index and the Test Output freight index?`;
+      const envelope = await deriveCandidateEnvelope(both);
+      expect(envelope.status).toBe("AMBIGUOUS");
+      expect([...envelope.subjects].sort()).toEqual(["Test Output freight index", "freight index"]);
+      const { calls, sink } = countingSink({ segments: [claimSegment(factClaimId)] });
+      const outcome = await answerWithInference(both, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("incidental containment still resolves to the longer subject", async () => {
+      // Control A, and the property maximal specificity was right about all along.
+      const envelope = await deriveCandidateEnvelope(ELIGIBLE);
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.subjects).toEqual(["Test Output freight index"]);
+    });
+
+    it("the shorter subject named alone resolves to itself", async () => {
+      // Control B. Nesting is not a demotion: it only matters when both are named.
+      const envelope = await deriveCandidateEnvelope(askAbout("freight index"));
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.subjects).toEqual(["freight index"]);
+    });
+
+    it("the longer subject named twice is still one subject", async () => {
+      // Control D. Two occurrences of the same identity are one identity; the shorter name occurs
+      // only inside them, so it never becomes explicit.
+      const twice =
+        "What did analysts publish about the Test Output freight index, and about the Test Output freight index last week?";
+      const envelope = await deriveCandidateEnvelope(twice);
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.subjects).toEqual(["Test Output freight index"]);
+    });
+
+    it("KO — incidental containment resolves when the name stands free of particles", async () => {
+      const longOnly = `증권사가 발표한 Test Output freight index 수치는 무엇입니까?`;
+      const longEnvelope = await deriveCandidateEnvelope(longOnly);
+      expect(longEnvelope.status).toBe("AUTHORIZED");
+      expect(longEnvelope.subjects).toEqual(["Test Output freight index"]);
+    });
+
+    it("KO — a Korean particle attached to the name means the subject does not resolve", async () => {
+      // Measured, not designed. Korean case particles attach to the preceding word, so `index와`
+      // and `index는` are single tokens and the stored name no longer occurs at a token boundary.
+      // The result is UNRESOLVED rather than AMBIGUOUS: nothing publishes either way, and the
+      // reason is particle attachment rather than the nesting this test set out to exercise.
+      //
+      // The fix is not to strip particles here. Deciding that `index는` contains `index` is
+      // morphology, and morphology by pattern list is how a matcher becomes an alias table —
+      // exactly the unbounded bilingual layer this unit is under instructions not to build. It
+      // belongs with the repository-owned alias feature, with its own provenance rules.
+      const bothNamed = `증권사가 발표한 freight index와 Test Output freight index는 무엇입니까?`;
+      const bothEnvelope = await deriveCandidateEnvelope(bothNamed);
+      expect(bothEnvelope.status).toBe("UNRESOLVED");
+
+      const { calls, sink } = countingSink({ segments: [claimSegment(factClaimId)] });
+      const outcome = await answerWithInference(bothNamed, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("two non-nested subjects remain ambiguous, as before", async () => {
+      // Control E: IR-104's behaviour is unchanged where nesting is not involved.
+      const two = `What did analysts publish about the Test Output freight index and the Korea napa cabbage wholesale price?`;
+      const envelope = await deriveCandidateEnvelope(two);
+      expect(envelope.status).toBe("AMBIGUOUS");
+    });
+
+    it("an edge sharing one endpoint is refused as a different relation, by name", async () => {
+      // A mutant that relaxed "both endpoints" to "either endpoint" survived everything, because
+      // the direction filter downstream needs both anyway. The two gates are not redundant to a
+      // reader of the log, though: one says the question is about a different pair, the other says
+      // the direction is unproven, and only the first is true here. The reason is the assertion.
+      const oneEndpoint =
+        "What mechanism connects the Test Output freight index to the Test Output warehouse rent?";
+      const envelope = await deriveCandidateEnvelope(oneEndpoint);
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.causalEdgeIds).toEqual([counterpartEdgeId]);
+
+      // …and the edge that shares only its FROM endpoint with this question is not in it.
+      const sharesOne = await deriveCandidateEnvelope(
+        "What mechanism connects the Test Output freight index to the Test Output dock levy?",
+      );
+      expect(sharesOne.status).toBe("UNRESOLVED");
+      expect(sharesOne.detail).toContain("both of its endpoints");
+    });
+
+    it("two stored relations over the same ordered pair are ambiguous, not first-wins", async () => {
+      // The other survivor. Direction now resolves the A->B / B->A case, so `complete.length > 1`
+      // is only reachable when the repository holds two distinct relations running the SAME way —
+      // a duplicate, which is exactly when picking one silently would be worst.
+      const duplicate = await prisma.causalEdge.create({
+        data: {
+          fromVariable: "Test Output freight index",
+          toVariable: "Test Output shipping cost",
+          direction: "POSITIVE",
+          confidence: "LOW",
+          mechanism: "A second stored account of the same relation.",
+          evidence: "Seeded for the duplicate-relation control.",
+          lag: "2 quarters",
+          counterexamples: "None recorded.",
+        },
+      });
+      try {
+        const envelope = await deriveCandidateEnvelope(MECHANISM);
+        expect(envelope.status).toBe("AMBIGUOUS");
+        const { calls, sink } = countingSink({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+        });
+        const outcome = await answerWithInference(MECHANISM, sink);
+        expect(calls).toHaveLength(0);
+        expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: duplicate.id } });
+      }
+    });
+
+    it("planner metadata cannot supply direction or occurrence evidence", async () => {
+      const reverse =
+        "What mechanism connects the Test Output shipping cost to the Test Output freight index?";
+      for (const extra of [
+        { direction: "REVERSE" },
+        { subjectStart: 0, subjectEnd: 10 },
+        { explicitSubject: "Test Output freight index" },
+        { isComparison: true },
+      ]) {
+        const { calls, sink } = countingSink({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId, ...extra }],
+        });
+        const outcome = await answerWithInference(reverse, sink);
+        expect(calls).toHaveLength(0);
+        expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+      }
     });
   });
 

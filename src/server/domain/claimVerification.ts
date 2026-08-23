@@ -2,6 +2,7 @@ import { prisma } from "@/server/db/client";
 import { buildFactClaimText } from "./claimStore";
 import { buildChangeClaimText } from "./whatChanged";
 import { computeChange } from "./seriesReadings";
+import { figuresIn, verifyInferenceClaim, type PremiseVerification } from "./inferenceClaim";
 
 export type VerificationStatus =
   | "VERIFIED"
@@ -20,8 +21,10 @@ export interface VerificationResult {
  * or `claimText` as opaque blobs. Supports the two real claim producers that exist:
  *  - FACT claims from createFactClaimFromObservation (M08)
  *  - CALCULATION claims from computeSeriesChange (M10)
- * Extend this as INFERENCE gets a real producer (M21) — see docs/DECISIONS.md for why
- * speculative support isn't added ahead of a real caller.
+ * INFERENCE joined them on 2026-08-23, verified against its premises rather than recomputed — see
+ * ./inferenceClaim for what verification of an inference can and cannot mean. The old note here
+ * said to wait for a real producer, and that was right until the producer's shape was fixed by
+ * the authorized architecture.
  *
  * Verification is STRUCTURAL, not substring-based (see docs/DECISIONS.md's H2 entry — a prior
  * version used `claimText.includes(String(value))`, which a value like "3.5" being a substring
@@ -42,9 +45,74 @@ export async function verifyClaim(claimId: string): Promise<VerificationResult> 
     return verifyCalculationClaim(claim);
   }
 
+  if (claim.claimType === "INFERENCE") {
+    return verifyInferenceClaimFromDb(claim);
+  }
+
   return {
     status: "UNSUPPORTED_CLAIM_TYPE",
     detail: `verifyClaim does not yet support ${claim.claimType} claims`,
+  };
+}
+
+/**
+ * INFERENCE verification, wired to the pure rules in `./inferenceClaim`.
+ *
+ * **Premise figures come from the premise's own verified claimText, never from the inference.**
+ * That text was re-derived from the database and compared by exact string equality by the
+ * verifiers below, so its figures are database-backed. Taking them from the inference instead
+ * would compare the model's output with itself, which is the shape of every hallucination check
+ * that does not work.
+ *
+ * A premise that is itself an INFERENCE is not followed. One level, deliberately: a chain of
+ * inferences resting on inferences is not evidence, and permitting it would let a model launder an
+ * invented number through an intermediate claim.
+ */
+async function verifyInferenceClaimFromDb(claim: {
+  id: string;
+  claimText: string;
+  confidence: unknown;
+  evidence: unknown;
+}): Promise<VerificationResult> {
+  const evidence = claim.evidence as { premiseClaimIds?: unknown } | null;
+  const ids = Array.isArray(evidence?.premiseClaimIds)
+    ? (evidence.premiseClaimIds as unknown[]).filter((v): v is string => typeof v === "string")
+    : [];
+
+  const premises: PremiseVerification[] = [];
+  for (const premiseId of ids) {
+    const premise = await prisma.claim.findUnique({ where: { id: premiseId } });
+    if (!premise) {
+      premises.push({ claimId: premiseId, status: "EVIDENCE_NOT_FOUND", figures: [] });
+      continue;
+    }
+    if (premise.claimType === "INFERENCE") {
+      premises.push({ claimId: premiseId, status: "UNSUPPORTED_CLAIM_TYPE", figures: [] });
+      continue;
+    }
+    const verified = await verifyClaim(premiseId);
+    premises.push({
+      claimId: premiseId,
+      status: verified.status,
+      // Only a VERIFIED premise contributes figures. An unverified one disqualifies the inference
+      // anyway, and letting its numbers into the supported set would be the wrong kind of
+      // generous.
+      figures: verified.status === "VERIFIED" ? figuresIn(premise.claimText) : [],
+    });
+  }
+
+  const result = verifyInferenceClaim({
+    claimText: claim.claimText,
+    confidence: typeof claim.confidence === "number" ? claim.confidence : null,
+    premises,
+  });
+
+  // Mapped onto the existing VerificationStatus vocabulary so a caller does not need to know which
+  // claim type it asked about. VERIFIED stays VERIFIED; every other outcome is a mismatch between
+  // the claim and its evidence, which is what VALUE_MISMATCH has always meant here.
+  return {
+    status: result.status === "VERIFIED" ? "VERIFIED" : "VALUE_MISMATCH",
+    detail: `${result.status}: ${result.detail}`,
   };
 }
 

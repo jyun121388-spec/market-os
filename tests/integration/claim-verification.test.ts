@@ -12,6 +12,7 @@ describeIfDb("claim verification (integration)", () => {
   let createFactClaimFromObservation: typeof import("@/server/domain/claimStore").createFactClaimFromObservation;
   let computeSeriesChange: typeof import("@/server/domain/whatChanged").computeSeriesChange;
   let verifyClaim: typeof import("@/server/domain/claimVerification").verifyClaim;
+  let buildFactClaimText: typeof import("@/server/domain/claimStore").buildFactClaimText;
   let sourceId: string;
   let otherSourceId: string;
   let observationId: string;
@@ -25,6 +26,7 @@ describeIfDb("claim verification (integration)", () => {
     ({ createFactClaimFromObservation } = await import("@/server/domain/claimStore"));
     ({ computeSeriesChange } = await import("@/server/domain/whatChanged"));
     ({ verifyClaim } = await import("@/server/domain/claimVerification"));
+    ({ buildFactClaimText } = await import("@/server/domain/claimStore"));
 
     for (const code of [TEST_SOURCE_CODE, OTHER_SOURCE_CODE]) {
       const existing = await prisma.source.findUnique({ where: { code } });
@@ -177,7 +179,14 @@ describeIfDb("claim verification (integration)", () => {
     expect(result.status).toBe("VALUE_MISMATCH");
   });
 
-  it("does not attempt to verify non-FACT claims yet", async () => {
+  it("refuses an INFERENCE that rests on nothing", async () => {
+    // This asserted UNSUPPORTED_CLAIM_TYPE until 2026-08-23, when INFERENCE gained a verifier. The
+    // pin was correct at the time and would now be pinning the absence of a feature.
+    //
+    // What replaces it is a stronger claim about the SAME input: an inference with no premises is
+    // not unsupported, it is unfounded. A confident sentence with nothing behind it is the most
+    // dangerous thing a generation path can emit, and under a "nothing to contradict it" rule it
+    // would verify cleanly.
     const claim = await prisma.claim.create({
       data: {
         claimText: "this suggests further easing",
@@ -186,7 +195,80 @@ describeIfDb("claim verification (integration)", () => {
       },
     });
     const result = await verifyClaim(claim.id);
-    expect(result.status).toBe("UNSUPPORTED_CLAIM_TYPE");
+    expect(result.status).toBe("VALUE_MISMATCH");
+    expect(result.detail).toContain("NO_PREMISES");
+  });
+
+  it("verifies an INFERENCE whose every figure comes from a verified premise", async () => {
+    const observation = await prisma.observation.findUniqueOrThrow({
+      where: { id: observationId },
+      include: { series: true, source: true },
+    });
+    const premise = await prisma.claim.create({
+      data: {
+        claimText: buildFactClaimText(observation),
+        claimType: "FACT",
+        sourceId,
+        evidence: { observationId, seriesId },
+      },
+    });
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: "Momentum looks unchanged on this reading.",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: { premiseClaimIds: [premise.id] },
+      },
+    });
+    expect((await verifyClaim(inference.id)).status).toBe("VERIFIED");
+  });
+
+  it("refuses an INFERENCE carrying a figure no premise establishes", async () => {
+    // The check a language model actually fails, exercised end to end against the database rather
+    // than against a hand-built premise list.
+    const observation = await prisma.observation.findUniqueOrThrow({
+      where: { id: observationId },
+      include: { series: true, source: true },
+    });
+    const premise = await prisma.claim.create({
+      data: {
+        claimText: buildFactClaimText(observation),
+        claimType: "FACT",
+        sourceId,
+        evidence: { observationId, seriesId },
+      },
+    });
+    const inference = await prisma.claim.create({
+      data: {
+        claimText: "Growth accelerated to 9.87 percent on this reading.",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: { premiseClaimIds: [premise.id] },
+      },
+    });
+    const result = await verifyClaim(inference.id);
+    expect(result.status).toBe("VALUE_MISMATCH");
+    expect(result.detail).toContain("UNSUPPORTED_FIGURE");
+    expect(result.detail).toContain("9.87");
+  });
+
+  it("refuses an INFERENCE resting on an INFERENCE", async () => {
+    // One level only. A chain of inferences is not evidence, and following it would let an
+    // invented number be laundered through an intermediate claim.
+    const inner = await prisma.claim.create({
+      data: { claimText: "inner", claimType: "INFERENCE", confidence: 0.5 },
+    });
+    const outer = await prisma.claim.create({
+      data: {
+        claimText: "outer",
+        claimType: "INFERENCE",
+        confidence: 0.5,
+        evidence: { premiseClaimIds: [inner.id] },
+      },
+    });
+    const result = await verifyClaim(outer.id);
+    expect(result.status).toBe("VALUE_MISMATCH");
+    expect(result.detail).toContain("PREMISE_NOT_VERIFIED");
   });
 
   describe("H2 adversarial regressions (structural, not substring, verification)", () => {

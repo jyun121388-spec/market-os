@@ -4435,3 +4435,156 @@ and the frozen candidate untouched; the concurrent session's control-bus work un
 from every file changed here. Full suite 1894/1894 across 120 files against real PostgreSQL.
 `npm run build` (turbopack) fails on the worktree's `node_modules` junction before reading source;
 `npx next build --webpack` completes.
+
+---
+
+## IR-104 — Retrieval relevance is not candidate authority
+
+IR-103 moved candidate selection into the repository and closed gross substitution: no unrelated
+record entered an envelope. Its frozen holdout then measured what was left, and what was left was
+the dangerous half — ten adjacent subjects authorized by a **retrieval** predicate.
+`mentionsEachOther` is substring-either-way, else a 0.6 token containment ratio. That is exactly
+right for "show me things that might be relevant" and it is not an authority, because a search
+matcher may tolerate a false positive and an authority may not.
+
+### Reproduction, before modification, with eligibility measured first
+
+IR-103's first matrix was confounded by the request gate, so every probe here reports its frame
+before anything else and a non-eligible query is recorded as saying nothing. All six candidates
+reproduced on frame-eligible queries, in families built independently of the previous holdout's ten:
+
+| #      | probe                                                                  | before                    |
+| ------ | ---------------------------------------------------------------------- | ------------------------- |
+| **Y1** | core producer prices asked, headline returned (and two more families)  | **PUBLISHED**, 3 of 3     |
+| **Y2** | a five-year tenor asked, a fifteen-year returned, both directions      | **PUBLISHED**, 2 of 2     |
+| **Y3** | an ambiguous subject: both near-matches in the envelope, planner picks | **PUBLISHED**, either one |
+| **Y4** | a mechanism between A and B asked, an authentic A→C returned           | **PUBLISHED**             |
+| **Y5** | the same relation asked, the stored B→A returned                       | **PUBLISHED**             |
+| **Y6** | one envelope holding all three record kinds for one subject            | **PUBLISHED**, all three  |
+
+Y6 is the one that is not about subjects at all. Asked a single question, the boundary published a
+mechanism, a computed change and an observation with equal willingness, because nothing encoded
+which of them answers which kind of question.
+
+### Two predicates, because the consequences differ
+
+`mentionsEachOther` is **untouched**. It still does retrieval in `askMarket.ts` and still finds
+every adjacent subject above; it simply no longer authorizes any of them. Tuning it would have
+mixed a change in existing deterministic Ask Market behaviour into a new safety boundary and made
+every subsequent number unattributable.
+
+`subjectAuthority.ts` is the second predicate:
+
+- **Exact occurrence, not similarity.** A stored name resolves only when the whole of it occurs in
+  the question at token boundaries, after syntactic normalization — Unicode form, case,
+  punctuation, hyphen-versus-space, whitespace. No synonyms, no translation, no abbreviation tables,
+  no concept vocabularies. "Core X" contains every token of "X", and no threshold can tell you that
+  the missing word was the whole subject.
+- **Maximal specificity.** A shorter stored name nested inside a longer match is not a second
+  subject. This is load-bearing across the whole integration suite, not one test of it: the fixture
+  seeds a series literally named `freight index` alongside `Test Output freight index`.
+- **Ambiguity fails closed.** Two materially distinct subjects named and nothing choosing between
+  them is `AMBIGUOUS`, and an ambiguous question reaches no model. Asking the planner which one was
+  probably meant is candidate authority handed back to it under another name.
+- **Both endpoints for a mechanism.** An authentic edge sharing one endpoint with the question is a
+  different relation. Two stored relations over the same pair — typically A→B and B→A — leave the
+  direction unproven, so that is `AMBIGUOUS` too. Working direction out from word order would be a
+  grammar guess dressed as a rule.
+
+### Operation authority, read off the contracts rather than guessed
+
+`FACTUAL_MECHANISM` is documented as "asks how something works, is processed, or is defined";
+`THIRD_PARTY_REPORTED_FACT` as "asks what somebody else published, said, or estimated". Against the
+producers' own output:
+
+| frame                       | may be answered by                | because                                                          |
+| --------------------------- | --------------------------------- | ---------------------------------------------------------------- |
+| `FACTUAL_MECHANISM`         | `REPOSITORY_EXPLANATION`          | a seeded `CausalEdge` is the only record of how something works  |
+| `THIRD_PARTY_REPORTED_FACT` | `EVIDENCE_BOUND_CLAIM`, type FACT | `buildFactClaimText` renders a figure a named provider published |
+
+**CALCULATION has no eligible frame, and that is the answer rather than an oversight.**
+`buildChangeClaimText` renders a change this repository computed: nobody else published it, and it
+explains nothing. IR-102 established that a CALCULATION is safe to render when appropriately
+selected; whether any currently eligible question selects one is a different permission, and today
+none does. A real capability loss, recorded rather than papered over by widening a list.
+
+| #      | after                                                                                                                                       |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y1, Y2 | `NOT_A_REQUEST_CANDIDATE`; each adjacent subject still publishes for its own question                                                       |
+| Y3     | `AMBIGUOUS`, planner calls **0**                                                                                                            |
+| Y4     | `NOT_A_REQUEST_CANDIDATE`                                                                                                                   |
+| Y5     | `AMBIGUOUS`, planner calls **0**                                                                                                            |
+| Y6     | suppressed in both directions; a mechanism does not answer a reported-fact question and an observation does not answer a mechanism question |
+
+Positive controls hold: an exactly named series publishes its FACT, a mechanism with both endpoints
+named and exactly one stored relation publishes, several records about the same authorized subject
+publish together, and hyphenation, case and spacing do not change identity.
+
+### Mutation
+
+32 mutants, **32 resolved, 0 survivors, 0 skipped**, including ten new
+ones: retrieval used directly as authority, overlap instead of occurrence, ambiguity treated as
+resolved, maximal specificity dropped, one endpoint sufficing for a mechanism, the first of two
+relations chosen instead of failing closed, the operation ignored for claims, any claim type
+satisfying a reported-fact request, the operation ignored for explanations, and a non-authorized
+status still reaching the planner.
+
+Two isolation proofs, each removing one layer and nothing else. Removing membership fails the IR-103
+block while existence, verification, freshness, publication class and all-or-nothing stay green;
+removing exact subject/operation authority fails the IR-104 block with the same five green. Each
+layer does its own work.
+
+### The frozen subject-authority holdout, first run — and what it actually measured
+
+166 cases, 83 EN / 83 KO, fourteen categories, generated by an independent model from a written
+eight-rule contract, frozen with
+`sha256 0ce44376f01d518d7557757a817428548242ca880f2069cc426451d43a2116a3` before
+`subjectAuthority.ts` was written.
+
+**Zero unsafe authorizations, in every category.** Adjacent variant, sibling series, maturity,
+country, company, share class, index family, causal counterpart, ambiguity, operation mismatch —
+0/166 records authorized that should not have been.
+
+And the number that matters more: **1 of 166 questions is frame-eligible at all.** The corpus asks
+ordinary level and change questions — "What is the current level of US headline CPI?", "코스피-200은
+이번 달 얼마나 움직였나요?" — and the two eligible frames admit almost none of them. So 165 cases are
+decided by the request gate before subject authority is consulted, and 0/166 unsafe is a true
+statement over a denominator of one. Reporting it as a safety result would be the same error as
+IR-103's first matrix, one layer along.
+
+The 28 `EXACT_SAME_SUBJECT` / `NORMALIZED_SAME_SUBJECT` cases that did not answer failed for that
+reason, not because their subject failed to resolve: **0 of the 28 were frame-eligible**. The
+Korean recall problem the previous corpus found is therefore not, on this evidence, mainly a
+matching problem. It is upstream.
+
+Strict agreement is 11/166; among frame-eligible cases 1/1. Both numbers are recorded because
+neither alone is honest.
+
+### Residual limitations
+
+- **The request gate, not subject authority, is now the binding constraint on what Ask Market can
+  answer.** That is the next structural question and it belongs to request authority, not here.
+- Bilingual recall is unaddressed by design. Where the repository has no authoritative alias, a
+  Korean question about an English-named series is `UNRESOLVED`. A repository-owned canonical
+  identity with explicit aliases would be a separate bounded feature with its own provenance rules;
+  an unbounded bilingual fuzzy layer would undo this unit.
+- CALCULATION output is unavailable through Ask, as above.
+- Structured INFERENCE output remains disabled (IR-102).
+- Everything IR-100 to IR-103 established still holds and is still enforced.
+
+### Holdout discipline
+
+`candidateRelevanceHoldout.ts` is demoted to regression evidence: it identified the defect family
+this redesign answers, and its first-run numbers (35/140 strict, 10 adjacent over-inclusions, 0
+unrelated) stand as a permanent record of the code as it was on 2026-08-24, not as evidence about
+the code now. `outputAuthorityHoldout.ts` was demoted earlier and is untouched. The subject-authority
+corpus is the only fresh measurement here, and it in turn is regression evidence the moment
+anything is fixed against it.
+
+### Scope
+
+HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call. PR #1
+and the frozen candidate untouched; the concurrent session's control-bus work untouched and disjoint
+from every file changed here. Full suite 1918/1918 across 121 files against real
+PostgreSQL. `npm run build` (turbopack) fails on the worktree's `node_modules` junction before
+reading source; `npx next build --webpack` completes.

@@ -29,18 +29,26 @@ describeIfDb("output authority (integration)", () => {
   let answerWithInference: typeof import("@/server/domain/askMarketInference").answerWithInference;
   let validateOutputPlan: typeof import("@/server/domain/outputPlan").validateOutputPlan;
   let deriveCandidateEnvelope: typeof import("@/server/domain/candidateEnvelope").deriveCandidateEnvelope;
+  let mentionsEachOther: typeof import("@/server/domain/askMarket").mentionsEachOther;
   let publishClaimForDisplay: typeof import("@/server/domain/claimVerification").publishClaimForDisplay;
   let verifyClaim: typeof import("@/server/domain/claimVerification").verifyClaim;
   let createFactClaimFromObservation: typeof import("@/server/domain/claimStore").createFactClaimFromObservation;
   let computeSeriesChange: typeof import("@/server/domain/whatChanged").computeSeriesChange;
 
   /**
-   * A request the frame gate proves FACTUAL_MECHANISM, so every result below is an output fact —
-   * and one whose subject the repository actually holds, so IR-103's candidate envelope is
-   * non-empty. Both halves are load-bearing now: an eligible question about a subject we hold
-   * nothing on no longer reaches the planner at all.
+   * Two queries, because IR-104 made the operation part of the authority.
+   *
+   * `THIRD_PARTY_REPORTED_FACT` asks what somebody else published, which a stored observation
+   * answers, so `ELIGIBLE` is the query for every FACT-shaped test. `FACTUAL_MECHANISM` asks how
+   * something works, which only a stored `CausalEdge` answers, and it needs BOTH endpoints named.
+   * A question in one frame cannot be answered by the other's records, and most of this file
+   * changed shape when that became true rather than being a matter of the planner's judgement.
    */
-  const ELIGIBLE = "Explain how the Test Output freight index is constructed.";
+  const ELIGIBLE = "What did analysts publish about the Test Output freight index?";
+  const MECHANISM =
+    "What mechanism connects the Test Output freight index to the Test Output shipping cost?";
+  /** The reported-fact phrasing for any stored series, so a test can name its own subject. */
+  const askAbout = (subject: string) => `What did analysts publish about the ${subject}?`;
 
   let factClaimId: string;
   let factRendered: string;
@@ -54,6 +62,9 @@ describeIfDb("output authority (integration)", () => {
   let unrelatedFactId: string;
   let unrelatedCalcId: string;
   let unrelatedExplanationId: string;
+  let adjacentFactId: string;
+  let familyFactId: string;
+  let counterpartEdgeId: string;
   let seriesId: string;
 
   const planning = (plan: unknown) => ({ generatePlan: async () => plan });
@@ -77,6 +88,7 @@ describeIfDb("output authority (integration)", () => {
     ({ answerWithInference } = await import("@/server/domain/askMarketInference"));
     ({ validateOutputPlan } = await import("@/server/domain/outputPlan"));
     ({ deriveCandidateEnvelope } = await import("@/server/domain/candidateEnvelope"));
+    ({ mentionsEachOther } = await import("@/server/domain/askMarket"));
     ({ publishClaimForDisplay, verifyClaim } = await import("@/server/domain/claimVerification"));
     ({ createFactClaimFromObservation } = await import("@/server/domain/claimStore"));
     ({ computeSeriesChange } = await import("@/server/domain/whatChanged"));
@@ -91,7 +103,12 @@ describeIfDb("output authority (integration)", () => {
     await prisma.causalEdge.deleteMany({
       where: {
         fromVariable: {
-          in: ["Test Output freight index", "Test Output rogue source", "Cabbage harvest volume"],
+          in: [
+            "Test Output freight index",
+            "Test Output rogue source",
+            "Cabbage harvest volume",
+            "Test Output shipping cost",
+          ],
         },
       },
     });
@@ -238,6 +255,73 @@ describeIfDb("output authority (integration)", () => {
     unrelatedFactId = (await createFactClaimFromObservation(unrelatedNewest)).id;
     unrelatedCalcId = (await computeSeriesChange(unrelatedSeries.id)).claimId as string;
 
+    // IR-104 fixtures. An adjacent subject that differs by one word, a shorter family name nested
+    // inside the main subject, and a mechanism sharing one endpoint with the mechanism question.
+    const adjacent = await prisma.series.create({
+      data: {
+        sourceId: source.id,
+        externalId: "TESTOUTPUT_ADJACENT",
+        name: "Test Output core freight index",
+        unit: "percent",
+        frequency: "weekly",
+      },
+    });
+    let adjacentNewest = "";
+    for (const [i, value] of ["4.10", "4.20", "4.30"].entries()) {
+      const obs = await prisma.observation.create({
+        data: {
+          seriesId: adjacent.id,
+          sourceId: source.id,
+          observationDate: daysAgo(14 - i * 7),
+          value,
+          raw: {},
+        },
+      });
+      adjacentNewest = obs.id;
+    }
+    adjacentFactId = (await createFactClaimFromObservation(adjacentNewest)).id;
+
+    // Nested inside "Test Output freight index", so maximal specificity is load-bearing for every
+    // reported-fact test in this file rather than for one of them.
+    const family = await prisma.series.create({
+      data: {
+        sourceId: source.id,
+        externalId: "TESTOUTPUT_FAMILY",
+        name: "freight index",
+        unit: "percent",
+        frequency: "weekly",
+      },
+    });
+    let familyNewest = "";
+    for (const [i, value] of ["6.10", "6.20", "6.30"].entries()) {
+      const obs = await prisma.observation.create({
+        data: {
+          seriesId: family.id,
+          sourceId: source.id,
+          observationDate: daysAgo(14 - i * 7),
+          value,
+          raw: {},
+        },
+      });
+      familyNewest = obs.id;
+    }
+    familyFactId = (await createFactClaimFromObservation(familyNewest)).id;
+
+    counterpartEdgeId = (
+      await prisma.causalEdge.create({
+        data: {
+          fromVariable: "Test Output freight index",
+          toVariable: "Test Output warehouse rent",
+          direction: "POSITIVE",
+          confidence: "LOW",
+          mechanism: "Freight costs feed into warehousing demand and therefore rent.",
+          evidence: "Seeded for the IR-104 counterpart control.",
+          lag: "2 quarters",
+          counterexamples: "Breaks when vacancy is structurally high.",
+        },
+      })
+    ).id;
+
     const unrelatedEdge = await prisma.causalEdge.create({
       data: {
         fromVariable: "Cabbage harvest volume",
@@ -280,30 +364,24 @@ describeIfDb("output authority (integration)", () => {
       }
     });
 
-    it("B — a verified CALCULATION", async () => {
-      const outcome = await answer({ segments: [claimSegment(calcClaimId)] });
-      expect(outcome.status).toBe("ANSWERED");
-      if (outcome.status === "ANSWERED") expect(outcome.text).toContain("[CALCULATION]");
-    });
-
     it("C — several verified segments, joined by the repository", async () => {
-      // Held an INFERENCE segment until IR-102 made that type fail-closed; a CALCULATION is the
-      // second real authority now.
+      // Held an INFERENCE segment until IR-102, then a CALCULATION until IR-104. What "several
+      // segments" can mean is now bounded by the operation: several records about the SAME
+      // authorized subject, of the kind the frame asks for. Mixing kinds mixes questions.
+      const second = await createFactClaimFromObservation(
+        (
+          await prisma.observation.findFirstOrThrow({
+            where: { seriesId },
+            orderBy: { observationDate: "asc" },
+          })
+        ).id,
+      );
       const outcome = await answer({
-        segments: [
-          claimSegment(factClaimId),
-          claimSegment(calcClaimId),
-          { kind: "REPOSITORY_EXPLANATION", explanationId },
-        ],
+        segments: [claimSegment(factClaimId), claimSegment(second.id)],
       });
       expect(outcome.status).toBe("ANSWERED");
       if (outcome.status === "ANSWERED") {
-        expect(outcome.text).toContain("[FACT]");
-        expect(outcome.text).toContain("[CALCULATION]");
-        expect(outcome.text).toContain("[MECHANISM]");
-        // The seeded limitation travels with the mechanism, because LEGAL_GUARDRAILS requires
-        // analytical output to state its limits rather than imply certainty.
-        expect(outcome.text).toContain("Breaks down when banks are deposit-flush");
+        expect(outcome.text.split("[FACT]").length - 1).toBe(2);
       }
     });
 
@@ -316,6 +394,20 @@ describeIfDb("output authority (integration)", () => {
       });
       if (outcome.status === "ANSWERED") {
         expect(outcome.text).toContain(observation.value.toString());
+      }
+    });
+
+    it("a stored mechanism answers the mechanism question, limitation included", async () => {
+      const outcome = await answerWithInference(
+        MECHANISM,
+        planning({ segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }] }),
+      );
+      expect(outcome.status).toBe("ANSWERED");
+      if (outcome.status === "ANSWERED") {
+        expect(outcome.text).toContain("[MECHANISM]");
+        // The seeded limitation travels with the mechanism, because LEGAL_GUARDRAILS requires
+        // analytical output to state its limits rather than imply certainty.
+        expect(outcome.text).toContain("Breaks down when banks are deposit-flush");
       }
     });
 
@@ -530,9 +622,10 @@ describeIfDb("output authority (integration)", () => {
           counterexamples: "None recorded.",
         },
       });
-      const outcome = await answer({
-        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: rogue.id }],
-      });
+      const outcome = await answerWithInference(
+        "What mechanism connects the Test Output freight index to the Test Output rogue outcome?",
+        planning({ segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: rogue.id }] }),
+      );
       expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
       if (outcome.status === "OUTPUT_SUPPRESSED") {
         expect(outcome.scan.verdict).toBe("BLOCKED");
@@ -743,7 +836,7 @@ describeIfDb("output authority (integration)", () => {
       }
       // And the record really is publishable — for its own question.
       const own = await answerWithInference(
-        "Explain how the Korea napa cabbage wholesale price is constructed.",
+        askAbout("Korea napa cabbage wholesale price"),
         planning({ segments: [claimSegment(unrelatedFactId)] }),
       );
       expect(own.status).toBe("ANSWERED");
@@ -758,9 +851,12 @@ describeIfDb("output authority (integration)", () => {
     });
 
     it("X3 — an unrelated but authentic CausalEdge does not publish", async () => {
-      const outcome = await answer({
-        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: unrelatedExplanationId }],
-      });
+      const outcome = await answerWithInference(
+        MECHANISM,
+        planning({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: unrelatedExplanationId }],
+        }),
+      );
       expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
       if (outcome.status === "OUTPUT_SUPPRESSED") {
         expect(outcome.scan.reason).toContain("NOT_A_REQUEST_CANDIDATE");
@@ -780,10 +876,7 @@ describeIfDb("output authority (integration)", () => {
       // question is frame-eligible and perfectly reasonable; the repository simply holds nothing
       // on its subject, and improvising is what a planner would do with the opening.
       const { calls, sink } = countingSink({ segments: [claimSegment(factClaimId)] });
-      const outcome = await answerWithInference(
-        "Explain how the Ruritanian potato futures index is constructed.",
-        sink,
-      );
+      const outcome = await answerWithInference(askAbout("Ruritanian potato futures index"), sink);
       expect(calls).toHaveLength(0);
       expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
     });
@@ -811,17 +904,196 @@ describeIfDb("output authority (integration)", () => {
     });
 
     it("the envelope names records, and only records the repository indexed", async () => {
+      const reported = await deriveCandidateEnvelope(ELIGIBLE);
+      expect(reported.status).toBe("AUTHORIZED");
+      expect(reported.operation).toBe("REPORTED_OBSERVATION");
+      expect(reported.seriesIds).toContain(seriesId);
+      expect(reported.seriesIds).not.toContain("cl00000000000000000000000");
+      // A reported-fact question authorizes no mechanism, whatever retrieval turned up.
+      expect(reported.causalEdgeIds).toHaveLength(0);
+
+      const mechanism = await deriveCandidateEnvelope(MECHANISM);
+      expect(mechanism.status).toBe("AUTHORIZED");
+      expect(mechanism.operation).toBe("STORED_MECHANISM");
+      expect(mechanism.causalEdgeIds).toContain(explanationId);
+      expect(mechanism.seriesIds).toHaveLength(0);
+    });
+  });
+
+  describe("exact subject and operation, not similarity — IR-104", () => {
+    /**
+     * IR-103 removed gross substitution and its frozen holdout measured what was left: ten adjacent
+     * subjects entering envelopes they had no business in. Three more families reproduced
+     * independently here — core versus headline, seasonally adjusted versus not, a five-year versus
+     * a fifteen-year tenor — along with an ambiguous subject the planner got to resolve, a
+     * mechanism sharing one endpoint, a mechanism running backwards, and a level question answered
+     * by whichever of three record kinds the planner preferred.
+     *
+     * The retrieval matcher is untouched. It still finds all of these; it just no longer authorizes
+     * any of them.
+     */
+
+    it("B — a verified CALCULATION is publishable in class and answers no eligible frame", async () => {
+      // Lived among the positive controls until the isolation run put it in its place: removing
+      // subject/operation authority made this test fail, which means it is an assertion ABOUT that
+      // layer rather than one that should survive its removal. A CALCULATION is safe to render
+      // (IR-102) and is still not an answer to either eligible question — nobody else published it,
+      // so it is not a reported fact, and it explains nothing, so it is not a mechanism.
+      await expect(publishClaimForDisplay(calcClaimId)).resolves.toContain("[CALCULATION]");
+      const outcome = await answer({ segments: [claimSegment(calcClaimId)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("NOT_A_REQUEST_CANDIDATE");
+      }
+    });
+
+    it("Y1 — an adjacent subject differing by one word is not the subject", async () => {
+      const outcome = await answer({ segments: [claimSegment(adjacentFactId)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("NOT_A_REQUEST_CANDIDATE");
+      }
+      // Retrieval still finds it, which is the point: discovery may over-produce, authority may not.
+      expect(mentionsEachOther("Test Output core freight index", ELIGIBLE)).toBe(true);
+    });
+
+    it("Y1' — and the adjacent subject publishes for its own question", async () => {
+      const outcome = await answerWithInference(
+        askAbout("Test Output core freight index"),
+        planning({ segments: [claimSegment(adjacentFactId)] }),
+      );
+      expect(outcome.status).toBe("ANSWERED");
+    });
+
+    it("maximal specificity — a shorter nested name is not a second subject", async () => {
       const envelope = await deriveCandidateEnvelope(ELIGIBLE);
-      expect(envelope.seriesIds).toContain(seriesId);
-      expect(envelope.seriesIds).not.toContain("cl00000000000000000000000");
-      expect(envelope.causalEdgeIds).toContain(explanationId);
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.subjects).toEqual(["Test Output freight index"]);
+      const outcome = await answer({ segments: [claimSegment(familyFactId)] });
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+    });
+
+    it("Y3 — an ambiguous subject is not the planner's to resolve", async () => {
+      const query = `${askAbout("Test Output freight index")} And the Korea napa cabbage wholesale price?`;
+      const envelope = await deriveCandidateEnvelope(query);
+      expect(envelope.status).toBe("AMBIGUOUS");
+      const { calls, sink } = countingSink({ segments: [claimSegment(factClaimId)] });
+      const outcome = await answerWithInference(query, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("Y4 — a mechanism sharing one endpoint is a different relation", async () => {
+      const outcome = await answerWithInference(
+        MECHANISM,
+        planning({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: counterpartEdgeId }],
+        }),
+      );
+      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      if (outcome.status === "OUTPUT_SUPPRESSED") {
+        expect(outcome.scan.reason).toContain("NOT_A_REQUEST_CANDIDATE");
+      }
+    });
+
+    it("Y5 — two stored relations over the same pair leave the direction unproven", async () => {
+      // The reverse edge exists only for this test: with both directions stored, nothing mechanical
+      // in the question settles which was asked about, and guessing from word order would be a
+      // grammar rule pretending to be a fact.
+      const reverse = await prisma.causalEdge.create({
+        data: {
+          fromVariable: "Test Output shipping cost",
+          toVariable: "Test Output freight index",
+          direction: "POSITIVE",
+          confidence: "LOW",
+          mechanism: "Shipping costs feed back into the freight index.",
+          evidence: "Seeded for the IR-104 direction control.",
+          lag: "1 quarter",
+          counterexamples: "Breaks under administered tariffs.",
+        },
+      });
+      const envelope = await deriveCandidateEnvelope(MECHANISM);
+      expect(envelope.status).toBe("AMBIGUOUS");
+      const { calls, sink } = countingSink({
+        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: reverse.id }],
+      });
+      const outcome = await answerWithInference(MECHANISM, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+      await prisma.causalEdge.delete({ where: { id: reverse.id } });
+    });
+
+    it("Y6 — the right subject answering the wrong question", async () => {
+      // A mechanism question, offered an observation about a variable it names.
+      const asObservation = await answerWithInference(
+        MECHANISM,
+        planning({ segments: [claimSegment(factClaimId)] }),
+      );
+      expect(asObservation.status).toBe("OUTPUT_SUPPRESSED");
+
+      // A reported-fact question, offered the mechanism about the same subject.
+      const asMechanism = await answer({
+        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+      });
+      expect(asMechanism.status).toBe("OUTPUT_SUPPRESSED");
+    });
+
+    it("a planner that ignores the envelope entirely publishes nothing", async () => {
+      // The malicious-planner control. Every one of these is an authentic, verified, fresh record.
+      const attempts: unknown[] = [
+        claimSegment(adjacentFactId),
+        claimSegment(familyFactId),
+        claimSegment(calcClaimId),
+        claimSegment(unrelatedFactId),
+        { kind: "REPOSITORY_EXPLANATION", explanationId },
+        { kind: "REPOSITORY_EXPLANATION", explanationId: counterpartEdgeId },
+      ];
+      for (const segment of attempts) {
+        const outcome = await answer({ segments: [segment] });
+        expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      }
+    });
+
+    it("planner-supplied subject or operation metadata cannot widen authority", async () => {
+      for (const extra of [
+        { subject: "Test Output freight index" },
+        { operation: "REPORTED_OBSERVATION" },
+        { subjectIdentity: "Test Output freight index", operation: "REPORTED_OBSERVATION" },
+      ]) {
+        const outcome = await answer({ segments: [{ ...claimSegment(adjacentFactId), ...extra }] });
+        expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
+      }
+    });
+
+    it("syntactic normalization does not change identity", async () => {
+      const variants = [
+        "what did analysts publish about the test output freight index?",
+        "What did analysts publish about the Test-Output-Freight-Index?",
+        "What did analysts publish about the   Test Output   freight index ?",
+      ];
+      for (const query of variants) {
+        const envelope = await deriveCandidateEnvelope(query);
+        expect(envelope.status).toBe("AUTHORIZED");
+        expect(envelope.seriesIds).toEqual([seriesId]);
+      }
+    });
+
+    it("the frame decides the operation, and the matrix is closed", async () => {
+      const { FRAME_OPERATIONS } = await import("@/server/domain/subjectAuthority");
+      expect(FRAME_OPERATIONS).toEqual({
+        FACTUAL_MECHANISM: "STORED_MECHANISM",
+        THIRD_PARTY_REPORTED_FACT: "REPORTED_OBSERVATION",
+      });
     });
   });
 
   // ------------------------------------------------------------------ freshness
   describe("stale evidence is not published as current", () => {
     it("refuses a verified FACT whose series stopped updating", async () => {
-      const outcome = await answer({ segments: [claimSegment(staleClaimId)] });
+      const outcome = await answerWithInference(
+        askAbout("Test Output Stale Series"),
+        planning({ segments: [claimSegment(staleClaimId)] }),
+      );
       expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
       if (outcome.status === "OUTPUT_SUPPRESSED") {
         expect(outcome.scan.reason).toContain("STALE_EVIDENCE");
@@ -830,7 +1102,10 @@ describeIfDb("output authority (integration)", () => {
 
     it("refuses when the cadence cannot be projected at all", async () => {
       // Unknown is not fresh. A real cost: a current value from a thin series will not publish.
-      const outcome = await answer({ segments: [claimSegment(unknownCadenceClaimId)] });
+      const outcome = await answerWithInference(
+        askAbout("Test Output Thin Series"),
+        planning({ segments: [claimSegment(unknownCadenceClaimId)] }),
+      );
       expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
       if (outcome.status === "OUTPUT_SUPPRESSED") {
         expect(outcome.scan.reason).toContain("FRESHNESS_UNKNOWN");

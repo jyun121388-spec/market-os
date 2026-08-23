@@ -31,8 +31,17 @@ export interface CandidateRelevanceCase {
   rationale: string;
 }
 
-/** Holdout until something here drives a change; regression evidence from that moment on. */
-export const CANDIDATE_RELEVANCE_HOLDOUT_KIND = "FRESH_HOLDOUT" as const;
+/**
+ * **Demoted on 2026-08-24, after its one holdout run.** It did its job: it identified the
+ * adjacent-subject collision family that IR-104 answers, so the implementation moved underneath it.
+ * Its first-run numbers — 35/140 strict, 10 adjacent over-inclusions, 0 unrelated over-inclusions,
+ * 31 same-subject empty envelopes — stand permanently as a measurement of the code as it was that
+ * day, and are not evidence about the code that stands now.
+ *
+ * `subjectAuthorityHoldout.ts` is the fresh measurement for the authority resolver, frozen
+ * before it was written.
+ */
+export const CANDIDATE_RELEVANCE_HOLDOUT_KIND = "REGRESSION_EVIDENCE" as const;
 
 export const CANDIDATE_RELEVANCE_SHA256 =
   "27e2b96e6e22e0c760bff3cee010f4fbb7257585a4332c7ee86b36025792b5db";

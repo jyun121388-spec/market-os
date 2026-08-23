@@ -269,14 +269,18 @@ async function validateSegment(
           `(${resolved.verification.status}): ${resolved.verification.detail}`,
       );
     }
-    if (resolved.status === "PUBLISHABLE" && !claimIsCandidate(resolved.claim.evidence, envelope)) {
-      // Authentic, verified, fresh, and about something else. The envelope was built from the
-      // query before the planner was called and is read here from our own variable, so naming an
-      // id cannot put it inside.
+    if (
+      resolved.status === "PUBLISHABLE" &&
+      !claimIsCandidate(resolved.claim.claimType, resolved.claim.evidence, envelope)
+    ) {
+      // Authentic, verified, fresh, and either about something else or answering a different
+      // question about the right thing. The envelope was built from the query before the planner
+      // was called and is read here from our own variable, so naming an id cannot put it inside.
       return reject(
         "NOT_A_REQUEST_CANDIDATE",
-        `Segment ${index} names claim ${claimId}, which is not a candidate for this request. ` +
-          "A record being real is not a reason to present it as the answer to this question.",
+        `Segment ${index} names claim ${claimId}, which is not a candidate for this request ` +
+          "(subject or operation). A record being real, and even being about the right thing, is " +
+          "not a reason to present it as the answer to the question that was asked.",
       );
     }
     if (resolved.status !== "PUBLISHABLE") {

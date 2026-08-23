@@ -37,32 +37,73 @@
 
 import { prisma } from "@/server/db/client";
 import { mentionsEachOther } from "./askMarket";
+import {
+  resolveSubjectAuthority,
+  type AuthorizedOperation,
+  type SubjectAuthorityStatus,
+} from "./subjectAuthority";
 
 export interface CandidateEnvelope {
   /** The authorized query the envelope was derived from. */
   query: string;
-  /** Series the repository judges this query to be about. */
+  /**
+   * Exact / ambiguous / unresolved, from `./subjectAuthority`. Only `AUTHORIZED` may publish, and
+   * the two failing states are kept apart because they mean different things: nothing stored is
+   * about this, versus more than one thing is and the question did not choose.
+   */
+  status: SubjectAuthorityStatus;
+  /** What kind of record the frame asks for. Absent when nothing is authorized. */
+  operation?: AuthorizedOperation;
+  /**
+   * Series whose **FACT** claims may answer. Not "series that came up" — IR-104: retrieval
+   * surfaced adjacent subjects by the dozen and every one of them was authentic.
+   */
   seriesIds: readonly string[];
-  /** Causal edges naming a variable this query is about. */
+  /** Causal edges whose stored mechanism may answer, both endpoints named by the question. */
   causalEdgeIds: readonly string[];
-}
-
-/** Nothing in the repository speaks to this question, so nothing may be published about it. */
-export function isEmptyEnvelope(envelope: CandidateEnvelope): boolean {
-  return envelope.seriesIds.length === 0 && envelope.causalEdgeIds.length === 0;
+  /** Resolved subject names, for logs and assertions. */
+  subjects: readonly string[];
+  detail: string;
 }
 
 /**
- * Derives the candidate envelope for an authorized query.
+ * Nothing may be published for this question, whether because nothing was resolved or because too
+ * much was. A planner is not consulted in either case.
+ */
+export function isEmptyEnvelope(envelope: CandidateEnvelope): boolean {
+  return (
+    envelope.status !== "AUTHORIZED" ||
+    (envelope.seriesIds.length === 0 && envelope.causalEdgeIds.length === 0)
+  );
+}
+
+/**
+ * Derives the candidate envelope for an authorized query: discovery, then authority.
  *
- * Deliberately takes only the query text. Passing the authorization result would invite the
- * mistake the guidance names — letting `eligible` stand in for relevance — and these are separate
- * authorities: one says the question may be asked, the other says what could answer it.
+ * Two stages with different jobs and different tolerances.
+ *
+ *  - **Discovery** is `mentionsEachOther`, unchanged and still shared with `askMarket`. It may
+ *    over-produce; that is what a retrieval predicate is for, and it costs nothing here because
+ *    nothing it finds is authorized by being found.
+ *  - **Authority** is `resolveSubjectAuthority`, which may only subtract. Exact stored names
+ *    occurring in the question, maximal specificity, both endpoints for a mechanism, and the
+ *    frame's own operation.
+ *
+ * Deliberately takes only the query text. Passing the authorization result would invite the mistake
+ * the guidance names — letting `eligible` stand in for relevance — and these are separate
+ * authorities: one says the question may be asked, this says what could answer it.
  */
 export async function deriveCandidateEnvelope(query: string): Promise<CandidateEnvelope> {
   const topic = query.trim();
   if (!topic) {
-    return { query: topic, seriesIds: [], causalEdgeIds: [] };
+    return {
+      query: topic,
+      status: "UNRESOLVED",
+      seriesIds: [],
+      causalEdgeIds: [],
+      subjects: [],
+      detail: "An empty query resolves to nothing.",
+    };
   }
 
   const [allSeries, allEdges] = await Promise.all([
@@ -70,14 +111,25 @@ export async function deriveCandidateEnvelope(query: string): Promise<CandidateE
     prisma.causalEdge.findMany({ select: { id: true, fromVariable: true, toVariable: true } }),
   ]);
 
-  return {
-    query: topic,
+  const discovered = {
     seriesIds: allSeries.filter((s) => mentionsEachOther(s.name, topic)).map((s) => s.id),
     causalEdgeIds: allEdges
       .filter(
         (e) => mentionsEachOther(e.fromVariable, topic) || mentionsEachOther(e.toVariable, topic),
       )
       .map((e) => e.id),
+  };
+
+  const authority = await resolveSubjectAuthority(topic, discovered);
+
+  return {
+    query: topic,
+    status: authority.status,
+    operation: authority.operation,
+    seriesIds: authority.factSeriesIds,
+    causalEdgeIds: authority.mechanismEdgeIds,
+    subjects: authority.subjects,
+    detail: authority.detail,
   };
 }
 
@@ -88,7 +140,16 @@ export async function deriveCandidateEnvelope(query: string): Promise<CandidateE
  * names no series is not a member: FACT and CALCULATION both carry `seriesId` by construction, so
  * the absence means something unexpected is being published and the fail-closed answer is no.
  */
-export function claimIsCandidate(evidence: unknown, envelope: CandidateEnvelope): boolean {
+export function claimIsCandidate(
+  claimType: string,
+  evidence: unknown,
+  envelope: CandidateEnvelope,
+): boolean {
+  // Operation before subject. IR-104 candidate Y6: with one envelope holding both kinds for the
+  // same subject, a mechanism, a change and an observation all published for one question, and the
+  // planner decided which. A change answers no eligible frame today, so its type is checked here
+  // rather than left to whichever record the planner liked.
+  if (envelope.operation !== "REPORTED_OBSERVATION" || claimType !== "FACT") return false;
   if (typeof evidence !== "object" || evidence === null || Array.isArray(evidence)) return false;
   const seriesId = (evidence as Record<string, unknown>).seriesId;
   if (typeof seriesId !== "string" || seriesId.length === 0) return false;
@@ -100,5 +161,6 @@ export function explanationIsCandidate(
   explanationId: string,
   envelope: CandidateEnvelope,
 ): boolean {
+  if (envelope.operation !== "STORED_MECHANISM") return false;
   return envelope.causalEdgeIds.includes(explanationId);
 }

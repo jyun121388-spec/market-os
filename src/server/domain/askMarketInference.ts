@@ -144,6 +144,9 @@ export async function answerWithInference(
   // series we have never heard of still reached the model.
   const envelope = await deriveCandidateEnvelope(query);
   if (isEmptyEnvelope(envelope)) {
+    // AMBIGUOUS and UNRESOLVED both stop here. IR-104: an ambiguous subject used to put every
+    // near-match in the envelope and let the planner pick, which is candidate authority handed
+    // back to the model in all but name.
     return { status: "NO_CANDIDATE_EVIDENCE", authorization, envelope };
   }
 

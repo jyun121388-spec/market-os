@@ -125,21 +125,23 @@ describe("eligibility is granted, never inferred from an absence", () => {
     ]);
   });
 
-  it("lets a proven factual request through to the mocked boundary", async () => {
-    // Reaching the boundary and publishing are now different facts, and this test is about the
-    // first. The stub proposes nothing publishable on purpose; ANSWERED requires stored records
-    // and is proven in tests/integration/output-authority.test.ts against a real database.
+  it("lets a proven factual request past the request gate", async () => {
+    // Three facts that used to be one. The request gate allows it; the repository then decides
+    // whether it holds anything on the subject; only then is a planner consulted. This file has no
+    // seeded data, so the honest assertion here is that the REQUEST was not what stopped it.
     const { outcome, calls } = await run("How does a stop-loss order actually work on the KRX?");
-    expect(calls).toHaveLength(1);
     expect(outcome.status).not.toBe("REDIRECTED_BEFORE_MODEL");
+    expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    // And the planner is not consulted on an empty envelope. IR-103: it used to be.
+    expect(calls).toHaveLength(0);
   });
 
-  it("lets a proven third-party-reporting request through", async () => {
+  it("lets a proven third-party-reporting request past the request gate", async () => {
     const { outcome, calls } = await run(
       "What price target did analysts publish for Nvidia last month?",
     );
-    expect(calls).toHaveLength(1);
     expect(outcome.status).not.toBe("REDIRECTED_BEFORE_MODEL");
+    expect(calls).toHaveLength(0);
   });
 
   it("runs the request guardrail before the frame, so a mixed sentence cannot buy its way in", async () => {
@@ -157,100 +159,13 @@ describe("eligibility is granted, never inferred from an absence", () => {
 
 describe("the output boundary is independent of the request", () => {
   /**
-   * These used to hand the sink a sentence and ask whether a scanner disliked it. IR-101 measured
-   * what that was worth, so the sink now hands over a plan and the questions are structural: does
-   * anything the planner wrote reach the caller, and does a rejection still name what it saw.
+   * What is left here after IR-103 is what needs no stored data: the shape of the boundary itself.
    *
-   * No database here — every plan below is rejected before a segment would be resolved. The cases
-   * that require stored records live in the integration suite.
+   * The plan-rejection cases moved to tests/integration/output-authority.test.ts, because reaching
+   * plan validation now requires the repository to hold something on the subject — and a test that
+   * asserts a plan was rejected while the run actually stopped one step earlier is a test that
+   * proves nothing.
    */
-  const planning = (plan: unknown): InferenceSink => ({ generatePlan: async () => plan });
-
-  const ELIGIBLE = "How does a stop-loss order actually work on the KRX?";
-
-  it("suppresses advice the planner proposed, and names it", async () => {
-    // The case a request gate cannot catch, and the reason the second boundary exists at all.
-    const outcome = await answerWithInference(
-      ELIGIBLE,
-      planning({
-        segments: [],
-        proposedNarration:
-          "A stop-loss triggers at your stop price. You should buy Samsung at these levels.",
-      }),
-    );
-    expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
-    if (outcome.status === "OUTPUT_SUPPRESSED") {
-      expect(outcome.scan.verdict).toBe("BLOCKED");
-      expect(outcome.scan.findings.map((f) => f.violation)).toContain(
-        "PERSONALISED_RECOMMENDATION",
-      );
-    }
-  });
-
-  it("suppresses prose no pattern anticipated — IR-101 candidate P", async () => {
-    // Not in VIOLATION_PATTERNS and deliberately never added to it. It fails because it names no
-    // repository authority, which is a property of the architecture rather than of a list.
-    const outcome = await answerWithInference(
-      ELIGIBLE,
-      planning({
-        segments: [],
-        proposedNarration:
-          "Given the mechanism, the prudent course is to lighten exposure well ahead of the print.",
-      }),
-    );
-    expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
-    if (outcome.status === "OUTPUT_SUPPRESSED") expect(outcome.scan.verdict).toBe("UNVERIFIABLE");
-  });
-
-  it("suppresses the same shape in Korean", async () => {
-    const outcome = await answerWithInference(
-      ELIGIBLE,
-      planning({
-        segments: [],
-        proposedNarration: "지금은 비중을 늘릴 시점입니다. 반도체는 정리하시는 편이 낫습니다.",
-      }),
-    );
-    expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
-  });
-
-  it("refuses a legacy sink that returns a bare string", async () => {
-    const outcome = await answerWithInference(ELIGIBLE, planning("Execution slips on thin books."));
-    expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
-    if (outcome.status === "OUTPUT_SUPPRESSED") {
-      expect(outcome.scan.reason).toContain("MALFORMED_PLAN");
-    }
-  });
-
-  it("refuses a plan carrying its own text", async () => {
-    const outcome = await answerWithInference(
-      ELIGIBLE,
-      planning({ text: "Execution typically slips by 0.4% on thin books." }),
-    );
-    expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
-    if (outcome.status === "OUTPUT_SUPPRESSED") {
-      expect(outcome.scan.reason).toContain("MODEL_AUTHORED_PROSE");
-    }
-  });
-
-  it("refuses an unknown segment kind however plausible its name", async () => {
-    for (const kind of ["SAFE_PROSE", "OTHER", "RAW_TEXT", "MODEL_TEXT", "UNKNOWN_BUT_ALLOWED"]) {
-      const outcome = await answerWithInference(
-        ELIGIBLE,
-        planning({ segments: [{ kind, text: "Rates pass through with a lag." }] }),
-      );
-      expect(outcome.status).toBe("OUTPUT_SUPPRESSED");
-    }
-  });
-
-  it("never returns suppressed text to the caller", async () => {
-    const secret = "You should buy Samsung right now.";
-    const outcome = await answerWithInference(
-      ELIGIBLE,
-      planning({ segments: [], proposedNarration: secret }),
-    );
-    expect(JSON.stringify(outcome)).not.toContain(secret);
-  });
-
   it("takes no caller-supplied attribution, structurally", () => {
     // IR-101 candidates Q and R were a third parameter through which the party asking for
     // publication certified its own numbers. The proof it is gone is the arity: there is no
@@ -279,11 +194,14 @@ describe("the whole blind holdout, through the production path", () => {
 
   it("still lets some legitimate questions through, so the gate is not merely closed", async () => {
     // A gate that blocks everything trivially satisfies the test above. This is the control.
-    let reached = 0;
+    // Counts requests the GATE let past, not planner calls. Since IR-103 a planner is reached
+    // only when the repository also holds something on the subject, and this file seeds nothing —
+    // counting calls here would measure an empty database and call it a closed gate.
+    let allowed = 0;
     for (const c of ADVICE_GUARDRAIL_HOLDOUT2.filter((x) => x.label === "MUST_ALLOW")) {
-      const { calls } = await run(c.query);
-      reached += calls.length;
+      const { outcome } = await run(c.query);
+      if (outcome.status !== "REDIRECTED_BEFORE_MODEL") allowed += 1;
     }
-    expect(reached).toBeGreaterThan(0);
+    expect(allowed).toBeGreaterThan(0);
   });
 });

@@ -48,6 +48,11 @@ import {
   type GeneratedOutputPlan,
   type PlanValidation,
 } from "./outputPlan";
+import {
+  deriveCandidateEnvelope,
+  isEmptyEnvelope,
+  type CandidateEnvelope,
+} from "./candidateEnvelope";
 
 /**
  * The future provider, as a contract rather than a dependency.
@@ -61,7 +66,12 @@ import {
  * as a promise about what arrives.
  */
 export interface InferenceSink {
-  generatePlan(query: string): Promise<unknown>;
+  /**
+   * The envelope is passed so a well-behaved planner can see what it may choose from. It is a
+   * courtesy, not a channel: validation re-reads the envelope from this module's own variable, so
+   * nothing the planner returns can widen it.
+   */
+  generatePlan(query: string, candidates: CandidateEnvelope): Promise<unknown>;
 }
 
 /** Re-exported so a stub sink can be written against the contract without a second import. */
@@ -89,6 +99,16 @@ export interface OutputAssessment {
 export type InferenceOutcome =
   /** The request never reached a model. `text` is absent because nothing was generated. */
   | { status: "REDIRECTED_BEFORE_MODEL"; authorization: InferenceAuthorization }
+  /**
+   * The request was allowed but the repository holds nothing that speaks to it, so no model was
+   * consulted. Distinct from a redirect on purpose: the question was fine, the shelves are empty,
+   * and an empty envelope must never read as permission to improvise.
+   */
+  | {
+      status: "NO_CANDIDATE_EVIDENCE";
+      authorization: InferenceAuthorization;
+      envelope: CandidateEnvelope;
+    }
   /** A model ran and its plan did not survive validation. Nothing it proposed is returned. */
   | { status: "OUTPUT_SUPPRESSED"; authorization: InferenceAuthorization; scan: OutputAssessment }
   /** A model ran, its plan validated, and the repository rendered the records it named. */
@@ -119,8 +139,16 @@ export async function answerWithInference(
     return { status: "REDIRECTED_BEFORE_MODEL", authorization };
   }
 
-  const proposed = await sink.generatePlan(query);
-  const validation = await validateOutputPlan(proposed);
+  // Derived from the query by the repository, before the planner is consulted. IR-103: without
+  // this the planner chose which authentic record represented the answer, and a question about a
+  // series we have never heard of still reached the model.
+  const envelope = await deriveCandidateEnvelope(query);
+  if (isEmptyEnvelope(envelope)) {
+    return { status: "NO_CANDIDATE_EVIDENCE", authorization, envelope };
+  }
+
+  const proposed = await sink.generatePlan(query, envelope);
+  const validation = await validateOutputPlan(proposed, envelope);
 
   if (validation.status === "REJECTED") {
     // BLOCKED when the planner proposed something nameable, UNVERIFIABLE otherwise. Both withhold

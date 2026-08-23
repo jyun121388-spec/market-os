@@ -4298,3 +4298,140 @@ and the frozen candidate untouched; the concurrent session's control-bus work un
 from every file changed here. Full suite 1888/1888 across 120 files against real PostgreSQL.
 `npm run build` (turbopack) fails on the worktree's `node_modules` junction before reading source;
 `npx next build --webpack` completes.
+
+---
+
+## IR-103 — An authentic record is not thereby the answer
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][ASK-EXACT-CANDIDATE-BINDING-20260824]`, read from issue #2
+by hand. IR-101 stopped the planner writing the answer. IR-102 stopped it publishing propositions
+whose meaning nothing bounds. Both left the planner one thing: **which** authentic record is
+presented as the answer.
+
+### Reproduction, before modification
+
+Every record below is real, verifying, fresh, of a publishable class, and rendered by this
+repository in its own words.
+
+| #      | probe                                                                       | before                                    |
+| ------ | --------------------------------------------------------------------------- | ----------------------------------------- |
+| **X1** | a stop-loss question answered with a shipping-freight index FACT            | **PUBLISHED**                             |
+| **X2** | the same question answered with that index's CALCULATION                    | **PUBLISHED**                             |
+| **X3** | a policy-rate mechanism question answered with a cabbage→kimchi causal edge | **PUBLISHED**                             |
+| **X4** | a question about one series answered with its neighbour                     | **PUBLISHED**                             |
+| **X5** | a question about a series the repository has never heard of                 | **PUBLISHED**, and the planner was called |
+
+X5 is the one to sit with. The repository held nothing whatsoever on the subject, and the model was
+consulted anyway — an empty shelf read as an open invitation.
+
+A first attempt at this matrix was wrong and is worth recording: four of the six probes came back
+`REDIRECTED_BEFORE_MODEL` with zero planner calls, which looked like the boundary already working.
+It was the _request_ gate refusing the query shapes, not the output boundary refusing the records. A
+separate probe over a dozen ordinary phrasings found only three eligible. Confounded probes that
+report success are the failure mode this project has been bitten by repeatedly; the fix was to
+measure eligibility first and rebuild the matrix on shapes that actually reach the boundary.
+
+### The repair: the repository decides what could answer, before the model is asked
+
+    query
+      -> authorizeInference          may this be asked at all
+      -> deriveCandidateEnvelope     what could answer it, from OUR indexes
+      -> (empty) stop here           an empty envelope is not planner permission
+      -> sink.generatePlan           the planner ranks inside the envelope
+      -> membership re-checked       against the envelope WE built
+      -> verify / freshness / class / render
+
+`candidateEnvelope.ts` derives the set of series and causal edges a query is about, and
+`answerWithInference` refuses to call the sink when it is empty — a new `NO_CANDIDATE_EVIDENCE`
+outcome, distinct from a redirect because the question was fine and the shelves were bare.
+
+**The matcher is reused, not reinvented.** `askMarket.ts` has answered "which series and which
+causal edges is this query about" since M07, through `mentionsEachOther`. A second notion of subject
+relevance would mean two answers to one question. If it is too loose or too tight, it is too loose
+or too tight in both places, which is the honest failure mode.
+
+The envelope is built before the call and re-read from this module's own variable afterwards, so a
+plan cannot widen it by asserting an id, a subject or a score. A plan that tries carries an
+unexpected key and is `MALFORMED_PLAN`.
+
+| #       | before                    | after                                                                |
+| ------- | ------------------------- | -------------------------------------------------------------------- |
+| X1 / X2 | published                 | `NOT_A_REQUEST_CANDIDATE`                                            |
+| X3      | published                 | `NOT_A_REQUEST_CANDIDATE`                                            |
+| X4      | published                 | suppressed, and the valid segment beside it publishes nothing either |
+| X5      | published, planner called | `NO_CANDIDATE_EVIDENCE`, **planner calls measured at 0**             |
+| control | —                         | the same record publishes for the question it actually answers       |
+
+### Mutation, and the isolation the guidance asked for
+
+21 mutants, **21 resolved, 0 survivors, 0 skipped**. Four are new: claim membership unenforced,
+explanation membership unenforced, an empty envelope still consulting the planner, and the envelope
+derived from something other than the query.
+
+The guidance asked for something sharper than "a mutant was caught" — remove **only** the
+request-to-candidate binding and show that everything else stays green, because a mutation that
+breaks the whole suite proves nothing about which check was doing the work. Measured:
+
+| block                                         | with membership removed |
+| --------------------------------------------- | ----------------------- |
+| an authentic record is not thereby the answer | **4 failed**            |
+| what the repository will publish              | 6 passed                |
+| stale evidence is not published as current    | 2 passed                |
+| an inference is no fresher than its premises  | 4 passed                |
+| all or nothing                                | 7 passed                |
+
+Membership is the only check that moved.
+
+### The frozen candidate-relevance holdout, first run
+
+140 cases, 70 EN / 70 KO, generated by an independent model from a written six-rule contract, shown
+neither this repository's matcher nor the IR-103 probes, frozen with
+`sha256 27e2b96e6e22e0c760bff3cee010f4fbb7257585a4332c7ee86b36025792b5db` before
+`candidateEnvelope.ts` existed. It measures `deriveCandidateEnvelope` directly rather than the whole
+path, because the request gate admits few natural phrasings and an end-to-end run would score the
+frame classifier while calling it candidate relevance. The production binding is proven separately
+by the controls above.
+
+| relation               | observed                                 |
+| ---------------------- | ---------------------------------------- |
+| SAME_SUBJECT (45)      | 14 in envelope, **31 empty envelope**    |
+| ADJACENT_SUBJECT (40)  | 29 empty, **10 in envelope**, 1 excluded |
+| UNRELATED_SUBJECT (35) | 33 empty, 2 excluded, **0 in envelope**  |
+| NO_RECORD (20)         | 18 empty, 2 excluded                     |
+
+Strict agreement **35/140**, and the two error directions mean very different things.
+
+**Over-inclusion — 10 cases, all ADJACENT_SUBJECT, and the ones that matter.** US core CPI answered
+with headline CPI; a 10-year Treasury question with the 2-year; Germany's bund with France's OAT;
+Meta's ad revenue with Alphabet's; the Dow Transports with the Industrials; Samsung common with
+Samsung preferred. Not one UNRELATED_SUBJECT case slipped through, so the architecture does what it
+was built to do — the envelope now blocks every plainly-wrong record and 30 of 40 nearly-right ones.
+The remaining 10 are a property of `mentionsEachOther`'s 0.6 token-containment ratio, not of the
+binding.
+
+**Over-exclusion — 31 SAME_SUBJECT cases produce an empty envelope**, most of them Korean. The
+matcher does not cross languages and misses ordinary paraphrase. Safe, and a real narrowing of the
+product.
+
+**Nothing was tuned to these numbers.** Fixing the matcher would change `askMarket`'s production
+behaviour, is precisely the fitting this project has measured not to work, and needs its own fresh
+holdout afterwards. The measurement is the deliverable here; the matcher is the next piece of work.
+
+### Residual limitations
+
+- Adjacent-subject substitution is reduced, not closed: 10 of 40 cases still resolve as candidates.
+  Named, measured, and not phrase-patched.
+- The envelope is only as good as `mentionsEachOther`, which is monolingual and token-overlap based.
+  Improving it improves `askMarket` too, and requires a new holdout before any accuracy claim.
+- Everything IR-100 to IR-102 established still holds and is still enforced: raw planner prose never
+  renders, caller attribution has no authority, INFERENCE is not publishable, freshness walks
+  premises, mixed plans are all-or-nothing, and deleting every prohibited-construction pattern
+  changes no publication decision.
+
+### Scope
+
+HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call. PR #1
+and the frozen candidate untouched; the concurrent session's control-bus work untouched and disjoint
+from every file changed here. Full suite 1894/1894 across 120 files against real PostgreSQL.
+`npm run build` (turbopack) fails on the worktree's `node_modules` junction before reading source;
+`npx next build --webpack` completes.

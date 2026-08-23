@@ -45,6 +45,11 @@
 import { detectProhibitedConstructions, type OutputFinding } from "./outputPolicy";
 import { resolvePublishableClaim } from "./claimVerification";
 import { quantitativeOccurrences } from "./inferenceClaim";
+import {
+  claimIsCandidate,
+  explanationIsCandidate,
+  type CandidateEnvelope,
+} from "./candidateEnvelope";
 import { prisma } from "@/server/db/client";
 
 /** The complete list. A `kind` outside it is not a segment, it is a rejection. */
@@ -122,7 +127,8 @@ export type SegmentRejection =
   | "FRESHNESS_UNKNOWN"
   | "CLAIM_TYPE_NOT_PUBLISHABLE"
   | "UNSUPPORTED_FIGURE"
-  | "PROHIBITED_CONSTRUCTION";
+  | "PROHIBITED_CONSTRUCTION"
+  | "NOT_A_REQUEST_CANDIDATE";
 
 export interface PlanRejection {
   /** Index in the proposed plan, so a reviewer can find the segment that failed. */
@@ -205,6 +211,7 @@ function uncoveredFigures(narration: string, renderedAuthority: string): string[
 async function validateSegment(
   raw: unknown,
   index: number,
+  envelope: CandidateEnvelope,
 ): Promise<{ segment: ValidatedSegment } | { rejection: PlanRejection }> {
   const reject = (reason: SegmentRejection, detail: string) => ({
     rejection: { index, reason, detail },
@@ -262,6 +269,16 @@ async function validateSegment(
           `(${resolved.verification.status}): ${resolved.verification.detail}`,
       );
     }
+    if (resolved.status === "PUBLISHABLE" && !claimIsCandidate(resolved.claim.evidence, envelope)) {
+      // Authentic, verified, fresh, and about something else. The envelope was built from the
+      // query before the planner was called and is read here from our own variable, so naming an
+      // id cannot put it inside.
+      return reject(
+        "NOT_A_REQUEST_CANDIDATE",
+        `Segment ${index} names claim ${claimId}, which is not a candidate for this request. ` +
+          "A record being real is not a reason to present it as the answer to this question.",
+      );
+    }
     if (resolved.status !== "PUBLISHABLE") {
       // Stale evidence, unknown freshness, or a claim type with no bounded meaning. The single
       // publication gate lives in `resolvePublishableClaim` so that this route and
@@ -289,6 +306,13 @@ async function validateSegment(
     return reject(
       "EXPLANATION_NOT_FOUND",
       `Segment ${index} names explanation ${explanationId}, which is not stored.`,
+    );
+  }
+  if (!explanationIsCandidate(explanationId, envelope)) {
+    return reject(
+      "NOT_A_REQUEST_CANDIDATE",
+      `Segment ${index} names explanation ${explanationId}, whose variables are not what this ` +
+        "request is about.",
     );
   }
 
@@ -333,7 +357,10 @@ function renderCausalEdge(edge: {
  * half of a bad answer reaches a reader wearing the authority of the checked half, and IR-101's S1
  * is the only property the previous boundary already had. It is kept.
  */
-export async function validateOutputPlan(plan: unknown): Promise<PlanValidation> {
+export async function validateOutputPlan(
+  plan: unknown,
+  envelope: CandidateEnvelope,
+): Promise<PlanValidation> {
   if (isRecord(plan)) {
     const extra = Object.keys(plan).filter((k) => !["segments", "proposedNarration"].includes(k));
     if (extra.length > 0) {
@@ -387,7 +414,7 @@ export async function validateOutputPlan(plan: unknown): Promise<PlanValidation>
     typeof plan.proposedNarration === "string" ? [plan.proposedNarration] : [];
 
   for (const [index, raw] of plan.segments.entries()) {
-    const result = await validateSegment(raw, index);
+    const result = await validateSegment(raw, index, envelope);
     if ("segment" in result) {
       segments.push(result.segment);
     } else {

@@ -821,7 +821,7 @@ const REDIRECT_MESSAGE =
  * here (a short entity name vs. a full sentence), and a symmetric measure would unfairly
  * penalize that length difference.
  */
-function mentionsEachOther(a: string, b: string): boolean {
+export function mentionsEachOther(a: string, b: string): boolean {
   const lowerA = a.toLowerCase();
   const lowerB = b.toLowerCase();
   if (lowerA.includes(lowerB) || lowerB.includes(lowerA)) return true;

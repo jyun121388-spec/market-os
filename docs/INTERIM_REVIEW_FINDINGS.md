@@ -3979,11 +3979,18 @@ decorative.
 
 `npm run build` fails in this worktree with `Symlink [project]/node_modules is invalid, it points
 out of the filesystem root` — Turbopack refusing the Windows junction that gives the worktree its
-dependencies. It fails during dependency resolution, before any source is read, and is unrelated to
-these changes. `tsc --noEmit` is clean. `npm run format:check` reports 297 files for the CRLF reason
-already recorded as EN-05; the four files touched here pass `prettier --check` individually.
+dependencies. That was nearly recorded as an unresolved limitation, which would have been the easy
+and slightly dishonest option: "the environment is broken" is unfalsifiable until someone tries the
+obvious alternative. `next build --webpack` completes, all ten routes, so the bundler is the whole
+of the failure and the code builds.
 
-Build status here is **VERIFIED_WITH_LIMITATION**, not passing.
+Build status here is therefore **VERIFIED under webpack**, with turbopack **BLOCKED_BY_ENVIRONMENT**
+in worktrees specifically — a junction topology this worktree has and the main checkout does not.
+Nothing about the RC's turbopack build is in question, and nothing here was changed to accommodate
+the bundler.
+
+`tsc --noEmit` is clean. `npm run format:check` reports 297 files for the CRLF reason already
+recorded as EN-05; the six files touched here pass `prettier --check` individually.
 
 ### Scope
 

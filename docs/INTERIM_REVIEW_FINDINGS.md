@@ -5372,3 +5372,44 @@ than left unread: `"What is the current gold price for the mortgage decision?"` 
 `"for the mortgage decision"` read as part of the subject's name. Candidate authority refuses it —
 no such subject is stored — so it is not a leak. It is a real limit on what unread-residue can
 catch, and it is why the coordinator bound exists at all.
+
+### P1 revisited: the binding was tried, measured, and sequenced
+
+Review rejected the deferral on the grounds that preserving older tests is not a reason to leave the
+production composition unbound. That is right, so the deferral was retried as an experiment rather
+than defended as an argument. `resolveRequestAuthority` was bound into `authorizeInference` and
+measured against both frozen holdouts:
+
+|                                               | unbound | bound       |
+| --------------------------------------------- | ------- | ----------- |
+| `adviceGuardrailHoldout2` MUST_ALLOW eligible | 4 / 112 | **0 / 112** |
+| request-authority holdout ANSWERABLE eligible | 1 / 104 | **0 / 104** |
+| request-authority holdout PROHIBITED eligible | 0 / 35  | 0 / 35      |
+
+**Binding buys no measured safety and takes legitimate throughput to exactly zero.** The prohibited
+column was already zero, so nothing is closed on either holdout; the MUST_ALLOW column is the
+control test `"still lets some legitimate questions through, so the gate is not merely closed"`,
+which fails, correctly, at `allowed = 0`.
+
+The reason is the recognition gap already recorded: the authority can only say yes to shapes it
+recognises, and it recognises 21 of 104 written English canonicals and none of the Korean. Bound to
+a path whose refusals are absolute, a fifth of one language is a closed door.
+
+This does not dismiss the finding. The exact input review supplied —
+`"What did analysts say about the Test Output freight index?"` — does reach the planner with no
+operation authorized, because `say about` is not a recognised attribution construction. That is a
+real hole and binding closes it. Binding **now** would convert one specific hole into a total
+outage, so the order is: recognition coverage first, bind second. The exposure meanwhile is bounded
+and worth stating precisely — a reachable planner is not a publication. IR-101 established that raw
+model prose cannot publish and IR-103 that an empty candidate envelope means the planner is not
+consulted at all; what an unauthorized request can currently obtain is a model call, not output.
+
+So the sequence is: **Unit 2, recognition coverage. Unit 3, bind the inference path and migrate the
+twelve candidate-authority cases.** Not a deferral this time — a prerequisite, with the measurement
+that makes it one.
+
+One detail found while trying it, worth keeping for when it is done: placing the authority's
+PROHIBITED verdict _before_ the directive-frame check changes three existing refusals from
+`DIRECTIVE_FRAME` to `PROHIBITED_REQUEST`, collapsing two distinguishable causes into one reason.
+The check belongs last, exactly as originally planned, so that no established refusal reason changes
+meaning.

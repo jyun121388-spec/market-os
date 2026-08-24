@@ -207,7 +207,7 @@ describeIfDb("askMarket (integration)", () => {
   });
 
   it("returns factors for a matched macro series and causal edges", async () => {
-    const result = await askMarket("Widget Price Index");
+    const result = await askMarket("What is the current Widget Price Index?");
     expect(result.status).toBe("FACTORS_FOUND");
     const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
     expect(own.absoluteChange).toBe(2);
@@ -219,7 +219,7 @@ describeIfDb("askMarket (integration)", () => {
     // this topic and the answer lists both, so without an attribution the reader sees 102 and
     // 530 for what reads as the same indicator and has no way to tell which is which — or that
     // two different organisations are being quoted at all.
-    const result = await askMarket("Widget Price Index");
+    const result = await askMarket("What is the current Widget Price Index?");
 
     expect(result.seriesFactors.length).toBeGreaterThanOrEqual(2);
     for (const factor of result.seriesFactors) {
@@ -230,7 +230,7 @@ describeIfDb("askMarket (integration)", () => {
     expect(bySource.get(OTHER_SOURCE_CODE)).toBe(530);
 
     // Company facts carry the same obligation.
-    const company = await askMarket("TEST Widget Corp");
+    const company = await askMarket("What is the current TEST Widget Corp?");
     expect(company.companyFacts.length).toBeGreaterThan(0);
     for (const fact of company.companyFacts) {
       expect(fact.sourceCode, `no source on ${fact.concept}`).toBe(SOURCE_CODE);
@@ -238,7 +238,7 @@ describeIfDb("askMarket (integration)", () => {
   });
 
   it("returns company facts for a matched company name", async () => {
-    const result = await askMarket("TEST Widget Corp");
+    const result = await askMarket("What is the current TEST Widget Corp?");
     expect(result.status).toBe("FACTORS_FOUND");
     expect(result.matchedTopic).toBe(CORP_NAME);
     expect(result.companyFacts).toHaveLength(2);
@@ -250,7 +250,7 @@ describeIfDb("askMarket (integration)", () => {
     // facts shown alongside it must come from that same source, or the answer silently mixes
     // providers while presenting a single sourced-looking figure — a provenance failure, and
     // the kind that reads as perfectly plausible (`docs/DATA_POLICY.md`).
-    const result = await askMarket("TEST Widget Corp");
+    const result = await askMarket("What is the current TEST Widget Corp?");
 
     expect(result.companyFacts.map((f) => f.value)).not.toContain(999999999);
     expect(result.companyFacts.every((f) => f.unit === "USD")).toBe(true);
@@ -263,7 +263,7 @@ describeIfDb("askMarket (integration)", () => {
     // two contradictory revenue numbers and no way to tell which is which. Against real Apple
     // data this is not hypothetical: OperatingIncomeLoss for Q3 2026 is $122.4B over nine
     // months and $35.7B over one quarter, both under the same label.
-    const result = await askMarket("TEST Widget Corp");
+    const result = await askMarket("What is the current TEST Widget Corp?");
 
     const quarterly = result.companyFacts.find((f) => f.value === 250000)!;
     expect(quarterly.periodStart).toBe("2026-01-01");
@@ -287,9 +287,35 @@ describeIfDb("askMarket (integration)", () => {
   });
 
   it("returns NOT_FOUND for a topic with no matching data, never fabricating a match", async () => {
-    const result = await askMarket("Totally Unknown Nonexistent Topic XYZ123");
+    const result = await askMarket("What is the current Totally Unknown Nonexistent Topic XYZ123?");
     expect(result.status).toBe("NOT_FOUND");
     expect(result.seriesFactors).toHaveLength(0);
     expect(result.companyFacts).toHaveLength(0);
+  });
+
+  /**
+   * IR-107. The two tests below exist because mutations survived: `askMarket` could ignore request
+   * authority entirely, or ignore its PROHIBITED verdict, and every other test still passed. Both
+   * need a seeded database to mean anything -- a query refused by an empty repository proves
+   * nothing about a gate, which is why they live here and not beside the unit tests.
+   */
+
+  it("refuses a bare subject as unsupported even though the record exists and would match", async () => {
+    // The strongest available form of "inventory does not decide what a sentence meant": this exact
+    // subject answers FACTORS_FOUND one line above when the request names an operation. Naming no
+    // operation is refused with data present, and REQUEST_NOT_SUPPORTED is a status an empty
+    // database cannot produce.
+    const result = await askMarket("Widget Price Index");
+    expect(result.status).toBe("REQUEST_NOT_SUPPORTED");
+    expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  it("redirects a request whose subject is the reader, which the advice vocabulary does not match", async () => {
+    // "my pension fund" carries no advice phrase -- `detectPersonalizedAdviceRequest` returns false
+    // for it. What makes this personalized is structural: the subject of the question is the person
+    // asking. Without authority's verdict reaching the redirect, this is answered as a lookup.
+    const result = await askMarket("What is the current level of my pension fund?");
+    expect(result.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(result.redirectMessage).toBeTruthy();
   });
 });

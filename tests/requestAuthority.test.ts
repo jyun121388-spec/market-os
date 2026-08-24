@@ -1,0 +1,262 @@
+import { describe, expect, it } from "vitest";
+import {
+  OPERATION_CONTRACTS,
+  REQUEST_OPERATIONS,
+  resolveRequestAuthority,
+} from "@/server/domain/requestAuthority";
+
+/**
+ * Positive request authority: what kind of answer is being asked for, decided before anything is
+ * looked up.
+ *
+ * IR-107 measured the gate this replaces — 1 of 104 answerable requests admitted, both labels
+ * wrong at once. These hold the contract that replaces it, and the property that matters most is
+ * the one that is easiest to lose: **absence of a prohibition authorizes nothing.**
+ *
+ * No database and no model. Recognition is a fact about the sentence, and inventory must never
+ * decide what a sentence meant.
+ */
+
+const authorize = (query: string) => resolveRequestAuthority(query);
+
+describe("the operation set is closed", () => {
+  it("names exactly five operations", () => {
+    expect([...REQUEST_OPERATIONS]).toEqual([
+      "CURRENT_OBSERVATION",
+      "OBSERVED_CHANGE",
+      "STORED_MECHANISM",
+      "ATTRIBUTED_REPORTED_OBSERVATION",
+      "DEFINITION",
+    ]);
+  });
+
+  it("gives every operation a contract that declares what it needs", () => {
+    for (const operation of REQUEST_OPERATIONS) {
+      const contract = OPERATION_CONTRACTS[operation];
+      expect(contract.operation).toBe(operation);
+      expect([1, 2]).toContain(contract.subjectCardinality);
+      expect(contract.recordClass).toBeTruthy();
+      expect(["LATEST", "INTERVAL", "NONE"]).toContain(contract.temporalOperands);
+      expect(typeof contract.requiresAttribution).toBe("boolean");
+      expect(typeof contract.deterministic).toBe("boolean");
+      expect(typeof contract.plannerPermitted).toBe("boolean");
+    }
+  });
+
+  it("permits no planner for the operations repository code can answer alone", () => {
+    // Capability does not imply a model is needed. A current level and a computed change are
+    // deterministic repository output, and the safest version of them consults no sink at all.
+    expect(OPERATION_CONTRACTS.CURRENT_OBSERVATION.plannerPermitted).toBe(false);
+    expect(OPERATION_CONTRACTS.OBSERVED_CHANGE.plannerPermitted).toBe(false);
+    expect(OPERATION_CONTRACTS.DEFINITION.plannerPermitted).toBe(false);
+    expect(OPERATION_CONTRACTS.CURRENT_OBSERVATION.deterministic).toBe(true);
+    expect(OPERATION_CONTRACTS.OBSERVED_CHANGE.deterministic).toBe(true);
+  });
+});
+
+describe("recognition is required, not assumed", () => {
+  it("authorizes a request that names one operation and its subject", () => {
+    const a = authorize("What is the current US headline CPI?");
+    expect(a.status).toBe("AUTHORIZED");
+    if (a.status === "AUTHORIZED") {
+      expect(a.operation).toBe("CURRENT_OBSERVATION");
+      expect(a.subjectRegion).toContain("us headline cpi");
+    }
+  });
+
+  it("refuses a request that names no operation at all", () => {
+    // A bare subject says which thing, never which question about it. This is a real capability
+    // loss — the /ask box used to answer a bare topic with a factor list — and it is the direct
+    // cost of requiring the request to say what it wants.
+    expect(authorize("US headline CPI").status).toBe("UNSUPPORTED");
+    expect(authorize("Widget Price Index").status).toBe("UNSUPPORTED");
+  });
+
+  it("refuses a request whose shape it has never seen", () => {
+    expect(authorize("Why did the market do that yesterday?").status).toBe("UNSUPPORTED");
+    expect(authorize("Rank every European economy by growth.").status).toBe("UNSUPPORTED");
+  });
+
+  it("is ambiguous when a request reads as two operations", () => {
+    const a = authorize("What is the current change in US headline CPI this year?");
+    expect(a.status).toBe("AMBIGUOUS");
+  });
+});
+
+describe("there are no halves", () => {
+  /**
+   * The structural answer to "a factual clause must never rescue a personalized directive". Rather
+   * than detect the directive — detection is what failed here three times — the whole request must
+   * parse as one operation. A second clause is unread text, and unread text refuses.
+   */
+  it("refuses a factual request with a directive attached, without reading the directive", () => {
+    for (const query of [
+      "Tell me the current gold price, then decide how many ounces I should buy.",
+      "What is the current unemployment rate and tell me which sectors to short?",
+      "What is the current US headline CPI and rebalance my portfolio?",
+    ]) {
+      const a = authorize(query);
+      expect(a.status).not.toBe("AUTHORIZED");
+    }
+  });
+
+  it("names the unread content rather than ignoring it", () => {
+    const a = authorize("What is the current gold price and my mortgage decision?");
+    expect(a.status).not.toBe("AUTHORIZED");
+    if (a.status === "UNSUPPORTED") expect(a.detail).toContain("beyond the operation");
+  });
+});
+
+describe("prohibited purpose has precedence", () => {
+  it("refuses a personalized decision request", () => {
+    for (const query of [
+      "Should I buy Samsung right now?",
+      "How much of my savings should go into bonds?",
+      "Where should I set my stop-loss?",
+    ]) {
+      expect(authorize(query).status).toBe("PROHIBITED");
+    }
+  });
+
+  it("does not let a recognised operation rescue a prohibited request", () => {
+    // A request can be perfectly well formed as a current-level lookup and still be asking to be
+    // told what to do. Two independent rules refuse this one, the advice screen and the pronoun in
+    // the subject, and mutation showed the pronoun rule is what actually decides it -- so the
+    // precedence claim is proven separately, below, rather than assumed here.
+    const a = authorize("What is the current price of the stock I should buy?");
+    expect(a.status).toBe("PROHIBITED");
+  });
+});
+
+describe("an imperative is not a decision request", () => {
+  /**
+   * `REQUEST_DIRECTIVE` fires on imperative phrasing, and asking politely is imperative. IR-107
+   * measured eleven ordinary requests refused as directives. A complete operation parse is positive
+   * evidence that information was wanted, which is exactly the proof of purpose that the absence of
+   * a prohibition cannot supply — so the directive frame refuses only what does not parse.
+   */
+  it("admits a polite imperative that parses as one operation", () => {
+    const a = authorize("Show me the current UK policy rate.");
+    expect(a.status).toBe("AUTHORIZED");
+    if (a.status === "AUTHORIZED") expect(a.operation).toBe("CURRENT_OBSERVATION");
+  });
+
+  it("still refuses a directive that does not parse as an operation", () => {
+    // Refused as UNSUPPORTED rather than PROHIBITED: neither the advice detector nor the directive
+    // frame recognises this shape, so what stops it is that it parses as no operation. Still
+    // refused, and the wrong-reason half is IR-107 axis 2, recorded and not yet closed.
+    const a = authorize("Build me a low-risk portfolio that cannot lose money.");
+    expect(a.status).not.toBe("AUTHORIZED");
+    expect(a.status).toBe("UNSUPPORTED");
+  });
+});
+
+describe("operands are required, not guessed", () => {
+  it("refuses a change request that does not say over what period", () => {
+    const a = authorize("How much has US headline CPI changed?");
+    expect(a.status).toBe("AMBIGUOUS");
+    if (a.status === "AMBIGUOUS") expect(a.detail).toContain("over what period");
+  });
+
+  it("accepts a change request that supplies an interval", () => {
+    const a = authorize("How much has US headline CPI changed this year?");
+    expect(a.status).toBe("AUTHORIZED");
+    if (a.status === "AUTHORIZED") expect(a.operation).toBe("OBSERVED_CHANGE");
+  });
+
+  it("refuses an attributed report that does not say whose report it is", () => {
+    // The source binds as tightly as the subject: a question about what analysts said must not be
+    // answered from an observation nobody attributed to them.
+    const a = authorize("What was published about US headline CPI?");
+    expect(a.status).not.toBe("AUTHORIZED");
+  });
+
+  it("accepts an attributed report that names the source", () => {
+    const a = authorize("What did analysts publish about US headline CPI?");
+    expect(a.status).toBe("AUTHORIZED");
+    if (a.status === "AUTHORIZED") {
+      expect(a.operation).toBe("ATTRIBUTED_REPORTED_OBSERVATION");
+      expect(a.contract.requiresAttribution).toBe(true);
+    }
+  });
+});
+
+describe("the mechanism operation is delegated, not re-derived", () => {
+  it("recognises a relation request through the relation parser", () => {
+    // `subjectAuthority.relationSyntax` already reads direction, polarity and cardinality, proven
+    // across IR-105 and IR-106. A second grammar for the same sentences would be a second answer
+    // to one question — and the first version of this asked the narrow frame classifier instead,
+    // which is exactly the pattern list this unit exists to stop depending on.
+    const a = authorize("Explain how alpha affects beta.");
+    expect(a.status).toBe("AUTHORIZED");
+    if (a.status === "AUTHORIZED") expect(a.operation).toBe("STORED_MECHANISM");
+  });
+
+  it("refuses a relation whose direction the parser cannot establish", () => {
+    const a = authorize("Explain how alpha and beta are related.");
+    expect(a.status).not.toBe("AUTHORIZED");
+  });
+
+  it("refuses a denied relation", () => {
+    const a = authorize("Explain how alpha does not affect beta.");
+    expect(a.status).not.toBe("AUTHORIZED");
+  });
+});
+
+describe("inventory never decides what a sentence meant", () => {
+  it("resolves the same way whatever the repository happens to hold", () => {
+    // No database is consulted here at all, which is the strongest form of the property: a request
+    // that names no operation is unsupported whether or not a perfect record exists for it.
+    expect(authorize("Widget Price Index").status).toBe("UNSUPPORTED");
+    expect(authorize("What is the current Widget Price Index?").status).toBe("AUTHORIZED");
+  });
+});
+
+describe("each refusing layer decides something no other layer decides", () => {
+  /**
+   * Every test below exists because a mutation survived. Six of eleven mutants died against the
+   * suite above; five lived, and all five lived the same way — two layers happened to agree on
+   * every query anyone had written, so removing either changed no result. Agreement is not
+   * redundancy proof, it is the absence of a discriminating case.
+   */
+
+  it("prohibits an advice request that carries no personal pronoun", () => {
+    // Killed nothing before: "Should I buy Samsung?" is caught by the pronoun rule as well, so the
+    // advice screen could be deleted outright and the prohibited tests still passed. These name no
+    // reader at all, and without the screen they would be merely UNSUPPORTED — refused, but for a
+    // reason that would let a later capability admit them.
+    expect(authorize("Buy gold now.").status).toBe("PROHIBITED");
+    expect(authorize("Sell the whole position today.").status).toBe("PROHIBITED");
+  });
+
+  it("lets the advice screen outrank a complete operation parse", () => {
+    // The precedence claim, isolated: the second clause is a textbook CURRENT_OBSERVATION, and the
+    // verdict is still PROHIBITED rather than the UNSUPPORTED that unread content would give.
+    expect(authorize("Buy gold now. What is the current gold price?").status).toBe("PROHIBITED");
+  });
+
+  it("refuses a directive standing in front of a valid operation, without detecting the directive", () => {
+    // Unread residue alone, with no coordinator in the subject and no advice vocabulary matched.
+    // This is the property IR-107 was built for: what stops the request is that nothing read it.
+    const a = authorize("Rebalance the portfolio. What is the current gold price?");
+    expect(a.status).toBe("UNSUPPORTED");
+    expect(a.status === "UNSUPPORTED" && a.detail).toContain("beyond the operation");
+  });
+
+  it("refuses an unread modifier that is not a directive at all", () => {
+    const a = authorize("Quickly, what is the current gold price?");
+    expect(a.status).toBe("UNSUPPORTED");
+    expect(a.status === "UNSUPPORTED" && a.detail).toContain("quickly");
+  });
+
+  it("refuses two operations joined by a coordinator, leaving no unread text to catch them", () => {
+    // Coordinator alone: the subject region runs to end-of-sentence, so it swallows the second
+    // question entirely and the unread check sees nothing left over. Without the coordinator bound
+    // this authorizes one operation and answers about a subject the asker never named.
+    const a = authorize(
+      "What is the current US headline CPI, and also the current UK policy rate?",
+    );
+    expect(a.status).toBe("UNSUPPORTED");
+    expect(a.status === "UNSUPPORTED" && a.detail).toContain("another clause");
+  });
+});

@@ -34,7 +34,9 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
   let prisma: typeof PrismaClientInstance;
   let sourceId: string;
 
-  const NEUTRAL = CORP_NAME;
+  // IR-107: the neutral control has to name an operation now, or it is refused for a reason
+  // that has nothing to do with the property under test.
+  const NEUTRAL = `What is the current ${CORP_NAME}?`;
   const ADVICE = [
     `Should I buy ${CORP_NAME}?`,
     `Should I sell ${CORP_NAME} now?`,

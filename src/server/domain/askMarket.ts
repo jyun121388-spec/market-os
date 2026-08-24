@@ -1,5 +1,6 @@
 import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
+import { resolveRequestAuthority } from "./requestAuthority";
 import { extractKeywords } from "./eventClustering";
 import { asksWhetherAPersonShouldTrade } from "./subjectClassification";
 import { frameExemptsProhibitedVocabulary, requestsAFinancialDecision } from "./requestFrame";
@@ -26,7 +27,20 @@ import { frameExemptsProhibitedVocabulary, requestsAFinancialDecision } from "./
  */
 
 export type AskMarketResultStatus =
-  "PERSONALIZED_ADVICE_REDIRECTED" | "FACTORS_FOUND" | "NOT_FOUND";
+  | "PERSONALIZED_ADVICE_REDIRECTED"
+  | "FACTORS_FOUND"
+  | "NOT_FOUND"
+  /**
+   * The request was understood well enough to know this product cannot serve it.
+   *
+   * Distinct from `NOT_FOUND`, which means "we looked and found nothing". IR-107 measured why the
+   * distinction matters: eighteen personalized requests escaped the redirect and seventeen of them
+   * returned `NOT_FOUND` purely because no stored factor happened to match. That is not a refusal,
+   * it is a miss whose consequence has not arrived — with the data ingested they would have been
+   * answered. A status that says "we did not recognise what you asked for" cannot be produced by an
+   * empty database, so it cannot be mistaken for safety.
+   */
+  | "REQUEST_NOT_SUPPORTED";
 
 export interface SeriesFactor {
   seriesId: string;
@@ -932,7 +946,16 @@ async function findCompanyFacts(
  */
 export async function askMarket(query: string): Promise<AskMarketResult> {
   const trimmed = query.trim();
-  const isAdviceRequest = detectPersonalizedAdviceRequest(trimmed);
+  // IR-107. Positive request authority, consulted before anything is served.
+  //
+  // This path used to gate on `detectPersonalizedAdviceRequest` alone and otherwise return whatever
+  // factors matched, which made "the advice regex did not fire" the whole of the argument that an
+  // answer was permitted. A fresh 180-case corpus put that at eighteen personalized requests not
+  // redirected. Absence of a prohibition is not authorization; a request now has to be recognised
+  // as one operation this repository performs before any answer-bearing status is returned.
+  const authority = resolveRequestAuthority(trimmed);
+  const isAdviceRequest =
+    authority.status === "PROHIBITED" || detectPersonalizedAdviceRequest(trimmed);
 
   const [seriesFactors, causalFactors, companyResult] = await Promise.all([
     findSeriesFactors(trimmed),
@@ -952,6 +975,20 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
       seriesFactors,
       causalFactors,
       companyFacts: companyResult.facts,
+    };
+  }
+
+  // Recognised as nothing this product performs, or as more than one thing, or as one thing whose
+  // operands are missing. All of them refuse, and none of them can be produced by an empty
+  // database — which is the property `NOT_FOUND` lacked.
+  if (authority.status !== "AUTHORIZED") {
+    return {
+      status: "REQUEST_NOT_SUPPORTED",
+      query: trimmed,
+      redirectMessage: authority.detail,
+      seriesFactors: [],
+      causalFactors: [],
+      companyFacts: [],
     };
   }
 

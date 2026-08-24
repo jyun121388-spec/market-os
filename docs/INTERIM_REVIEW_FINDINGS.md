@@ -5202,3 +5202,106 @@ list.
 
 Reproduction and baseline measurement only. No provider, model, credential, API, PAYG, deployment or network call. PR #1 and
 the frozen candidate untouched; the concurrent session's control-bus work untouched.
+
+## IR-107 Unit 1 — The repair: what kind of answer is being asked for
+
+The baseline above measured a gate that decided by _not matching_ — a request was admitted when no
+prohibited pattern fired. That is an argument from absence, and it fails in both directions at once:
+1 answerable request in 104 admitted, nine directives reported as merely unsupported.
+
+The replacement is `src/server/domain/requestAuthority.ts`, which asks a positive question. Five
+operations, closed:
+
+| Operation                         | Subjects | Temporal operand | Attribution | Planner |
+| --------------------------------- | -------- | ---------------- | ----------- | ------- |
+| `CURRENT_OBSERVATION`             | 1        | `LATEST`         | no          | no      |
+| `OBSERVED_CHANGE`                 | 1        | `INTERVAL`       | no          | no      |
+| `STORED_MECHANISM`                | 2        | `NONE`           | no          | yes     |
+| `ATTRIBUTED_REPORTED_OBSERVATION` | 1        | `LATEST`         | yes         | yes     |
+| `DEFINITION`                      | 1        | `NONE`           | no          | no      |
+
+A request is authorized only when it parses as exactly one of them with every operand it declares.
+Recognition is the authorization; nothing else is. Three properties follow that the old gate could
+not express:
+
+- **There are no halves.** The whole request must parse. A factual clause with a directive attached
+  is refused because the directive is unread text, not because the directive was recognised — so no
+  vocabulary needs to anticipate it. `"Rebalance the portfolio. What is the current gold price?"` is
+  refused with `detectPersonalizedAdviceRequest` returning false throughout.
+- **An imperative is not a decision request.** A complete operation parse is positive evidence that
+  information was wanted, which is the proof of purpose that absence of a prohibition cannot supply.
+  `"Show me the current UK policy rate."` is admitted; the eleven ordinary requests the directive
+  frame was refusing are ordinary again.
+- **Inventory never decides what a sentence meant.** `resolveRequestAuthority` reads no database. A
+  bare subject is unsupported whether or not a perfect record exists for it, and the integration
+  test proving this runs against the seeded row that answers the same subject when an operation is
+  named.
+
+The mechanism operation is **delegated** to `subjectAuthority.relationSyntax`, not re-derived —
+direction, polarity and cardinality were proven there across IR-105 and IR-106, and a second grammar
+for the same sentences would be a second answer to one question. The first version of this asked
+`classifyRequestFrame` instead, which is precisely the narrow pattern list the unit exists to stop
+depending on.
+
+### Measured
+
+| Axis                             | Before  | After    |
+| -------------------------------- | ------- | -------- |
+| Prohibited requests authorized   | —       | 0 / 35   |
+| Answerable requests authorized   | 1 / 104 | 21 / 104 |
+| Live `askMarket` redirect misses | 18 / 35 | 10 / 35  |
+| …of which answer-bearing         | 4       | 0        |
+
+The remaining 10 return `REQUEST_NOT_SUPPORTED` — refused, with no factors attached. That status is
+one an empty database cannot produce, which is the point: the empty database is not part of the
+safety argument anywhere in this unit.
+
+**The honest limitation.** 21 of 104 is a fifth. Every canonical shape I wrote by hand parses, and
+the blind corpus's do not: `OBSERVED_CHANGE` 0/24, `ATTRIBUTED_REPORTED_OBSERVATION` 0/15, Korean
+0/49. The corpus was frozen before implementation and stays evidence, so the gap is recorded rather
+than closed by widening `CONSTRUCTIONS` against it. Recognition coverage is Unit 2's subject.
+
+### Mutation, and what survived first
+
+Eleven mutants, each removing one decision. **The first run reported 0 of 11 detected, and the
+baseline reported it too** — `DATABASE_URL` was set equal to `TEST_DATABASE_URL`, so the suite's own
+destructive-test guard refused to load the config and every run, mutant and control alike, produced
+no summary line. The guard was right; the harness was wrong. A mutation score against a baseline
+that is not green measures nothing, and the harness now refuses to print one.
+
+The honest run detected 6 of 11. All five survivors were the same failure, and it was a failure of
+the tests rather than the code: two layers agreed on every query anyone had written, so removing
+either changed no result.
+
+| Survivor                         | What no test distinguished                                                                     |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| advice screen                    | Every prohibited case also had a pronoun in its subject — the screen could be deleted outright |
+| unread residue                   | Every case also had a coordinator                                                              |
+| coordinator bound                | Every case also had unread residue                                                             |
+| `askMarket` consults authority   | Nothing asserted `REQUEST_NOT_SUPPORTED`                                                       |
+| `askMarket` honours `PROHIBITED` | Every redirect case also matched the advice vocabulary                                         |
+
+Five discriminating tests, one per survivor, now separate them — a pronoun-free advice imperative,
+a directive with no coordinator, two operations joined by a coordinator with nothing left unread, a
+bare subject against a seeded row, and `"What is the current level of my pension fund?"`, which the
+advice vocabulary does not match at all and which is personalized purely because the subject of the
+question is the reader. **11 of 11 now detected.** One existing test's comment claimed to prove
+precedence and was proving the pronoun rule; the comment was corrected rather than the test kept.
+
+### Deferred, with the reason
+
+**The inference path is not bound.** Binding `resolveRequestAuthority` into `authorizeInference`
+works and typechecks, and it was reverted: it refuses eleven IR-104–IR-106 integration cases at the
+new gate, before candidate authority is consulted, so the tests proving membership, direction,
+polarity and nested subjects stop exercising what they claim to prove. Those proofs are worth more
+than the binding, because the inference path already measures **0 / 35** execution leak — it is not
+the exposure this unit exists to close. Sequencing it with the test migration is its own unit.
+
+`classifyRequestFrame` stays load-bearing on the inference path for the same reason. On the live
+`askMarket` path it no longer decides admission.
+
+### Scope
+
+No provider, model, credential, API, PAYG, deployment or network call. PR #1 and the frozen
+candidate untouched; the concurrent session's control-bus work untouched. Both historical advice
+holdouts unmodified.

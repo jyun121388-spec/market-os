@@ -83,12 +83,24 @@ export default async function AskMarketPage({
                       </span>
                     </div>
                     <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                      {f.value} {f.unit} as of {f.asOfDate} ({f.absoluteChange >= 0 ? "+" : ""}
-                      {f.absoluteChange}
-                      {f.percentChange !== null
-                        ? ` / ${f.percentChange >= 0 ? "+" : ""}${f.percentChange}%`
-                        : ""}
-                      )
+                      {f.value} {f.unit} as of {f.asOfDate}
+                      {/*
+                        A change is shown only when a change was asked for. The factor is a
+                        discriminated union precisely so this cannot be rendered by accident: a
+                        current-level answer has no movement to display, and displaying one made
+                        every level request quietly also answer a change request.
+                      */}
+                      {f.kind === "COMPUTED_CHANGE" ? (
+                        <>
+                          {" "}
+                          ({f.absoluteChange >= 0 ? "+" : ""}
+                          {f.absoluteChange}
+                          {f.percentChange !== null
+                            ? ` / ${f.percentChange >= 0 ? "+" : ""}${f.percentChange}%`
+                            : ""}
+                          {f.interval ? ` over ${f.interval}` : ""})
+                        </>
+                      ) : null}
                     </div>
                   </li>
                 ))}

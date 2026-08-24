@@ -5413,3 +5413,93 @@ PROHIBITED verdict _before_ the directive-frame check changes three existing ref
 `DIRECTIVE_FRAME` to `PROHIBITED_REQUEST`, collapsing two distinguishable causes into one reason.
 The check belongs last, exactly as originally planned, so that no established refusal reason changes
 meaning.
+
+## IR-107 Unit 2b — The parser decided, and then nothing else did
+
+Unit 2 raised recognition. This asks the question that makes recognition worth anything: does the
+authority survive into what the user is actually served?
+
+It did not. `resolveRequestAuthority` was a classifier standing in front of the retrieval path it
+replaced, and an AUTHORIZED verdict of any kind unlocked the same three lookups. Reproduced against
+real PostgreSQL with two providers publishing one subject at different values:
+
+| Request                                  | Authority                         | Served                                     |
+| ---------------------------------------- | --------------------------------- | ------------------------------------------ |
+| `What is a TEST Vespucci Freight Index?` | DEFINITION / GLOSSARY_ENTRY       | two numbers and three causal edges         |
+| `What is the current …?`                 | CURRENT_OBSERVATION / OBSERVATION | the same two numbers, the same three edges |
+| `Explain how … affects …`                | STORED_MECHANISM / CAUSAL_EDGE    | the same two numbers, the same three edges |
+| `What did Source A publish about …?`     | ATTRIBUTED_REPORTED_OBSERVATION   | the same two numbers, the same three edges |
+
+**Four operations, one byte-identical payload.** The contract declared a `recordClass` for each and
+nothing read it, so the envelope decided admission and then stopped deciding anything.
+
+### RA-PB-01 — the operation now chooses the retrieval
+
+Not a filter applied afterwards. Retrieving a broad union and redacting it is the same defect with a
+smaller output, so the record class selects which lookup runs at all:
+
+- `OBSERVATION` — the latest observation and matching company facts. No observation pair is fetched,
+  so there is no change to leave out.
+- `COMPUTED_CHANGE` — the movement, carrying the interval the request named.
+- `CAUSAL_EDGE` — the edge, matched on BOTH endpoints in the direction asked about.
+- `ATTRIBUTED_OBSERVATION` — observations from the resolved source, and only that source.
+- `GLOSSARY_ENTRY` — **fails closed.** This repository holds no glossary. A DEFINITION request was
+  being answered with whatever series shared the term's name, which is a figure in place of a
+  meaning; building a glossary to preserve the old success status would answer the question of how
+  to keep the status rather than how to answer the request.
+
+Retrieval also matches the parsed SUBJECT now, not the whole request. The query text carries the
+operation words, the framing and any source name, and matching series against all of that is how a
+question about one thing collects rows about another.
+
+`SeriesFactor` is two types. One object carried `value`, `absoluteChange` and `percentChange`
+together, so serving a level without also serving a change was not merely unenforced — it was
+unrepresentable. The integration test asserted `absoluteChange` on a current-level request, which is
+the defect written down as an expectation; that assertion is now four tests, one per operation.
+
+### RA-PB-02 — the source survived the parse as a boolean
+
+`attributionBound: true` recorded that a source existed and threw away which one. With Source A at
+140 and Source B at 260 for the same subject, naming A served both. The repair carries the source
+constituent as TEXT and resolves it against repository-owned identity before anything is served:
+RESOLVED, AMBIGUOUS, or UNRESOLVED. An unresolvable name is `NOT_FOUND`, never a licence to answer
+from whoever else publishes. **No provider lexicon** — the six names deleted in Unit 2 stay deleted,
+and a caller or model asserting a `sourceId` is not authority.
+
+The first resolver used `mentionsEachOther` and reported both `Test PB Source A` and
+`Test PB Source B` as matching a request naming one of them — three shared words out of four.
+Retrieval may guess; identity may not. It now requires containment of the whole normalized name.
+
+### RA-PB-03 and RA-PB-04
+
+RA-PB-03 is **not** a defect. Unsupported responses discard every lookup, so it is wasted DB work
+rather than a leak; and factors alongside `PERSONALIZED_ADVICE_REDIRECTED` are deliberate and
+contract-bound — `ask-market-refusal-invariant` requires a redirected request to show exactly what
+its neutral twin shows, so that refusing to advise is visibly not refusing to inform. That retrieval
+is unchanged and stays wide on purpose. RA-PB-04 is repaired by the type split above.
+
+### Isolation, which is the point of the mutation set
+
+Seven mutations, each removing exactly one decision. All seven fail the binding tests and **none of
+them** fails the 120 parse, subject, candidate, verification or refusal-invariant tests — so what
+each one removed is what it is claimed to hold.
+
+### Open, and deliberately not repaired here
+
+**A nested stored name still matches on the serving path.** Asserting that a mechanism request
+returns exactly its own edge failed, because a stored variable named `TEST: Widget price` matched a
+question about `TEST Widget Price Index` — `nameOccursIn` is containment, and the shorter name nests
+inside the longer. IR-105 settled this shape for the inference path (candidate Z2: a question naming
+both nested subjects is ambiguous, not the longer one) and the serving path never learned it. It is
+recorded here with its exact input rather than absorbed into a weaker assertion, and porting the
+nested-subject ambiguity rule is its own unit with its own reproduction.
+
+Ordering was tightened while passing through: three new queries would have been ties, and
+`observation.findFirst({ orderBy: observationDate })` in particular decided "the latest value" by
+whichever row came back first.
+
+### Holdout
+
+Still sealed. The development evaluator calls only `resolveRequestAuthority`; it could not have
+detected any of this. Opening a parser-only measurement now would spend sealed evidence without
+certifying what users are served.

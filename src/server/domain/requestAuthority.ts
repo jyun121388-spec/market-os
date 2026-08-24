@@ -136,6 +136,28 @@ export type RequestAuthority =
       contract: OperationContract;
       /** The span of the request the operation was read from, for the log and for tests. */
       subjectRegion: string;
+      /**
+       * The source constituent, as TEXT and nothing more.
+       *
+       * `attributionBound` recorded that a source existed and threw away which one, so the serving
+       * path could not tell "what did source A report" from "what did anyone report" — and with two
+       * providers publishing the same subject it answered with both. Carrying the span is not
+       * carrying authority: it is unresolved until the repository matches it to a source it holds,
+       * and a caller or model asserting an id is never a substitute for that.
+       */
+      sourceRegion?: string;
+      /** The interval constituent, for the operation that requires one. Text, likewise. */
+      interval?: string;
+      /**
+       * The two halves of a relation clause, kept apart.
+       *
+       * Merged into one subject region they prove a relation was asked about and lose which way
+       * round it runs, and IR-105 established that reading direction off word order is a guess.
+       * Serving needs them separate to return the edge that was asked for rather than an edge that
+       * shares an endpoint with it.
+       */
+      causeRegion?: string;
+      effectRegion?: string;
       detail: string;
     }
   | { status: "PROHIBITED"; detail: string }
@@ -392,6 +414,10 @@ interface Recognised {
    * source did not have to be the source of anything — it merely had to appear.
    */
   attributionBound?: boolean;
+  /** The source span, when one was bound. Unresolved text; see `RequestAuthority.sourceRegion`. */
+  sourceRegion?: string;
+  causeRegion?: string;
+  effectRegion?: string;
 }
 
 /**
@@ -448,6 +474,7 @@ function attributionMatch(normalized: string): Recognised | null {
       return {
         operation: "ATTRIBUTED_REPORTED_OBSERVATION",
         subjectRegion,
+        sourceRegion: source.join(" "),
         // Between the act and its complement is the only place unread content can hide here.
         residue: normalizedTokens(normalized.slice(actEnd, prepAt)),
         attributionBound: true,
@@ -532,6 +559,8 @@ function mechanismMatch(query: string): Recognised | null {
   return {
     operation: "STORED_MECHANISM",
     subjectRegion: `${syntax.clause.cause} ${syntax.clause.effect}`,
+    causeRegion: syntax.clause.cause,
+    effectRegion: syntax.clause.effect,
     residue: [],
   };
 }
@@ -737,6 +766,10 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
     operation: match.operation,
     contract,
     subjectRegion,
+    sourceRegion: match.sourceRegion,
+    causeRegion: match.causeRegion,
+    effectRegion: match.effectRegion,
+    interval: interval ?? undefined,
     detail: `Recognised as ${match.operation}.`,
   };
 }

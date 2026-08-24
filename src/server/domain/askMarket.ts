@@ -1,6 +1,7 @@
 import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
 import { resolveRequestAuthority } from "./requestAuthority";
+import { nameOccursIn } from "./subjectAuthority";
 import { extractKeywords } from "./eventClustering";
 import { asksWhetherAPersonShouldTrade } from "./subjectClassification";
 import { frameExemptsProhibitedVocabulary, requestsAFinancialDecision } from "./requestFrame";
@@ -42,7 +43,12 @@ export type AskMarketResultStatus =
    */
   | "REQUEST_NOT_SUPPORTED";
 
-export interface SeriesFactor {
+/**
+ * What every series factor carries whatever operation asked for it: which series, whose figure it
+ * is, and when it was observed. Provenance is not operation-specific — CLAUDE.md requires every
+ * FACT shown to a user to trace to a stored source, regardless of what was asked.
+ */
+interface SeriesFactorBase {
   seriesId: string;
   seriesName: string;
   /**
@@ -58,9 +64,32 @@ export interface SeriesFactor {
   unit: string;
   asOfDate: string;
   value: number;
+}
+
+/**
+ * A level, and nothing about how it got there.
+ *
+ * The two shapes are separate types rather than one type with optional fields, because optional
+ * fields are a request to be ignored. One object carried `value`, `absoluteChange` and
+ * `percentChange` together, so serving a CURRENT_OBSERVATION without also serving an
+ * OBSERVED_CHANGE was not merely unenforced, it was unrepresentable — and the integration test
+ * asserted the change fields on a current-level request, which is the defect written down as an
+ * expectation.
+ */
+export interface ObservationFactor extends SeriesFactorBase {
+  kind: "OBSERVATION";
+}
+
+/** A movement over a stated period, with the period it was measured over. */
+export interface ChangeFactor extends SeriesFactorBase {
+  kind: "COMPUTED_CHANGE";
   absoluteChange: number;
   percentChange: number | null;
+  /** The interval the request named. A change with no period is not a change anyone asked for. */
+  interval: string;
 }
+
+export type SeriesFactor = ObservationFactor | ChangeFactor;
 
 export interface CausalFactor {
   fromVariable: string;
@@ -852,19 +881,54 @@ export function mentionsEachOther(a: string, b: string): boolean {
   return overlap / smaller.size >= 0.6;
 }
 
-async function findSeriesFactors(topic: string): Promise<SeriesFactor[]> {
+/**
+ * Series matching one topic, optionally restricted to one repository source.
+ *
+ * `sourceId` is an identity resolved from the repository, never a name read out of the request.
+ */
+async function matchingSeries(topic: string, sourceId?: string) {
   if (!topic) return [];
   const allSeries = await prisma.series.findMany({
+    where: sourceId ? { sourceId } : undefined,
     include: { source: { select: { code: true } } },
   });
-  const matches = allSeries.filter((s) => mentionsEachOther(s.name, topic)).slice(0, 5);
+  return allSeries.filter((s) => mentionsEachOther(s.name, topic)).slice(0, 5);
+}
 
+/** A level. No observation pair is fetched, so there is no change to leave out. */
+async function findObservationFactors(topic: string, sourceId?: string): Promise<SeriesFactor[]> {
   const factors: SeriesFactor[] = [];
-  for (const series of matches) {
+  for (const series of await matchingSeries(topic, sourceId)) {
+    const latest = await prisma.observation.findFirst({
+      where: { seriesId: series.id },
+      // Two observations can share a date; without a unique tiebreak "the latest value" is
+      // whichever row the planner happened to return first, and a level answer must not depend on
+      // that.
+      orderBy: [{ observationDate: "desc" }, { id: "desc" }],
+    });
+    if (!latest) continue;
+    factors.push({
+      kind: "OBSERVATION",
+      seriesId: series.id,
+      seriesName: series.name,
+      sourceCode: series.source.code,
+      unit: series.unit,
+      asOfDate: latest.observationDate.toISOString().slice(0, 10),
+      value: Number(latest.value.toString()),
+    });
+  }
+  return factors;
+}
+
+/** A movement, over the period the request named. */
+async function findChangeFactors(topic: string, interval: string): Promise<SeriesFactor[]> {
+  const factors: SeriesFactor[] = [];
+  for (const series of await matchingSeries(topic)) {
     const pair = await getRecentObservationPair(series.id);
     if (!pair) continue;
     const change = computeChange(pair, series.unit);
     factors.push({
+      kind: "COMPUTED_CHANGE",
       seriesId: series.id,
       seriesName: series.name,
       sourceCode: series.source.code,
@@ -873,9 +937,80 @@ async function findSeriesFactors(topic: string): Promise<SeriesFactor[]> {
       value: Number(pair.current.value.toString()),
       absoluteChange: change.absoluteChange,
       percentChange: change.percentChange,
+      interval,
     });
   }
   return factors;
+}
+
+/**
+ * A named source resolved to a repository identity, or a refusal.
+ *
+ * The parsed source constituent is TEXT. It becomes authority only by matching a `Source` this
+ * repository actually holds, and matching more than one is not a tie to be broken — two providers
+ * whose names both occur in the request means the request did not say which.
+ */
+type SourceResolution =
+  | { status: "RESOLVED"; sourceId: string; code: string }
+  | { status: "AMBIGUOUS"; codes: string[] }
+  | { status: "UNRESOLVED" };
+
+async function resolveSourceIdentity(sourceRegion: string): Promise<SourceResolution> {
+  const region = sourceRegion.trim();
+  if (!region) return { status: "UNRESOLVED" };
+  const sources = await prisma.source.findMany({
+    select: { id: true, code: true, name: true },
+    // A unique tiebreak, per `orderingDeterminism`: source codes are unique today, and an
+    // ordering that relies on that staying true is an ordering that can tie tomorrow.
+    orderBy: [{ code: "asc" }, { id: "asc" }],
+  });
+  // Containment of the WHOLE name, not overlap. `mentionsEachOther` is a retrieval heuristic and
+  // it reported both "Test PB Source A" and "Test PB Source B" as matching a request that named
+  // one of them -- three shared words out of four. Retrieval may guess; identity may not.
+  const normalize = (text: string) =>
+    ` ${text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()} `;
+  const haystack = normalize(region);
+  const hits = sources.filter(
+    (src) => haystack.includes(normalize(src.name)) || haystack.includes(normalize(src.code)),
+  );
+  if (hits.length === 1) return { status: "RESOLVED", sourceId: hits[0].id, code: hits[0].code };
+  if (hits.length > 1) return { status: "AMBIGUOUS", codes: hits.map((h) => h.code) };
+  return { status: "UNRESOLVED" };
+}
+
+/**
+ * The edge that was asked about, in the direction it was asked in.
+ *
+ * `findCausalFactors` matches an edge when EITHER endpoint mentions the topic, which is right for
+ * a broad topic page and wrong for a mechanism request: a question about freight and shipping came
+ * back with warehouse rent, because sharing one endpoint was enough. IR-104 settled this for the
+ * inference path -- candidate Y4, an authentic edge sharing one endpoint with the question and
+ * something else at the far end answers a question nobody asked -- and the serving path was never
+ * taught it.
+ *
+ * Cause and effect are matched separately, so orientation is enforced rather than assumed. The
+ * parser proved the direction; this is where that proof is spent.
+ */
+async function findMechanismEdges(cause: string, effect: string): Promise<CausalFactor[]> {
+  if (!cause.trim() || !effect.trim()) return [];
+  const allEdges = await prisma.causalEdge.findMany({
+    orderBy: [{ fromVariable: "asc" }, { toVariable: "asc" }, { id: "asc" }],
+  });
+  return allEdges
+    .filter((e) => nameOccursIn(e.fromVariable, cause) && nameOccursIn(e.toVariable, effect))
+    .slice(0, 10)
+    .map((e) => ({
+      fromVariable: e.fromVariable,
+      toVariable: e.toVariable,
+      direction: e.direction,
+      confidence: e.confidence,
+      mechanism: e.mechanism,
+      lag: e.lag,
+      counterexamples: e.counterexamples,
+    }));
 }
 
 async function findCausalFactors(topic: string): Promise<CausalFactor[]> {
@@ -957,24 +1092,28 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
   const isAdviceRequest =
     authority.status === "PROHIBITED" || detectPersonalizedAdviceRequest(trimmed);
 
-  const [seriesFactors, causalFactors, companyResult] = await Promise.all([
-    findSeriesFactors(trimmed),
-    findCausalFactors(trimmed),
-    findCompanyFacts(trimmed),
-  ]);
-
-  const hasFactors =
-    seriesFactors.length > 0 || causalFactors.length > 0 || companyResult.facts.length > 0;
+  // The personalized-redirect contract is unchanged and is why this retrieval still runs on the
+  // wide topic: `ask-market-refusal-invariant` requires a redirected request to show exactly the
+  // factors its neutral twin would show, so that refusing to advise is visibly not refusing to
+  // inform. Narrowing this would change what a redirect displays, which is a product decision and
+  // not a binding defect.
+  const [wideSeries, wideCausal, wideCompany] = isAdviceRequest
+    ? await Promise.all([
+        findObservationFactors(trimmed),
+        findCausalFactors(trimmed),
+        findCompanyFacts(trimmed),
+      ])
+    : [[], [], { facts: [] as CompanyFactFactor[] }];
 
   if (isAdviceRequest) {
     return {
       status: "PERSONALIZED_ADVICE_REDIRECTED",
       query: trimmed,
       redirectMessage: REDIRECT_MESSAGE,
-      matchedTopic: companyResult.matchedCorpName,
-      seriesFactors,
-      causalFactors,
-      companyFacts: companyResult.facts,
+      matchedTopic: wideCompany.matchedCorpName,
+      seriesFactors: wideSeries,
+      causalFactors: wideCausal,
+      companyFacts: wideCompany.facts,
     };
   }
 
@@ -992,22 +1131,113 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
     };
   }
 
-  if (!hasFactors) {
-    return {
-      status: "NOT_FOUND",
-      query: trimmed,
-      seriesFactors: [],
-      causalFactors: [],
-      companyFacts: [],
-    };
-  }
+  // ---------------------------------------------------------------------------------------------
+  // The operation decides what may be served, and retrieval is chosen by it rather than filtered
+  // after the fact.
+  //
+  // Before this, an AUTHORIZED verdict of any kind unlocked the same three lookups and returned
+  // all of them: a DEFINITION request came back with two numbers and three causal edges, a
+  // mechanism request came back with numbers, and every operation produced a byte-identical
+  // payload. The contract declared a `recordClass` and nothing read it, so the operation envelope
+  // decided admission and then stopped deciding anything.
+  //
+  // Retrieval also matches the parsed SUBJECT rather than the whole request. The query text
+  // contains the operation words, the framing and any source name, and matching series against all
+  // of that is how a question about one thing collects rows about another.
+  const subject = authority.subjectRegion.trim();
 
+  switch (authority.contract.recordClass) {
+    case "OBSERVATION": {
+      const [observations, company] = await Promise.all([
+        findObservationFactors(subject),
+        findCompanyFacts(subject),
+      ]);
+      return served(trimmed, observations, [], company);
+    }
+
+    case "COMPUTED_CHANGE": {
+      // The interval is required by the contract and was proven present by the parser; it travels
+      // with the figure so the reader is told what period the movement covers.
+      const changes = await findChangeFactors(subject, authority.interval ?? "");
+      return served(trimmed, changes, [], { facts: [] });
+    }
+
+    case "CAUSAL_EDGE":
+      return served(
+        trimmed,
+        [],
+        await findMechanismEdges(authority.causeRegion ?? "", authority.effectRegion ?? ""),
+        { facts: [] },
+      );
+
+    case "ATTRIBUTED_OBSERVATION": {
+      // Syntax proved a source was NAMED. Only the repository can prove which one, and until it
+      // does there is nothing to serve — an attributed request answered from another provider's
+      // row is a false attribution, not a near miss.
+      const resolution = await resolveSourceIdentity(authority.sourceRegion ?? "");
+      if (resolution.status === "AMBIGUOUS") {
+        return {
+          status: "REQUEST_NOT_SUPPORTED",
+          query: trimmed,
+          redirectMessage:
+            `The request names a source that matches more than one provider this repository ` +
+            `holds (${resolution.codes.join(", ")}). Choosing one would be inventing the question.`,
+          seriesFactors: [],
+          causalFactors: [],
+          companyFacts: [],
+        };
+      }
+      if (resolution.status === "UNRESOLVED") {
+        return {
+          status: "NOT_FOUND",
+          query: trimmed,
+          seriesFactors: [],
+          causalFactors: [],
+          companyFacts: [],
+        };
+      }
+      const attributed = await findObservationFactors(subject, resolution.sourceId);
+      return served(trimmed, attributed, [], { facts: [] });
+    }
+
+    case "GLOSSARY_ENTRY": {
+      // Fails closed, deliberately, and this is the honest half of the repair. This repository has
+      // no glossary store, so a DEFINITION request has no record class to be answered from. It was
+      // being answered with whatever series happened to share the term's name — a number in place
+      // of a meaning. Building a glossary to keep the old success status would be answering the
+      // question of how to keep the status, not how to answer the request.
+      return {
+        status: "REQUEST_NOT_SUPPORTED",
+        query: trimmed,
+        redirectMessage:
+          "A definition is a stored glossary entry, and this repository holds none. A figure that " +
+          "happens to share the term's name is not its meaning.",
+        seriesFactors: [],
+        causalFactors: [],
+        companyFacts: [],
+      };
+    }
+  }
+}
+
+/** NOT_FOUND when the authorized operation's own record class turned nothing up. */
+function served(
+  query: string,
+  seriesFactors: SeriesFactor[],
+  causalFactors: CausalFactor[],
+  company: { matchedCorpName?: string; facts: CompanyFactFactor[] },
+): AskMarketResult {
+  const hasFactors =
+    seriesFactors.length > 0 || causalFactors.length > 0 || company.facts.length > 0;
+  if (!hasFactors) {
+    return { status: "NOT_FOUND", query, seriesFactors: [], causalFactors: [], companyFacts: [] };
+  }
   return {
     status: "FACTORS_FOUND",
-    query: trimmed,
-    matchedTopic: companyResult.matchedCorpName,
+    query,
+    matchedTopic: company.matchedCorpName,
     seriesFactors,
     causalFactors,
-    companyFacts: companyResult.facts,
+    companyFacts: company.facts,
   };
 }

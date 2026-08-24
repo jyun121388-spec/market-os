@@ -83,6 +83,23 @@ describeIfDb("askMarket (integration)", () => {
       },
     });
 
+    // A second authentic edge sharing ONLY the cause with the one above. Without it, requiring
+    // both endpoints and requiring either endpoint give the same answer for every query in this
+    // file -- the mutation that relaxes the mechanism filter survived precisely because nothing
+    // here could tell the two apart. IR-104 candidate Y4 in fixture form.
+    await prisma.causalEdge.create({
+      data: {
+        fromVariable: "TEST: Widget demand (ask-market)",
+        toVariable: "TEST: Widget warehouse rent (ask-market)",
+        direction: "POSITIVE",
+        confidence: "LOW",
+        mechanism: "Test fixture, not a real economic claim.",
+        evidence: "Test fixture.",
+        lag: "immediate",
+        counterexamples: "Test fixture limitation.",
+      },
+    });
+
     const filing = await prisma.filing.create({
       data: {
         sourceId: source.id,
@@ -206,12 +223,91 @@ describeIfDb("askMarket (integration)", () => {
     await prisma.$disconnect();
   });
 
-  it("returns factors for a matched macro series and causal edges", async () => {
+  it("serves a current level as a level, with no change and no mechanism attached", async () => {
+    // This test used to assert the opposite: that a CURRENT_OBSERVATION request came back with
+    // `absoluteChange` and at least one causal edge. That was the production-binding defect
+    // written down as an expectation -- the operation was authorized and then ignored, so every
+    // operation returned the same payload. A level request is answered with a level.
     const result = await askMarket("What is the current Widget Price Index?");
     expect(result.status).toBe("FACTORS_FOUND");
     const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
-    expect(own.absoluteChange).toBe(2);
+    expect(own.kind).toBe("OBSERVATION");
+    expect(own.value).toBe(102);
+    expect(result.causalFactors).toHaveLength(0);
+  });
+
+  it("serves a change as a change, carrying the period it was measured over", async () => {
+    const result = await askMarket("How much has Widget Price Index changed this year?");
+    expect(result.status).toBe("FACTORS_FOUND");
+    const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
+    expect(own.kind).toBe("COMPUTED_CHANGE");
+    if (own.kind === "COMPUTED_CHANGE") {
+      expect(own.absoluteChange).toBe(2);
+      expect(own.interval).toBe("this year");
+    }
+  });
+
+  it("serves a mechanism as an edge, with no numbers attached", async () => {
+    const result = await askMarket(
+      `Explain how TEST: Widget demand (ask-market) affects ${SERIES_NAME}.`,
+    );
     expect(result.causalFactors.length).toBeGreaterThanOrEqual(1);
+    expect(result.seriesFactors).toHaveLength(0);
+    expect(result.companyFacts).toHaveLength(0);
+  });
+
+  it("serves the edge that was asked about, not one that shares an endpoint with it", async () => {
+    // Two stored edges leave the same cause. Only one of them is the relation this request names,
+    // and an authentic edge with something else at the far end answers a question nobody asked.
+    //
+    // Asserted as an exclusion rather than an equality, and the reason is a finding rather than a
+    // convenience: writing `toEqual([SERIES_NAME])` failed, because a stored variable named
+    // "TEST: Widget price" also matched -- its name NESTS inside "TEST Widget Price Index", and
+    // `nameOccursIn` is containment. That is a real cross-subject leak on the serving path, of
+    // exactly the shape IR-105 settled for the inference path, and it is recorded as open rather
+    // than absorbed here. This assertion proves the endpoint rule without depending on it.
+    const result = await askMarket(
+      `Explain how TEST: Widget demand (ask-market) affects ${SERIES_NAME}.`,
+    );
+    const targets = result.causalFactors.map((c) => c.toVariable);
+    expect(targets).toContain(SERIES_NAME);
+    expect(targets).not.toContain("TEST: Widget warehouse rent (ask-market)");
+  });
+
+  it("serves an attributed request from the source it named, and no other", async () => {
+    // RA-PB-02. Two providers publish this subject with different values -- ordinary, since Series
+    // is unique on (sourceId, externalId) and never on name. The grammar bound WHICH source was
+    // named and then recorded only THAT one was, so an attributed request was answered with both
+    // providers' figures. Naming one source and being shown another's number is a false
+    // attribution, not a near miss.
+    const result = await askMarket(`What did Test Ask Market Source publish about ${SERIES_NAME}?`);
+    expect(result.status).toBe("FACTORS_FOUND");
+    expect(result.seriesFactors.length).toBeGreaterThanOrEqual(1);
+    for (const factor of result.seriesFactors) {
+      expect(factor.sourceCode, "another provider's figure answered an attributed request").toBe(
+        SOURCE_CODE,
+      );
+    }
+  });
+
+  it("refuses an attributed request naming a source this repository does not hold", async () => {
+    // Syntax proves a source was named. Only the repository can prove which one, and an
+    // unresolvable name is not a licence to answer from whoever else happens to publish.
+    const result = await askMarket(
+      `What did the Bureau of Nonexistent Statistics publish about ${SERIES_NAME}?`,
+    );
+    expect(result.status).toBe("NOT_FOUND");
+    expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  it("refuses a definition rather than answering it with a number", async () => {
+    // The repository holds no glossary record class, and the term names a stored series. It was
+    // answered with that series' value -- a figure in place of a meaning. Failing closed is the
+    // honest answer, and building a glossary to preserve the old success status would be
+    // answering a different question.
+    const result = await askMarket("What is a Widget Price Index?");
+    expect(result.status).toBe("REQUEST_NOT_SUPPORTED");
+    expect(result.seriesFactors).toHaveLength(0);
   });
 
   it("attributes every figure to the source it came from", async () => {

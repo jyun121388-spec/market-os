@@ -4833,18 +4833,58 @@ what makes "a missing row is never evidence of absence" true rather than merely 
 
 ### Mutation
 
-48 mutants, **48 resolved, 0 survivors, 0 skipped**, eleven new: first clause returned and the rest
+51 mutants, **51 resolved, 0 survivors, 0 skipped**, fourteen new: first clause returned and the rest
 dropped, `MULTIPLE` mapped to `ONE`, the multi-clause branch bypassed, denial treated as assertion,
 clause-tail negation ignored, query polarity compared against the stored causal sign, endpoints
 matched against the whole query instead of the clause regions, cause and effect swapped, role
-cardinality skipped, overlapping constructions counted as two clauses, and the `NONE` branch removed.
+cardinality skipped, overlapping constructions counted as two clauses, the `NONE` branch removed, the cause anchor removed, the pre-marker negation scan removed, and the effect-region negation scan removed.
 
 **Six isolation proofs**, each removing one layer and nothing else — membership, subject and
 operation, direction, nesting, multi-clause cardinality, polarity. Each fails only its own block
 while existence, verification, freshness, publication class and all-or-nothing stay green.
 
+### The adversarial review, and what it found
+
+The commit above went straight to an independent read-only review, which returned
+**REWORK_REQUIRED** with one P1: `CLAUSE_NEGATORS` enumerated _ways of saying_ "does not", so a
+denial phrased any other way read as an assertion. Reproduced, and in four forms rather than the
+three it listed:
+
+| query                              | before                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `A may not affect B`               | **published** the relation it denies                                         |
+| `A never affects B`                | **published**                                                                |
+| `A is unlikely to affect B`        | **published** — modality, not even negation                                  |
+| `there is not an impact of A on B` | **published** — the denial sits outside a prefix construction's cause region |
+
+The tempting repair was a longer list. That is the strategy this project has measured to fail, so
+the fix is structural instead:
+
+**The cause must be the last thing in its region.** In English whatever qualifies the verb sits
+between the subject and it, so `does not`, `may not`, `never`, `is unlikely to` and `rarely` all
+leave a residue there and none of them has to be named in advance. _Unread is not affirmed._ A
+mutation asserts the property holds with the negator list emptied, which is what makes the list a
+diagnostic rather than the boundary.
+
+**Plus five English negation particles**, scanned only where the anchor cannot see: in front of a
+noun-phrase construction, and inside the effect region. That set can only grow if English acquires
+a new negation particle.
+
+The probe also surfaced a latent off-by-one: prefix-marker cause regions began with the marker's
+last letter (`"s amber barge throughput"`). Harmless while only `nameOccursIn` read the region, and
+not harmless once its END carries meaning.
+
+**One over-correction, caught by my own control rather than by review.** The first attempt scanned
+the whole clause span and refused _"There is no shortage of gamma. Explain how alpha affects beta."_
+— a denial two sentences away reaching an unrelated relation. Punctuation is gone by that point, so
+a sentence boundary was not available to bound it; the scan was narrowed to where negation can
+attach instead.
+
 ### Residual limitations
 
+- `"A affects B, not C"` is now `NEGATED` and refused. The clause denies something inside its own
+  effect region and this grammar cannot establish which relation is asserted, so it asserts none.
+  A capability loss on the fail-closed side.
 - The role-cardinality check can only see variables the repository knows. An unrecognised word in an
   effect region is just words, so `"A affects B and <something we never heard of>"` still resolves
   to A→B. Named because it is a real limit of a mechanically-bounded check.
@@ -4866,6 +4906,6 @@ multi-relation or negation grammar would need a fresh corpus frozen first.
 HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call; the
 architecture review used the already-authenticated read-only Codex CLI with no metered billing. PR
 #1 and the frozen candidate untouched; the concurrent session's control-bus work untouched and
-disjoint. Full suite 1950/1950 across 121 files against real PostgreSQL. `npm run build`
+disjoint. Full suite 1954/1954 across 121 files against real PostgreSQL. `npm run build`
 (turbopack) fails on the worktree's `node_modules` junction before reading source;
 `npx next build --webpack` completes.

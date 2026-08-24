@@ -243,6 +243,26 @@ const CLAUSE_NEGATORS = [
   "can not",
 ];
 
+/**
+ * English negation particles, as tokens, looked for anywhere inside a clause's own span.
+ *
+ * A closed set of five words rather than a list of phrasings — that distinction is the whole point.
+ * An adversarial review found `may not affect`, `never affects` and `there is not an impact of A on
+ * B` all publishing a stored edge, because `CLAUSE_NEGATORS` enumerated *ways of saying* "does not"
+ * and a way of saying it that nobody had thought of was read as an assertion. Chasing phrasings is
+ * how the request guardrail came to fail 81% of a fresh holdout; this list can only grow if English
+ * acquires a new negation particle.
+ *
+ * It is bounded to the clause span, not the query, so "A affects B" inside a sentence that negates
+ * something else is unaffected. And it is deliberately **not** the main defence: the cause-anchor
+ * rule below refuses anything sitting between the subject and the verb without consulting any list
+ * at all, which is what catches the modal and adverbial cases. A mutation proves that separately.
+ */
+const NEGATION_MARKERS = ["not", "no", "never", "nor", "without"];
+
+const containsNegationMarker = (region: string) =>
+  NEGATION_MARKERS.some((marker) => normalizeSubject(region).includes(` ${marker} `));
+
 export interface RelationClause {
   /** Normalized text in which the cause must be named. Bounded by this clause, not the query. */
   cause: string;
@@ -328,14 +348,36 @@ export function relationSyntax(query: string): RelationSyntax {
 
   const clauses: RelationClause[] = accepted.map((m, i) => {
     const [before, split, after] = m.construction.markers;
-    const causeStart = before ? m.start + before.length : (accepted[i - 1]?.end ?? 0);
+    // `m.start` is the space before the prefix marker, so the cause begins one past it —
+    // without the +1 the region opened with the marker's last letter ('s amber barge…').
+    // Harmless while only `nameOccursIn` read it, and not harmless once the region's END and
+    // its contents both carry meaning.
+    const regionStart = accepted[i - 1]?.end ?? 0;
+    const causeStart = before ? m.start + before.length + 1 : regionStart;
     const cause = normalized.slice(causeStart, m.splitStart + 1);
     const effectEnd = after ? m.end : (accepted[i + 1]?.start ?? normalized.length);
     const effect = normalized.slice(m.splitEnd - 1, effectEnd);
     const trimmed = cause.trim();
+    // Where the marker scan looks, and why it is not the whole clause span.
+    //
+    // Widening it to the span was the obvious fix for the prefix case and it refused "There is no
+    // shortage of gamma. Explain how alpha affects beta." — a denial about something else, two
+    // sentences away, reaching a relation it has nothing to do with. Punctuation is gone by this
+    // point, so a sentence boundary is not available to bound it.
+    //
+    // What can be bounded is where negation is able to attach:
+    //  - between the subject and the verb, which the cause anchor below refuses structurally
+    //    without consulting any list;
+    //  - in front of a noun-phrase construction ("there is not an impact of A on B"), which the
+    //    anchor cannot see because the cause region opens after the marker;
+    //  - inside the effect region ("affects beta, not gamma").
+    // So the scan covers the last two and leaves the first to the anchor.
+    const preMarker = before ? normalized.slice(regionStart, m.start + 1) : "";
     const denied =
       m.construction.polarity === "AFFIRMED" &&
-      CLAUSE_NEGATORS.some((n) => trimmed === n || trimmed.endsWith(` ${n}`));
+      (CLAUSE_NEGATORS.some((n) => trimmed === n || trimmed.endsWith(` ${n}`)) ||
+        containsNegationMarker(preMarker) ||
+        containsNegationMarker(effect));
     return {
       cause,
       effect,
@@ -507,6 +549,22 @@ export async function resolveSubjectAuthority(
         frame,
         `The clause names ${causes.length} cause(s) and ${effects.length} effect(s); a relation ` +
           "has one of each, so which relation was asked about is not established.",
+      );
+    }
+
+    // The cause must be the LAST thing in its region, and this is the structural half of polarity.
+    // In English whatever qualifies the verb sits between the subject and it — "does not", "may
+    // not", "never", "is unlikely to", "rarely" — so anything left over after the subject means the
+    // clause says something about the relation that this grammar has not read. No list is consulted
+    // and none can be outgrown: an adversarial review got three denials past the negator list, and
+    // every one of them leaves a residue here.
+    const causeRegion = normalizeSubject(clause.cause);
+    const causeName = normalizeSubject(causes[0]).trim();
+    if (!causeRegion.endsWith(`${causeName} `)) {
+      return NOT_ELIGIBLE(
+        frame,
+        `The clause has "${causeRegion.trim().slice(-40)}" where it should end with the cause, so ` +
+          "something qualifies the relation that this grammar has not read. Unread is not affirmed.",
       );
     }
 

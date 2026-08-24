@@ -1563,13 +1563,77 @@ describeIfDb("output authority (integration)", () => {
       if (denied.status === "ONE") expect(denied.clause.polarity).toBe("NEGATED");
     });
 
-    it("negation elsewhere in the sentence does not deny the relation", async () => {
-      // The negator must sit at the end of the clause's own cause region. A global "not" check
-      // would refuse this, which denies nothing about the relation being asked about.
+    it("a denial the negator list never anticipated is still a denial", async () => {
+      // An adversarial review of the first IR-106 commit got three of these past the list, which
+      // enumerated ways of saying "does not". The structural rule is that the cause must be the
+      // LAST thing in its region: in English whatever qualifies the verb sits between the subject
+      // and it, so a modal, an adverb or a hedge all leave a residue there and none of them has to
+      // be named in advance. "Unread is not affirmed."
+      for (const query of [
+        `Explain how ${FREIGHT} may not affect ${SHIPPING}.`,
+        `Explain how ${FREIGHT} never affects ${SHIPPING}.`,
+        `Explain how ${FREIGHT} is unlikely to affect ${SHIPPING}.`,
+        `Explain how ${FREIGHT} rarely affects ${SHIPPING}.`,
+        `Explain how ${FREIGHT} cannot affect ${SHIPPING}.`,
+      ]) {
+        const envelope = await deriveCandidateEnvelope(query);
+        expect(envelope.status).toBe("UNRESOLVED");
+        const { calls, sink } = countingSink({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+        });
+        const outcome = await answerWithInference(query, sink);
+        expect(calls).toHaveLength(0);
+        expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+      }
+    });
+
+    it("a denial in front of a prefix-marker construction is still a denial", async () => {
+      // `impact of A on B` opens its cause region AFTER the marker, so "there is not an impact of
+      // A on B" put the denial outside everything being examined. The negation scan runs over the
+      // clause's whole span now — back to the previous clause's end — and still not over the query.
+      const denied = `Explain how there is not an impact of ${FREIGHT} on ${SHIPPING}.`;
+      const envelope = await deriveCandidateEnvelope(denied);
+      expect(envelope.status).toBe("UNRESOLVED");
+      const { calls, sink } = countingSink({
+        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+      });
+      const outcome = await answerWithInference(denied, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("the cause anchor holds without any negator list at all", async () => {
+      // The property a mutation proves separately: deleting every entry from CLAUSE_NEGATORS and
+      // every NEGATION_MARKER must still refuse "does not affect", because the residue after the
+      // subject is what refuses it. The list is a diagnostic; the anchor is the boundary.
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
+      const one = relationSyntax(`Explain how ${FREIGHT} does not affect ${SHIPPING}.`);
+      expect(one.status).toBe("ONE");
+      if (one.status === "ONE") {
+        expect(one.clause.cause.trim().endsWith("does not")).toBe(true);
+      }
+    });
+
+    it("negation is scoped to the clause, not to the query", async () => {
+      // Two sentences, one denying something unrelated. The clause span is bounded by its
+      // neighbours, so the denial in the first does not reach the relation in the second — which is
+      // the property a global `includes("not")` would destroy.
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
+      const scoped = relationSyntax(
+        "There is no shortage of gamma. Explain how alpha affects beta.",
+      );
+      expect(scoped.status).toBe("ONE");
+      if (scoped.status === "ONE") expect(scoped.clause.polarity).toBe("AFFIRMED");
+    });
+
+    it("a trailing 'not X' inside the clause is a denial, and that is the fail-closed side", async () => {
+      // "Explain how alpha affects beta, not gamma" is refused. The clause names two things in its
+      // effect region and denies one of them, and this grammar cannot establish which relation is
+      // asserted — so it asserts none. A capability loss, recorded rather than argued away.
       const { relationSyntax } = await import("@/server/domain/subjectAuthority");
       const aside = relationSyntax("Explain how alpha affects beta, not gamma.");
       expect(aside.status).toBe("ONE");
-      if (aside.status === "ONE") expect(aside.clause.polarity).toBe("AFFIRMED");
+      if (aside.status === "ONE") expect(aside.clause.polarity).toBe("NEGATED");
     });
   });
 

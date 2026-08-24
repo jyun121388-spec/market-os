@@ -4988,3 +4988,100 @@ architecture review used the already-authenticated read-only Codex CLI with no m
 disjoint. Full suite 1963/1963 across 121 files against real PostgreSQL. `npm run build`
 (turbopack) fails on the worktree's `node_modules` junction before reading source;
 `npx next build --webpack` completes.
+
+---
+
+## IR-107 — The gate decides alone, and calls one refusal by the wrong name
+
+The request gate, opened after IR-106 closed with an independent APPROVE. An architecture round ran
+first and returned **REFRAME**: split the work, and do not assume the gate is merely narrow.
+**Reproduction only; no implementation in this entry.**
+
+### The matrix, run twice
+
+Eight rows, each measured with nothing stored and then again with the exact subject stored and a
+verifiable current observation behind it. Running it twice is the whole design: a row that does not
+move between the runs was decided by the request gate alone, before repository capability could
+participate.
+
+| row                                                    | run 1, nothing stored                          | run 2, subject stored and verifiable |
+| ------------------------------------------------------ | ---------------------------------------------- | ------------------------------------ |
+| `What is the current level of US headline CPI?`        | `FRAME_NOT_PROVEN`, 0 planner calls            | **identical**                        |
+| `How much has US headline CPI changed this year?`      | `FRAME_NOT_PROVEN`, 0 calls                    | **identical**                        |
+| `What did analysts publish about US headline CPI?`     | eligible, envelope `UNRESOLVED`                | eligible, **`AUTHORIZED`**, 1 call   |
+| `Explain how US headline CPI affects mortgage rates.`  | eligible, `UNRESOLVED`                         | identical (no stored mechanism)      |
+| `What is a stop-loss order?`                           | **`PROHIBITED_REQUEST`**, advice detector true | **identical**                        |
+| `How does a stop-loss order actually work on the KRX?` | eligible                                       | identical                            |
+| `Where should I set my stop-loss?`                     | `PROHIBITED_REQUEST`                           | identical — correctly refused        |
+| `What is a limit order?`                               | `FRAME_NOT_PROVEN`, advice detector false      | identical                            |
+
+The one row that moves proves the pipeline works end to end the moment an operation exists for it.
+The rows that do not move are the finding.
+
+### Two failures, and only one of them is the frame list
+
+**A — the candidate envelope is not independent of the frame classifier.** `classifyRequestFrame`
+was built as a narrow discriminator for four vocabulary false positives, and says so in its own
+docstring. It now governs three larger authorities: global pre-model eligibility, operation binding
+inside `subjectAuthority`, and exemption from vocabulary-only advice matches. Only two operations
+exist downstream, `REPORTED_OBSERVATION` and `STORED_MECHANISM`, so a current-level question is not
+merely turned away at the door — **there is no operation with which to authorize it**. Everything
+IR-103 to IR-106 built sits behind a gate that can only ask two questions.
+
+**B — a refusal by the wrong name.** `"What is a stop-loss order?"` does not match the mechanism
+patterns, so it is `UNKNOWN`; `UNKNOWN` cannot exempt a vocabulary-only match, so the advice
+detector fires and the product reports `PROHIBITED_REQUEST`. `"What is a limit order?"` — the same
+unsupported shape without the word — returns `FRAME_NOT_PROVEN`. So one word turns an ambiguity
+decision into a compliance event. Mislabelling matters here: `PROHIBITED_REQUEST` is what the
+product says when somebody asks for advice, and this question did not.
+
+### The question that was asked of the architecture round, and its answer
+
+Since IR-103 the repository can already prove exactly which stored record could answer a question,
+and already fails closed with zero planner calls when it cannot. So: is the frame classifier still
+doing necessary work, or is it now a redundant gate whose narrowness costs capability without
+buying safety?
+
+The answer is that it is not redundant, and the reason is worth recording because it rules out the
+obvious shortcut. **`not prohibited + candidate exists ⇒ eligible` is not available.** A prohibited
+request can name an exact stored subject and obtain a perfectly valid candidate envelope. Candidate
+authority proves _this record is about the named subject_; output authority proves _this stored
+record may be rendered_. Neither proves _the user asked for information rather than a personalized
+decision_ — and `docs/LEGAL_GUARDRAILS.md` requires that a personalized request be redirected, not
+answered with true evidence that happens to be selected in response to it.
+
+What the classifier supplies imperfectly is **positive proof of request purpose**, and the
+replacement has to supply it positively too: a closed operation envelope, an exact capability match,
+and a prohibited-request screen, as three independent authorities rather than one absence.
+
+### Scope of the next unit, and what is deliberately not in it
+
+Split in two, in this order:
+
+1. Replace global frame-based eligibility with a deterministic operation envelope —
+   `CURRENT_OBSERVATION`, `OBSERVED_CHANGE`, `STORED_MECHANISM`,
+   `ATTRIBUTED_REPORTED_OBSERVATION`, `DEFINITION`, unsupported, ambiguous — each declaring its
+   required subject cardinality, stored record class and temporal operands.
+2. Then correct B. It cannot be fixed alone: the right repair is a positive `DEFINITION` operation,
+   and the wrong one is an exception for the word "stop-loss". Bare `stop-loss` must stay
+   unsupported either way.
+
+`classifyRequestFrame` is not deleted in unit 1. It stays load-bearing for operation binding and the
+vocabulary exemption until each role has a structural replacement whose equivalence is
+mutation-tested.
+
+One further point that changes the shape of the work: **a current level or an observed change is
+deterministic repository output and needs no planner at all.** Capability does not imply that a
+model must be consulted, and the safest version of those operations calls no sink.
+
+### Holdout discipline
+
+A new request-authority holdout is being frozen before any implementation. The two historical advice
+holdouts stay immutable, and neither may be quoted as evidence for changed request behaviour —
+their first-run numbers (81% and 73.2% false negative) are exactly why nothing here grows a phrase
+list.
+
+### Scope
+
+Reproduction only. No provider, model, credential, API, PAYG, deployment or network call. PR #1 and
+the frozen candidate untouched; the concurrent session's control-bus work untouched.

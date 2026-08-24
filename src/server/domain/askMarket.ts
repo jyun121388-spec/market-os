@@ -1,8 +1,10 @@
 import { prisma } from "@/server/db/client";
-import { computeChange, getRecentObservationPair } from "./seriesReadings";
+import { computeChange } from "./seriesReadings";
 import { resolveRequestAuthority } from "./requestAuthority";
 import { explicitlyNamed, nameOccursIn } from "./subjectAuthority";
 import { computeCalendarEntry } from "./economicCalendar";
+import { resolveObservationPeriod, type ResolvedPeriod } from "./observationPeriod";
+import { getObservationsOneRowPerDate } from "./seriesReadings";
 import { evaluateStaleness } from "./staleness";
 import { extractKeywords } from "./eventClustering";
 import { asksWhetherAPersonShouldTrade } from "./subjectClassification";
@@ -89,6 +91,15 @@ export interface ChangeFactor extends SeriesFactorBase {
   percentChange: number | null;
   /** The interval the request named. A change with no period is not a change anyone asked for. */
   interval: string;
+  /**
+   * The dates the figure was actually computed between.
+   *
+   * Present because the interval alone was a label: the arithmetic used the last two readings and
+   * printed "this year" beside it. A period name and the dates it resolved to are two different
+   * claims, and only one of them can be checked by the reader.
+   */
+  startDate: string;
+  endDate: string;
 }
 
 export type SeriesFactor = ObservationFactor | ChangeFactor;
@@ -932,64 +943,141 @@ async function matchingSeries(topic: string, sourceId?: string) {
  *
  * No observation pair is fetched either, so there is no change to leave out.
  */
-async function findObservationFactors(topic: string, sourceId?: string): Promise<SeriesFactor[]> {
+async function findObservationFactors(
+  topic: string,
+  asOf: Date,
+  sourceId?: string,
+): Promise<SeriesFactor[]> {
+  const asOfDate = asOf.toISOString().slice(0, 10);
   const factors: SeriesFactor[] = [];
   for (const series of await matchingSeries(topic, sourceId)) {
-    // One guard, because it is one decision. This asked for INSUFFICIENT_DATA here and for a
-    // defined value further down -- the same condition twice, so removing either changed nothing
-    // and mutation found the redundancy rather than a defect.
-    const cadence = await computeCalendarEntry(series.id);
-    if (
-      cadence.medianIntervalDays === undefined ||
-      cadence.lastObservedDate === undefined ||
-      cadence.lastObservedValue === undefined
-    ) {
-      continue;
-    }
-    const freshness = evaluateStaleness({
-      lastObservedDate: cadence.lastObservedDate,
-      medianIntervalDays: cadence.medianIntervalDays,
-    });
-    if (freshness.status !== "FRESH") continue;
-    // The value comes from the SAME resolved reading the freshness verdict was computed from.
+    // The newest reading that is not dated after the clock.
     //
-    // It used to be a second query against the raw table, tie-broken by `id desc`. Freshness was
-    // therefore decided on the revision-resolved history and the number was chosen by a different
-    // rule from the same rows -- two selections that agree only by luck, and where they disagree
-    // the answer is a superseded revision that has just been certified as current. I could not
-    // construct a failing case with time-ordered cuids, and the repair is not a test: it deletes
-    // the second selection rather than checking the two agree.
+    // This took `cadence.lastObservedValue`, which is the newest row full stop. A series carrying a
+    // reading dated next month answered "what is the current value?" with next month's number, and
+    // reported itself maximally fresh while doing it. A future observation is a scheduled or
+    // mis-stamped row; it is not the present.
+    const history = await getObservationsOneRowPerDate(series.id);
+    const latest = [...history]
+      .reverse()
+      .find((o) => o.observationDate.toISOString().slice(0, 10) <= asOfDate);
+    if (!latest) continue;
+    const latestDate = latest.observationDate.toISOString().slice(0, 10);
+
+    // Cadence supplies the interval; the date it is measured against is the one selected above, so
+    // freshness and the served figure are the same reading.
+    const cadence = await computeCalendarEntry(series.id);
+    if (cadence.medianIntervalDays === undefined) continue;
+    const freshness = evaluateStaleness(
+      { lastObservedDate: latestDate, medianIntervalDays: cadence.medianIntervalDays },
+      asOf,
+    );
+    if (freshness.status !== "FRESH") continue;
+
     factors.push({
       kind: "OBSERVATION",
       seriesId: series.id,
       seriesName: series.name,
       sourceCode: series.source.code,
       unit: series.unit,
-      asOfDate: cadence.lastObservedDate,
-      value: cadence.lastObservedValue,
+      asOfDate: latestDate,
+      value: Number(latest.value.toString()),
     });
   }
   return factors;
 }
 
-/** A movement, over the period the request named. */
-async function findChangeFactors(topic: string, interval: string): Promise<SeriesFactor[]> {
+/**
+ * The two readings a resolved period authorizes, or nothing.
+ *
+ * Both must be revision-chain tails, which `getObservationsOneRowPerDate` already guarantees -- it
+ * resolves one row per date structurally and drops a date whose chain is malformed rather than
+ * guessing. Selecting from raw rows instead would let a superseded reading answer as the boundary.
+ *
+ * Every refusal here is a period the repository cannot honestly answer about, and each is a
+ * separate reason rather than one silent null.
+ */
+async function selectPeriodEndpoints(seriesId: string, period: ResolvedPeriod) {
+  const history = await getObservationsOneRowPerDate(seriesId);
+  if (history.length === 0) return null;
+  const dateOf = (o: (typeof history)[number]) => o.observationDate.toISOString().slice(0, 10);
+
+  // The period opens on its boundary date, not near it. An absent boundary refuses: substituting
+  // the neighbouring reading answers about a period nobody named.
+  const startRow = history.find((o) => dateOf(o) === period.start);
+  if (!startRow) return null;
+
+  // The newest reading that still belongs to the period. For a running period `until` is the clock,
+  // which is also what keeps a future-dated observation from being served as the present.
+  const endRow = [...history]
+    .reverse()
+    .find((o) => dateOf(o) <= period.until && dateOf(o) > period.start);
+  if (!endRow) return null;
+
+  return { startRow, endRow, startDate: dateOf(startRow), endDate: dateOf(endRow) };
+}
+
+/**
+ * A movement, over the period the request named -- computed from that period's own observations.
+ *
+ * This called `getRecentObservationPair` and attached the requested interval as a label. Against a
+ * monthly series rising ten a step, `this year`, `last quarter` and `last year` all returned 10:
+ * the same latest pair three times, under three different period names. The true this-year move
+ * was 30. Worse, a series with no readings in the current year still returned a figure labelled
+ * `this year`.
+ */
+async function findChangeFactors(
+  topic: string,
+  operand: string,
+  asOf: Date,
+): Promise<SeriesFactor[]> {
+  const resolution = resolveObservationPeriod(operand, asOf);
+  if (resolution.status !== "RESOLVED") return [];
+  const period = resolution.period;
+
   const factors: SeriesFactor[] = [];
   for (const series of await matchingSeries(topic)) {
-    const pair = await getRecentObservationPair(series.id);
-    if (!pair) continue;
-    const change = computeChange(pair, series.unit);
+    // A running period's end is "the latest reading", and that is only a defensible stand-in for
+    // the present while the series is current -- the same rule the level path applies, which this
+    // path did not run at all.
+    if (period.running) {
+      const cadence = await computeCalendarEntry(series.id);
+      if (cadence.medianIntervalDays === undefined || cadence.lastObservedDate === undefined) {
+        continue;
+      }
+      const freshness = evaluateStaleness(
+        {
+          lastObservedDate: cadence.lastObservedDate,
+          medianIntervalDays: cadence.medianIntervalDays,
+        },
+        asOf,
+      );
+      if (freshness.status !== "FRESH") continue;
+    }
+
+    const endpoints = await selectPeriodEndpoints(series.id, period);
+    if (!endpoints) continue;
+
+    const change = computeChange(
+      {
+        previous: endpoints.startRow,
+        current: endpoints.endRow,
+      },
+      series.unit,
+    );
     factors.push({
       kind: "COMPUTED_CHANGE",
       seriesId: series.id,
       seriesName: series.name,
       sourceCode: series.source.code,
       unit: series.unit,
-      asOfDate: pair.current.observationDate.toISOString().slice(0, 10),
-      value: Number(pair.current.value.toString()),
+      asOfDate: endpoints.endDate,
+      value: Number(endpoints.endRow.value.toString()),
       absoluteChange: change.absoluteChange,
       percentChange: change.percentChange,
-      interval,
+      interval: operand,
+      startDate: endpoints.startDate,
+      endDate: endpoints.endDate,
     });
   }
   return factors;
@@ -1188,8 +1276,14 @@ async function findCompanyFacts(
  * substring — not free-text natural language, see module docstring). Never fabricates a match:
  * an unresolved topic returns NOT_FOUND, not a best-guess.
  */
-export async function askMarket(query: string): Promise<AskMarketResult> {
+export async function askMarket(
+  query: string,
+  options: { now?: Date } = {},
+): Promise<AskMarketResult> {
   const trimmed = query.trim();
+  // One clock, captured once and passed down. Period boundaries and freshness must agree about
+  // when "now" is, and two calls to `new Date()` in one request are two different nows.
+  const asOf = options.now ?? new Date();
   // IR-107. Positive request authority, consulted before anything is served.
   //
   // This path used to gate on `detectPersonalizedAdviceRequest` alone and otherwise return whatever
@@ -1208,7 +1302,7 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
   // not a binding defect.
   const [wideSeries, wideCausal, wideCompany] = isAdviceRequest
     ? await Promise.all([
-        findObservationFactors(trimmed),
+        findObservationFactors(trimmed, asOf),
         findCausalFactors(trimmed),
         findCompanyFacts(trimmed),
       ])
@@ -1282,7 +1376,7 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
   switch (authority.contract.recordClass) {
     case "OBSERVATION": {
       const [observations, company] = await Promise.all([
-        findObservationFactors(subject),
+        findObservationFactors(subject, asOf),
         findCompanyFacts(subject),
       ]);
       return served(trimmed, observations, [], company);
@@ -1291,7 +1385,7 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
     case "COMPUTED_CHANGE": {
       // The interval is required by the contract and was proven present by the parser; it travels
       // with the figure so the reader is told what period the movement covers.
-      const changes = await findChangeFactors(subject, authority.interval ?? "");
+      const changes = await findChangeFactors(subject, authority.interval ?? "", asOf);
       return served(trimmed, changes, [], { facts: [] });
     }
 
@@ -1329,7 +1423,7 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
           companyFacts: [],
         };
       }
-      const attributed = await findObservationFactors(subject, resolution.sourceId);
+      const attributed = await findObservationFactors(subject, asOf, resolution.sourceId);
       return served(trimmed, attributed, [], { facts: [] });
     }
 

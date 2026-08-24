@@ -343,7 +343,11 @@ const INTERVAL_OPERANDS = [
   "year to date",
   "over the past year",
   "over the past month",
-  "since last year",
+  // "since last year" was here and is deliberately gone. It has at least three readings -- since
+  // 1 January last year, since this date last year, since last year's final observation -- and the
+  // architecture round could not choose between them on any principle. An operand whose boundaries
+  // cannot be stated is not a period; supporting it approximately would mean answering about a
+  // period the request did not name. Deleting it makes those requests AMBIGUOUS, which is true.
 ];
 
 /**

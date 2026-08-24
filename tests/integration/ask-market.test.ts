@@ -34,6 +34,21 @@ const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
  * `askMarket` began asking whether a filing figure is CURRENT there was nothing to answer with:
  * one period projects no interval, and unknown is not fresh. Two quarters, relative to now.
  */
+/**
+ * 1 January of the current UTC year, so a "this year" request has an opening boundary to stand on.
+ *
+ * The fixture had two readings a day apart and the change test asserted the difference between
+ * them under a "this year" label — the temporal defect written down as an expectation. A period
+ * request needs a series that spans the period.
+ */
+const YEAR_START = new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1));
+
+/** A reading dated ahead of the clock. It exists to prove it is never chosen as a period's end. */
+const FUTURE_READING = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+/** A series that opens the year and then stops: the start boundary exists, the data does not. */
+const ABANDONED_SERIES_NAME = "TEST Widget Abandoned Index";
+
 const CURRENT_PERIOD_END = daysAgo(30);
 /** A company that reported twice, years ago -- a derivable cadence, long past it. */
 const STALE_CORP_NAME = "TEST Widget Dormant Corp";
@@ -97,6 +112,29 @@ describeIfDb("askMarket (integration)", () => {
         name: SERIES_NAME,
         unit: "index",
         frequency: "daily",
+      },
+    });
+    // Dated ahead of the clock. A period that is still running ends at the clock, not at the
+    // newest row, and this is the row that tells those two apart.
+    await prisma.observation.create({
+      data: {
+        seriesId: series.id,
+        sourceId: source.id,
+        observationDate: FUTURE_READING,
+        value: "9999.0",
+        raw: {},
+      },
+    });
+
+    // The year's opening reading, deliberately far from the recent pair so that a year-to-date
+    // change (102 - 90 = 12) cannot be confused with the latest-pair delta (102 - 100 = 2).
+    await prisma.observation.create({
+      data: {
+        seriesId: series.id,
+        sourceId: source.id,
+        observationDate: YEAR_START,
+        value: "90.0",
+        raw: {},
       },
     });
     await prisma.observation.create({
@@ -356,6 +394,33 @@ describeIfDb("askMarket (integration)", () => {
       });
     }
 
+    // Opens the current year and then stops. Its start boundary exists, so only freshness can
+    // refuse it -- which makes it the case that tells the freshness check apart from the boundary
+    // rules around it.
+    const abandoned = await prisma.series.create({
+      data: {
+        sourceId: staleSource.id,
+        externalId: "TEST_ASK_MARKET_ABANDONED",
+        name: ABANDONED_SERIES_NAME,
+        unit: "index",
+        frequency: "daily",
+      },
+    });
+    for (const [date, value] of [
+      [YEAR_START, "10.0"],
+      [new Date(YEAR_START.getTime() + 24 * 60 * 60 * 1000), "11.0"],
+    ] as const) {
+      await prisma.observation.create({
+        data: {
+          seriesId: abandoned.id,
+          sourceId: staleSource.id,
+          observationDate: date,
+          value,
+          raw: {},
+        },
+      });
+    }
+
     // A company with exactly one reported period. One point projects no interval, so whether the
     // figure is current is unknown -- and unknown is not current.
     const debutantFiling = await prisma.filing.create({
@@ -491,11 +556,18 @@ describeIfDb("askMarket (integration)", () => {
   it("serves a change as a change, carrying the period it was measured over", async () => {
     const result = await askMarket(`How much has ${SERIES_NAME} changed this year?`);
     expect(result.status).toBe("FACTORS_FOUND");
-    const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
+    const own = result.seriesFactors.find((f) => f.sourceCode === SOURCE_CODE)!;
     expect(own.kind).toBe("COMPUTED_CHANGE");
     if (own.kind === "COMPUTED_CHANGE") {
-      expect(own.absoluteChange).toBe(2);
+      // 12, not 2. The period chooses the observations: 1 January's 90 against the latest 102.
+      // The latest-pair delta is 2, and a mutation restoring it must fail here.
+      expect(own.absoluteChange).toBe(12);
       expect(own.interval).toBe("this year");
+      // The dates are disclosed, because a period NAME and the dates it resolved to are two
+      // different claims and only one of them the reader can check.
+      expect(own.startDate).toBe(YEAR_START.toISOString().slice(0, 10));
+      expect(own.endDate).toBe(daysAgo(1).toISOString().slice(0, 10));
+      expect(own.asOfDate).toBe(own.endDate);
     }
     for (const factor of result.seriesFactors) {
       expect(factor.kind).toBe("COMPUTED_CHANGE");
@@ -681,6 +753,29 @@ describeIfDb("askMarket (integration)", () => {
     const result = await askMarket(`What is the current ${SINGLE_CORP_NAME}?`);
     expect(result.status).toBe("NOT_FOUND");
     expect(result.companyFacts).toHaveLength(0);
+  });
+
+  it("never ends a running period on a reading dated after the clock", async () => {
+    // A reading 30 days ahead of now is in the series. "This year" is still running, so it ends at
+    // the clock; taking the newest row instead would answer today's question with next month's
+    // number.
+    const result = await askMarket(`How much has ${SERIES_NAME} changed this year?`);
+    const own = result.seriesFactors.find((f) => f.sourceCode === SOURCE_CODE)!;
+    expect(own.kind).toBe("COMPUTED_CHANGE");
+    if (own.kind === "COMPUTED_CHANGE") {
+      expect(own.endDate).toBe(daysAgo(1).toISOString().slice(0, 10));
+      expect(own.value).toBe(102);
+    }
+  });
+
+  it("refuses a running period on a series that stopped reporting", async () => {
+    // The opening boundary is there and the arithmetic would work. What refuses it is that a
+    // running period ends at "the latest reading", and that is only a stand-in for the present
+    // while the series is current -- the same rule the level path applies, which this path did not
+    // run at all before.
+    const result = await askMarket(`How much has ${ABANDONED_SERIES_NAME} changed this year?`);
+    expect(result.status).toBe("NOT_FOUND");
+    expect(result.seriesFactors).toHaveLength(0);
   });
 
   it("refuses a definition rather than answering it with a number", async () => {

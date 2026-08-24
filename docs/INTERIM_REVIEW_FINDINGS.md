@@ -5692,3 +5692,79 @@ is a different fault and the one worth fixing; the six shapes that actually dive
 script now.
 
 Isolation 19/19, parser mutants 18/18, suite 2033/2033, build clean. Sealed holdout still sealed.
+
+## IR-107 Unit 2d — A period name is not a period
+
+`OBSERVED_CHANGE` has required an interval operand since the first version of the parser: a change
+with no period is not a question anyone can answer, so `"How much has CPI changed?"` refuses. The
+operand then travelled to the serving path as a **string**, and the serving path computed from the
+last two stored readings and printed the string beside the answer.
+
+Reproduced against a monthly series rising ten a step:
+
+| request                                                      | returned                | truth                        |
+| ------------------------------------------------------------ | ----------------------- | ---------------------------- |
+| this year                                                    | 10                      | 20                           |
+| last quarter                                                 | 10                      | — one reading in the quarter |
+| last year                                                    | 10                      | 30                           |
+| this year, on a series with **no readings this year at all** | 5, labelled "this year" | must refuse                  |
+
+Three of five wrong, and the fourth is worse than wrong: a figure labelled `this year` for a series
+whose data stops in the previous one. Every period returned the same number because every period
+was the same two rows.
+
+### The missing abstraction was the period itself
+
+`observationPeriod.ts` resolves an operand against **one captured clock** into a start date, a close
+date and whether the period is still running. Two kinds:
+
+- **COMPLETE** — closed on a calendar date. "Last quarter" is the previous complete calendar
+  quarter, not a trailing three months, and its answer will not change tomorrow.
+- **RUNNING** — closes at the clock. "This year" has a moving end, and a moving end is only honest
+  while the data behind it is current, so this is the only kind that consults freshness.
+
+Both take their END the same way: the newest reading inside the period. Requiring a reading _on_ the
+closing date was tried first and refused ordinary questions — a monthly series published on the 1st
+has nothing on 31 December, so "last year" was unanswerable for most series. The **start** is
+deliberately asymmetric: it must be the reading on the opening boundary, because a later start
+understates the movement in a way the period's name conceals, and neighbouring readings are not
+substitutes — the one before imports movement from outside the period, the one after silently
+shortens it.
+
+`"since last year"` was **deleted** from the operand set. It has at least three readings — since 1
+January last year, since this date last year, since last year's final observation — and no principle
+chose between them. An operand whose boundaries cannot be stated is not a period. Those requests are
+now AMBIGUOUS, which is true.
+
+The factor discloses `startDate` and `endDate`. A period name and the dates it resolved to are two
+different claims, and only one of them the reader can check.
+
+### What the fixtures then found
+
+Adding a reading dated **thirty days ahead of the clock** — put there to prove a running period ends
+at the clock — failed two _level_ tests instead: `"What is the current X?"` was answering with next
+month's number, because the level path took `cadence.lastObservedValue`, the newest row full stop,
+and reported the series maximally fresh while doing it. That is a second defect of the same family,
+found by a fixture built for the first, and both paths now select the newest reading not dated after
+the clock and measure freshness against that same reading.
+
+The change test itself had asserted the difference between two readings a day apart under a
+`this year` label — the defect written down as an expectation, exactly as review predicted. Its
+fixture now opens the year at 90 so that a year-to-date move of 12 cannot be confused with the
+latest-pair delta of 2.
+
+### Isolation: 23 of 23
+
+Including the mutation the rework required: restoring latest-pair selection for interval requests
+fails the temporal tests and **nothing else** — not parse, not subject, not source, not candidate,
+not verification, not the refusal invariants. Also isolated: a period opening where the series has
+no reading, an end reading falling outside the period, and a running period ignoring freshness.
+
+Parser mutants 18/18. Suite 2035/2035. Sealed holdout still sealed.
+
+### An environment note worth keeping
+
+Mid-run, twelve unrelated integration suites failed at once. The cause was `DatabaseNotReachable` —
+the portable PostgreSQL had stopped — and not a line of the repair. Restarting it returned the suite
+to green with no code change. A cascade across unrelated suites is a claim about the environment
+before it is a claim about the diff.

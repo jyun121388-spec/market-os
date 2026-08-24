@@ -260,6 +260,93 @@ const CLAUSE_NEGATORS = [
  */
 const NEGATION_MARKERS = ["not", "no", "never", "nor", "without"];
 
+/**
+ * The interrogatives a mechanism question is built on. Where the clause's own framing starts.
+ *
+ * `requestFrame.ts` already requires one of these to admit the question at all, so anchoring on the
+ * last one before the relation is not a new rule — it is the same rule, read again to find where
+ * the asker stopped writing preamble and started writing the question.
+ */
+const ANCHOR_TOKENS = ["explain", "what", "how", "describe"];
+
+/**
+ * Everything else a clause's framing may contain. An ALLOWLIST, and that is the whole point.
+ *
+ * The first repair refused a closed set of negation particles, and a second adversarial review got
+ * four denials past it that contain none: "it is false that A affects B", "the absence of impact of
+ * A on B", "the claim that A affects B is mistaken", "it is untrue that A affects B". A denylist of
+ * ways to deny something cannot be finished, because denial is not a vocabulary.
+ *
+ * So the question is inverted. Between the interrogative and the subject there may be function
+ * words and nothing else. `false`, `absence`, `claim`, `untrue`, `unlikely` are not in this list and
+ * never need to be: anything unrecognised means the clause says something about the relation that
+ * this grammar has not read, and unread is not affirmed.
+ *
+ * The cost is real and is the fail-closed side: "explain how exactly A affects B" is refused too.
+ */
+const FRAMING_TOKENS = new Set([
+  "explain",
+  "what",
+  "which",
+  "how",
+  "describe",
+  "mechanism",
+  "process",
+  "procedure",
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "does",
+  "do",
+  "did",
+]);
+
+/**
+ * Is everything between the question's framing and the relation a recognised function word?
+ *
+ * The scan starts at the LAST interrogative before the relation, not at the previous clause's end.
+ * That distinction preserves "There is no shortage of gamma. Explain how alpha affects beta." —
+ * where an unrelated sentence precedes a perfectly ordinary question — while still refusing an
+ * interposed denial, because a denial sits AFTER the interrogative and unrelated prose sits before
+ * it. Punctuation is gone by this point, so the interrogative is the only sentence boundary
+ * available, and it is the one the frame gate already insisted on.
+ */
+export function framingIsRecognised(region: string): boolean {
+  const tokens = normalizeSubject(region).trim().split(" ").filter(Boolean);
+  let start = 0;
+  for (const [i, token] of tokens.entries()) {
+    if (ANCHOR_TOKENS.includes(token)) start = i;
+  }
+  return tokens.slice(start).every((token) => FRAMING_TOKENS.has(token));
+}
+
+/**
+ * A cause region is well formed when it reads as recognised framing followed by the subject, and
+ * nothing else — in that order.
+ *
+ * Two clauses that a mutation run showed are not the same rule wearing two hats, though they very
+ * nearly are. Removing the trailing-subject clause left every test green, because the framing
+ * allowlist happened to catch the same queries: with the subject no longer required at the end, its
+ * own words fall into the framing half and subject names are not function words. That is a real
+ * dependency, and one worth stating out loud rather than relying on by accident — a repository
+ * whose series were named "the process" would lose it.
+ *
+ * So both clauses stay and both are exercised directly, because through the production path only
+ * their conjunction is observable.
+ */
+export function causeRegionIsWellFormed(region: string, causeName: string): boolean {
+  const tokens = normalizeSubject(region).trim().split(" ").filter(Boolean);
+  const nameTokens = normalizeSubject(causeName).trim().split(" ").filter(Boolean);
+  if (nameTokens.length === 0 || tokens.length < nameTokens.length) return false;
+
+  const tail = tokens.slice(tokens.length - nameTokens.length);
+  if (tail.join(" ") !== nameTokens.join(" ")) return false;
+
+  return framingIsRecognised(tokens.slice(0, tokens.length - nameTokens.length).join(" "));
+}
+
 const containsNegationMarker = (region: string) =>
   NEGATION_MARKERS.some((marker) => normalizeSubject(region).includes(` ${marker} `));
 
@@ -373,10 +460,14 @@ export function relationSyntax(query: string): RelationSyntax {
     //  - inside the effect region ("affects beta, not gamma").
     // So the scan covers the last two and leaves the first to the anchor.
     const preMarker = before ? normalized.slice(regionStart, m.start + 1) : "";
+    // `containsNegationMarker(preMarker)` used to sit here and a mutation run proved it dead: the
+    // framing allowlist refuses everything it refused, because a negation particle is not a
+    // function word. Removed rather than kept as untestable insurance. The effect region keeps its
+    // marker scan — there is no allowlist there, since effects legitimately trail into free words.
     const denied =
       m.construction.polarity === "AFFIRMED" &&
       (CLAUSE_NEGATORS.some((n) => trimmed === n || trimmed.endsWith(` ${n}`)) ||
-        containsNegationMarker(preMarker) ||
+        !framingIsRecognised(preMarker) ||
         containsNegationMarker(effect));
     return {
       cause,
@@ -558,13 +649,16 @@ export async function resolveSubjectAuthority(
     // clause says something about the relation that this grammar has not read. No list is consulted
     // and none can be outgrown: an adversarial review got three denials past the negator list, and
     // every one of them leaves a residue here.
-    const causeRegion = normalizeSubject(clause.cause);
-    const causeName = normalizeSubject(causes[0]).trim();
-    if (!causeRegion.endsWith(`${causeName} `)) {
+    // The cause region must read as recognised framing, then the subject, and nothing else. The
+    // trailing half catches whatever qualifies the VERB ("may not", "never", "is unlikely to"); the
+    // framing half catches whatever qualifies the PROPOSITION ("it is false that", "the claim
+    // that"), which sits in front of a subject that ends its region quite legitimately.
+    if (!causeRegionIsWellFormed(clause.cause, causes[0])) {
       return NOT_ELIGIBLE(
         frame,
-        `The clause has "${causeRegion.trim().slice(-40)}" where it should end with the cause, so ` +
-          "something qualifies the relation that this grammar has not read. Unread is not affirmed.",
+        `The clause reads "${normalizeSubject(clause.cause).trim().slice(-60)}", which is not ` +
+          "recognised framing followed by the subject. Something qualifies the relation that this " +
+          "grammar has not read, and unread is not affirmed.",
       );
     }
 

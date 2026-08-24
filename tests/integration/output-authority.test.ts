@@ -1535,10 +1535,19 @@ describeIfDb("output authority (integration)", () => {
     });
 
     it("repeating one subject inside a clause does not manufacture a second relation", async () => {
+      // The cardinality question this was written for: one clause, one cause, whatever the
+      // repetition. That still holds and is asserted directly.
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
       const repeated = `Explain how ${FREIGHT}, the ${FREIGHT}, affects ${SHIPPING}.`;
+      expect(relationSyntax(repeated).status).toBe("ONE");
+
+      // The envelope nonetheless refuses, and the reason changed under the framing allowlist:
+      // the interposed repetition sits between the interrogative and the subject, where only
+      // recognised function words may go. Fail-closed, and a capability loss worth naming — an
+      // appositive is ordinary English and this grammar cannot read one.
       const envelope = await deriveCandidateEnvelope(repeated);
-      expect(envelope.status).toBe("AUTHORIZED");
-      expect(envelope.causalEdgeIds).toEqual([explanationId]);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.detail).toContain("recognised framing followed by the subject");
     });
 
     it("overlapping constructions over one span are one clause, not two", async () => {
@@ -1561,6 +1570,38 @@ describeIfDb("output authority (integration)", () => {
       const denied = relationSyntax("Explain the no impact of alpha on beta.");
       expect(denied.status).toBe("ONE");
       if (denied.status === "ONE") expect(denied.clause.polarity).toBe("NEGATED");
+    });
+
+    it("a denial carrying no negation particle at all is still a denial", async () => {
+      // Round two of the adversarial review: four denials with no `not`, `no` or `never` in them.
+      // A denylist of ways to deny something cannot be finished, because denial is not a
+      // vocabulary. Between the interrogative and the subject there may be function words and
+      // nothing else, so `false`, `absence`, `claim` and `untrue` never have to be named.
+      for (const query of [
+        `Explain how it is false that ${FREIGHT} affects ${SHIPPING}.`,
+        `Explain how it is untrue that ${FREIGHT} affects ${SHIPPING}.`,
+        `Explain how the claim that ${FREIGHT} affects ${SHIPPING} is mistaken.`,
+        `Explain how the absence of impact of ${FREIGHT} on ${SHIPPING} works.`,
+      ]) {
+        const envelope = await deriveCandidateEnvelope(query);
+        expect(envelope.status).toBe("UNRESOLVED");
+        const { calls, sink } = countingSink({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+        });
+        const outcome = await answerWithInference(query, sink);
+        expect(calls).toHaveLength(0);
+        expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+      }
+    });
+
+    it("unrelated prose before the question does not refuse the question", async () => {
+      // The framing scan starts at the LAST interrogative, so a preceding sentence — even one that
+      // denies something else — is not read as qualifying this relation. A scan bounded by the
+      // previous clause instead refused exactly this, which is why the anchor is the interrogative.
+      const query = `There is no shortage of dock capacity. Explain how ${FREIGHT} affects ${SHIPPING}.`;
+      const envelope = await deriveCandidateEnvelope(query);
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.causalEdgeIds).toEqual([explanationId]);
     });
 
     it("a denial the negator list never anticipated is still a denial", async () => {

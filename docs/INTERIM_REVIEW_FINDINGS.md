@@ -4833,11 +4833,11 @@ what makes "a missing row is never evidence of absence" true rather than merely 
 
 ### Mutation
 
-51 mutants, **51 resolved, 0 survivors, 0 skipped**, fourteen new: first clause returned and the rest
+54 mutants, **54 resolved, 0 survivors, 0 skipped**, seventeen new: first clause returned and the rest
 dropped, `MULTIPLE` mapped to `ONE`, the multi-clause branch bypassed, denial treated as assertion,
 clause-tail negation ignored, query polarity compared against the stored causal sign, endpoints
 matched against the whole query instead of the clause regions, cause and effect swapped, role
-cardinality skipped, overlapping constructions counted as two clauses, the `NONE` branch removed, the cause anchor removed, the pre-marker negation scan removed, and the effect-region negation scan removed.
+cardinality skipped, overlapping constructions counted as two clauses, the `NONE` branch removed, the cause anchor removed, the pre-marker negation scan removed, and the effect-region negation scan removed, the framing allowlist bypassed, the allowlist made to admit any token, and the framing scan un-anchored from the interrogative.
 
 **Six isolation proofs**, each removing one layer and nothing else — membership, subject and
 operation, direction, nesting, multi-clause cardinality, polarity. Each fails only its own block
@@ -4880,8 +4880,63 @@ the whole clause span and refused _"There is no shortage of gamma. Explain how a
 a sentence boundary was not available to bound it; the scan was narrowed to where negation can
 attach instead.
 
+### The second adversarial review, and the inversion
+
+The rework went back for review and came back **REWORK_REQUIRED** again, with a sharper finding: the
+repair closed _enumerated_ negators and not the underlying polarity bypass. Four denials carry no
+negation particle at all, and three of them have a cause region that ends with the subject quite
+legitimately, so the anchor passed too:
+
+| query                                    | before        |
+| ---------------------------------------- | ------------- |
+| `it is false that A affects B`           | **PUBLISHED** |
+| `it is untrue that A affects B`          | **PUBLISHED** |
+| `the claim that A affects B is mistaken` | **PUBLISHED** |
+| `the absence of impact of A on B`        | **PUBLISHED** |
+
+A denylist of ways to deny something cannot be finished, because **denial is not a vocabulary**. So
+the question is inverted: between the interrogative and the subject there may be recognised function
+words and nothing else — a sixteen-token allowlist. `false`, `absence`, `claim`, `untrue` and
+`unlikely` never have to be named, and never will be.
+
+The scan starts at the **last interrogative**, not at the previous clause's end. That preserves
+_"There is no shortage of dock capacity. Explain how A affects B."_, where unrelated prose precedes
+an ordinary question, while still refusing an interposed denial — because a denial sits after the
+interrogative and unrelated prose sits before it. Punctuation is gone by that point, so the
+interrogative is the only sentence boundary available, and it is the one the frame gate already
+insisted on.
+
+### Two survivors, and what they were really saying
+
+The mutation run then left two survivors, and neither was a missing test.
+
+`negation in front of a prefix construction is ignored` was **provably dead code**: the allowlist
+refuses everything the marker scan refused, because a negation particle is not a function word. It
+was deleted rather than kept as untestable insurance.
+
+`the cause need not be the last thing in its region` was subtler. Removing the anchor left every
+test green, and the reason is a dependency worth stating rather than relying on: with the subject no
+longer required at the end, its own words fall into the framing half — and subject names are not
+function words. The two rules differ only when a subject name **is** a function word. They are now
+one exported predicate, `causeRegionIsWellFormed`, with both halves exercised directly, including
+the case that separates them (`"explain how the a the"` with subject `"a"`: framing satisfied,
+subject misplaced). A repository with a series called `the process` would depend on that difference
+for real.
+
+### The shape of this unit
+
+Three rounds, each closing a defect the previous round's list could not have anticipated —
+enumerated negators, then negation particles, then the framing allowlist. Only the last inverts the
+question from _which denials do I know_ to _which words am I allowed to have read_, and that is what
+makes it finishable. Two of the three were found by independent review; the over-correction between
+them, and the appositive regression after, were found by controls in this repository.
+
 ### Residual limitations
 
+- An appositive is refused: `"A, the A, affects B"` reads as unrecognised framing. Ordinary English
+  that this grammar cannot read.
+- `"explain how exactly A affects B"` is refused for the same reason — an adverb is not a function
+  word in the allowlist.
 - `"A affects B, not C"` is now `NEGATED` and refused. The clause denies something inside its own
   effect region and this grammar cannot establish which relation is asserted, so it asserts none.
   A capability loss on the fail-closed side.
@@ -4906,6 +4961,6 @@ multi-relation or negation grammar would need a fresh corpus frozen first.
 HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call; the
 architecture review used the already-authenticated read-only Codex CLI with no metered billing. PR
 #1 and the frozen candidate untouched; the concurrent session's control-bus work untouched and
-disjoint. Full suite 1954/1954 across 121 files against real PostgreSQL. `npm run build`
+disjoint. Full suite 1962/1962 across 121 files against real PostgreSQL. `npm run build`
 (turbopack) fails on the worktree's `node_modules` junction before reading source;
 `npx next build --webpack` completes.

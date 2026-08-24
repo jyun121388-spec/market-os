@@ -2,6 +2,8 @@ import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
 import { resolveRequestAuthority } from "./requestAuthority";
 import { nameOccursIn } from "./subjectAuthority";
+import { computeCalendarEntry } from "./economicCalendar";
+import { evaluateStaleness } from "./staleness";
 import { extractKeywords } from "./eventClustering";
 import { asksWhetherAPersonShouldTrade } from "./subjectClassification";
 import { frameExemptsProhibitedVocabulary, requestsAFinancialDecision } from "./requestFrame";
@@ -892,13 +894,62 @@ async function matchingSeries(topic: string, sourceId?: string) {
     where: sourceId ? { sourceId } : undefined,
     include: { source: { select: { code: true } } },
   });
-  return allSeries.filter((s) => mentionsEachOther(s.name, topic)).slice(0, 5);
+  // Identity, not resemblance. `mentionsEachOther` is a 60%-token-overlap heuristic: asking for
+  // "TEST Rework Freight" returned "TEST Rework Stale Index" as well, and a request naming a
+  // shorter subject than the one stored was answered from the longer one. Retrieval may guess;
+  // what decides which record answers a request may not. The stored name has to OCCUR in the
+  // subject the parser read.
+  const occurring = allSeries.filter((series) => nameOccursIn(series.name, topic));
+  // And maximal, for the reason IR-105 settled for subjects: with "Widget price" and "Widget Price
+  // Index" both stored and the longer one named, both occur, and the shorter was never separately
+  // named -- it was read out of the longer one.
+  const key = (name: string) =>
+    ` ${name
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()} `;
+  // STRICTLY longer. Two providers publishing the same indicator store the same name, and each
+  // contains the other -- a non-strict test dropped both and answered a perfectly well-formed
+  // request with nothing at all.
+  return occurring
+    .filter(
+      (series) =>
+        !occurring.some(
+          (other) =>
+            key(other.name) !== key(series.name) &&
+            key(other.name).includes(key(series.name).trim()),
+        ),
+    )
+    .slice(0, 5);
 }
 
-/** A level. No observation pair is fetched, so there is no change to leave out. */
+/**
+ * A level, and only where the repository can show it is still the current one.
+ *
+ * "The newest row we hold" and "the current value" are different claims, and serving the first as
+ * the second is the oldest way to be confidently wrong. A series last observed in January 2024
+ * answered `What is the current ...?` with its 2024 figure and said nothing about the gap.
+ *
+ * Freshness is decided PER FACTOR and never in aggregate: one fresh series standing beside a stale
+ * one must not make the stale one publishable. `computeCalendarEntry` and `evaluateStaleness` are
+ * the repository's existing cadence rule, already used by claim verification -- one rule, one
+ * implementation. Too little history to project a cadence is UNKNOWN, and unknown is not fresh.
+ *
+ * No observation pair is fetched either, so there is no change to leave out.
+ */
 async function findObservationFactors(topic: string, sourceId?: string): Promise<SeriesFactor[]> {
   const factors: SeriesFactor[] = [];
   for (const series of await matchingSeries(topic, sourceId)) {
+    const cadence = await computeCalendarEntry(series.id);
+    if (cadence.status === "INSUFFICIENT_DATA" || cadence.medianIntervalDays === undefined) {
+      continue;
+    }
+    const freshness = evaluateStaleness({
+      lastObservedDate: cadence.lastObservedDate as string,
+      medianIntervalDays: cadence.medianIntervalDays,
+    });
+    if (freshness.status !== "FRESH") continue;
     const latest = await prisma.observation.findFirst({
       where: { seriesId: series.id },
       // Two observations can share a date; without a unique tiebreak "the latest value" is
@@ -967,14 +1018,34 @@ async function resolveSourceIdentity(sourceRegion: string): Promise<SourceResolu
   // Containment of the WHOLE name, not overlap. `mentionsEachOther` is a retrieval heuristic and
   // it reported both "Test PB Source A" and "Test PB Source B" as matching a request that named
   // one of them -- three shared words out of four. Retrieval may guess; identity may not.
+  //
+  // Unicode-aware, matching `subjectAuthority.normalizeSubject`. An ASCII-only character class
+  // erases a non-Latin source name to the empty string, and the empty string is contained in
+  // every request -- so the check would have resolved every source, or none, on a name it could
+  // not see.
   const normalize = (text: string) =>
     ` ${text
+      .normalize("NFKC")
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim()} `;
   const haystack = normalize(region);
-  const hits = sources.filter(
-    (src) => haystack.includes(normalize(src.name)) || haystack.includes(normalize(src.code)),
+  const matched = sources.filter(
+    (src) =>
+      normalize(src.name).trim().length > 0 &&
+      (haystack.includes(normalize(src.name)) || haystack.includes(normalize(src.code))),
+  );
+  // Keep only maximal names. With "Rework Data" and "Rework Data Research" both stored, naming the
+  // longer one makes BOTH whole names occur, and the request was refused as ambiguous -- a request
+  // that named exactly one source, refused for naming it. A hit whose name sits strictly inside
+  // another hit's name was never separately named; it was read out of the longer one.
+  const hits = matched.filter(
+    (src) =>
+      !matched.some(
+        (other) =>
+          normalize(other.name) !== normalize(src.name) &&
+          normalize(other.name).includes(normalize(src.name).trim()),
+      ),
   );
   if (hits.length === 1) return { status: "RESOLVED", sourceId: hits[0].id, code: hits[0].code };
   if (hits.length > 1) return { status: "AMBIGUOUS", codes: hits.map((h) => h.code) };
@@ -1041,7 +1112,11 @@ async function findCompanyFacts(
     orderBy: { receiptDate: "desc" },
     include: { source: { select: { code: true } } },
   });
-  const filing = allFilings.find((f) => mentionsEachOther(f.corpName, topic));
+  // Identity, like the series path. `mentionsEachOther` matched "TEST Widget Corp" against a
+  // question about "TEST Widget Staleness Probe Index" -- enough shared tokens -- so a refusal of
+  // a stale series came back as a success carrying a company's revenue. The company has to be
+  // named, not merely resembled.
+  const filing = allFilings.find((f) => nameOccursIn(f.corpName, topic));
   if (!filing) return { facts: [] };
 
   // Scoped to the source the FILING came from. `corpCode` is not a company: both unique indexes

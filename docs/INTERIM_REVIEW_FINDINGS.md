@@ -5503,3 +5503,54 @@ whichever row came back first.
 Still sealed. The development evaluator calls only `resolveRequestAuthority`; it could not have
 detected any of this. Opening a parser-only measurement now would spend sealed evidence without
 certifying what users are served.
+
+### Adversarial review of the binding: REWORK_REQUIRED, and it was right
+
+Four real defects, each reproduced against real PostgreSQL before anything was changed.
+
+**Subject matching was still a resemblance heuristic.** `mentionsEachOther` is 60% token overlap,
+so `What is the current TEST Rework Freight?` returned both `TEST Rework Freight Index` **and**
+`TEST Rework Stale Index`. A request naming a shorter subject than the stored one was answered from
+the longer. The operation had been bound and the subject had not. Matching is now occurrence of the
+stored name in the parsed subject, and maximal — the same rule IR-105 settled for subjects, finally
+applied where records are chosen. The cost is real and deliberate: a request must name the stored
+subject, so the fixtures' partial-name queries were updated to full names.
+
+**A stale row was served as a current observation.** A series last observed in January 2024 answered
+`What is the current …?` with its 2024 figure. "The newest row we hold" and "the current value" are
+different claims. Freshness now uses `computeCalendarEntry` + `evaluateStaleness` — the repository's
+existing cadence rule, already used by claim verification — **per factor, never in aggregate**, so
+one fresh series cannot carry a stale one. Too little history to project a cadence is UNKNOWN, and
+unknown is not fresh.
+
+**A named source could be refused for being named.** With `Rework Data` and `Rework Data Research`
+both stored, naming the longer made both whole names occur and the request was refused as ambiguous.
+A hit sitting strictly inside another hit was never separately named. The resolver is also
+Unicode-aware now: an ASCII-only class erased a non-Latin source name to the empty string, and the
+empty string is contained in every request.
+
+**`OBSERVATION` silently meant two repository tables.** It spans series `Observation` rows and
+company `FinancialFact` rows, and review was right that it did so quietly. It is documented rather
+than removed, because the two are the same KIND of record — one subject, one source, one date — and
+a company being the subject is not a different question. A change, a mechanism, an attributed report
+and a definition are, and each has its own class.
+
+Two of these were found by my own tests failing rather than by reasoning. The stale-series test
+could not be written at all while subject matching was a heuristic, because unrelated series kept
+appearing in the answer; and the company lookup was still fuzzy, so a refusal of a stale series came
+back as a success carrying a company's revenue.
+
+**Two fixture facts worth keeping.** The integration fixture's observation dates were literals
+written on the day the fixture was, so the moment freshness was enforced the whole fixture aged into
+STALE — a test of what a current request returns must not also be a test of what today's date is;
+they are relative now. And the second provider's series carried an `(other provider)` suffix, which
+only worked while matching was resemblance; two providers publishing one indicator store the _same_
+name, which is what the schema says and what that test's own comment describes.
+
+**Isolation: 13 of 13.** Every mutation fails only the binding tests; none fails the 120 parse,
+subject, candidate, verification or refusal-invariant tests. Two of the thirteen were re-aimed after
+they proved to test nothing: one removed a clause whose two guards never disagreed, and one targeted
+strictness where the repair was the filter itself.
+
+Development corpus unchanged at 57/300 with 0/200 leaks — this work did not touch recognition.
+Parser mutants 18/18. Suite 2023/2023. Sealed holdout still sealed.

@@ -16,6 +16,32 @@ const SERIES_NAME = "TEST Widget Price Index";
 const CORP_NAME = "TEST Widget Corp";
 const CORP_CODE = "TEST_WIDGET_CORP_CODE";
 
+/**
+ * Observation dates relative to now, not literals.
+ *
+ * These were fixed strings written on the day the fixture was, and once `askMarket` began checking
+ * freshness the whole fixture aged into STALE and the tests failed for having been written ten days
+ * earlier. A test of what a current-observation request returns must not also be a test of what
+ * today's date is. Two days apart, so the projected cadence is daily and the newest reading is
+ * inside it.
+ */
+const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+
+/** A series whose newest observation is far past its own cadence. */
+const STALE_SOURCE = "TEST_ASK_MARKET_STALE_SOURCE";
+const STALE_SERIES_NAME = "TEST Widget Staleness Probe Index";
+/** A topic both the fresh and the stale series answer to, for the mixed-result control. */
+const SHARED_TOPIC = "TEST Widget Staleness Probe";
+/** Two sources, one of whose whole names nests inside the other. */
+const NESTED_SHORT_SOURCE = "TEST_ASK_MARKET_NESTED_SHORT";
+const NESTED_LONG_SOURCE = "TEST_ASK_MARKET_NESTED_LONG";
+const NESTED_LONG_SOURCE_NAME = "Rework Data Research";
+const NESTED_SERIES_NAME = "TEST Widget Nested Source Index";
+/** A series whose whole name nests inside NESTED_SERIES_NAME. */
+const NESTED_SHORT_SERIES_NAME = "TEST Widget Nested Source";
+/** A series with a single observation, so no cadence can be projected from it. */
+const NO_CADENCE_SERIES_NAME = "TEST Widget Single Reading Index";
+
 describeIfDb("askMarket (integration)", () => {
   let prisma: typeof PrismaClientInstance;
   let askMarket: typeof import("@/server/domain/askMarket").askMarket;
@@ -24,7 +50,13 @@ describeIfDb("askMarket (integration)", () => {
     ({ prisma } = await import("@/server/db/client"));
     ({ askMarket } = await import("@/server/domain/askMarket"));
 
-    for (const code of [SOURCE_CODE, OTHER_SOURCE_CODE]) {
+    for (const code of [
+      SOURCE_CODE,
+      OTHER_SOURCE_CODE,
+      STALE_SOURCE,
+      NESTED_SHORT_SOURCE,
+      NESTED_LONG_SOURCE,
+    ]) {
       const existingSource = await prisma.source.findUnique({ where: { code } });
       if (existingSource) {
         await prisma.financialFact.deleteMany({ where: { sourceId: existingSource.id } });
@@ -55,7 +87,7 @@ describeIfDb("askMarket (integration)", () => {
       data: {
         seriesId: series.id,
         sourceId: source.id,
-        observationDate: new Date("2026-08-14T00:00:00.000Z"),
+        observationDate: daysAgo(2),
         value: "100.0",
         raw: {},
       },
@@ -64,7 +96,7 @@ describeIfDb("askMarket (integration)", () => {
       data: {
         seriesId: series.id,
         sourceId: source.id,
-        observationDate: new Date("2026-08-15T00:00:00.000Z"),
+        observationDate: daysAgo(1),
         value: "102.0",
         raw: {},
       },
@@ -167,25 +199,115 @@ describeIfDb("askMarket (integration)", () => {
       data: {
         sourceId: otherSource.id,
         externalId: "TEST_ASK_MARKET_SERIES_OTHER",
-        name: `${SERIES_NAME} (other provider)`,
+        name: SERIES_NAME,
         unit: "index",
         frequency: "daily",
       },
     });
     for (const [date, value] of [
-      ["2026-08-14T00:00:00.000Z", "500.0"],
-      ["2026-08-15T00:00:00.000Z", "530.0"],
+      [daysAgo(2), "500.0"],
+      [daysAgo(1), "530.0"],
     ] as const) {
       await prisma.observation.create({
         data: {
           seriesId: otherSeries.id,
           sourceId: otherSource.id,
-          observationDate: new Date(date),
+          observationDate: date,
           value,
           raw: {},
         },
       });
     }
+    // A stale series: two observations a day apart, both long ago. Its own projected cadence is
+    // daily, so being years old is unambiguously past it.
+    const staleSource = await prisma.source.create({
+      data: { code: STALE_SOURCE, name: "Test Ask Market Stale Source", tier: "TIER_S" },
+    });
+    const staleSeries = await prisma.series.create({
+      data: {
+        sourceId: staleSource.id,
+        externalId: "TEST_ASK_MARKET_STALE_SERIES",
+        name: STALE_SERIES_NAME,
+        unit: "index",
+        frequency: "daily",
+      },
+    });
+    for (const [date, value] of [
+      [daysAgo(400), "900.0"],
+      [daysAgo(399), "999.0"],
+    ] as const) {
+      await prisma.observation.create({
+        data: {
+          seriesId: staleSeries.id,
+          sourceId: staleSource.id,
+          observationDate: date,
+          value,
+          raw: {},
+        },
+      });
+    }
+
+    // A series with exactly one observation. Nothing can be projected from a single point, and
+    // unknown freshness is not freshness.
+    const singleSeries = await prisma.series.create({
+      data: {
+        sourceId: staleSource.id,
+        externalId: "TEST_ASK_MARKET_SINGLE_SERIES",
+        name: NO_CADENCE_SERIES_NAME,
+        unit: "index",
+        frequency: "daily",
+      },
+    });
+    await prisma.observation.create({
+      data: {
+        seriesId: singleSeries.id,
+        sourceId: staleSource.id,
+        observationDate: daysAgo(1),
+        value: "77.0",
+        raw: {},
+      },
+    });
+
+    // Two sources, one name nested inside the other, both publishing the same subject.
+    const nestedShort = await prisma.source.create({
+      data: { code: NESTED_SHORT_SOURCE, name: "Rework Data", tier: "TIER_S" },
+    });
+    const nestedLong = await prisma.source.create({
+      data: { code: NESTED_LONG_SOURCE, name: NESTED_LONG_SOURCE_NAME, tier: "TIER_S" },
+    });
+    for (const owner of [nestedShort, nestedLong]) {
+      // Both the long subject name and a shorter one that nests inside it, so that requiring
+      // MAXIMAL names is separable from requiring occurrence at all.
+      for (const [seriesName, suffix, base] of [
+        [NESTED_SERIES_NAME, "LONG", 10],
+        [NESTED_SHORT_SERIES_NAME, "SHORT", 20],
+      ] as const) {
+        const nestedSeries = await prisma.series.create({
+          data: {
+            sourceId: owner.id,
+            externalId: `TEST_ASK_MARKET_NESTED_${suffix}_${owner.code}`,
+            name: seriesName,
+            unit: "index",
+            frequency: "daily",
+          },
+        });
+        for (const [date, value] of [
+          [daysAgo(2), `${base}.0`],
+          [daysAgo(1), `${base + 1}.0`],
+        ] as const) {
+          await prisma.observation.create({
+            data: {
+              seriesId: nestedSeries.id,
+              sourceId: owner.id,
+              observationDate: date,
+              value,
+              raw: {},
+            },
+          });
+        }
+      }
+    }
+
     await prisma.financialFact.create({
       data: {
         sourceId: otherSource.id,
@@ -207,7 +329,13 @@ describeIfDb("askMarket (integration)", () => {
   });
 
   afterAll(async () => {
-    for (const code of [SOURCE_CODE, OTHER_SOURCE_CODE]) {
+    for (const code of [
+      SOURCE_CODE,
+      OTHER_SOURCE_CODE,
+      STALE_SOURCE,
+      NESTED_SHORT_SOURCE,
+      NESTED_LONG_SOURCE,
+    ]) {
       const source = await prisma.source.findUnique({ where: { code } });
       if (source) {
         await prisma.financialFact.deleteMany({ where: { sourceId: source.id } });
@@ -228,7 +356,7 @@ describeIfDb("askMarket (integration)", () => {
     // `absoluteChange` and at least one causal edge. That was the production-binding defect
     // written down as an expectation -- the operation was authorized and then ignored, so every
     // operation returned the same payload. A level request is answered with a level.
-    const result = await askMarket("What is the current Widget Price Index?");
+    const result = await askMarket(`What is the current ${SERIES_NAME}?`);
     expect(result.status).toBe("FACTORS_FOUND");
     const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
     expect(own.kind).toBe("OBSERVATION");
@@ -237,7 +365,7 @@ describeIfDb("askMarket (integration)", () => {
   });
 
   it("serves a change as a change, carrying the period it was measured over", async () => {
-    const result = await askMarket("How much has Widget Price Index changed this year?");
+    const result = await askMarket(`How much has ${SERIES_NAME} changed this year?`);
     expect(result.status).toBe("FACTORS_FOUND");
     const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
     expect(own.kind).toBe("COMPUTED_CHANGE");
@@ -300,6 +428,70 @@ describeIfDb("askMarket (integration)", () => {
     expect(result.seriesFactors).toHaveLength(0);
   });
 
+  it("does not serve a stale row as a current observation", async () => {
+    // "The newest row we hold" and "the current value" are different claims. This series was last
+    // observed long past three times its own cadence, and answering with its figure would present
+    // a 2024 number as today's. The cadence rule is the repository's existing one, already used by
+    // claim verification.
+    const result = await askMarket(`What is the current ${STALE_SERIES_NAME}?`);
+    expect(result.status).toBe("NOT_FOUND");
+    expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  it("does not let a fresh series make a stale one publishable", async () => {
+    // Freshness is decided per factor, never in aggregate. Both series match this topic; only one
+    // of them is current, and "some of these are fresh" is not a property anyone asked about.
+    const result = await askMarket(`What is the current ${SHARED_TOPIC}?`);
+    for (const factor of result.seriesFactors) {
+      expect(factor.seriesName, "a stale series was carried by a fresh one").not.toBe(
+        STALE_SERIES_NAME,
+      );
+    }
+  });
+
+  it("resolves the source that was named, not the shorter one nested inside it", async () => {
+    // With both "Rework Data" and "Rework Data Research" stored, naming the longer one makes BOTH
+    // whole names occur. Refusing that as ambiguous refuses a request that named exactly one
+    // source -- the shorter hit was never separately named, it was read out of the longer one.
+    const result = await askMarket(
+      `What did ${NESTED_LONG_SOURCE_NAME} publish about ${NESTED_SERIES_NAME}?`,
+    );
+    expect(result.status).toBe("FACTORS_FOUND");
+    expect(result.seriesFactors.map((f) => f.sourceCode)).toEqual([NESTED_LONG_SOURCE]);
+  });
+
+  it("does not serve a series whose cadence cannot be projected", async () => {
+    // One observation is a point, not a series. Nothing says whether it is still current, and
+    // unknown is not fresh -- the rule claim verification already applies to evidence.
+    const result = await askMarket(`What is the current ${NO_CADENCE_SERIES_NAME}?`);
+    expect(result.status).toBe("NOT_FOUND");
+    expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  it("serves the subject that was named, not the shorter one nested inside it", async () => {
+    // Both names occur in this request, because one is a prefix of the other. The shorter was
+    // never separately named; it was read out of the longer. IR-105 settled this for subjects and
+    // the serving path is where it has to hold.
+    const result = await askMarket(`What is the current ${NESTED_SERIES_NAME}?`);
+    expect(result.status).toBe("FACTORS_FOUND");
+    for (const factor of result.seriesFactors) {
+      expect(factor.seriesName).toBe(NESTED_SERIES_NAME);
+    }
+  });
+
+  it("serves a company reading as an observation, and nothing else with it", async () => {
+    // OBSERVATION spans two tables on purpose: a series reading and a company filing fact are the
+    // same KIND of record -- one subject, one source, one date. What must not come with it is a
+    // change, a mechanism or a definition, and the test says so rather than leaving it implied.
+    const result = await askMarket(`What is the current ${CORP_NAME}?`);
+    expect(result.status).toBe("FACTORS_FOUND");
+    expect(result.companyFacts.length).toBeGreaterThanOrEqual(1);
+    expect(result.causalFactors).toHaveLength(0);
+    for (const factor of result.seriesFactors) {
+      expect(factor.kind).toBe("OBSERVATION");
+    }
+  });
+
   it("refuses a definition rather than answering it with a number", async () => {
     // The repository holds no glossary record class, and the term names a stored series. It was
     // answered with that series' value -- a figure in place of a meaning. Failing closed is the
@@ -315,7 +507,7 @@ describeIfDb("askMarket (integration)", () => {
     // this topic and the answer lists both, so without an attribution the reader sees 102 and
     // 530 for what reads as the same indicator and has no way to tell which is which — or that
     // two different organisations are being quoted at all.
-    const result = await askMarket("What is the current Widget Price Index?");
+    const result = await askMarket(`What is the current ${SERIES_NAME}?`);
 
     expect(result.seriesFactors.length).toBeGreaterThanOrEqual(2);
     for (const factor of result.seriesFactors) {

@@ -56,7 +56,17 @@ export const REQUEST_OPERATIONS = [
 
 export type RequestOperation = (typeof REQUEST_OPERATIONS)[number];
 
-/** What a stored record must be for an operation to be answerable by it. */
+/**
+ * What a stored record must be for an operation to be answerable by it.
+ *
+ * `OBSERVATION` deliberately spans two repository tables: an economic series' `Observation` rows and
+ * a company's `FinancialFact` rows. Adversarial review flagged that as one operation quietly
+ * meaning two unrelated classes, and it was right that it was quiet. Naming it here is the repair,
+ * because the two are the same KIND of record -- a reading of one named subject, reported by one
+ * named source, as of one date -- and the subject being a company rather than an index is not a
+ * different question being asked. What would be a different question is a change, a mechanism, an
+ * attributed report or a definition, and each of those has its own class.
+ */
 export type RecordClass =
   "OBSERVATION" | "COMPUTED_CHANGE" | "CAUSAL_EDGE" | "ATTRIBUTED_OBSERVATION" | "GLOSSARY_ENTRY";
 

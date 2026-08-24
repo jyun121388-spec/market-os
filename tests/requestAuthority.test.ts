@@ -354,3 +354,65 @@ describe("request mood is not evidence of prohibited purpose", () => {
     expect(authorize("Show me the current gold price.").status).toBe("AUTHORIZED");
   });
 });
+
+describe("attribution is three bound roles, not eight constructions", () => {
+  /**
+   * IR-107 Unit 2. This operation had eight construction rows — publish/report crossed with
+   * about/for — and a six-name source list searched anywhere in the request. The ninth row was
+   * always going to be "said about", and the live hole was exactly that sentence.
+   *
+   * SOURCE and SUBJECT are open classes; no closed set contains every organisation or every series.
+   * So the grammar binds them by POSITION and reads whatever is there, which DELETED the source
+   * list rather than extending it. The reporting ACT stays a declared lexicon, deliberately,
+   * because it is the one role where being wrong authorizes something.
+   */
+  it("authorizes the shape that used to reach a planner with no operation", () => {
+    const a = authorize("What did analysts say about the Test Output freight index?");
+    expect(a.status).toBe("AUTHORIZED");
+    if (a.status === "AUTHORIZED") {
+      expect(a.operation).toBe("ATTRIBUTED_REPORTED_OBSERVATION");
+      expect(a.subjectRegion.trim()).toBe("the test output freight index");
+    }
+  });
+
+  it("reads a source it has never been told about", () => {
+    // The point of a slot: no vocabulary was added for either of these.
+    expect(authorize("What did Goldman Sachs say about US inflation?").status).toBe("AUTHORIZED");
+    expect(authorize("What did the Bank of Korea publish about household debt?").status).toBe(
+      "AUTHORIZED",
+    );
+  });
+
+  it("refuses a reporting act with no source in front of it", () => {
+    // Nothing but framing before the act, so nothing binds. Same answer as the old list gave, for
+    // a reason that does not depend on which names are in it.
+    expect(authorize("What was published about US headline CPI?").status).not.toBe("AUTHORIZED");
+    expect(authorize("What has been said about US inflation?").status).not.toBe("AUTHORIZED");
+  });
+
+  it("refuses a pronoun in the source slot, which names no source", () => {
+    // "they" refers to a source established somewhere this request does not contain.
+    expect(authorize("What did they say about the US labour market?").status).not.toBe(
+      "AUTHORIZED",
+    );
+    // And asking the product for its own forecast is asking for a prediction.
+    expect(authorize("Give me your forecast for the USD/KRW rate.").status).not.toBe("AUTHORIZED");
+  });
+
+  it("refuses a source slot that has swallowed a second question", () => {
+    // The slot is bounded by clause boundaries and by a second reporting act. Unbounded, this
+    // authorized the second question with the whole first one bound as the name of a source.
+    const a = authorize(
+      "What has the IMF published on global growth, and what did the OECD say about Korea?",
+    );
+    expect(a.status).not.toBe("AUTHORIZED");
+  });
+
+  it("refuses a non-reporting verb between a real source and a real subject", () => {
+    // Both open roles bind perfectly here. The act is why it refuses, which is the reason the act
+    // is a declared capability lexicon and the other two roles are not.
+    expect(authorize("What did Goldman Sachs buy for the pension fund?").status).not.toBe(
+      "AUTHORIZED",
+    );
+  });
+});

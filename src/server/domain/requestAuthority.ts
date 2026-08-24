@@ -175,6 +175,19 @@ const FRAMING_TOKENS = new Set([
   "has",
   "have",
   "had",
+  // The auxiliary and modal chain. Closed functional classes, and their absence is what let
+  // "What has been said about US inflation?" bind "been" as the name of a source.
+  "be",
+  "been",
+  "being",
+  "will",
+  "would",
+  "can",
+  "could",
+  "may",
+  "might",
+  "must",
+  "there",
   "the",
   "a",
   "an",
@@ -239,14 +252,9 @@ const CONSTRUCTIONS: readonly Construction[] = [
   { operation: "DEFINITION", markers: [" what is a ", null] },
   { operation: "DEFINITION", markers: [" what is an ", null] },
   { operation: "DEFINITION", markers: [" what does ", " mean "] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" publish about ", null] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" published about ", null] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" publish for ", null] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" published for ", null] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" report for ", null] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" reported for ", null] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" report about ", null] },
-  { operation: "ATTRIBUTED_REPORTED_OBSERVATION", markers: [" reported about ", null] },
+  // ATTRIBUTED_REPORTED_OBSERVATION is not here. It had eight rows — publish/report crossed with
+  // about/for — and the ninth was always going to be "said about". It binds three roles instead;
+  // see `attributionMatch`.
 ];
 
 /**
@@ -306,14 +314,71 @@ const INTERVAL_OPERANDS = [
   "since last year",
 ];
 
-/** Sources whose attribution the product recognises. Required by the attributed operation. */
-const ATTRIBUTION_MARKERS = [
-  "analysts",
-  "analyst",
-  "brokers",
-  "brokerages",
-  "consensus",
-  "the street",
+/**
+ * Reporting acts the product can serve a record for.
+ *
+ * This is a LEXICON, and the distinction from a grammar is the point of the whole unit. The
+ * grammar below binds three roles — who reported, the act of reporting, what it was about — and
+ * needs no vocabulary to do it. What this list bounds is a *capability*: the set of reporting acts
+ * for which an `ATTRIBUTED_OBSERVATION` record can actually be produced. It is finite because the
+ * record types are finite, not because English reporting verbs are.
+ *
+ * Naming that honestly is what stops it becoming the thing that has failed here three times. A
+ * phrase table pretends a list of strings is a grammar and grows without limit; this says "these
+ * are the acts we hold records of", and adding one is a product decision with a record type behind
+ * it. If the product cannot serve "assessed", the parser should not authorize "assessed".
+ */
+const REPORTING_ACTS = [
+  "said",
+  "say",
+  "published",
+  "publish",
+  "reported",
+  "report",
+  "forecast",
+  "forecasted",
+  "estimated",
+  "estimate",
+  "noted",
+  "wrote",
+  "flagged",
+  "issued",
+];
+
+/** Complement prepositions that introduce what a report was about. A closed functional class. */
+const REPORT_COMPLEMENTS = ["about", "on", "regarding", "for"];
+
+/**
+ * Words that occupy the source slot without naming a source.
+ *
+ * "What did they say about the labour market?" has a grammatical subject and no attribution: a
+ * pronoun refers to a source established somewhere this request does not contain. "your forecast"
+ * is worse — it asks the product for its own prediction, which is the thing it must never give.
+ *
+ * Pronouns and possessive determiners are closed classes, which is why this can be enumerated
+ * without being the kind of list that grows.
+ */
+const SOURCE_DISQUALIFIERS = [
+  "they",
+  "them",
+  "he",
+  "she",
+  "it",
+  "someone",
+  "anyone",
+  "everyone",
+  "people",
+  "your",
+  "yours",
+  "my",
+  "mine",
+  "our",
+  "ours",
+  "their",
+  "theirs",
+  "its",
+  "his",
+  "her",
 ];
 
 interface Recognised {
@@ -321,6 +386,75 @@ interface Recognised {
   subjectRegion: string;
   /** Everything not accounted for by the construction, its subject, or a temporal operand. */
   residue: string[];
+  /**
+   * Set when the grammar bound a source constituent, which is the only thing that satisfies
+   * `requiresAttribution`. Previously a six-name list was searched anywhere in the request, so the
+   * source did not have to be the source of anything — it merely had to appear.
+   */
+  attributionBound?: boolean;
+}
+
+/**
+ * Attribution is three roles, and only one of them can be a list.
+ *
+ * SOURCE and SUBJECT are open classes — no closed set contains every organisation or every economic
+ * series, and pretending otherwise is how `ATTRIBUTION_MARKERS` came to hold six names while the
+ * live hole was `"What did analysts say about the Test Output freight index?"`. So the grammar
+ * binds them by POSITION and reads whatever is there: the source is what sits before the reporting
+ * act once framing is removed, the subject is what follows the complement preposition.
+ *
+ * That deletes the source list rather than extending it. A request with no source constituent —
+ * `"What was published about US headline CPI?"` — leaves nothing but framing in front of the act,
+ * so nothing binds and the request refuses, which is the same answer as before for a better reason.
+ *
+ * The reporting ACT stays a lexicon, deliberately, because it is the one role where being wrong
+ * authorizes something: `"What did Goldman Sachs buy for the pension fund?"` binds a perfectly good
+ * source and subject around a verb that reports nothing.
+ */
+function attributionMatch(normalized: string): Recognised | null {
+  for (const act of REPORTING_ACTS) {
+    const actAt = normalized.indexOf(" " + act + " ");
+    if (actAt < 0) continue;
+    const actEnd = actAt + act.length + 1;
+
+    for (const prep of REPORT_COMPLEMENTS) {
+      const prepAt = normalized.indexOf(" " + prep + " ", actEnd - 1);
+      if (prepAt < 0) continue;
+
+      // The source is the noun phrase IMMEDIATELY before the act, and everything in front of it
+      // must be framing. Without that bound the slot swallowed whole clauses: "What has the IMF
+      // published on global growth, and what did the OECD say about Korea?" bound the entire first
+      // question as the name of a source and answered the second one alone.
+      const sourceTokens = normalizedTokens(normalized.slice(0, actAt + 1));
+      const opens = sourceTokens.findIndex((t) => !FRAMING_TOKENS.has(t));
+      if (opens < 0) continue;
+      const source = sourceTokens.slice(opens);
+      // Internal function words belong to the name: "the Bank of Korea" is one source, and a rule
+      // that stopped at "of" bound only "korea" and refused the rest as unread. What may NOT be
+      // inside a source is a clause boundary or a second reporting act — that is not a long name,
+      // it is another question. "What has the IMF published on global growth, and what did the
+      // OECD say about Korea?" bound the entire first question as a source and answered the second.
+      // A second reporting act inside the source was also blocked here, and mutation showed the
+      // two guards never disagreed: with either one alone the corpus has no leak, and only with
+      // both removed does the two-question case get through. Two rules deciding one thing is one
+      // rule and a spare, so the spare is gone -- a clause boundary is the grammatical fact, and a
+      // second act was only ever a proxy for one.
+      if (source.some((t) => CLAUSE_CONNECTIVES.includes(t))) continue;
+      if (source.every((t) => SOURCE_DISQUALIFIERS.includes(t))) continue;
+
+      const subjectRegion = normalized.slice(prepAt + prep.length + 1);
+      if (!subjectRegion.trim()) continue;
+
+      return {
+        operation: "ATTRIBUTED_REPORTED_OBSERVATION",
+        subjectRegion,
+        // Between the act and its complement is the only place unread content can hide here.
+        residue: normalizedTokens(normalized.slice(actEnd, prepAt)),
+        attributionBound: true,
+      };
+    }
+  }
+  return null;
 }
 
 function recogniseAll(normalized: string): Recognised[] {
@@ -481,7 +615,12 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
   // refuses when any of those is unproven. What it cannot say is whether the relation is all the
   // request asks for, so its answer is a candidate here and not a verdict.
   const mechanism = mechanismMatch(query);
-  const recognised = mechanism ? [mechanism] : recogniseAll(normalized);
+  const attribution = attributionMatch(normalized);
+  const recognised = mechanism
+    ? [mechanism]
+    : attribution
+      ? [attribution]
+      : recogniseAll(normalized);
   if (recognised.length === 0) {
     // A personal stake still decides, even with nothing recognised. Placed here rather than at the
     // top so that a recognised request keeps being judged by its subject region, which is the
@@ -557,9 +696,9 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
   // An operation's own required operand is not leftover content. The attribution marker names the
   // source an attributed report must bind to, so it is part of the request being read, not a
   // second thing being asked.
-  const operandTokens = new Set(
-    contract.requiresAttribution ? ATTRIBUTION_MARKERS.flatMap((m) => m.split(" ")) : [],
-  );
+  // Nothing to exempt any more: the source is a bound constituent rather than a name that had to
+  // be forgiven for appearing.
+  const operandTokens = new Set<string>();
   const unread = match.residue.filter(
     (token) =>
       !FRAMING_TOKENS.has(token) && !intervalTokens.has(token) && !operandTokens.has(token),
@@ -582,17 +721,16 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
     };
   }
 
-  if (contract.requiresAttribution) {
-    const attributed = ATTRIBUTION_MARKERS.some((marker) => normalized.includes(` ${marker} `));
-    if (!attributed) {
-      return {
-        status: "UNSUPPORTED",
-        detail:
-          "An attributed-report request must name whose report it is; the source binds as tightly " +
-          "as the subject.",
-      };
-    }
-  }
+  // There is no attribution check here any more, and its absence is the point.
+  //
+  // It read `if (contract.requiresAttribution && !attributionBound) refuse`, and mutation showed
+  // it could be deleted or forced true with nothing failing. That is not a missing test: since the
+  // eight attributed construction rows were removed, `attributionMatch` is the only thing that
+  // produces this operation and it returns null rather than a match when no source binds. The
+  // requirement moved from being checked after the fact to being impossible to violate, which is
+  // where a requirement should live. `requiresAttribution` stays on the contract as the statement
+  // of what the operation needs -- if a construction row for it is ever added back, that row must
+  // bind the role, because nothing downstream will catch it.
 
   return {
     status: "AUTHORIZED",

@@ -40,6 +40,7 @@
 
 import { detectPersonalizedAdviceRequest } from "./askMarket";
 import { classifyRequestFrame, type RequestFrame } from "./requestFrame";
+import { resolveRequestAuthority } from "./requestAuthority";
 
 /** The only frames a future inference producer may ever see. Narrow, and closed. */
 export const INFERENCE_ELIGIBLE_FRAMES = [
@@ -64,7 +65,24 @@ export type IneligibilityReason =
   /** No frame could be established. The largest class, and the one that must fail closed. */
   | "FRAME_NOT_PROVEN"
   /** A recognised frame, and not one of the two that may reach generation. */
-  | "FRAME_NOT_ELIGIBLE";
+  | "FRAME_NOT_ELIGIBLE"
+  /**
+   * The canonical request authority calls this request prohibited, whatever the frame says.
+   *
+   * Distinct from `PROHIBITED_REQUEST`, which is the vocabulary guardrail's own verdict. This one
+   * fires where that guardrail is silent and the operation parser is not -- a subject that belongs
+   * to the reader, for instance, which no phrase list catches and a possessive determiner does.
+   */
+  | "CANONICAL_AUTHORITY_PROHIBITED"
+  /**
+   * The request IS recognised, and its operation is one repository code answers alone.
+   *
+   * `plannerPermitted` has been on the operation contract since IR-107 and nothing read it, which
+   * made it documentation. A current level, a computed change and a definition are deterministic
+   * output; a model adds nothing to them and can only add something to be wrong about. This is the
+   * safe direction of convergence -- narrower than the deterministic path, never wider.
+   */
+  | "DETERMINISTIC_OPERATION";
 
 export type InferenceAuthorization =
   | { eligible: true; frame: EligibleFrame; reason: string }
@@ -121,6 +139,42 @@ export function authorizeInference(query: string): InferenceAuthorization {
       reason:
         `${frame} is a recognised frame and not one generation may serve. A deterministic lookup ` +
         "may answer it from stored data; a model answering it would be inventing.",
+    };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // The canonical authority, consulted last, and only where it is POSITIVE.
+  //
+  // `resolveRequestAuthority` is the operation parser that drives deterministic serving. Where the
+  // two authorities disagreed, measurement showed thirteen divergences on the development corpus
+  // and one reproduced HIGH exposure: a Korean attributed request that the parser refuses, the
+  // legacy frame classifier admits, and whose candidate envelope resolves AUTHORIZED with a real
+  // series -- the planner is called for a request nobody authorized.
+  //
+  // That case is NOT closed here. Closing it means refusing everything the parser calls
+  // UNSUPPORTED, and that was measured: legitimate throughput went to zero, because the parser
+  // recognises a fifth of written English and none of Korean. Recognition coverage first, then
+  // bypass becomes impossible. This is the half that costs nothing: where the canonical authority
+  // makes a POSITIVE statement -- prohibited, or recognised-and-deterministic -- it decides.
+  //
+  // Last, so that every refusal reason above keeps the meaning it had.
+  const canonical = resolveRequestAuthority(query);
+  if (canonical.status === "PROHIBITED") {
+    return {
+      eligible: false,
+      blockedBy: "CANONICAL_AUTHORITY_PROHIBITED",
+      frame,
+      reason: canonical.detail,
+    };
+  }
+  if (canonical.status === "AUTHORIZED" && !canonical.contract.plannerPermitted) {
+    return {
+      eligible: false,
+      blockedBy: "DETERMINISTIC_OPERATION",
+      frame,
+      reason:
+        `Recognised as ${canonical.operation}, which repository code answers on its own. A model ` +
+        "cannot make a stored level more true and can only make it less so.",
     };
   }
 

@@ -5614,3 +5614,81 @@ Three, all the same shape: a fixture written as a snapshot of one day cannot say
 currentness. Company period ends became relative and gained a prior quarter, because a company that
 reported once has no cadence. The refusal-invariant company likewise — and until it did, that
 invariant was being checked against an empty payload, which it satisfies trivially.
+
+## IR-107 Unit 2c — Two authorities, and only one of them was asked
+
+`resolveRequestAuthority` drives deterministic serving. `authorizeInference` decides whether a
+request may reach a model, and derives that from `classifyRequestFrame` — the narrow pattern list
+IR-107 exists to escape. The convergence question is whether that is specialization or a divergent
+source of truth.
+
+Measured, not argued: `scripts/authority-divergence.ts` runs 42 probes through
+`resolveRequestAuthority`, `authorizeInference` and `deriveCandidateEnvelope` and prints the
+cross-product.
+
+### Specialization is real, and so is the disagreement
+
+Nine probes are **safe specializations** — every `CURRENT_OBSERVATION`, `OBSERVED_CHANGE` and
+`DEFINITION`, which declare `plannerPermitted: false`. Inference being narrower than deterministic
+serving is the property, not a defect.
+
+**Eight are unsafe**: the parser refuses and inference admits. Two are English (a denied relation, a
+two-relation request). **Six are Korean** — and Korean is unsafe by construction, because the parser
+recognises none of it while `classifyRequestFrame` carries real Korean mechanism and reporting
+patterns. My first three Korean probes agreed by accident, matching neither, and measured nothing.
+
+### The one that publishes
+
+Reproduced end to end against PostgreSQL with a seeded series named `TEST Korea Consumer Price
+Index` and a call-counting sink:
+
+```
+증권사가 TEST Korea Consumer Price Index 에 대해 뭐라고 발표했나요?
+  resolveRequestAuthority  UNSUPPORTED
+  authorizeInference       ELIGIBLE
+  candidate envelope       AUTHORIZED / REPORTED_OBSERVATION, 1 series
+  planner calls            1
+```
+
+**The planner is called for a request the canonical authority refuses**, over an envelope that
+resolved AUTHORIZED. Nothing published only because the stub returned an empty plan. And no source
+identity is checked anywhere on that path: 증권사 is the named source, and the envelope carries
+series ids alone — the RA-PB-02 repair reaches the serving path and stops at the candidate boundary.
+
+### What was bound, and what deliberately was not
+
+Only where the canonical authority speaks **positively**, because that half costs nothing:
+
+- `PROHIBITED` ⇒ inference refuses (`CANONICAL_AUTHORITY_PROHIBITED`). This is not the vocabulary
+  guardrail's verdict — it fires where that guardrail is silent and structure is not.
+  `Explain how the policy rate affects our allocation.` carries no advice phrase and an ordinary
+  mechanism frame; a possessive determiner makes the subject the reader's. It reached a planner.
+- `AUTHORIZED` with `plannerPermitted: false` ⇒ inference refuses (`DETERMINISTIC_OPERATION`). The
+  flag had been on the contract since IR-107 and **nothing read it**, which made it documentation.
+  `What is a CPI defined as?` was authorized as a definition and simultaneously admitted to a
+  planner. Now 0 of 42 deterministic operations reach one.
+
+Both checks are placed **last**, so no refusal reason this module already establishes changes
+meaning — putting a canonical verdict first was tried, and turned three `DIRECTIVE_FRAME` refusals
+into `PROHIBITED_REQUEST`, collapsing two distinguishable causes.
+
+**`UNSUPPORTED` and `AMBIGUOUS` are not bound**, and that is the Unit 3 gate rather than an
+oversight. Binding them closes the Korean exposure and was measured: legitimate throughput went from
+4/112 to 0/112 on an independent holdout while the prohibited column stayed at 0/35. On the
+development corpus today it is 14/300 to 3/300. A gate that admits nothing is not a gate, and the
+parser recognises a fifth of written English and none of Korean. Recognition first; then bypass
+becomes impossible. Codex reached the same sequencing independently.
+
+Measured cost of what was bound: **zero** — no development-corpus case was both canonically
+deterministic and planner-eligible, and no currently-eligible case is canonically prohibited. It
+closes classes, not cases.
+
+### One claim I checked rather than accepted
+
+Review reported the script's Korean probes as mojibake. They are not: the file holds 32 Hangul
+codepoints in the correct range, and `cat -A` shows well-formed UTF-8. What is mojibake is the
+console — the same cp949 rendering that has now misled a reader twice. The probes were weak, which
+is a different fault and the one worth fixing; the six shapes that actually diverge are in the
+script now.
+
+Isolation 19/19, parser mutants 18/18, suite 2033/2033, build clean. Sealed holdout still sealed.

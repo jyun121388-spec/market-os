@@ -205,3 +205,59 @@ describe("the whole blind holdout, through the production path", () => {
     expect(allowed).toBeGreaterThan(0);
   });
 });
+
+describe("the canonical request authority decides where it speaks positively", () => {
+  /**
+   * IR-107 convergence. Two request authorities existed: `resolveRequestAuthority`, the operation
+   * parser that drives deterministic serving, and this module, deriving eligibility from
+   * `classifyRequestFrame`. Measurement found thirteen disagreements on the development corpus and
+   * one reproduced HIGH exposure -- a Korean attributed request the parser refuses, this module
+   * admits, and whose candidate envelope resolves AUTHORIZED with a real series, so the planner is
+   * called for a request nobody authorized.
+   *
+   * Only the POSITIVE half is bound here, because it is the half that costs nothing. Refusing
+   * everything the parser calls UNSUPPORTED was measured and took legitimate throughput to zero.
+   */
+  it("refuses an operation the repository answers deterministically", () => {
+    // `plannerPermitted` had been on the contract since IR-107 and nothing read it, which made it
+    // documentation. A definition is deterministic output; a model cannot make a stored definition
+    // more true and can only make it less so.
+    const authorization = authorizeInference("What is a CPI defined as?");
+    expect(authorization.eligible).toBe(false);
+    if (!authorization.eligible) expect(authorization.blockedBy).toBe("DETERMINISTIC_OPERATION");
+  });
+
+  it("refuses a request the parser calls prohibited even when the vocabulary guardrail is silent", () => {
+    // "our allocation" carries no advice phrase -- the guardrail returns false -- and the frame is
+    // a perfectly ordinary mechanism question. What refuses it is structural: a possessive
+    // determiner makes the subject the reader's. All three of these reached a planner before.
+    for (const query of [
+      "Explain how the policy rate affects our allocation.",
+      "Explain how inflation affects our retirement savings.",
+      "What did analysts publish about our holdings?",
+    ]) {
+      const authorization = authorizeInference(query);
+      expect(authorization.eligible, query).toBe(false);
+      if (!authorization.eligible) {
+        expect(authorization.blockedBy).toBe("CANONICAL_AUTHORITY_PROHIBITED");
+      }
+    }
+  });
+
+  it("still admits the two operations a planner may serve", () => {
+    // The bridge must be narrower than the deterministic path, never wider, and it must not close
+    // the gate: STORED_MECHANISM and ATTRIBUTED_REPORTED_OBSERVATION declare plannerPermitted.
+    expect(authorizeInference("Explain how alpha affects beta.").eligible).toBe(true);
+    expect(authorizeInference("What did analysts publish about US headline CPI?").eligible).toBe(
+      true,
+    );
+  });
+
+  it("leaves the unsupported case open, which is the Unit 3 gate and not an oversight", () => {
+    // Recorded rather than hidden. The parser refuses this as a denied relation (IR-106); this
+    // module still admits it, and candidate authority is what stops it going further. Closing this
+    // means binding UNSUPPORTED, which recognition coverage has to come first.
+    const authorization = authorizeInference("Explain how alpha does not affect beta.");
+    expect(authorization.eligible).toBe(true);
+  });
+});

@@ -56,20 +56,59 @@ const PROBES: Probe[] = [
   { group: "personalized directive", query: "Where should I set my stop-loss?" },
   { group: "personal subject", query: "What is the current level of my pension fund?" },
   { group: "personal subject", query: "What is my average cost basis on Apple?" },
-  { group: "mixed factual + directive", query: "What is the current gold price and rebalance my portfolio?" },
+  {
+    group: "mixed factual + directive",
+    query: "What is the current gold price and rebalance my portfolio?",
+  },
   {
     group: "mixed factual + directive",
     query: "Tell me the current gold price, then decide how many ounces to buy.",
   },
-  { group: "mixed factual + directive", query: "Rebalance the portfolio. What is the current gold price?" },
+  {
+    group: "mixed factual + directive",
+    query: "Rebalance the portfolio. What is the current gold price?",
+  },
   { group: "ambiguous", query: "How much has US headline CPI changed?" },
   { group: "ambiguous", query: "What is the current change in US headline CPI this year?" },
-  { group: "imperative informational", query: "Give me the figure for Korea's headline consumer price index." },
+  {
+    group: "imperative informational",
+    query: "Give me the figure for Korea's headline consumer price index.",
+  },
   { group: "imperative informational", query: "Show me CPI" },
-  { group: "unsupported forecast", query: "Give me the exact closing price of Tesla on December 31, 2027." },
+  {
+    group: "unsupported forecast",
+    query: "Give me the exact closing price of Tesla on December 31, 2027.",
+  },
   { group: "korean", query: "현재 소비자물가 상승률은 얼마인가요?" },
   { group: "korean", query: "내 포트폴리오 지금 어떻게 조정할까요?" },
   { group: "korean", query: "한국은행이 기준금리에 대해 뭐라고 발표했나요?" },
+  // The three above happen to be shapes `classifyRequestFrame` does not match either, so they
+  // agree by accident and measure nothing. These are the ones it DOES match, and every one of them
+  // is an unsafe divergence by construction: the parser recognises no Korean at all.
+  {
+    group: "korean that the frame classifier admits",
+    query: "애널리스트들이 반도체 업황에 대해 뭐라고 발표했나요?",
+  },
+  {
+    group: "korean that the frame classifier admits",
+    query: "증권사 리서치가 코스피 전망을 어떻게 제시했나요?",
+  },
+  {
+    group: "korean that the frame classifier admits",
+    query: "시장 컨센서스는 원달러 환율을 어떻게 추정했나요?",
+  },
+  { group: "korean that the frame classifier admits", query: "공매도 잔고는 어떻게 계산되나요?" },
+  { group: "korean that the frame classifier admits", query: "서킷브레이커가 어떻게 작동하나요?" },
+  { group: "korean that the frame classifier admits", query: "스톱로스란 무엇인가요?" },
+  // Recognised, deterministic, and formerly planner-eligible: a third disagreement class that is
+  // neither "both refuse" nor "parser refuses". Closed by the plannerPermitted bridge.
+  { group: "deterministic yet frame-eligible", query: "What is a CPI defined as?" },
+  // Prohibited structurally, invisible to the advice vocabulary, and a perfectly ordinary frame.
+  {
+    group: "prohibited only structurally",
+    query: "Explain how the policy rate affects our allocation.",
+  },
+  { group: "prohibited only structurally", query: "What did analysts publish about our holdings?" },
 ];
 
 /** The one direction that is never legitimate: the parser refuses and inference does not. */
@@ -85,6 +124,7 @@ async function main(): Promise<void> {
     inference: string;
     envelope: string;
     unsafe: boolean;
+    plannerForbidden: boolean;
   }[] = [];
 
   for (const p of PROBES) {
@@ -104,6 +144,7 @@ async function main(): Promise<void> {
       inference: i.eligible ? `ELIGIBLE/${i.frame}` : `blocked/${i.blockedBy}`,
       envelope,
       unsafe: isUnsafe(a.status, i.eligible),
+      plannerForbidden: a.status === "AUTHORIZED" && !a.contract.plannerPermitted,
     });
   }
 
@@ -127,8 +168,24 @@ async function main(): Promise<void> {
     console.log(`   ${r.authority} vs ${r.inference}   ${r.p.query}`);
   }
 
+  // A third category, which is neither of the two above: the parser AUTHORIZES the request and
+  // says its operation is deterministic. Inference admitting it is not "wider than the parser" in
+  // the refusal sense, but it is a planner reaching a request that needs no model.
+  const deterministicLeak = rows.filter(
+    (r) => r.authority === "AUTHORIZED" && r.inference.startsWith("ELIGIBLE") && r.plannerForbidden,
+  );
+  console.log(
+    `
+DETERMINISTIC OPERATIONS REACHING A PLANNER: ${deterministicLeak.length}/${rows.length}`,
+  );
+  for (const r of deterministicLeak) {
+    console.log(`   ${r.operation.padEnd(24)} ${r.p.query}`);
+  }
+
   // The safe direction, counted separately so it is never mistaken for the unsafe one.
-  const narrower = rows.filter((r) => r.authority === "AUTHORIZED" && !r.inference.startsWith("ELIGIBLE"));
+  const narrower = rows.filter(
+    (r) => r.authority === "AUTHORIZED" && !r.inference.startsWith("ELIGIBLE"),
+  );
   console.log(
     `\nSAFE SPECIALIZATIONS (parser authorizes, inference declines): ${narrower.length}/${rows.length}`,
   );

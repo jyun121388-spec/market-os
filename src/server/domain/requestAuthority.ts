@@ -357,12 +357,32 @@ function recogniseAll(normalized: string): Recognised[] {
  * a mechanism request is one that contains exactly one affirmed relation clause — which is what the
  * words "mechanism request" mean, rather than which phrasebook entry it matched.
  */
-function looksLikeMechanismRequest(query: string): boolean {
+function mechanismMatch(query: string): Recognised | null {
   const syntax = relationSyntax(query);
   // AFFIRMED as well as ONE. A denial is a recognised relation clause and not a request for the
   // relation — IR-106 established that the repository stores evidence relations exist and none
   // that one does not, so "how A does not affect B" is unanswerable rather than a mechanism ask.
-  return syntax.status === "ONE" && syntax.clause.polarity === "AFFIRMED";
+  if (syntax.status !== "ONE" || syntax.clause.polarity !== "AFFIRMED") return null;
+  // A `Recognised`, not a verdict.
+  //
+  // This returned an AUTHORIZED verdict directly, and adversarial review found the hole that made:
+  // the mechanism branch returned before the pronoun rule, the coordinator bound and the unread
+  // check ever ran, so `"Explain how inflation affects the right investment for my retirement."`
+  // was authorized as a stored mechanism. Two variants were worse — one asked how much the reader
+  // should hold in bonds, one appended "then pick my lender".
+  //
+  // The delegation was right and the early return was not. Recognising a relation says the request
+  // has a relation in it; it does not say the relation is the whole request, and every other
+  // operation already has to prove that. So this yields a candidate and rejoins the same path: one
+  // discipline, no operation exempt from it.
+  //
+  // The subject region is the clause's own two regions, which is what the pronoun rule needs to
+  // read — "the right investment for my retirement" is the effect region, and it names the reader.
+  return {
+    operation: "STORED_MECHANISM",
+    subjectRegion: `${syntax.clause.cause} ${syntax.clause.effect}`,
+    residue: [],
+  };
 }
 
 function intervalIn(normalized: string): string | null {
@@ -392,19 +412,11 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
   const directiveFramed = classifyRequestFrame(query) === "REQUEST_DIRECTIVE";
   const normalized = normalize(query);
 
-  if (looksLikeMechanismRequest(query)) {
-    // Delegated wholesale. `subjectAuthority` resolves the relation, its direction, its polarity
-    // and its cardinality, and refuses when any of those is unproven.
-    return {
-      status: "AUTHORIZED",
-      operation: "STORED_MECHANISM",
-      contract: OPERATION_CONTRACTS.STORED_MECHANISM,
-      subjectRegion: normalized,
-      detail: "A mechanism request; the relation itself is resolved by subjectAuthority.",
-    };
-  }
-
-  const recognised = recogniseAll(normalized);
+  // `subjectAuthority` resolves the relation, its direction, its polarity and its cardinality, and
+  // refuses when any of those is unproven. What it cannot say is whether the relation is all the
+  // request asks for, so its answer is a candidate here and not a verdict.
+  const mechanism = mechanismMatch(query);
+  const recognised = mechanism ? [mechanism] : recogniseAll(normalized);
   if (recognised.length === 0) {
     return directiveFramed
       ? {

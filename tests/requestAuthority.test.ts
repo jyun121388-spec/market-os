@@ -101,9 +101,13 @@ describe("there are no halves", () => {
   });
 
   it("names the unread content rather than ignoring it", () => {
-    const a = authorize("What is the current gold price and my mortgage decision?");
-    expect(a.status).not.toBe("AUTHORIZED");
-    if (a.status === "UNSUPPORTED") expect(a.detail).toContain("beyond the operation");
+    // This asked about "the current gold price and my mortgage decision", which the pronoun rule
+    // refuses as PROHIBITED before unread residue is ever computed -- so the detail assertion,
+    // guarded on UNSUPPORTED, never ran and the test passed with its own subject deleted.
+    // Adversarial review found it. A pronoun-free residue, and the assertion is unconditional.
+    const a = authorize("Urgently, what is the current gold price?");
+    expect(a.status).toBe("UNSUPPORTED");
+    expect(a.status === "UNSUPPORTED" && a.detail).toContain("beyond the operation");
   });
 });
 
@@ -200,6 +204,39 @@ describe("the mechanism operation is delegated, not re-derived", () => {
   it("refuses a denied relation", () => {
     const a = authorize("Explain how alpha does not affect beta.");
     expect(a.status).not.toBe("AUTHORIZED");
+  });
+});
+
+describe("no operation is exempt from the whole-request discipline", () => {
+  /**
+   * Adversarial review, P0. The mechanism branch returned an AUTHORIZED verdict the moment
+   * `relationSyntax` found one affirmed clause -- before the pronoun rule, the coordinator bound
+   * and the unread check. Delegation was right; returning past the shared discipline was not.
+   *
+   * Recognising a relation says the request has a relation in it. It does not say the relation is
+   * the whole request, and every other operation already has to prove that.
+   */
+  it("refuses a relation request whose effect region is about the reader", () => {
+    expect(
+      authorize("Explain how inflation affects the right investment for my retirement.").status,
+    ).toBe("PROHIBITED");
+    expect(authorize("Explain how inflation affects how much I should hold in bonds.").status).toBe(
+      "PROHIBITED",
+    );
+  });
+
+  it("refuses a relation request with a directive coordinated onto it", () => {
+    expect(
+      authorize("Explain how the policy rate affects mortgage costs, then pick my lender.").status,
+    ).not.toBe("AUTHORIZED");
+  });
+
+  it("still authorizes a relation request that is only a relation request", () => {
+    // The repair must not cost the capability. Both of these are what the operation is for.
+    expect(authorize("Explain how alpha affects beta.").status).toBe("AUTHORIZED");
+    expect(
+      authorize("What mechanism connects the freight index to the shipping cost?").status,
+    ).toBe("AUTHORIZED");
   });
 });
 

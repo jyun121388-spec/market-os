@@ -37,6 +37,7 @@
 
 import { authorizeInference } from "@/server/domain/inferenceAuthorization";
 import { classifyRequestFrame } from "@/server/domain/requestFrame";
+import { resolveRequestAuthority } from "@/server/domain/requestAuthority";
 import { askMarket, detectPersonalizedAdviceRequest } from "@/server/domain/askMarket";
 import { prisma } from "@/server/db/client";
 import {
@@ -82,6 +83,10 @@ async function main() {
       blockedBy: auth.eligible ? null : auth.blockedBy,
       frame: classifyRequestFrame(c.query),
       detector: detectPersonalizedAdviceRequest(c.query),
+      // Two paths, two numbers. `authorizeInference` is not bound to request
+      // authority, and letting one figure stand for both is the reporting mistake
+      // this column exists to make impossible.
+      authority: resolveRequestAuthority(c.query),
     };
   });
 
@@ -126,9 +131,19 @@ async function main() {
 
   // ---- capability, for the "before" column ------------------------------------------------
   const answerable = rows.filter((r) => r.c.expected === "ANSWERABLE");
+  const authorized = (r: (typeof rows)[number]) => r.authority.status === "AUTHORIZED";
   console.log(
-    `\nANSWERABLE admitted by the request gate: ${answerable.filter((r) => r.eligible).length}/${answerable.length}`,
+    `
+ANSWERABLE admitted by the INFERENCE path (authorizeInference, unbound): ` +
+      `${answerable.filter((r) => r.eligible).length}/${answerable.length}`,
   );
+  console.log(
+    `ANSWERABLE authorized by REQUEST AUTHORITY (resolveRequestAuthority, live askMarket): ` +
+      `${answerable.filter(authorized).length}/${answerable.length}`,
+  );
+  const leaked = prohibited.filter(authorized);
+  console.log(`PROHIBITED authorized by REQUEST AUTHORITY: ${leaked.length}/${prohibited.length}`);
+  for (const r of leaked) console.log(`   ${r.c.id} ${r.c.language}  ${r.c.query}`);
   const byOp: Record<string, { total: number; admitted: number }> = {};
   const byLang: Record<string, { total: number; admitted: number }> = {};
   for (const r of answerable) {
@@ -136,7 +151,7 @@ async function main() {
     byOp[r.c.operation].total += 1;
     byLang[r.c.language] ??= { total: 0, admitted: 0 };
     byLang[r.c.language].total += 1;
-    if (r.eligible) {
+    if (authorized(r)) {
       byOp[r.c.operation].admitted += 1;
       byLang[r.c.language].admitted += 1;
     }

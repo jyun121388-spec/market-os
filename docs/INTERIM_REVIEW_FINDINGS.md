@@ -5217,7 +5217,7 @@ operations, closed:
 | `CURRENT_OBSERVATION`             | 1        | `LATEST`         | no          | no      |
 | `OBSERVED_CHANGE`                 | 1        | `INTERVAL`       | no          | no      |
 | `STORED_MECHANISM`                | 2        | `NONE`           | no          | yes     |
-| `ATTRIBUTED_REPORTED_OBSERVATION` | 1        | `LATEST`         | yes         | yes     |
+| `ATTRIBUTED_REPORTED_OBSERVATION` | 1        | `NONE`           | yes         | yes     |
 | `DEFINITION`                      | 1        | `NONE`           | no          | no      |
 
 A request is authorized only when it parses as exactly one of them with every operand it declares.
@@ -5305,3 +5305,70 @@ the exposure this unit exists to close. Sequencing it with the test migration is
 No provider, model, credential, API, PAYG, deployment or network call. PR #1 and the frozen
 candidate untouched; the concurrent session's control-bus work untouched. Both historical advice
 holdouts unmodified.
+
+### Adversarial review of 8f83075, and what it found
+
+Four findings, all reproduced before anything was changed.
+
+**P0 — a personalized decision request was authorized.** The mechanism branch returned an
+AUTHORIZED verdict the moment `relationSyntax` found one affirmed clause, before the pronoun rule,
+the coordinator bound and the unread check. Three inputs reproduced it:
+
+- `"Explain how inflation affects the right investment for my retirement."`
+- `"Explain how inflation affects how much I should hold in bonds."`
+- `"Explain how the policy rate affects mortgage costs, then pick my lender."`
+
+All three were `AUTHORIZED / STORED_MECHANISM`. This is the unit's own error inside the unit: it is
+an argument from "a relation was recognised" where every other operation has to prove the relation
+is the _whole_ request.
+
+The repair removes the special case rather than patching it. `mechanismMatch` now returns a
+`Recognised` candidate — subject region being the clause's own cause and effect text — and rejoins
+the shared path. One discipline, no operation exempt. The delegation to `subjectAuthority` was never
+the problem; returning past the discipline was. All three are refused now, and
+`"Explain how alpha affects beta."` is still authorized, so the capability is unchanged.
+
+**P2 — a test did not test its own name.** `"names the unread content rather than ignoring it"`
+used a query containing `my`, so the pronoun rule refused it as PROHIBITED before unread residue was
+ever computed, and the detail assertion was guarded on `UNSUPPORTED` and never ran. The test passed
+with its own subject deleted. Now a pronoun-free residue and an unconditional assertion.
+**Conditional assertions inside a test are how a test stops testing without failing.**
+
+**P2 — the findings table contradicted the code.** It declared `ATTRIBUTED_REPORTED_OBSERVATION`
+requires a `LATEST` operand; the contract says `NONE` and the tests agree with the code. The table
+was wrong and is corrected above.
+
+**P1 — the inference path.** Review rejected the deferral: preserving older candidate-authority
+tests is not a reason to leave the production composition unbound, and 0/35 on fixed prohibited
+fixtures does not establish positive authority. That is right, and the reasoning that the deferral
+protects real proofs is also right — so neither extreme is the answer. Binding plus migrating the
+eleven IR-104–IR-106 cases is Unit 1b, next, not skipped.
+
+Mutation re-run after the repair: **12 of 12**, the twelfth being the mechanism clause hidden from
+the subject rules.
+
+### A reporting error of my own
+
+The evaluation script measures `authorizeInference`, and the 21/104 figure came from a separate
+probe of `resolveRequestAuthority`. One number was published for two paths. `21/104` is right for
+request authority and the live `askMarket` path, and the inference path is still at the baseline
+`1/104` precisely because it is unbound. The script now prints both, labelled, so the figure cannot
+be quoted without its path again:
+
+```
+ANSWERABLE admitted by the INFERENCE path (authorizeInference, unbound):              1/104
+ANSWERABLE authorized by REQUEST AUTHORITY (resolveRequestAuthority, live askMarket): 21/104
+PROHIBITED authorized by REQUEST AUTHORITY:                                           0/35
+   CURRENT_OBSERVATION 12/30   DEFINITION 4/12   STORED_MECHANISM 5/23
+   ATTRIBUTED_REPORTED_OBSERVATION 0/15   OBSERVED_CHANGE 0/24
+   EN 21/55   KO 0/49
+4. LIVE ASK REDIRECT MISS: 10/35   by status {"REQUEST_NOT_SUPPORTED":10}
+```
+
+### A bound worth naming
+
+The subject region runs to end-of-sentence, so trailing text is absorbed into the subject rather
+than left unread: `"What is the current gold price for the mortgage decision?"` is AUTHORIZED with
+`"for the mortgage decision"` read as part of the subject's name. Candidate authority refuses it —
+no such subject is stored — so it is not a leak. It is a real limit on what unread-residue can
+catch, and it is why the coordinator bound exists at all.

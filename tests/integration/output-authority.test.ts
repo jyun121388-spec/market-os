@@ -1152,24 +1152,40 @@ describeIfDb("output authority (integration)", () => {
     });
 
     it("direction is read from a named construction, never from word order", async () => {
-      const { directionEvidence } = await import("@/server/domain/subjectAuthority");
-      expect(directionEvidence("What mechanism connects alpha to beta?")).toMatchObject({
-        construction: "connects … to",
-      });
-      expect(directionEvidence("Explain how alpha affects beta.")).toMatchObject({
-        construction: "affects",
-      });
+      // Asserted the construction label and nothing else until IR-106, which is most of a test:
+      // the label proves a marker was found, not that the right words landed in the right roles.
+      // Regions, cardinality and polarity are the parts a wrong parser gets wrong.
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
+
+      const connects = relationSyntax("What mechanism connects alpha to beta?");
+      expect(connects.status).toBe("ONE");
+      if (connects.status === "ONE") {
+        expect(connects.clause.construction).toBe("connects … to");
+        expect(connects.clause.polarity).toBe("AFFIRMED");
+        expect(connects.clause.cause).toContain("alpha");
+        expect(connects.clause.cause).not.toContain("beta");
+        expect(connects.clause.effect).toContain("beta");
+        expect(connects.clause.effect).not.toContain("alpha");
+      }
+
+      const affects = relationSyntax("Explain how alpha affects beta.");
+      expect(affects.status).toBe("ONE");
+      if (affects.status === "ONE") {
+        expect(affects.clause.cause).toContain("alpha");
+        expect(affects.clause.effect).toContain("beta");
+      }
+
       // Two names and no construction is not a direction, however suggestive the order.
-      expect(directionEvidence("Explain how alpha and beta are related.")).toBeNull();
-      expect(directionEvidence("What mechanism relates alpha and beta?")).toBeNull();
+      expect(relationSyntax("Explain how alpha and beta are related.").status).toBe("NONE");
+      expect(relationSyntax("What mechanism relates alpha and beta?").status).toBe("NONE");
     });
 
     it("Korean mechanism questions are direction-unresolved, and that is a stated gap", async () => {
       // The particles that mark the roles attach to the preceding word, so literal marker splitting
       // cannot separate them after normalization. A Korean directional parser worth trusting is
       // more than this repair should contain, so Korean mechanism questions publish nothing.
-      const { directionEvidence } = await import("@/server/domain/subjectAuthority");
-      expect(directionEvidence("알파가 베타에 미치는 영향은 어떻게 작동하나요?")).toBeNull();
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
+      expect(relationSyntax("알파가 베타에 미치는 영향은 어떻게 작동하나요?").status).toBe("NONE");
     });
 
     it("Z2 — a question naming both nested subjects is ambiguous, not the longer one", async () => {
@@ -1306,6 +1322,254 @@ describeIfDb("output authority (integration)", () => {
         expect(calls).toHaveLength(0);
         expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
       }
+    });
+  });
+
+  describe("relation cardinality and polarity — IR-106", () => {
+    /**
+     * Two more ways an authentic edge answered a question nobody asked.
+     *
+     *  - `directionEvidence` returned on the first construction it found, so
+     *    "explain how A affects B and how C affects D" became a question about A and B and the
+     *    other relation was dropped in silence. Whichever clause came first won, in either order,
+     *    across different constructions.
+     *  - The grammar recorded orientation and not assertion. "Explain how A does not affect B"
+     *    still contained ` affect `, so the query denying the relation published the relation. A
+     *    stored `CausalDirection.NEGATIVE` is an inverse sign, not a denial, and nothing in the
+     *    repository represents the absence of a relation at all.
+     *
+     * The fixture's own MECHANISM query exercises the single-clause affirmative path throughout
+     * this file, so these are the cases it does not reach.
+     */
+    const mechanismEdge = async (from: string, to: string, direction: "POSITIVE" | "NEGATIVE") =>
+      prisma.causalEdge.create({
+        data: {
+          fromVariable: from,
+          toVariable: to,
+          direction,
+          confidence: "MEDIUM",
+          mechanism: `A change in ${from} passes through to ${to}.`,
+          evidence: "Seeded for the IR-106 controls.",
+          lag: "1 quarter",
+          counterexamples: "Seeded fixture; no empirical limitation recorded.",
+        },
+      });
+
+    const askTwo = (a: string, b: string, c: string, d: string) =>
+      `Explain how ${a} affects ${b} and how ${c} affects ${d}.`;
+
+    const FREIGHT = "Test Output freight index";
+    const SHIPPING = "Test Output shipping cost";
+    const LABOUR = "Test Output quay labour";
+    const TURNAROUND = "Test Output vessel turnaround";
+
+    it("AA1 — two clauses with both edges stored publish nothing", async () => {
+      const second = await mechanismEdge(LABOUR, TURNAROUND, "POSITIVE");
+      try {
+        const query = askTwo(FREIGHT, SHIPPING, LABOUR, TURNAROUND);
+        const envelope = await deriveCandidateEnvelope(query);
+        expect(envelope.status).toBe("AMBIGUOUS");
+        expect(envelope.causalEdgeIds).toHaveLength(0);
+
+        for (const id of [explanationId, second.id]) {
+          const { calls, sink } = countingSink({
+            segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: id }],
+          });
+          const outcome = await answerWithInference(query, sink);
+          expect(calls).toHaveLength(0);
+          expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+        }
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: second.id } });
+      }
+    });
+
+    it("AA2 — the same two clauses in the other order fail the same way", async () => {
+      const second = await mechanismEdge(LABOUR, TURNAROUND, "POSITIVE");
+      try {
+        const envelope = await deriveCandidateEnvelope(
+          askTwo(LABOUR, TURNAROUND, FREIGHT, SHIPPING),
+        );
+        expect(envelope.status).toBe("AMBIGUOUS");
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: second.id } });
+      }
+    });
+
+    it("AA3 — two clauses in two different constructions are still two clauses", async () => {
+      const second = await mechanismEdge(LABOUR, TURNAROUND, "POSITIVE");
+      try {
+        const query = `Explain how ${FREIGHT} affects ${SHIPPING} and the impact of ${LABOUR} on ${TURNAROUND}.`;
+        const envelope = await deriveCandidateEnvelope(query);
+        expect(envelope.status).toBe("AMBIGUOUS");
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: second.id } });
+      }
+    });
+
+    it("two clauses fail closed whether one, both or neither edge is stored", async () => {
+      // The failure must come from the request having two relation intents, not from which of them
+      // the repository happens to hold. Otherwise "we only stored one" quietly becomes an answer.
+      const both = askTwo(FREIGHT, SHIPPING, LABOUR, TURNAROUND);
+      const onlyFirstStored = await deriveCandidateEnvelope(both);
+      expect(onlyFirstStored.status).toBe("AMBIGUOUS");
+
+      const neither = askTwo(LABOUR, TURNAROUND, "Test Output dock levy", "Test Output demurrage");
+      expect((await deriveCandidateEnvelope(neither)).status).toBe("AMBIGUOUS");
+    });
+
+    it("the same ordered pair asked twice is still two clauses", async () => {
+      const twice = askTwo(FREIGHT, SHIPPING, FREIGHT, SHIPPING);
+      const envelope = await deriveCandidateEnvelope(twice);
+      expect(envelope.status).toBe("AMBIGUOUS");
+    });
+
+    it("one affirmed clause beside one negated clause authorizes neither", async () => {
+      const mixed = `Explain how ${FREIGHT} affects ${SHIPPING} and how ${LABOUR} does not affect ${TURNAROUND}.`;
+      const envelope = await deriveCandidateEnvelope(mixed);
+      expect(envelope.status).toBe("AMBIGUOUS");
+      const { calls, sink } = countingSink({
+        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+      });
+      const outcome = await answerWithInference(mixed, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("AB1 — an explicit denial does not publish the relation it denies", async () => {
+      const denied = `Explain how ${FREIGHT} does not affect ${SHIPPING}.`;
+      const envelope = await deriveCandidateEnvelope(denied);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.detail).toContain("denies the relation");
+      const { calls, sink } = countingSink({
+        segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+      });
+      const outcome = await answerWithInference(denied, sink);
+      expect(calls).toHaveLength(0);
+      expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    });
+
+    it("AB2 — 'has no impact on' is the same denial", async () => {
+      const denied = `Explain how ${FREIGHT} has no impact on ${SHIPPING}.`;
+      const envelope = await deriveCandidateEnvelope(denied);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.detail).toContain("denies the relation");
+    });
+
+    it("AB3 — a NEGATIVE causal sign is an inverse effect, not an absent one", async () => {
+      // Two directions that must stay independent. Query polarity is about whether the asker
+      // asserts a relation; the stored sign is about which way an existing relation pushes.
+      const negativeEdge = await mechanismEdge(LABOUR, TURNAROUND, "NEGATIVE");
+      try {
+        const denied = `Explain how ${LABOUR} does not affect ${TURNAROUND}.`;
+        expect((await deriveCandidateEnvelope(denied)).status).toBe("UNRESOLVED");
+
+        // …and the affirmative question about that same negative-signed edge still publishes.
+        const affirmed = `Explain how ${LABOUR} affects ${TURNAROUND}.`;
+        const envelope = await deriveCandidateEnvelope(affirmed);
+        expect(envelope.status).toBe("AUTHORIZED");
+        expect(envelope.causalEdgeIds).toEqual([negativeEdge.id]);
+        const outcome = await answerWithInference(
+          affirmed,
+          planning({
+            segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId: negativeEdge.id }],
+          }),
+        );
+        expect(outcome.status).toBe("ANSWERED");
+        if (outcome.status === "ANSWERED") expect(outcome.text).toContain("NEGATIVE");
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: negativeEdge.id } });
+      }
+    });
+
+    it("a denial with no stored edge is still a denial, not a lack of evidence", async () => {
+      // The repository must not treat a missing row as proof of absence, so it never looks.
+      const denied = `Explain how ${FREIGHT} does not affect Test Output dock levy.`;
+      const envelope = await deriveCandidateEnvelope(denied);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.detail).toContain("denies the relation");
+    });
+
+    it("a denial of the reverse relation is reported as a denial", async () => {
+      const denied = `Explain how ${SHIPPING} does not affect ${FREIGHT}.`;
+      const envelope = await deriveCandidateEnvelope(denied);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.detail).toContain("denies the relation");
+    });
+
+    it("one clause naming two effects establishes no relation", async () => {
+      // Codex's second-order case, and it survives every check above: one construction, one clause,
+      // affirmed. The effect region names two stored variables, so with only one of those edges
+      // stored the request would have been answered by the half we happen to hold.
+      //
+      // The second variable has to be one the repository actually knows, or there is nothing
+      // mechanical to notice — an unknown word in the effect region is just words. That is itself a
+      // limit worth naming: this catches over-broad roles among KNOWN variables only.
+      const other = await mechanismEdge(TURNAROUND, "Test Output berth queue", "POSITIVE");
+      try {
+        const two = `Explain how ${FREIGHT} affects ${SHIPPING} and ${TURNAROUND}.`;
+        const envelope = await deriveCandidateEnvelope(two);
+        expect(envelope.status).toBe("UNRESOLVED");
+        expect(envelope.detail).toContain("effect(s)");
+        const { calls, sink } = countingSink({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+        });
+        const outcome = await answerWithInference(two, sink);
+        expect(calls).toHaveLength(0);
+        expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: other.id } });
+      }
+    });
+
+    it("one clause naming two causes establishes no relation", async () => {
+      const other = await mechanismEdge(TURNAROUND, "Test Output berth queue", "POSITIVE");
+      try {
+        const two = `Explain how ${FREIGHT} and ${TURNAROUND} affect ${SHIPPING}.`;
+        const envelope = await deriveCandidateEnvelope(two);
+        expect(envelope.status).toBe("UNRESOLVED");
+        expect(envelope.detail).toContain("cause(s)");
+      } finally {
+        await prisma.causalEdge.delete({ where: { id: other.id } });
+      }
+    });
+
+    it("repeating one subject inside a clause does not manufacture a second relation", async () => {
+      const repeated = `Explain how ${FREIGHT}, the ${FREIGHT}, affects ${SHIPPING}.`;
+      const envelope = await deriveCandidateEnvelope(repeated);
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.causalEdgeIds).toEqual([explanationId]);
+    });
+
+    it("overlapping constructions over one span are one clause, not two", async () => {
+      // "impact of A on B" contains a bare " impact ". Reconciled by span rather than by list
+      // order, so this is one clause — and it was silently UNRESOLVED before, because the bare
+      // form matched first and put "the" in the cause region.
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
+      const one = relationSyntax(`Explain how the impact of ${FREIGHT} on ${SHIPPING} works.`);
+      expect(one.status).toBe("ONE");
+
+      const envelope = await deriveCandidateEnvelope(
+        `Explain how the impact of ${FREIGHT} on ${SHIPPING} works.`,
+      );
+      expect(envelope.status).toBe("AUTHORIZED");
+      expect(envelope.causalEdgeIds).toEqual([explanationId]);
+    });
+
+    it("a negated construction shadows the affirmative one inside it", async () => {
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
+      const denied = relationSyntax("Explain the no impact of alpha on beta.");
+      expect(denied.status).toBe("ONE");
+      if (denied.status === "ONE") expect(denied.clause.polarity).toBe("NEGATED");
+    });
+
+    it("negation elsewhere in the sentence does not deny the relation", async () => {
+      // The negator must sit at the end of the clause's own cause region. A global "not" check
+      // would refuse this, which denies nothing about the relation being asked about.
+      const { relationSyntax } = await import("@/server/domain/subjectAuthority");
+      const aside = relationSyntax("Explain how alpha affects beta, not gamma.");
+      expect(aside.status).toBe("ONE");
+      if (aside.status === "ONE") expect(aside.clause.polarity).toBe("AFFIRMED");
     });
   });
 

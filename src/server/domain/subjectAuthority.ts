@@ -169,75 +169,199 @@ function explicitlyNamed<T>(matches: T[], nameOf: (m: T) => string, query: strin
 }
 
 /**
- * The closed set of constructions from which a causal direction can be read off syntactically.
+ * The closed set of relation constructions, each with the polarity it asserts.
  *
- * Each entry is a sequence of literal markers: the cause lies between the first and second, the
- * effect between the second and the third (or after the second when there is no third). The
+ * An entry is a sequence of literal markers: the cause lies between the first and second, the
+ * effect between the second and the third (or up to the next clause when there is no third). The
  * evidence is the named construction — a verb with its arguments, or `connects … to …` where the
- * preposition carries the orientation — never the order two names happen to appear in. "Whichever
- * name comes first is the cause" is word-order guessing with a rule's face on, and it is exactly
- * what the guidance forbids.
+ * preposition carries the orientation — never the order two names happen to appear in.
  *
- * **English only, and that is a stated limitation rather than an oversight.** Korean marks the
- * roles with particles that attach to the preceding word, so `가` is not separable by literal
- * marker splitting after normalization, and a Korean directional parser worth trusting is more than
- * this repair should contain. A Korean mechanism question is `DIRECTION_UNRESOLVED` and publishes
- * nothing — the fail-closed side, and a real capability gap.
+ * **Polarity belongs to the table, not to an afterthought.** IR-106 candidate AB1: "explain how A
+ * does not affect B" contains ` affect `, so A landed in the cause slice and B in the effect slice
+ * and a stored `A -> B` was authorized — the query denying the relation published the relation. A
+ * named pair and a verb establish which relation is under discussion; they do not establish that
+ * the asker is asserting it holds.
+ *
+ * **Order in this list is not precedence.** Overlapping matches are reconciled by span, longest
+ * first, so `impact of A on B` beats the bare ` impact ` inside it wherever both occur. Fixing that
+ * collision by deleting the bare entries, or by shuffling this list, would make table order an
+ * authority — and table order is not evidence about a sentence.
+ *
+ * **English only, and still a stated limitation.** Korean marks the roles with particles that
+ * attach to the preceding word, so literal marker splitting cannot separate them after
+ * normalization. IR-105 measured that; nothing here changes it.
  */
-const DIRECTIONAL_CONSTRUCTIONS: readonly (readonly [string, string, string | null])[] = [
-  ["connects", " to ", null],
-  ["links", " to ", null],
-  ["", " affects ", null],
-  ["", " affect ", null],
-  ["", " influences ", null],
-  ["", " influence ", null],
-  ["", " impacts ", null],
-  ["", " impact ", null],
-  ["", " drives ", null],
-  ["", " drive ", null],
-  ["", " feeds into ", null],
-  ["", " feed into ", null],
-  ["", " passes through to ", null],
-  ["effect of ", " on ", null],
-  ["impact of ", " on ", null],
-  ["influence of ", " on ", null],
+type Polarity = "AFFIRMED" | "NEGATED";
+
+interface Construction {
+  markers: readonly [string, string, string | null];
+  polarity: Polarity;
+}
+
+const CONSTRUCTIONS: readonly Construction[] = [
+  { markers: ["no impact of ", " on ", null], polarity: "NEGATED" },
+  { markers: ["no effect of ", " on ", null], polarity: "NEGATED" },
+  { markers: ["no influence of ", " on ", null], polarity: "NEGATED" },
+  { markers: ["", " no impact on ", null], polarity: "NEGATED" },
+  { markers: ["", " no effect on ", null], polarity: "NEGATED" },
+  { markers: ["", " no influence on ", null], polarity: "NEGATED" },
+
+  { markers: ["connects", " to ", null], polarity: "AFFIRMED" },
+  { markers: ["links", " to ", null], polarity: "AFFIRMED" },
+  { markers: ["", " affects ", null], polarity: "AFFIRMED" },
+  { markers: ["", " affect ", null], polarity: "AFFIRMED" },
+  { markers: ["", " impacts ", null], polarity: "AFFIRMED" },
+  { markers: ["", " impact ", null], polarity: "AFFIRMED" },
+  { markers: ["", " influences ", null], polarity: "AFFIRMED" },
+  { markers: ["", " influence ", null], polarity: "AFFIRMED" },
+  { markers: ["", " drives ", null], polarity: "AFFIRMED" },
+  { markers: ["", " drive ", null], polarity: "AFFIRMED" },
+  { markers: ["", " feeds into ", null], polarity: "AFFIRMED" },
+  { markers: ["", " feed into ", null], polarity: "AFFIRMED" },
+  { markers: ["", " passes through to ", null], polarity: "AFFIRMED" },
+  { markers: ["effect of ", " on ", null], polarity: "AFFIRMED" },
+  { markers: ["impact of ", " on ", null], polarity: "AFFIRMED" },
+  { markers: ["influence of ", " on ", null], polarity: "AFFIRMED" },
 ];
 
-export interface DirectionEvidence {
-  /** The normalized text in which the cause must be named. */
+/**
+ * Negators that deny an affirmative construction when they sit at the end of its cause region,
+ * immediately before the verb.
+ *
+ * Closed, tiny, and bounded to the clause on purpose. A global `query.includes("not")` would refuse
+ * "explain how A affects B, not C", which denies nothing about the relation. Apostrophes normalize
+ * to spaces, so "doesn't" arrives as "doesn t".
+ */
+const CLAUSE_NEGATORS = [
+  "does not",
+  "do not",
+  "did not",
+  "doesn t",
+  "don t",
+  "didn t",
+  "cannot",
+  "can not",
+];
+
+export interface RelationClause {
+  /** Normalized text in which the cause must be named. Bounded by this clause, not the query. */
   cause: string;
-  /** The normalized text in which the effect must be named. */
+  /** Normalized text in which the effect must be named. */
   effect: string;
   construction: string;
+  polarity: Polarity;
 }
 
 /**
- * Reads a cause and an effect region out of the query, or returns null if no construction applies.
+ * Zero, exactly one, or several independently recognised relation clauses.
  *
- * Null is the common case and the safe one: a question that names two variables without saying
- * which acts on which has not established a direction, and IR-105 candidate Z1 is what happens when
- * a sole stored edge is treated as the answer anyway.
+ * The cardinality is the point. `directionEvidence` returned on the first construction it found,
+ * which turned "explain how A affects B and how C affects D" into a question about A and B —
+ * IR-106 candidates AA1 to AA3, where whichever clause came first became the whole request and the
+ * other was dropped without a word. That is not a narrower answer, it is an answer to a different
+ * question.
  */
-export function directionEvidence(query: string): DirectionEvidence | null {
-  const normalized = normalizeSubject(query);
-  for (const [before, split, after] of DIRECTIONAL_CONSTRUCTIONS) {
-    const from = before ? normalized.indexOf(` ${before.trim()} `) : -1;
-    if (before && from === -1) continue;
-    const searchFrom = before ? from + before.length : 0;
-    const at = normalized.indexOf(split, searchFrom);
-    if (at === -1) continue;
-    const causeEnd = at + 1;
-    const causeStart = before ? from + before.length + 1 : 0;
-    const effectStart = at + split.length - 1;
-    const effectEnd = after ? normalized.indexOf(after, effectStart) : -1;
-    if (after && effectEnd === -1) continue;
-    return {
-      cause: normalized.slice(causeStart, causeEnd),
-      effect: normalized.slice(effectStart, effectEnd === -1 ? undefined : effectEnd),
-      construction: [before, split.trim(), after].filter(Boolean).join(" … "),
-    };
+export type RelationSyntax =
+  | { status: "NONE" }
+  | { status: "ONE"; clause: RelationClause }
+  | { status: "MULTIPLE"; clauses: RelationClause[] };
+
+interface ClauseMatch {
+  construction: Construction;
+  /** Span of the whole construction in the normalized query, for overlap reconciliation. */
+  start: number;
+  end: number;
+  splitStart: number;
+  splitEnd: number;
+}
+
+function matchesFor(construction: Construction, normalized: string): ClauseMatch[] {
+  const [before, split, after] = construction.markers;
+  const found: ClauseMatch[] = [];
+  const prefix = before ? ` ${before.trim()} ` : null;
+  let searchAt = 0;
+
+  while (found.length <= 32) {
+    let start = searchAt;
+    if (prefix) {
+      const at = normalized.indexOf(prefix, searchAt);
+      if (at === -1) return found;
+      start = at;
+      searchAt = at + 1;
+    }
+    const splitStart = normalized.indexOf(split, prefix ? start + prefix.length - 1 : searchAt);
+    if (splitStart === -1) return found;
+    const splitEnd = splitStart + split.length;
+    const end = after ? normalized.indexOf(after, splitEnd) : splitEnd;
+    if (after && end === -1) return found;
+    found.push({ construction, start: prefix ? start : splitStart, end, splitStart, splitEnd });
+    if (!prefix) searchAt = splitEnd;
   }
-  return null;
+  return found;
+}
+
+/**
+ * Every relation clause the closed grammar recognises, with overlaps reconciled by span.
+ *
+ * Two entries can describe the same words — "no impact of A on B" contains "impact of A on B",
+ * which contains a bare " impact " — so matches are sorted by position and then by length, and a
+ * match overlapping one already accepted is discarded. The longest construction covering a span is
+ * the one the asker wrote, and deciding that locally is what keeps list order from becoming
+ * authority.
+ *
+ * Clause regions are bounded by their neighbours: a clause's effect ends where the next clause
+ * begins. Before this, one construction consumed the rest of the query as its effect region, which
+ * is how a later clause's variables ended up bound to an earlier clause's relation.
+ */
+export function relationSyntax(query: string): RelationSyntax {
+  const normalized = normalizeSubject(query);
+  const all = CONSTRUCTIONS.flatMap((c) => matchesFor(c, normalized));
+  all.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
+
+  const accepted: ClauseMatch[] = [];
+  for (const m of all) {
+    if (accepted.some((k) => m.start < k.end && k.start < m.end)) continue;
+    accepted.push(m);
+  }
+  if (accepted.length === 0) return { status: "NONE" };
+  accepted.sort((a, b) => a.start - b.start);
+
+  const clauses: RelationClause[] = accepted.map((m, i) => {
+    const [before, split, after] = m.construction.markers;
+    const causeStart = before ? m.start + before.length : (accepted[i - 1]?.end ?? 0);
+    const cause = normalized.slice(causeStart, m.splitStart + 1);
+    const effectEnd = after ? m.end : (accepted[i + 1]?.start ?? normalized.length);
+    const effect = normalized.slice(m.splitEnd - 1, effectEnd);
+    const trimmed = cause.trim();
+    const denied =
+      m.construction.polarity === "AFFIRMED" &&
+      CLAUSE_NEGATORS.some((n) => trimmed === n || trimmed.endsWith(` ${n}`));
+    return {
+      cause,
+      effect,
+      construction: [before, split.trim(), after].filter(Boolean).join(" … "),
+      polarity: denied ? "NEGATED" : m.construction.polarity,
+    };
+  });
+
+  return clauses.length === 1
+    ? { status: "ONE", clause: clauses[0] }
+    : { status: "MULTIPLE", clauses };
+}
+
+/**
+ * The distinct stored variable names explicitly occurring in one clause region.
+ *
+ * A clause has one cause and one effect. "A affects B and C" satisfies every check above — one
+ * construction, one clause, affirmed — and its effect region names two stored variables, so which
+ * relation was asked about is not established. Two stored edges would reach the duplicate-pair
+ * ambiguity rule, but with only `A -> C` stored the request would have been answered by the half
+ * of it the repository happens to hold. Roles have cardinality too, and this is where it is
+ * checked; `explicitlyNamed` is reused so nesting behaves the same inside a region as outside it.
+ */
+function variablesNamedIn(region: string, vocabulary: readonly string[]): string[] {
+  const occurring = vocabulary.filter((name) => nameOccursIn(name, region));
+  return [...new Set(explicitlyNamed(occurring, (n) => n, region))];
 }
 
 const NOT_ELIGIBLE = (frame: RequestFrame, detail: string): SubjectAuthority => ({
@@ -307,12 +431,64 @@ export async function resolveSubjectAuthority(
       where: { id: { in: [...discovered.causalEdgeIds] } },
       select: { id: true, fromVariable: true, toVariable: true },
     });
+    // What the REQUEST asks is settled before what the repository holds, because the two are
+    // independent facts and answering them in the wrong order makes inventory look like meaning.
+    // Two of these controls failed when the edge lookup ran first: a two-relation question with
+    // nothing stored was reported as "no mechanism has both endpoints named", and a denial with no
+    // stored edge got the same message — which reads as "we could not find it" when the truth is
+    // that the question was unanswerable either way. A missing row is not evidence of absence, so
+    // nothing here consults one before deciding.
+    //
+    // IR-105 candidate Z1. Both endpoints named establishes WHICH PAIR, and says nothing about
+    // which way round. With exactly one stored edge the old code let the pair stand in for the
+    // relation, so "what mechanism connects B to A" published the stored A -> B.
+    const syntax = relationSyntax(query);
+    if (syntax.status === "NONE") {
+      return NOT_ELIGIBLE(
+        frame,
+        "The question names both variables but no construction in it establishes which acts on " +
+          "which, so the direction is unproven. Reading it off word order would be a guess.",
+      );
+    }
+    if (syntax.status === "MULTIPLE") {
+      // IR-106 candidates AA1-AA3. Several relations were asked about and this contract can prove
+      // and publish one. Answering the first and dropping the rest is not a narrower answer, it is
+      // an answer to a question nobody asked; and choosing between them belongs to the planner only
+      // if candidate authority is being handed back to it.
+      return {
+        status: "AMBIGUOUS",
+        frame,
+        operation: FRAME_OPERATIONS.FACTUAL_MECHANISM,
+        factSeriesIds: [],
+        mechanismEdgeIds: [],
+        subjects: syntax.clauses.map((c) => c.construction),
+        detail:
+          `The question asks about ${syntax.clauses.length} relations ` +
+          `(${syntax.clauses.map((c) => c.construction).join("; ")}), and one answer cannot ` +
+          "establish all of them. Publishing one of them would answer a different question.",
+      };
+    }
+
+    const clause = syntax.clause;
+    if (clause.polarity === "NEGATED") {
+      // IR-106 candidates AB1-AB3. A stored edge is evidence that a relation EXISTS. This
+      // repository has no evidence type for absence, and `CausalDirection.NEGATIVE` is an inverse
+      // sign rather than a denial — publishing a stored edge in answer to "does A not affect B"
+      // asserts the opposite of what was asked. Nor does a missing row prove absence: nothing here
+      // even looks, because the question is unanswerable either way.
+      return NOT_ELIGIBLE(
+        frame,
+        `The question denies the relation (${clause.construction}), and this repository stores ` +
+          "evidence that relations exist, never evidence that one does not. A negative causal " +
+          "sign is an inverse effect, not the absence of an effect.",
+      );
+    }
+
     // BOTH endpoints, not either. IR-104 candidate Y4: an authentic edge sharing one endpoint with
     // the question and some other variable at the far end answers a question nobody asked.
     const complete = edges.filter(
       (e) => nameOccursIn(e.fromVariable, query) && nameOccursIn(e.toVariable, query),
     );
-
     if (complete.length === 0) {
       return NOT_ELIGIBLE(
         frame,
@@ -321,26 +497,27 @@ export async function resolveSubjectAuthority(
       );
     }
 
-    // IR-105 candidate Z1. Both endpoints named establishes WHICH PAIR, and says nothing about
-    // which way round. With exactly one stored edge the old code let the pair stand in for the
-    // relation, so "what mechanism connects B to A" published the stored A -> B.
-    const direction = directionEvidence(query);
-    if (!direction) {
+    // Roles have cardinality. One cause, one effect — "A affects B and C" names two effects, and
+    // whichever of them the repository happens to hold would otherwise answer the whole request.
+    const vocabulary = [...new Set(edges.flatMap((e) => [e.fromVariable, e.toVariable]))];
+    const causes = variablesNamedIn(clause.cause, vocabulary);
+    const effects = variablesNamedIn(clause.effect, vocabulary);
+    if (causes.length !== 1 || effects.length !== 1) {
       return NOT_ELIGIBLE(
         frame,
-        "The question names both variables but no construction in it establishes which acts on " +
-          "which, so the direction is unproven. Reading it off word order would be a guess.",
+        `The clause names ${causes.length} cause(s) and ${effects.length} effect(s); a relation ` +
+          "has one of each, so which relation was asked about is not established.",
       );
     }
+
     const oriented = complete.filter(
       (e) =>
-        nameOccursIn(e.fromVariable, direction.cause) &&
-        nameOccursIn(e.toVariable, direction.effect),
+        nameOccursIn(e.fromVariable, clause.cause) && nameOccursIn(e.toVariable, clause.effect),
     );
     if (oriented.length === 0) {
       return NOT_ELIGIBLE(
         frame,
-        `The question asks about a relation running the other way (${direction.construction}); ` +
+        `The question asks about a relation running the other way (${clause.construction}); ` +
           "no stored mechanism runs in the direction asked about.",
       );
     }

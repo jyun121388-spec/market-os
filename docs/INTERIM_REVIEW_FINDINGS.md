@@ -4742,3 +4742,130 @@ and the frozen candidate untouched; the concurrent session's control-bus work un
 from every file changed here. Full suite 1933/1933 across 121 files against real
 PostgreSQL. `npm run build` (turbopack) fails on the worktree's `node_modules` junction before
 reading source; `npx next build --webpack` completes.
+
+---
+
+## IR-106 — One clause is not a request, and a verb is not an assertion
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-OS][ASK-MULTI-RELATION-POLARITY-AUTHORITY-20260824]`
+(comment 5389234201). First unit run under the Codex-directed loop: an independent read-only
+architecture review before implementing, and an adversarial review of the exact commit afterwards.
+
+### Reproduction, before modification, eligibility measured first
+
+| #       | probe                                                               | before                               |
+| ------- | ------------------------------------------------------------------- | ------------------------------------ |
+| **AA1** | `"Explain how A affects B and how C affects D."`, both edges stored | **PUBLISHED A→B alone**              |
+| **AA2** | the same two clauses, order swapped                                 | **PUBLISHED C→D alone**              |
+| **AA3** | two clauses in two different constructions                          | **PUBLISHED** the table-order winner |
+| **AB1** | `"Explain how A does not affect B."` over a stored positive A→B     | **PUBLISHED A→B**                    |
+| **AB2** | `"…has no impact on…"` over the same edge                           | **PUBLISHED**                        |
+| **AB3** | a stored `NEGATIVE`-sign edge asked a no-effect question            | **PUBLISHED**                        |
+
+AA2 is the one that makes AA1 a class rather than an anecdote: whichever clause came first became
+the whole request, in either order.
+
+Also measured and pre-existing: `"Explain how the impact of A on B works."` was `UNRESOLVED`,
+because the bare `impact` entry matched before `impact of … on` and put "the" in the cause region.
+A legitimate question silently refused.
+
+### What the architect round changed about the plan
+
+The independent review (`PROCEED`) decomposed the root cause further than "first-match parsing", and
+three of its points changed the implementation:
+
+- **Global construction precedence.** The plan was to delete the bare `impact` and `influence`
+  entries so they could not shadow `impact of … on`. That would have made list order an authority —
+  the same category of mistake, moved into the table. Both entries stay, and **overlaps are
+  reconciled locally by span, longest first**. That also repairs the pre-existing over-exclusion
+  above, which deleting entries would have hidden rather than fixed.
+- **Unscoped endpoint binding.** A clause's effect region must end where the next clause begins.
+  Previously one construction consumed the rest of the query, which is precisely how a later
+  clause's variables came to be bound to an earlier clause's relation.
+- **Role cardinality.** `"A affects B and C"` satisfies every check — one construction, one clause,
+  affirmed — and would be answered by whichever of those two edges the repository happens to hold.
+  Roles have cardinality too: exactly one cause and one effect, checked with the same occurrence
+  machinery `explicitlyNamed` already provides.
+
+It also flagged the IR-105 direction tests as **vacuous**: they asserted a construction label and
+nothing else, so they proved a marker was found rather than that the right words landed in the right
+roles. They now assert regions, polarity, cardinality and overlap reconciliation.
+
+### The contract
+
+`directionEvidence` is replaced by `relationSyntax(query)` returning `NONE | ONE | MULTIPLE`, where
+each clause carries locally bounded cause and effect regions, the matched construction, its span,
+and `AFFIRMED | NEGATED` polarity.
+
+| result             | outcome                                                                                                                                  |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `NONE`             | `UNRESOLVED` — no construction, so no direction                                                                                          |
+| `MULTIPLE`         | `AMBIGUOUS`, planner calls **0**. One answer cannot establish several relations, and publishing one of them answers a different question |
+| `ONE` + `NEGATED`  | `UNRESOLVED`, planner calls **0**                                                                                                        |
+| `ONE` + `AFFIRMED` | the existing exact endpoint checks, inside that clause's own regions                                                                     |
+
+**Polarity and causal sign are separate dimensions and stay that way.** A stored
+`CausalDirection.NEGATIVE` says an existing relation pushes the other way; a negated query says the
+asker denies the relation exists. The repository has no evidence type for absence, so a denial is
+unanswerable — and a missing row is not consulted as proof either.
+
+Negation is bounded to the clause: a tiny closed set of negators recognised only at the end of the
+clause's own cause region, plus explicit `no impact/effect/influence of … on` constructions. A global
+`includes("not")` would refuse `"how A affects B, not C"`, which denies nothing about the relation.
+
+### An ordering defect my own controls found
+
+Four new controls failed on the first run, and none of them was a bad test. The edge lookup ran
+**before** the request was understood, so a two-relation question with nothing stored was reported
+as "no stored mechanism has both of its endpoints named", and a denial with no stored edge got the
+same message. Both read as _we could not find it_ when the truth is _the question was unanswerable
+either way_. What the request asks is now settled before any inventory is consulted, which is also
+what makes "a missing row is never evidence of absence" true rather than merely intended.
+
+| #                                              | after                                                     |
+| ---------------------------------------------- | --------------------------------------------------------- |
+| AA1, AA2, AA3                                  | `AMBIGUOUS`, planner calls 0, no partial publication      |
+| AB1, AB2, AB3                                  | `UNRESOLVED`, planner calls 0                             |
+| affirmed question about a `NEGATIVE`-sign edge | still publishes, sign intact in the rendering             |
+| `impact of A on B`                             | now publishes — the pre-existing over-exclusion, repaired |
+| `A affects B and C` / `A and C affect B`       | `UNRESOLVED`, roles not established                       |
+| `A affects B, not C`                           | `AFFIRMED` — negation elsewhere is not a denial           |
+
+### Mutation
+
+48 mutants, **48 resolved, 0 survivors, 0 skipped**, eleven new: first clause returned and the rest
+dropped, `MULTIPLE` mapped to `ONE`, the multi-clause branch bypassed, denial treated as assertion,
+clause-tail negation ignored, query polarity compared against the stored causal sign, endpoints
+matched against the whole query instead of the clause regions, cause and effect swapped, role
+cardinality skipped, overlapping constructions counted as two clauses, and the `NONE` branch removed.
+
+**Six isolation proofs**, each removing one layer and nothing else — membership, subject and
+operation, direction, nesting, multi-clause cardinality, polarity. Each fails only its own block
+while existence, verification, freshness, publication class and all-or-nothing stay green.
+
+### Residual limitations
+
+- The role-cardinality check can only see variables the repository knows. An unrecognised word in an
+  effect region is just words, so `"A affects B and <something we never heard of>"` still resolves
+  to A→B. Named because it is a real limit of a mechanically-bounded check.
+- Korean relation direction and polarity remain unresolved (IR-105), deliberately unchanged here.
+- The relation grammar is English and closed. Anything outside it is `NONE` and publishes nothing.
+- **The request gate remains the binding capability constraint** at 1 of 166 corpus questions
+  frame-eligible, and remains untouched. It is the next unit.
+- CALCULATION output and generic INFERENCE output remain unavailable; everything IR-100 to IR-105
+  established still holds and is still enforced.
+
+### Holdout discipline
+
+No new holdout frozen and none quoted. The evidence is the pre-change reproductions, the positive
+and negative controls, the mutation set and six isolation proofs. A broad claim about arbitrary
+multi-relation or negation grammar would need a fresh corpus frozen first.
+
+### Scope
+
+HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call; the
+architecture review used the already-authenticated read-only Codex CLI with no metered billing. PR
+#1 and the frozen candidate untouched; the concurrent session's control-bus work untouched and
+disjoint. Full suite 1950/1950 across 121 files against real PostgreSQL. `npm run build`
+(turbopack) fails on the worktree's `node_modules` junction before reading source;
+`npx next build --webpack` completes.

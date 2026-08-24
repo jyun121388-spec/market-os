@@ -297,3 +297,60 @@ describe("each refusing layer decides something no other layer decides", () => {
     expect(a.status === "UNSUPPORTED" && a.detail).toContain("another clause");
   });
 });
+
+describe("an operand is a constituent, not a substring", () => {
+  /**
+   * Architecture review, IR-107 Unit 2. The interval was found by searching the whole request, so
+   * a temporal word inside the subject's own NAME satisfied the requirement that a period be
+   * stated. The request stated no period and was authorized as though it had.
+   *
+   * The bound is positional and adds no vocabulary: an adjunct sits at an edge of the clause. With
+   * subject material on both sides of it, it is part of a name.
+   */
+  it("refuses a change request whose only temporal words are inside the subject's name", () => {
+    const a = authorize("What is the change in Last Year Holdings?");
+    expect(a.status).not.toBe("AUTHORIZED");
+    expect(a.status).toBe("AMBIGUOUS");
+  });
+
+  it("accepts a trailing interval and does not leave it inside the subject", () => {
+    const a = authorize("What is the change in US GDP last year?");
+    expect(a.status).toBe("AUTHORIZED");
+    if (a.status === "AUTHORIZED") {
+      expect(a.operation).toBe("OBSERVED_CHANGE");
+      // One piece of the request cannot be two constituents at once.
+      expect(a.subjectRegion.trim()).toBe("us gdp");
+    }
+  });
+});
+
+describe("request mood is not evidence of prohibited purpose", () => {
+  /**
+   * The development corpus measured 44 legitimate requests accused of asking for personalized
+   * advice, across all five operations, for one reason: nothing was recognised and the phrasing was
+   * imperative. Asking politely is imperative. Conflating mood with purpose is the same
+   * substitution, one level up, that this unit exists to remove — and it is now 5.
+   */
+  it("calls an unrecognised imperative unsupported, not prohibited", () => {
+    const a = authorize("Give me the figure for Korea's headline consumer price index.");
+    expect(a.status).toBe("UNSUPPORTED");
+  });
+
+  it("prohibits a request about something the reader owns, even with nothing recognised", () => {
+    // The other direction of the same taxonomy error: refused as UNSUPPORTED, which says "not yet"
+    // about something that must never be. A possessive determiner attaches to a noun phrase and
+    // makes that noun the reader's.
+    expect(authorize("What is my average cost basis on Apple?").status).toBe("PROHIBITED");
+    expect(authorize("How much cash is sitting in my brokerage account?").status).toBe(
+      "PROHIBITED",
+    );
+  });
+
+  it("does not treat being spoken to as owning something", () => {
+    // "me" is who is being told, not whose CPI it is. Accusative and dative first person say
+    // nothing about possession, and scanning pronouns without that distinction would refuse every
+    // polite request in the corpus.
+    expect(authorize("Show me CPI").status).not.toBe("PROHIBITED");
+    expect(authorize("Show me the current gold price.").status).toBe("AUTHORIZED");
+  });
+});

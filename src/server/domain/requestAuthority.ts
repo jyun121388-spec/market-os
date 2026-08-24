@@ -273,6 +273,23 @@ const CLAUSE_CONNECTIVES = ["and", "then", "but", "also", "plus", "while", "so",
  */
 const PERSONAL_PRONOUNS = ["i", "me", "my", "mine", "we", "our", "ours", "you", "your", "yours"];
 
+/**
+ * First-person POSSESSIVE determiners, which is a different claim from first-person pronouns.
+ *
+ * The distinction is grammatical and it is the whole point. An accusative or dative first person
+ * names who is being *told* — "show me CPI", "give us the figure" — and says nothing about whose
+ * CPI it is. A possessive determiner attaches to a noun phrase and makes that noun the reader's:
+ * "my brokerage account", "our allocation". Only the second makes the question personalized.
+ *
+ * Scanned over the WHOLE request rather than a subject region, because this exists for the case
+ * where no operation was recognised and there is no subject region to scan. Architecture review
+ * measured 14 of 40 personal-stake controls refused as UNSUPPORTED — refused, but for a reason that
+ * says the product merely does not do that yet, when what is true is that it must not.
+ *
+ * Four words, a closed determiner class. It cannot grow into a list of things people own.
+ */
+const FIRST_PERSON_POSSESSIVES = ["my", "mine", "our", "ours"];
+
 /** Closed set of interval operands. `OBSERVED_CHANGE` refuses without one. */
 const INTERVAL_OPERANDS = [
   "this year",
@@ -385,9 +402,57 @@ function mechanismMatch(query: string): Recognised | null {
   };
 }
 
-function intervalIn(normalized: string): string | null {
+/**
+ * An interval is an ADJUNCT, and an adjunct sits at the edge of the clause.
+ *
+ * This was a substring search over the whole request, and architecture review showed what that
+ * costs: `"What is the change in Last Year Holdings?"` was AUTHORIZED as OBSERVED_CHANGE, with
+ * "last year" read out of the middle of the subject's own name as the required operand. A request
+ * that states no period satisfied the rule that a period must be stated.
+ *
+ * The bound is positional and needs no new vocabulary. A temporal adjunct is either fronted or
+ * trailing: everything on one side of it must be framing. Inside a noun phrase, with subject
+ * material on both sides, it is part of the name and not an operand. "last year holdings" has
+ * "holdings" after it, so it is not an adjunct; "us gdp last year" has nothing after it, so it is.
+ *
+ * Returns the span as well as the text, because the subject must not also contain it — one piece of
+ * the request cannot be two constituents at once.
+ */
+interface IntervalConstituent {
+  operand: string;
+  /** Index in `normalized` of the space preceding the operand. */
+  start: number;
+  /** Index in `normalized` of the space following the operand. */
+  end: number;
+}
+
+function normalizedTokens(normalized: string): string[] {
+  return normalized.trim().split(" ").filter(Boolean);
+}
+
+/** Removes an edge-anchored interval from a subject region, leaving the name it was attached to. */
+function withoutInterval(region: string, span: IntervalConstituent | null): string {
+  if (!span) return region;
+  const normalizedRegion = normalize(region);
+  return normalizedRegion.slice(0, span.start) + " " + normalizedRegion.slice(span.end);
+}
+
+function allFraming(span: string): boolean {
+  return span
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .every((token) => FRAMING_TOKENS.has(token));
+}
+
+function intervalConstituent(normalized: string): IntervalConstituent | null {
   for (const operand of INTERVAL_OPERANDS) {
-    if (normalized.includes(` ${operand} `)) return operand;
+    const start = normalized.indexOf(" " + operand + " ");
+    if (start < 0) continue;
+    const end = start + operand.length + 1;
+    const fronted = allFraming(normalized.slice(0, start));
+    const trailing = allFraming(normalized.slice(end));
+    if (fronted || trailing) return { operand, start, end };
   }
   return null;
 }
@@ -418,17 +483,34 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
   const mechanism = mechanismMatch(query);
   const recognised = mechanism ? [mechanism] : recogniseAll(normalized);
   if (recognised.length === 0) {
-    return directiveFramed
-      ? {
-          status: "PROHIBITED",
-          detail: "The request is framed as an instruction to decide, set a level, or act.",
-        }
-      : {
-          status: "UNSUPPORTED",
-          detail:
-            "The request matches no operation this repository can perform. Unrecognised is " +
-            "unsupported, never permitted by default.",
-        };
+    // A personal stake still decides, even with nothing recognised. Placed here rather than at the
+    // top so that a recognised request keeps being judged by its subject region, which is the
+    // narrower and better evidence; this only covers the case where there is no subject region to
+    // look at. Refusing these as UNSUPPORTED said "not yet" about something that must never be.
+    if (normalizedTokens(normalized).some((t) => FIRST_PERSON_POSSESSIVES.includes(t))) {
+      return {
+        status: "PROHIBITED",
+        detail:
+          "The request is about something the reader owns. A possessive first person attaches to " +
+          "a noun phrase and makes that noun theirs, which is a personalized request whatever " +
+          "operation it would otherwise have been.",
+      };
+    }
+    // Unrecognised, and that is all it is.
+    //
+    // This returned PROHIBITED whenever `classifyRequestFrame` called the request a directive, and
+    // the development corpus measured what that costs: 44 ordinary requests accused of asking for
+    // personalized advice, across all five operations. "Give me the figure for Korea's headline
+    // consumer price index." is an imperative and is not a decision request. Request MOOD is not
+    // evidence of prohibited PURPOSE — conflating them is the same substitution, one level up, that
+    // this unit exists to remove. Nothing is authorized by the change: unrecognised still refuses.
+    return {
+      status: "UNSUPPORTED",
+      detail:
+        "The request matches no operation this repository can perform. Unrecognised is " +
+        "unsupported, never permitted by default." +
+        (directiveFramed ? " It is phrased as an instruction, which is not itself a reason." : ""),
+    };
   }
 
   const operations = new Set(recognised.map((r) => r.operation));
@@ -442,7 +524,14 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
   const [match] = recognised;
   const contract = OPERATION_CONTRACTS[match.operation];
 
-  const subjectTokens = match.subjectRegion.trim().split(" ").filter(Boolean);
+  // The subject cannot also be the interval. A trailing construction's subject region runs to the
+  // end of the request, so "us gdp last year" arrives with the adjunct inside it; leaving it there
+  // means the same words are counted twice, once as the thing asked about and once as the period.
+  const subjectRegion = withoutInterval(
+    match.subjectRegion,
+    intervalConstituent(normalize(match.subjectRegion)),
+  );
+  const subjectTokens = subjectRegion.trim().split(" ").filter(Boolean);
   if (subjectTokens.some((token) => PERSONAL_PRONOUNS.includes(token))) {
     return {
       status: "PROHIBITED",
@@ -462,7 +551,8 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
 
   // There are no halves. Anything the grammar has not read is a second thing being asked, and a
   // request that asks two things cannot be satisfied by answering one of them.
-  const interval = intervalIn(normalized);
+  const intervalSpan = intervalConstituent(normalized);
+  const interval = intervalSpan?.operand ?? null;
   const intervalTokens = new Set(interval ? interval.split(" ") : []);
   // An operation's own required operand is not leftover content. The attribution marker names the
   // source an attributed report must bind to, so it is part of the request being read, not a
@@ -508,7 +598,7 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
     status: "AUTHORIZED",
     operation: match.operation,
     contract,
-    subjectRegion: match.subjectRegion,
+    subjectRegion,
     detail: `Recognised as ${match.operation}.`,
   };
 }

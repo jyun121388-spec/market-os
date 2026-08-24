@@ -125,9 +125,14 @@ describe("a cause region is framing, then the subject, and nothing else", () => 
     expect(causeRegionIsWellFormed(" explain how the a ", "a")).toBe(true);
   });
 
-  it("starts reading at the last interrogative, so earlier prose is not the clause's framing", () => {
-    expect(framingIsRecognised(" there is no shortage of gamma explain how the ")).toBe(true);
-    expect(framingIsRecognised(" explain how there is no shortage of gamma the ")).toBe(false);
+  it("reads every token in front of the relation, with no restart", () => {
+    // The restart-at-the-last-interrogative rule was removed after a review showed it discarding a
+    // qualifier that governs an embedded clause. Both of these are now refused, and the first one
+    // is the capability that went with it.
+    expect(framingIsRecognised(" there is no shortage of gamma explain how the ")).toBe(false);
+    expect(framingIsRecognised(" explain how false this is how the ")).toBe(false);
+    expect(framingIsRecognised(" explain how the ")).toBe(true);
+    expect(framingIsRecognised(" what mechanism ")).toBe(true);
   });
 
   it("refuses an empty or absent subject", () => {

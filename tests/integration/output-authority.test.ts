@@ -1594,14 +1594,35 @@ describeIfDb("output authority (integration)", () => {
       }
     });
 
-    it("unrelated prose before the question does not refuse the question", async () => {
-      // The framing scan starts at the LAST interrogative, so a preceding sentence — even one that
-      // denies something else — is not read as qualifying this relation. A scan bounded by the
-      // previous clause instead refused exactly this, which is why the anchor is the interrogative.
+    it("a governing qualifier is not discarded by an embedded interrogative", async () => {
+      // The scan used to restart at the last interrogative so that unrelated preceding prose would
+      // not refuse an ordinary question. A third review took that apart: in
+      // "Explain how false this is: how A affects B" the second "how" reset the scan and the
+      // governing "false this is" was discarded, publishing the relation under an assertion that
+      // it is false. Punctuation is gone by then, so "unrelated sentence" and "qualifier governing
+      // an embedded clause" are the same token sequence and the reset could not be bounded.
+      for (const query of [
+        `Explain how false this is: how ${FREIGHT} affects ${SHIPPING}.`,
+        `Explain how false this is: how the impact of ${FREIGHT} on ${SHIPPING} works.`,
+        `Explain how mistaken this is: how ${FREIGHT} affects ${SHIPPING}.`,
+      ]) {
+        const envelope = await deriveCandidateEnvelope(query);
+        expect(envelope.status).toBe("UNRESOLVED");
+        const { calls, sink } = countingSink({
+          segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
+        });
+        const outcome = await answerWithInference(query, sink);
+        expect(calls).toHaveLength(0);
+        expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+      }
+    });
+
+    it("and the harmless preceding sentence is refused too, which is the cost", async () => {
+      // The case the reset existed to permit. It was a convenience nobody asked for, invented here
+      // to justify the reset, and it goes with it. Recorded rather than argued away.
       const query = `There is no shortage of dock capacity. Explain how ${FREIGHT} affects ${SHIPPING}.`;
       const envelope = await deriveCandidateEnvelope(query);
-      expect(envelope.status).toBe("AUTHORIZED");
-      expect(envelope.causalEdgeIds).toEqual([explanationId]);
+      expect(envelope.status).toBe("UNRESOLVED");
     });
 
     it("a denial the negator list never anticipated is still a denial", async () => {

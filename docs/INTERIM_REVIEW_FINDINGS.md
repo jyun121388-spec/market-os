@@ -4837,7 +4837,8 @@ what makes "a missing row is never evidence of absence" true rather than merely 
 dropped, `MULTIPLE` mapped to `ONE`, the multi-clause branch bypassed, denial treated as assertion,
 clause-tail negation ignored, query polarity compared against the stored causal sign, endpoints
 matched against the whole query instead of the clause regions, cause and effect swapped, role
-cardinality skipped, overlapping constructions counted as two clauses, the `NONE` branch removed, the cause anchor removed, the pre-marker negation scan removed, and the effect-region negation scan removed, the framing allowlist bypassed, the allowlist made to admit any token, and the framing scan un-anchored from the interrogative.
+cardinality skipped, overlapping constructions counted as two clauses, the `NONE` branch removed, the cause anchor removed, the pre-marker negation scan removed, and the effect-region negation scan removed, the framing allowlist bypassed, the allowlist made to admit any token, and the framing scan restarted at an embedded interrogative — the rule this unit removed, kept
+alive as a mutant so it cannot come back unnoticed.
 
 **Six isolation proofs**, each removing one layer and nothing else — membership, subject and
 operation, direction, nesting, multi-clause cardinality, polarity. Each fails only its own block
@@ -4923,10 +4924,31 @@ the case that separates them (`"explain how the a the"` with subject `"a"`: fram
 subject misplaced). A repository with a series called `the process` would depend on that difference
 for real.
 
+### The third review, and a rule deleted rather than refined
+
+The framing allowlist went back for review and came back **REWORK_REQUIRED** a third time, on the
+one part of it that was not an allowlist: the scan restarted at the _last_ interrogative.
+
+    Explain how false this is: how the impact of A on B works.
+
+The second `how` reset the scan, the governing "false this is" was discarded, and the stored
+relation published under an enclosing assertion that it is false. Reproduced in three forms.
+
+That restart existed for exactly one reason — a case introduced one round earlier to keep
+_"There is no shortage of dock capacity. Explain how A affects B."_ working. With punctuation erased
+by normalization, "unrelated preceding sentence" and "qualifier governing an embedded clause" are
+the same token sequence, so the reset cannot be bounded, only replaced by something that guesses.
+
+**So the rule was deleted rather than refined**, and the capability it protected went with it. Every
+token in front of the relation must now be recognised framing, full stop. The convenience was never
+requested; it was invented here to justify the reset, and it is recorded as a loss with its own
+test. The mutation that reintroduces the reset is now part of the set.
+
 ### The shape of this unit
 
-Three rounds, each closing a defect the previous round's list could not have anticipated —
-enumerated negators, then negation particles, then the framing allowlist. Only the last inverts the
+Four rounds, each closing what the previous round could not have anticipated — enumerated
+negators, then negation particles, then the framing allowlist, then the allowlist's own escape
+hatch. Only the last inverts the
 question from _which denials do I know_ to _which words am I allowed to have read_, and that is what
 makes it finishable. Two of the three were found by independent review; the over-correction between
 them, and the appositive regression after, were found by controls in this repository.
@@ -4935,6 +4957,8 @@ them, and the appositive regression after, were found by controls in this reposi
 
 - An appositive is refused: `"A, the A, affects B"` reads as unrecognised framing. Ordinary English
   that this grammar cannot read.
+- Any unrecognised words in front of the question refuse it, including a harmless preceding
+  sentence. The cost of having no sentence boundary to work with.
 - `"explain how exactly A affects B"` is refused for the same reason — an adverb is not a function
   word in the allowlist.
 - `"A affects B, not C"` is now `NEGATED` and refused. The clause denies something inside its own
@@ -4961,6 +4985,6 @@ multi-relation or negation grammar would need a fresh corpus frozen first.
 HG-006 activation work. No provider, model, credential, API, PAYG, deployment or network call; the
 architecture review used the already-authenticated read-only Codex CLI with no metered billing. PR
 #1 and the frozen candidate untouched; the concurrent session's control-bus work untouched and
-disjoint. Full suite 1962/1962 across 121 files against real PostgreSQL. `npm run build`
+disjoint. Full suite 1963/1963 across 121 files against real PostgreSQL. `npm run build`
 (turbopack) fails on the worktree's `node_modules` junction before reading source;
 `npx next build --webpack` completes.

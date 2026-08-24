@@ -261,15 +261,6 @@ const CLAUSE_NEGATORS = [
 const NEGATION_MARKERS = ["not", "no", "never", "nor", "without"];
 
 /**
- * The interrogatives a mechanism question is built on. Where the clause's own framing starts.
- *
- * `requestFrame.ts` already requires one of these to admit the question at all, so anchoring on the
- * last one before the relation is not a new rule — it is the same rule, read again to find where
- * the asker stopped writing preamble and started writing the question.
- */
-const ANCHOR_TOKENS = ["explain", "what", "how", "describe"];
-
-/**
  * Everything else a clause's framing may contain. An ALLOWLIST, and that is the whole point.
  *
  * The first repair refused a closed set of negation particles, and a second adversarial review got
@@ -304,22 +295,25 @@ const FRAMING_TOKENS = new Set([
 ]);
 
 /**
- * Is everything between the question's framing and the relation a recognised function word?
+ * Is everything in front of the relation a recognised function word? All of it.
  *
- * The scan starts at the LAST interrogative before the relation, not at the previous clause's end.
- * That distinction preserves "There is no shortage of gamma. Explain how alpha affects beta." —
- * where an unrelated sentence precedes a perfectly ordinary question — while still refusing an
- * interposed denial, because a denial sits AFTER the interrogative and unrelated prose sits before
- * it. Punctuation is gone by this point, so the interrogative is the only sentence boundary
- * available, and it is the one the frame gate already insisted on.
+ * This scan once restarted at the last interrogative, so that "There is no shortage of gamma.
+ * Explain how alpha affects beta." — an unrelated sentence in front of an ordinary question — would
+ * not be refused. A third adversarial review took that reset apart with
+ * `Explain how false this is: how the impact of A on B works.` The second `how` reset the scan, the
+ * governing "false this is" was discarded, and the stored relation published under an enclosing
+ * assertion that it is false.
+ *
+ * The reset cannot be repaired, only bounded better, and with punctuation erased by normalization
+ * there is nothing left to bound it with: "unrelated preceding sentence" and "qualifier governing
+ * an embedded clause" are the same token sequence. So the rule is gone rather than refined. A
+ * question preceded by any unrecognised words is refused, including the harmless case the reset
+ * existed to permit — which was a convenience nobody had asked for, invented here to justify the
+ * reset, and is now a stated capability loss instead.
  */
 export function framingIsRecognised(region: string): boolean {
   const tokens = normalizeSubject(region).trim().split(" ").filter(Boolean);
-  let start = 0;
-  for (const [i, token] of tokens.entries()) {
-    if (ANCHOR_TOKENS.includes(token)) start = i;
-  }
-  return tokens.slice(start).every((token) => FRAMING_TOKENS.has(token));
+  return tokens.every((token) => FRAMING_TOKENS.has(token));
 }
 
 /**

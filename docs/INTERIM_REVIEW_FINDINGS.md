@@ -5554,3 +5554,63 @@ strictness where the repair was the filter itself.
 
 Development corpus unchanged at 57/300 with 0/200 leaks — this work did not touch recognition.
 Parser mutants 18/18. Suite 2023/2023. Sealed holdout still sealed.
+
+### Second adversarial review: REWORK_REQUIRED again, and the repair was my own regression
+
+Four more real defects. Two of them I had introduced with the previous repair.
+
+**Maximality by name is not maximality by occurrence.** Asked for
+`What is the current TEST Acme Rate, TEST Acme Rate Index?` — both stored, both explicitly named —
+the serving path silently dropped the shorter and answered with the longer. The same for providers:
+`What did Rework Data, Rework Data Research publish about …?` picked the longer provider and
+attributed the figure to it. My filter asked "is this stored name a substring of that stored name",
+which is a fact about two stored names and says nothing about the request.
+
+`subjectAuthority.explicitlyNamed` already implements the right rule — a subject survives if it
+occurs somewhere that is not inside an occurrence of a longer matched subject — and **its own
+comment describes the exact mistake I made**, because IR-105 made it once and fixed it. A second
+implementation of one rule reproduced the first one's original bug. It is exported now and used by
+subjects, sources and both mechanism endpoints, which also closes the nested-name leak recorded as
+open in the previous section.
+
+Naming two distinct stored subjects is now refused rather than answered: the contract says
+`subjectCardinality: 1` and the parser cannot enforce it, because it never reads inventory and one
+subject region naming two stored subjects looks like one subject to it.
+
+**Company readings had no currentness rule at all.** A company last reporting in 2021 answered
+`What is the current …?` with its 2021 revenue, and one filing carrying a current period beside an
+old one served both. They now get what series readings got: only the most recent reported period,
+and only when that period is current by the company's own reporting cadence, derived from the
+intervals between its distinct period ends. A company that has reported once has no cadence, and
+unknown is not current.
+
+**Freshness was decided on one selection and the value taken from another.** Cadence used the
+revision-resolved history; the number came from a second raw query tie-broken by `id desc`. Where
+the two disagree the answer is a superseded revision that has just been certified as current. **I
+could not construct a failing case** — cuids are time-ordered, so the effective revision won by
+luck — and the repair is not a test: the second selection is deleted, and the value now comes from
+the same resolved reading the freshness verdict was computed from.
+
+### Four spare guards, found by mutation and deleted
+
+Every one of these was a decision being made twice, and in each case removing one copy changed no
+result: an occurrence pre-filter in front of `explicitlyNamed` (three times — series, sources,
+mechanism endpoints), and a cadence check expressed as two conditions. One of them was an accident
+of a patch that aborted midway, leaving both the old guard and its replacement in place — and the
+mutation that should have proved the new one hit the old one instead and reported MISSED.
+
+That last one is worth keeping as a method note. **A mutation reported as MISSED is a claim about
+the code, not only about the tests.** I spent four probes assuming my test was vacuous before
+looking at the file and finding two guards where I had written one. Two of those probes were
+themselves silent no-ops, because I patched with `str.replace` and no assertion on the match count
+while the mutation harness — which does assert — had been telling me the truth all along.
+
+**Isolation: 17 of 17.** Every mutation fails only the binding tests; none fails the 120 parse,
+subject, candidate, verification or refusal-invariant tests. Parser mutants 18/18. Suite 2029/2029.
+
+### Fixtures that could not express the properties being tested
+
+Three, all the same shape: a fixture written as a snapshot of one day cannot say anything about
+currentness. Company period ends became relative and gained a prior quarter, because a company that
+reported once has no cadence. The refusal-invariant company likewise — and until it did, that
+invariant was being checked against an empty payload, which it satisfies trivially.

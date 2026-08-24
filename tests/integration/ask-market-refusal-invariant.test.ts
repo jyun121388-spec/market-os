@@ -70,10 +70,22 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
 
     // Three figures with visibly different characters, so a re-ranking would be detectable rather
     // than hidden behind values that all look alike.
+    // Relative periods, and two of them.
+    //
+    // These were fixed dates and a single reported period. Once `askMarket` began asking whether a
+    // filing figure is CURRENT, one period projected no cadence and the whole fixture stopped being
+    // answerable -- so this invariant was being checked against an empty payload, which it would
+    // have satisfied trivially.
+    const day = 24 * 60 * 60 * 1000;
+    const iso = (n: number) => new Date(Date.now() - n * day).toISOString().slice(0, 10);
+    const CURRENT = iso(30);
     const facts = [
-      { concept: "Revenues", value: "12000000000", periodEnd: "2026-06-27" },
-      { concept: "NetIncomeLoss", value: "-450000000", periodEnd: "2026-06-27" },
-      { concept: "Assets", value: "88000000000", periodEnd: "2026-06-27" },
+      { concept: "Revenues", value: "12000000000", periodEnd: CURRENT },
+      { concept: "NetIncomeLoss", value: "-450000000", periodEnd: CURRENT },
+      { concept: "Assets", value: "88000000000", periodEnd: CURRENT },
+      // The quarter before, which gives the company a cadence and must not itself be served as
+      // current.
+      { concept: "Revenues", value: "11000000000", periodEnd: iso(120) },
     ];
     for (const f of facts) {
       await prisma.financialFact.create({
@@ -85,7 +97,7 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
           accessionNumber: "9999-0001",
           unit: "USD",
           value: f.value,
-          periodStart: f.concept === "Assets" ? null : new Date("2026-03-29T00:00:00.000Z"),
+          periodStart: f.concept === "Assets" ? null : new Date(`${iso(120)}T00:00:00.000Z`),
           periodEnd: new Date(`${f.periodEnd}T00:00:00.000Z`),
           fiscalYear: 2026,
           fiscalPeriod: "Q3",

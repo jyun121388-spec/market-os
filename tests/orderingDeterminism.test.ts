@@ -104,11 +104,9 @@ const DEFERRED_BY_FREEZE = [
   // `filing.findMany({ orderBy: receiptDate desc })` then `.find(name matches)` — with two
   // companies matching one topic, which company answers depends on an unstable order.
   "domain/askMarket.ts",
-  // `financialFact.findMany({ orderBy: periodEnd desc, take: 10 })` — Apple has nine facts sharing
-  // one periodEnd, including a nine-month and a quarterly NetIncomeLoss. At ten or more, which
-  // figures reach the reader becomes unspecified. companyXray and filingDiff both fixed this; this
-  // path was missed.
-  "domain/askMarket.ts",
+  // The second entry was `financialFact.findMany({ orderBy: periodEnd desc, take: 10 })`, where
+  // nine facts sharing one periodEnd left it unspecified which reached the reader. It is gone:
+  // making the operation bind what is served gave that query a total ordering on the way past.
 ];
 
 describe("orderings in the domain layer", () => {

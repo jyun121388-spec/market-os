@@ -157,8 +157,14 @@ const inside = (inner: Occurrence, outer: Occurrence) =>
  * So the question is asked of the query instead. A subject survives if it occurs somewhere that is
  * not inside an occurrence of a longer matched subject. Two explicit subjects then reach the
  * ambiguity rule, which is where a question naming two things belongs.
+ *
+ * Exported because the serving path needed exactly this and got it wrong independently. `askMarket`
+ * grew its own maximality filter that asked "is this stored name a substring of that stored name",
+ * which is the very test this function's third paragraph describes as insufficient, and it silently
+ * answered "TEST Acme Rate, TEST Acme Rate Index" with only the longer one. One rule, one
+ * implementation: the second implementation reproduced the first one's original bug.
  */
-function explicitlyNamed<T>(matches: T[], nameOf: (m: T) => string, query: string): T[] {
+export function explicitlyNamed<T>(matches: T[], nameOf: (m: T) => string, query: string): T[] {
   const normalized = normalizeSubject(query);
   const spans = matches.map((m) => occurrencesOf(nameOf(m), normalized));
   return matches.filter((_, i) =>

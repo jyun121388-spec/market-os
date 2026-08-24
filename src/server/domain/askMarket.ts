@@ -1,7 +1,7 @@
 import { prisma } from "@/server/db/client";
 import { computeChange, getRecentObservationPair } from "./seriesReadings";
 import { resolveRequestAuthority } from "./requestAuthority";
-import { nameOccursIn } from "./subjectAuthority";
+import { explicitlyNamed, nameOccursIn } from "./subjectAuthority";
 import { computeCalendarEntry } from "./economicCalendar";
 import { evaluateStaleness } from "./staleness";
 import { extractKeywords } from "./eventClustering";
@@ -897,31 +897,25 @@ async function matchingSeries(topic: string, sourceId?: string) {
   // Identity, not resemblance. `mentionsEachOther` is a 60%-token-overlap heuristic: asking for
   // "TEST Rework Freight" returned "TEST Rework Stale Index" as well, and a request naming a
   // shorter subject than the one stored was answered from the longer one. Retrieval may guess;
-  // what decides which record answers a request may not. The stored name has to OCCUR in the
-  // subject the parser read.
-  const occurring = allSeries.filter((series) => nameOccursIn(series.name, topic));
-  // And maximal, for the reason IR-105 settled for subjects: with "Widget price" and "Widget Price
-  // Index" both stored and the longer one named, both occur, and the shorter was never separately
-  // named -- it was read out of the longer one.
-  const key = (name: string) =>
-    ` ${name
-      .normalize("NFKC")
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .trim()} `;
-  // STRICTLY longer. Two providers publishing the same indicator store the same name, and each
-  // contains the other -- a non-strict test dropped both and answered a perfectly well-formed
-  // request with nothing at all.
-  return occurring
-    .filter(
-      (series) =>
-        !occurring.some(
-          (other) =>
-            key(other.name) !== key(series.name) &&
-            key(other.name).includes(key(series.name).trim()),
-        ),
-    )
-    .slice(0, 5);
+  // what decides which record answers a request may not.
+  //
+  // One call, not two. An occurrence pre-filter stood here in front of `explicitlyNamed`, and
+  // mutation showed it decided nothing -- a candidate with no occurrence is dropped by
+  // `explicitlyNamed` anyway, so swapping the pre-filter back to the old heuristic changed no
+  // result. A guard that cannot change an answer is not depth, it is a second copy of one rule.
+  // And maximal BY OCCURRENCE, which is not the same as by name.
+  //
+  // This filtered on "is this stored name a substring of that stored name", and adversarial review
+  // showed what that costs: asked for "TEST Acme Rate, TEST Acme Rate Index" -- both stored, both
+  // explicitly named -- it silently dropped the shorter one and answered with the longer alone.
+  // Substring-of-another-name is a fact about the two stored names and says nothing about the
+  // request. `subjectAuthority.explicitlyNamed` asks the question of the QUERY instead: a subject
+  // survives if it occurs somewhere that is not inside an occurrence of a longer matched subject.
+  //
+  // That function's own comment describes this exact mistake, because IR-105 made it once already
+  // and fixed it. A second implementation of one rule reproduced the first one's original bug,
+  // which is the argument for there being one.
+  return explicitlyNamed(allSeries, (series) => series.name, topic).slice(0, 5);
 }
 
 /**
@@ -941,31 +935,38 @@ async function matchingSeries(topic: string, sourceId?: string) {
 async function findObservationFactors(topic: string, sourceId?: string): Promise<SeriesFactor[]> {
   const factors: SeriesFactor[] = [];
   for (const series of await matchingSeries(topic, sourceId)) {
+    // One guard, because it is one decision. This asked for INSUFFICIENT_DATA here and for a
+    // defined value further down -- the same condition twice, so removing either changed nothing
+    // and mutation found the redundancy rather than a defect.
     const cadence = await computeCalendarEntry(series.id);
-    if (cadence.status === "INSUFFICIENT_DATA" || cadence.medianIntervalDays === undefined) {
+    if (
+      cadence.medianIntervalDays === undefined ||
+      cadence.lastObservedDate === undefined ||
+      cadence.lastObservedValue === undefined
+    ) {
       continue;
     }
     const freshness = evaluateStaleness({
-      lastObservedDate: cadence.lastObservedDate as string,
+      lastObservedDate: cadence.lastObservedDate,
       medianIntervalDays: cadence.medianIntervalDays,
     });
     if (freshness.status !== "FRESH") continue;
-    const latest = await prisma.observation.findFirst({
-      where: { seriesId: series.id },
-      // Two observations can share a date; without a unique tiebreak "the latest value" is
-      // whichever row the planner happened to return first, and a level answer must not depend on
-      // that.
-      orderBy: [{ observationDate: "desc" }, { id: "desc" }],
-    });
-    if (!latest) continue;
+    // The value comes from the SAME resolved reading the freshness verdict was computed from.
+    //
+    // It used to be a second query against the raw table, tie-broken by `id desc`. Freshness was
+    // therefore decided on the revision-resolved history and the number was chosen by a different
+    // rule from the same rows -- two selections that agree only by luck, and where they disagree
+    // the answer is a superseded revision that has just been certified as current. I could not
+    // construct a failing case with time-ordered cuids, and the repair is not a test: it deletes
+    // the second selection rather than checking the two agree.
     factors.push({
       kind: "OBSERVATION",
       seriesId: series.id,
       seriesName: series.name,
       sourceCode: series.source.code,
       unit: series.unit,
-      asOfDate: latest.observationDate.toISOString().slice(0, 10),
-      value: Number(latest.value.toString()),
+      asOfDate: cadence.lastObservedDate,
+      value: cadence.lastObservedValue,
     });
   }
   return factors;
@@ -1030,23 +1031,17 @@ async function resolveSourceIdentity(sourceRegion: string): Promise<SourceResolu
       .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim()} `;
   const haystack = normalize(region);
-  const matched = sources.filter(
-    (src) =>
-      normalize(src.name).trim().length > 0 &&
-      (haystack.includes(normalize(src.name)) || haystack.includes(normalize(src.code))),
-  );
-  // Keep only maximal names. With "Rework Data" and "Rework Data Research" both stored, naming the
-  // longer one makes BOTH whole names occur, and the request was refused as ambiguous -- a request
-  // that named exactly one source, refused for naming it. A hit whose name sits strictly inside
-  // another hit's name was never separately named; it was read out of the longer one.
-  const hits = matched.filter(
-    (src) =>
-      !matched.some(
-        (other) =>
-          normalize(other.name) !== normalize(src.name) &&
-          normalize(other.name).includes(normalize(src.name).trim()),
-      ),
-  );
+  // A code is not a name and does not nest the way names do, so it is matched separately.
+  const byCode = sources.filter((src) => haystack.includes(normalize(src.code)));
+  // Keep only maximal names -- by OCCURRENCE, for the same reason as subjects. Naming the longer
+  // source makes both whole names occur and the shorter was read out of the longer, so it must go;
+  // but naming BOTH ("Rework Data, Rework Data Research") names two providers, and a name-level
+  // containment test could not tell those two situations apart. It answered the second one by
+  // silently picking the longer provider, which is a false attribution with a confident tone.
+  // Same deletion as the series path: the whole-name containment pre-filter decided nothing that
+  // `explicitlyNamed` does not decide again, since a name with no occurrence has no occurrence.
+  const byName = explicitlyNamed(sources, (src) => src.name, region);
+  const hits = [...new Map([...byName, ...byCode].map((src) => [src.id, src])).values()];
   if (hits.length === 1) return { status: "RESOLVED", sourceId: hits[0].id, code: hits[0].code };
   if (hits.length > 1) return { status: "AMBIGUOUS", codes: hits.map((h) => h.code) };
   return { status: "UNRESOLVED" };
@@ -1070,8 +1065,16 @@ async function findMechanismEdges(cause: string, effect: string): Promise<Causal
   const allEdges = await prisma.causalEdge.findMany({
     orderBy: [{ fromVariable: "asc" }, { toVariable: "asc" }, { id: "asc" }],
   });
-  return allEdges
-    .filter((e) => nameOccursIn(e.fromVariable, cause) && nameOccursIn(e.toVariable, effect))
+  // Occurrence, then maximality on each endpoint independently. Bare `nameOccursIn` let a stored
+  // variable whose name NESTS inside the named one match as well -- "TEST: Widget price" answering
+  // a question about "TEST Widget Price Index" -- which was recorded as an open finding and is
+  // closed here by the same rule the other two paths now use.
+  // No occurrence pre-filter, for the third time in this file. Requiring both endpoints to occur
+  // before applying maximality decided nothing: `explicitlyNamed` drops an endpoint with no
+  // occurrence anyway, so relaxing the pre-filter's AND to an OR changed no result. Both sides are
+  // resolved independently, which is what enforces the direction.
+  const maximalCause = explicitlyNamed(allEdges, (e) => e.fromVariable, cause);
+  return explicitlyNamed(maximalCause, (e) => e.toVariable, effect)
     .slice(0, 10)
     .map((e) => ({
       fromVariable: e.fromVariable,
@@ -1125,11 +1128,42 @@ async function findCompanyFacts(
   // corp codes in the same column. Keying on corpCode alone made this answer depend on those
   // namespaces never colliding, which nothing enforces, and the failure would have been a
   // foreign-currency figure from another provider quietly leading an answer about a US company.
-  const facts = await prisma.financialFact.findMany({
+  const allFacts = await prisma.financialFact.findMany({
     where: { sourceId: filing.sourceId, corpCode: filing.corpCode },
-    orderBy: [{ periodEnd: "desc" }],
-    take: 10,
+    orderBy: [{ periodEnd: "desc" }, { concept: "asc" }, { id: "asc" }],
   });
+
+  // Company readings get the same currentness rule series readings do, and for the same reason:
+  // "the newest filing we hold" and "the current figure" are different claims. A company last
+  // reporting in 2021 answered `What is the current ...?` with its 2021 revenue, and a filing
+  // carrying one current period alongside an old one served both.
+  //
+  // Two rules, both bounded, neither a new invention. Only the most recent period may answer a
+  // request about the present -- an older period is a different question. And that period must be
+  // current by the company's OWN reporting cadence, derived from the intervals between its
+  // distinct period ends, which is the same derivation `economicCalendar` performs for a series.
+  // A company that has reported once has no derivable cadence, and unknown is not fresh.
+  const periodEnds = [...new Set(allFacts.map((f) => f.periodEnd.getTime()))].sort((a, b) => b - a);
+  if (periodEnds.length < 2) return { facts: [] };
+  const intervals: number[] = [];
+  for (let i = 1; i < periodEnds.length; i++) {
+    intervals.push((periodEnds[i - 1] - periodEnds[i]) / (24 * 60 * 60 * 1000));
+  }
+  intervals.sort((a, b) => a - b);
+  const middle = Math.floor(intervals.length / 2);
+  const medianIntervalDays = Math.round(
+    intervals.length % 2 === 1
+      ? intervals[middle]
+      : (intervals[middle - 1] + intervals[middle]) / 2,
+  );
+  const newest = new Date(periodEnds[0]);
+  const freshness = evaluateStaleness({
+    lastObservedDate: newest.toISOString().slice(0, 10),
+    medianIntervalDays,
+  });
+  if (freshness.status !== "FRESH") return { facts: [] };
+
+  const facts = allFacts.filter((f) => f.periodEnd.getTime() === periodEnds[0]).slice(0, 10);
 
   return {
     matchedCorpName: filing.corpName,
@@ -1220,6 +1254,30 @@ export async function askMarket(query: string): Promise<AskMarketResult> {
   // contains the operation words, the framing and any source name, and matching series against all
   // of that is how a question about one thing collects rows about another.
   const subject = authority.subjectRegion.trim();
+
+  // Subject cardinality, checked against what is actually stored.
+  //
+  // The parser cannot do this and must not try: it never reads inventory, so it cannot know that
+  // one subject region names two stored subjects. `What is the current TEST Acme Rate, TEST Acme
+  // Rate Index?` parses as one region and names two things, and every operation but the mechanism
+  // declares `subjectCardinality: 1`. Serving both would answer two questions; serving one would
+  // choose. Two providers publishing under the SAME name is one subject, not two, which is why
+  // this counts distinct names rather than rows.
+  if (authority.contract.subjectCardinality === 1) {
+    const named = new Set((await matchingSeries(subject)).map((series) => series.name));
+    if (named.size > 1) {
+      return {
+        status: "REQUEST_NOT_SUPPORTED",
+        query: trimmed,
+        redirectMessage:
+          `The request names ${named.size} stored subjects (${[...named].join(", ")}), and this ` +
+          "operation answers about one. Choosing between them would answer a different question.",
+        seriesFactors: [],
+        causalFactors: [],
+        companyFacts: [],
+      };
+    }
+  }
 
   switch (authority.contract.recordClass) {
     case "OBSERVATION": {

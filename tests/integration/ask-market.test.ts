@@ -27,6 +27,22 @@ const CORP_CODE = "TEST_WIDGET_CORP_CODE";
  */
 const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 
+/**
+ * A company needs more than one reported period to have a cadence at all.
+ *
+ * Every company here reported once, at a date fixed when the fixture was written, so once
+ * `askMarket` began asking whether a filing figure is CURRENT there was nothing to answer with:
+ * one period projects no interval, and unknown is not fresh. Two quarters, relative to now.
+ */
+const CURRENT_PERIOD_END = daysAgo(30);
+/** A company that reported twice, years ago -- a derivable cadence, long past it. */
+const STALE_CORP_NAME = "TEST Widget Dormant Corp";
+const STALE_CORP_CODE = "TEST_WIDGET_DORMANT_CODE";
+/** A company that has reported exactly once, so no cadence can be projected from it. */
+const SINGLE_CORP_NAME = "TEST Widget Debutant Corp";
+const SINGLE_CORP_CODE = "TEST_WIDGET_DEBUTANT_CODE";
+const PRIOR_PERIOD_END = daysAgo(120);
+
 /** A series whose newest observation is far past its own cadence. */
 const STALE_SOURCE = "TEST_ASK_MARKET_STALE_SOURCE";
 const STALE_SERIES_NAME = "TEST Widget Staleness Probe Index";
@@ -67,7 +83,7 @@ describeIfDb("askMarket (integration)", () => {
       }
     }
     await prisma.causalEdge.deleteMany({
-      where: { fromVariable: "TEST: Widget demand (ask-market)" },
+      where: { fromVariable: { in: ["TEST: Widget demand (ask-market)", "TEST: Widget"] } },
     });
 
     const source = await prisma.source.create({
@@ -115,6 +131,22 @@ describeIfDb("askMarket (integration)", () => {
       },
     });
 
+    // A third edge whose CAUSE name nests inside the cause the request names. Without maximality
+    // on the cause side, "TEST: Widget demand (ask-market)" also matches the stored "TEST: Widget"
+    // and a second relation answers a question about the first.
+    await prisma.causalEdge.create({
+      data: {
+        fromVariable: "TEST: Widget",
+        toVariable: SERIES_NAME,
+        direction: "POSITIVE",
+        confidence: "LOW",
+        mechanism: "Test fixture, not a real economic claim.",
+        evidence: "Test fixture.",
+        lag: "immediate",
+        counterexamples: "Test fixture limitation.",
+      },
+    });
+
     // A second authentic edge sharing ONLY the cause with the one above. Without it, requiring
     // both endpoints and requiring either endpoint give the same answer for every query in this
     // file -- the mutation that relaxes the mechanism filter survived precisely because nothing
@@ -150,13 +182,33 @@ describeIfDb("askMarket (integration)", () => {
         taxonomy: "us-gaap",
         concept: "Revenues",
         unit: "USD",
-        periodEnd: new Date("2026-03-31T00:00:00.000Z"),
+        periodEnd: CURRENT_PERIOD_END,
         fiscalYear: 2026,
         fiscalPeriod: "Q1",
         form: "10-Q",
         accessionNumber: "TEST_ACCN",
         filedDate: new Date("2026-05-01T00:00:00.000Z"),
         value: "1000000",
+        raw: {},
+      },
+    });
+
+    // The quarter before, so the company has a derivable reporting cadence. It is also the control
+    // for the mixed case: an older period must not ride along with the current one.
+    await prisma.financialFact.create({
+      data: {
+        sourceId: source.id,
+        corpCode: filing.corpCode,
+        taxonomy: "us-gaap",
+        concept: "Revenues",
+        unit: "USD",
+        periodEnd: PRIOR_PERIOD_END,
+        fiscalYear: 2025,
+        fiscalPeriod: "Q4",
+        form: "10-Q",
+        accessionNumber: "TEST_ACCN_PRIOR",
+        filedDate: new Date("2026-02-01T00:00:00.000Z"),
+        value: "900000",
         raw: {},
       },
     });
@@ -171,8 +223,8 @@ describeIfDb("askMarket (integration)", () => {
         taxonomy: "us-gaap",
         concept: "Revenues",
         unit: "USD",
-        periodStart: new Date("2026-01-01T00:00:00.000Z"),
-        periodEnd: new Date("2026-03-31T00:00:00.000Z"),
+        periodStart: daysAgo(120),
+        periodEnd: CURRENT_PERIOD_END,
         fiscalYear: 2026,
         fiscalPeriod: "Q1",
         form: "10-Q",
@@ -268,6 +320,73 @@ describeIfDb("askMarket (integration)", () => {
       },
     });
 
+    // A company that stopped reporting. Two periods a quarter apart, both years old: the cadence
+    // is derivable and the newest period is far past it.
+    const dormantFiling = await prisma.filing.create({
+      data: {
+        sourceId: staleSource.id,
+        corpCode: STALE_CORP_CODE,
+        corpName: STALE_CORP_NAME,
+        reportName: "10-K",
+        receiptNo: "TEST_ASK_MARKET_DORMANT_RCPT",
+        receiptDate: daysAgo(800),
+        raw: {},
+      },
+    });
+    for (const [periodEnd, value] of [
+      [daysAgo(800), "500000"],
+      [daysAgo(890), "480000"],
+    ] as const) {
+      await prisma.financialFact.create({
+        data: {
+          sourceId: staleSource.id,
+          corpCode: dormantFiling.corpCode,
+          taxonomy: "us-gaap",
+          concept: "Revenues",
+          unit: "USD",
+          periodEnd,
+          fiscalYear: 2024,
+          fiscalPeriod: "Q1",
+          form: "10-Q",
+          accessionNumber: `TEST_DORMANT_ACCN_${value}`,
+          filedDate: daysAgo(795),
+          value,
+          raw: {},
+        },
+      });
+    }
+
+    // A company with exactly one reported period. One point projects no interval, so whether the
+    // figure is current is unknown -- and unknown is not current.
+    const debutantFiling = await prisma.filing.create({
+      data: {
+        sourceId: staleSource.id,
+        corpCode: SINGLE_CORP_CODE,
+        corpName: SINGLE_CORP_NAME,
+        reportName: "10-K",
+        receiptNo: "TEST_ASK_MARKET_DEBUTANT_RCPT",
+        receiptDate: daysAgo(20),
+        raw: {},
+      },
+    });
+    await prisma.financialFact.create({
+      data: {
+        sourceId: staleSource.id,
+        corpCode: debutantFiling.corpCode,
+        taxonomy: "us-gaap",
+        concept: "Revenues",
+        unit: "USD",
+        periodEnd: CURRENT_PERIOD_END,
+        fiscalYear: 2026,
+        fiscalPeriod: "Q1",
+        form: "10-Q",
+        accessionNumber: "TEST_DEBUTANT_ACCN",
+        filedDate: daysAgo(19),
+        value: "42000",
+        raw: {},
+      },
+    });
+
     // Two sources, one name nested inside the other, both publishing the same subject.
     const nestedShort = await prisma.source.create({
       data: { code: NESTED_SHORT_SOURCE, name: "Rework Data", tier: "TIER_S" },
@@ -346,7 +465,7 @@ describeIfDb("askMarket (integration)", () => {
       }
     }
     await prisma.causalEdge.deleteMany({
-      where: { fromVariable: "TEST: Widget demand (ask-market)" },
+      where: { fromVariable: { in: ["TEST: Widget demand (ask-market)", "TEST: Widget"] } },
     });
     await prisma.$disconnect();
   });
@@ -362,6 +481,11 @@ describeIfDb("askMarket (integration)", () => {
     expect(own.kind).toBe("OBSERVATION");
     expect(own.value).toBe(102);
     expect(result.causalFactors).toHaveLength(0);
+    // EVERY factor, not just the one located. Checking only the found factor let an implementation
+    // append an unrelated ChangeFactor and still pass.
+    for (const factor of result.seriesFactors) {
+      expect(factor.kind).toBe("OBSERVATION");
+    }
   });
 
   it("serves a change as a change, carrying the period it was measured over", async () => {
@@ -373,6 +497,11 @@ describeIfDb("askMarket (integration)", () => {
       expect(own.absoluteChange).toBe(2);
       expect(own.interval).toBe("this year");
     }
+    for (const factor of result.seriesFactors) {
+      expect(factor.kind).toBe("COMPUTED_CHANGE");
+    }
+    expect(result.causalFactors).toHaveLength(0);
+    expect(result.companyFacts).toHaveLength(0);
   });
 
   it("serves a mechanism as an edge, with no numbers attached", async () => {
@@ -382,6 +511,17 @@ describeIfDb("askMarket (integration)", () => {
     expect(result.causalFactors.length).toBeGreaterThanOrEqual(1);
     expect(result.seriesFactors).toHaveLength(0);
     expect(result.companyFacts).toHaveLength(0);
+  });
+
+  it("serves the edge whose cause was named, not one whose cause nests inside it", async () => {
+    // "TEST: Widget" is stored and occurs inside "TEST: Widget demand (ask-market)". It was never
+    // separately named -- it was read out of the longer name -- so its edge is not an answer here.
+    const result = await askMarket(
+      `Explain how TEST: Widget demand (ask-market) affects ${SERIES_NAME}.`,
+    );
+    expect(result.causalFactors.map((c) => c.fromVariable)).toEqual([
+      "TEST: Widget demand (ask-market)",
+    ]);
   });
 
   it("serves the edge that was asked about, not one that shares an endpoint with it", async () => {
@@ -492,6 +632,57 @@ describeIfDb("askMarket (integration)", () => {
     }
   });
 
+  it("refuses when the request names two stored subjects and the operation answers about one", async () => {
+    // The parser cannot catch this -- it never reads inventory, so one subject region naming two
+    // stored subjects looks like one subject to it. Serving both answers two questions; serving
+    // one chooses. Before this, the shorter name was silently dropped for being nestable and the
+    // longer was answered alone.
+    const result = await askMarket(
+      `What is the current ${NESTED_SHORT_SERIES_NAME}, ${NESTED_SERIES_NAME}?`,
+    );
+    expect(result.status).toBe("REQUEST_NOT_SUPPORTED");
+    expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  it("refuses when the request names two providers, rather than picking the longer name", async () => {
+    // Same mistake in the source slot, where getting it wrong is a false attribution: the shorter
+    // provider was deleted for being contained in the longer one's name, and the longer one
+    // answered alone.
+    const result = await askMarket(
+      `What did Rework Data, ${NESTED_LONG_SOURCE_NAME} publish about ${NESTED_SERIES_NAME}?`,
+    );
+    expect(result.status).toBe("REQUEST_NOT_SUPPORTED");
+    expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  it("serves only the current reporting period for a company", async () => {
+    // The prior quarter is in the fixture and must not ride along. One filing carrying a current
+    // period and an old one served both, and an older period is a different question.
+    const result = await askMarket(`What is the current ${CORP_NAME}?`);
+    expect(result.companyFacts.length).toBeGreaterThanOrEqual(1);
+    for (const fact of result.companyFacts) {
+      expect(fact.periodEnd).toBe(CURRENT_PERIOD_END.toISOString().slice(0, 10));
+    }
+  });
+
+  it("does not serve a dormant company's last filing as a current figure", async () => {
+    // Two reported periods a quarter apart, both years old. The cadence is derivable and the
+    // newest period is long past it, so "the newest filing we hold" is not "the current figure" --
+    // the same distinction series observations already make.
+    const result = await askMarket(`What is the current ${STALE_CORP_NAME}?`);
+    expect(result.status).toBe("NOT_FOUND");
+    expect(result.companyFacts).toHaveLength(0);
+  });
+
+  it("does not serve a company that has reported only once as current", async () => {
+    // Its single period is recent, so nothing about the DATE refuses this. What refuses it is that
+    // one point projects no cadence, and without a cadence "still current" is not a claim this
+    // repository can make. Same rule as a series with one observation.
+    const result = await askMarket(`What is the current ${SINGLE_CORP_NAME}?`);
+    expect(result.status).toBe("NOT_FOUND");
+    expect(result.companyFacts).toHaveLength(0);
+  });
+
   it("refuses a definition rather than answering it with a number", async () => {
     // The repository holds no glossary record class, and the term names a stored series. It was
     // answered with that series' value -- a figure in place of a meaning. Failing closed is the
@@ -554,13 +745,15 @@ describeIfDb("askMarket (integration)", () => {
     const result = await askMarket("What is the current TEST Widget Corp?");
 
     const quarterly = result.companyFacts.find((f) => f.value === 250000)!;
-    expect(quarterly.periodStart).toBe("2026-01-01");
-    expect(quarterly.periodEnd).toBe("2026-03-31");
+    // Against the fixture's own constants, not literals: the periods are relative now, because a
+    // company with one fixed reported period has no cadence and cannot be current.
+    expect(quarterly.periodStart).toBe(daysAgo(120).toISOString().slice(0, 10));
+    expect(quarterly.periodEnd).toBe(CURRENT_PERIOD_END.toISOString().slice(0, 10));
 
     // Instant concepts genuinely have no start; null must survive rather than being invented.
     const noStart = result.companyFacts.find((f) => f.value === 1000000)!;
     expect(noStart.periodStart).toBeNull();
-    expect(noStart.periodEnd).toBe("2026-03-31");
+    expect(noStart.periodEnd).toBe(CURRENT_PERIOD_END.toISOString().slice(0, 10));
 
     // The fiscal label alone cannot separate them, which is the whole point.
     expect(quarterly.fiscalPeriod).toBe(noStart.fiscalPeriod);

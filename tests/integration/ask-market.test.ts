@@ -48,6 +48,8 @@ const FUTURE_READING = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
 /** A series that opens the year and then stops: the start boundary exists, the data does not. */
 const ABANDONED_SERIES_NAME = "TEST Widget Abandoned Index";
+/** A series that stopped in January AND carries a row dated in December. */
+const FUTURE_CADENCE_SERIES_NAME = "TEST Widget Future Cadence Index";
 
 const CURRENT_PERIOD_END = daysAgo(30);
 /** A company that reported twice, years ago -- a derivable cadence, long past it. */
@@ -421,6 +423,37 @@ describeIfDb("askMarket (integration)", () => {
       });
     }
 
+    // Four daily readings in early January, plus a row dated at the end of the year. The two
+    // properties have to be composed to catch anything: endpoint selection already excluded the
+    // future row, but freshness was measured against it, so a change ending weeks stale was
+    // certified current by a NEGATIVE age.
+    const futureCadence = await prisma.series.create({
+      data: {
+        sourceId: staleSource.id,
+        externalId: "TEST_ASK_MARKET_FUTURE_CADENCE",
+        name: FUTURE_CADENCE_SERIES_NAME,
+        unit: "index",
+        frequency: "daily",
+      },
+    });
+    for (const [date, value] of [
+      ["2026-01-01", "10"],
+      ["2026-01-02", "11"],
+      ["2026-01-03", "12"],
+      ["2026-01-04", "13"],
+      ["2026-12-31", "9999"],
+    ] as const) {
+      await prisma.observation.create({
+        data: {
+          seriesId: futureCadence.id,
+          sourceId: staleSource.id,
+          observationDate: new Date(`${date}T00:00:00.000Z`),
+          value,
+          raw: {},
+        },
+      });
+    }
+
     // A company with exactly one reported period. One point projects no interval, so whether the
     // figure is current is unknown -- and unknown is not current.
     const debutantFiling = await prisma.filing.create({
@@ -776,6 +809,31 @@ describeIfDb("askMarket (integration)", () => {
     const result = await askMarket(`How much has ${ABANDONED_SERIES_NAME} changed this year?`);
     expect(result.status).toBe("NOT_FOUND");
     expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  it("measures a running period's freshness against the reading it actually served", async () => {
+    // The clock is injected, so this is a statement about periods rather than about today. On 1
+    // February the series' newest usable reading is 4 January -- four weeks stale on a daily
+    // cadence -- and the December row must not rescue it. Reported fresh, the answer would be a
+    // month-old change presented as year-to-date.
+    const stale = await askMarket(`How much has ${FUTURE_CADENCE_SERIES_NAME} changed this year?`, {
+      now: new Date("2026-02-01T12:00:00.000Z"),
+    });
+    expect(stale.status).toBe("NOT_FOUND");
+
+    // The control: the same series, the same future row, a clock where 4 January IS current.
+    const fresh = await askMarket(`How much has ${FUTURE_CADENCE_SERIES_NAME} changed this year?`, {
+      now: new Date("2026-01-05T12:00:00.000Z"),
+    });
+    expect(fresh.status).toBe("FACTORS_FOUND");
+    const own = fresh.seriesFactors[0];
+    expect(own.kind).toBe("COMPUTED_CHANGE");
+    if (own.kind === "COMPUTED_CHANGE") {
+      expect(own.startDate).toBe("2026-01-01");
+      // Not 2026-12-31, and not 9999.
+      expect(own.endDate).toBe("2026-01-04");
+      expect(own.absoluteChange).toBe(3);
+    }
   });
 
   it("refuses a definition rather than answering it with a number", async () => {

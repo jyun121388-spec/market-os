@@ -1037,26 +1037,30 @@ async function findChangeFactors(
 
   const factors: SeriesFactor[] = [];
   for (const series of await matchingSeries(topic)) {
+    const endpoints = await selectPeriodEndpoints(series.id, period);
+    if (!endpoints) continue;
+
     // A running period's end is "the latest reading", and that is only a defensible stand-in for
     // the present while the series is current -- the same rule the level path applies, which this
     // path did not run at all.
+    //
+    // Measured against the reading actually SERVED, not against the newest row the cadence
+    // calculation happened to see. Those differ exactly when a future-dated row exists, and then
+    // they differ badly: adversarial review found a series whose newest row was months ahead
+    // reporting a NEGATIVE age, so a change ending on a reading four weeks stale was certified
+    // fresh. Endpoint selection already excluded that row; freshness was still looking at it.
     if (period.running) {
       const cadence = await computeCalendarEntry(series.id);
-      if (cadence.medianIntervalDays === undefined || cadence.lastObservedDate === undefined) {
-        continue;
-      }
+      if (cadence.medianIntervalDays === undefined) continue;
       const freshness = evaluateStaleness(
         {
-          lastObservedDate: cadence.lastObservedDate,
+          lastObservedDate: endpoints.endDate,
           medianIntervalDays: cadence.medianIntervalDays,
         },
         asOf,
       );
       if (freshness.status !== "FRESH") continue;
     }
-
-    const endpoints = await selectPeriodEndpoints(series.id, period);
-    if (!endpoints) continue;
 
     const change = computeChange(
       {

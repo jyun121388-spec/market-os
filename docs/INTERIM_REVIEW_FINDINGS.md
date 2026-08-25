@@ -5768,3 +5768,42 @@ Mid-run, twelve unrelated integration suites failed at once. The cause was `Data
 the portable PostgreSQL had stopped — and not a line of the repair. Restarting it returned the suite
 to green with no code change. A cascade across unrelated suites is a claim about the environment
 before it is a claim about the diff.
+
+### Adversarial review of the temporal repair: twelve correct, one real
+
+Thirteen attacks. Quarter and year boundaries, revision tails at both endpoints, the UTC contract,
+missing boundaries, label-versus-dates, same-observation endpoints, latest-pair fallback, sparse
+series, leap-day refusal, ISO Sunday weeks, undefined cadence and host-timezone independence all
+behaved correctly.
+
+**One real defect, and it was the same one twice.** A RUNNING period measured freshness against
+`cadence.lastObservedDate` — the newest row the cadence calculation saw — while endpoint selection
+had already excluded rows dated after the clock. When a future-dated row exists those disagree, and
+they disagree badly: the age comes out NEGATIVE, which reads as FRESH. Reproduced with a series
+whose readings stop on 4 January and which carries a row dated 31 December: asked on 1 February, the
+level path correctly refused and the change path served a four-week-stale figure as year-to-date.
+
+I had fixed exactly this on the level path an hour earlier — measuring freshness against the reading
+actually served — and left the change path measuring something else. Freshness now uses
+`endpoints.endDate` on both.
+
+The review also declined to overturn the asymmetry: exact START, newest-inside END is "defensible
+but conservative", and relaxing the start would silently shorten requested intervals and make
+cross-series comparisons cover unequal spans.
+
+### The weak tests it named, and what replaced them
+
+Four, and the sharpest was that **a resolver hard-coded for `this year` would have passed every
+integration test**. `tests/observationPeriod.test.ts` is the operand table against frozen clocks: a
+January quarter rollover that lands in month −1, February's close in an ordinary and a leap year, an
+ISO Sunday belonging to the week that started the Monday before, trailing durations, the leap-day
+refusal, and the same answer under three host timezones. Twelve cases, no repository.
+
+The future-row test also passed against the freshness defect, because it used a legitimate recent
+endpoint — the two properties had to be composed. It now runs one series twice under two injected
+clocks: stale refuses, fresh serves, and neither answer comes from the December row.
+
+**Isolation 24 of 24.** One mutant was retired rather than satisfied: the change path's cadence
+guard cannot fire, because a cadence and an endpoint pair both need two distinct dates from the same
+resolved history. It is TypeScript narrowing over a value that cannot be undefined there, not a
+decision, and mutating it proves nothing.

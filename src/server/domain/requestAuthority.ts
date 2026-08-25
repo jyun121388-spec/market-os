@@ -169,6 +169,65 @@ export const OPERATION_CONTRACTS: Readonly<Record<RequestOperation, OperationCon
  */
 export type CanonicalAuthorizedRequest = Extract<RequestAuthority, { status: "AUTHORIZED" }>;
 
+/**
+ * The subset of canonical parses a planner may ever be given, as a type rather than a check.
+ *
+ * IR-107 Unit 2 Phase B2. Three of the five operations are `plannerPermitted: false` — a current
+ * level, a computed change and a definition are deterministic repository output, and a model can
+ * only make a stored figure less true. `authorizeInference` already refuses them, so the candidate
+ * path is unreachable for them today; this makes that unreachability a compiler fact instead of a
+ * consequence of one caller's ordering.
+ *
+ * The point of narrowing `operation` AND `contract` together is that they were independent fields:
+ * nothing stopped a value claiming `STORED_MECHANISM` while carrying the definition contract.
+ * Correlating them means a function that accepts this type has been handed a parse whose contract
+ * agrees with its operation, without asserting it.
+ *
+ * Must be reached by an exhaustive switch, never by `as`. A cast here would make the whole boundary
+ * decorative — the type would promise something no code had established.
+ */
+export type CanonicalPlannerRequest = CanonicalAuthorizedRequest &
+  (
+    | {
+        operation: "ATTRIBUTED_REPORTED_OBSERVATION";
+        contract: OperationContract & {
+          operation: "ATTRIBUTED_REPORTED_OBSERVATION";
+          plannerPermitted: true;
+        };
+      }
+    | {
+        operation: "STORED_MECHANISM";
+        contract: OperationContract & { operation: "STORED_MECHANISM"; plannerPermitted: true };
+      }
+  );
+
+/**
+ * Narrows a canonical parse to the planner-permitted subset, or refuses.
+ *
+ * An exhaustive switch with no `default`, so adding a sixth operation is a compile error here rather
+ * than a silent omission. The three refusals return null rather than throwing: reaching this
+ * function with a deterministic operation means an earlier gate changed, which is a bug to surface
+ * at the call site, not an exception to unwind through a request.
+ */
+export function asPlannerRequest(
+  request: CanonicalAuthorizedRequest,
+): CanonicalPlannerRequest | null {
+  switch (request.operation) {
+    case "ATTRIBUTED_REPORTED_OBSERVATION":
+    case "STORED_MECHANISM":
+      // The contract is looked up from `OPERATION_CONTRACTS` by the parser, so its `operation`
+      // agrees with this one by construction; the guard states the correlation the type needs and
+      // would catch a hand-built value that broke it.
+      return request.contract.operation === request.operation && request.contract.plannerPermitted
+        ? (request as CanonicalPlannerRequest)
+        : null;
+    case "CURRENT_OBSERVATION":
+    case "OBSERVED_CHANGE":
+    case "DEFINITION":
+      return null;
+  }
+}
+
 export type RequestAuthority =
   | {
       status: "AUTHORIZED";

@@ -7,7 +7,7 @@
  *                              operands. Drives the deterministic `askMarket` serving path.
  *   `authorizeInference`       IR-101/102. Eligibility for a generation step, derived from
  *                              `classifyRequestFrame`, admitting two frames.
- *   `deriveCandidateEnvelope`  IR-103/104. Which stored records a request is ABOUT.
+ *   `deriveLegacyCandidateEnvelope`  IR-103/104. Which stored records a request is ABOUT.
  *
  * Specialization between them is legitimate and expected: inference being NARROWER than
  * deterministic serving is a safety property, not a defect — a level request that a planner may
@@ -26,7 +26,7 @@
 
 import { resolveRequestAuthority } from "@/server/domain/requestAuthority";
 import { authorizeInference } from "@/server/domain/inferenceAuthorization";
-import { deriveCandidateEnvelope } from "@/server/domain/candidateEnvelope";
+import { deriveLegacyCandidateEnvelope } from "@/server/domain/candidateEnvelope";
 
 interface Probe {
   group: string;
@@ -132,7 +132,7 @@ async function main(): Promise<void> {
     const i = authorizeInference(p.query);
     let envelope = "-";
     try {
-      const e = await deriveCandidateEnvelope(p.query);
+      const e = await deriveLegacyCandidateEnvelope(p.query);
       envelope = `${e.status}${e.operation ? "/" + e.operation : ""}`;
     } catch (error) {
       envelope = `THREW ${(error as Error).message.slice(0, 30)}`;

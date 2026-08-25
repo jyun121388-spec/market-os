@@ -49,10 +49,12 @@ import {
   type PlanValidation,
 } from "./outputPlan";
 import {
-  deriveCandidateEnvelope,
+  deriveCanonicalCandidateEnvelope,
+  deriveLegacyCandidateEnvelope,
   isEmptyEnvelope,
   type CandidateEnvelope,
 } from "./candidateEnvelope";
+import { asPlannerRequest } from "./requestAuthority";
 
 /**
  * The future provider, as a contract rather than a dependency.
@@ -139,10 +141,49 @@ export async function answerWithInference(
     return { status: "REDIRECTED_BEFORE_MODEL", authorization };
   }
 
-  // Derived from the query by the repository, before the planner is consulted. IR-103: without
-  // this the planner chose which authentic record represented the answer, and a question about a
-  // series we have never heard of still reached the model.
-  const envelope = await deriveCandidateEnvelope(query);
+  // Derived by the repository before the planner is consulted. IR-103: without this the planner
+  // chose which authentic record represented the answer, and a question about a series we have
+  // never heard of still reached the model.
+  //
+  // IR-107 Unit 2 Phase B2. Two entry points, chosen by where the authorization came from, and NOT
+  // merged behind an optional parameter. `deriveCandidateEnvelope(query, request?)` was the obvious
+  // shape and is the wrong one: an optional request makes the raw-query path a convenience fallback
+  // reachable from the canonical branch, which is the bypass rebuilt one layer down.
+  //
+  // The canonical branch is handed the parse that authorized the request and re-derives none of it.
+  // The legacy branch is the old behaviour, untouched, still deciding everything from raw text —
+  // seven such divergences are measured today, and keeping them behind a visibly separate door is
+  // what makes closing them a deletion rather than another migration.
+  let envelope: CandidateEnvelope;
+  switch (authorization.provenance) {
+    case "CANONICAL": {
+      const plannerRequest = asPlannerRequest(authorization.request);
+      if (plannerRequest === null) {
+        // Unreachable through this module: `authorizeInference` refuses every deterministic
+        // operation before it can be eligible. Reaching it means that gate changed, so it fails
+        // closed and says which operation arrived rather than quietly deriving an empty envelope.
+        return {
+          status: "NO_CANDIDATE_EVIDENCE",
+          authorization,
+          envelope: {
+            query,
+            status: "UNRESOLVED",
+            seriesIds: [],
+            causalEdgeIds: [],
+            subjects: [],
+            detail:
+              `${authorization.request.operation} is a deterministic operation and no planner may ` +
+              "serve it. Reaching candidate derivation with one means an earlier gate changed.",
+          },
+        };
+      }
+      envelope = await deriveCanonicalCandidateEnvelope(query, plannerRequest);
+      break;
+    }
+    case "LEGACY_BYPASS":
+      envelope = await deriveLegacyCandidateEnvelope(query);
+      break;
+  }
   if (isEmptyEnvelope(envelope)) {
     // AMBIGUOUS and UNRESOLVED both stop here. IR-104: an ambiguous subject used to put every
     // near-match in the envelope and let the planner pick, which is candidate authority handed

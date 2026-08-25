@@ -492,9 +492,45 @@ export function relationSyntax(query: string): RelationSyntax {
  * of it the repository happens to hold. Roles have cardinality too, and this is where it is
  * checked; `explicitlyNamed` is reused so nesting behaves the same inside a region as outside it.
  */
-function variablesNamedIn(region: string, vocabulary: readonly string[]): string[] {
+export function variablesNamedIn(region: string, vocabulary: readonly string[]): string[] {
   const occurring = vocabulary.filter((name) => nameOccursIn(name, region));
   return [...new Set(explicitlyNamed(occurring, (n) => n, region))];
+}
+
+/**
+ * Which stored names a REGION names, under the identity rule the grammar asked for.
+ *
+ * IR-107 Unit 2 Phase B2. The canonical candidate path needs repository identity and must not need
+ * `resolveSubjectAuthority`, which begins by classifying raw text and later re-parses relation
+ * syntax — it answers "what does this request mean" as well as "what satisfies it", and the first
+ * of those is settled before it is called.
+ *
+ * So the identity half is factored out here rather than copied. That distinction is not stylistic:
+ * occurrence-span maximality has been reimplemented twice in this repository and reintroduced the
+ * same IR-105 bug both times, which is the argument for there being exactly one of it.
+ *
+ * Takes rows the caller already loaded, so it performs no query and cannot widen a search. Returns
+ * every identity the region names; deciding whether zero or two of them is an answer belongs to the
+ * caller, because the cardinality a request permits is a property of the request.
+ */
+export function resolveStoredSubject<T>(
+  region: string,
+  identity: "OCCURRENCE" | "WHOLE_REGION",
+  rows: readonly T[],
+  nameOf: (row: T) => string,
+): T[] {
+  if (identity === "WHOLE_REGION") {
+    // One morpheme has no interior for a smaller stored name to be found in. B1 established this
+    // against a served wrong answer: `USD-KRW는` normalizes its hyphen to a space, `KRW` then
+    // occurs as a whole token, and the question about the pair came back answered with one leg.
+    const normalized = normalizeSubject(region);
+    return rows.filter((row) => normalizeSubject(nameOf(row)) === normalized);
+  }
+  return explicitlyNamed(
+    rows.filter((row) => nameOccursIn(nameOf(row), region)),
+    nameOf,
+    region,
+  );
 }
 
 const NOT_ELIGIBLE = (frame: RequestFrame, detail: string): SubjectAuthority => ({

@@ -10,7 +10,10 @@
  * The corpus asks natural questions, and the request gate admits a narrow set of shapes — measured,
  * not assumed: of a dozen ordinary phrasings only three were eligible. Running 140 natural
  * questions end to end would score the frame classifier and report it as candidate relevance. So
- * this measures `deriveCandidateEnvelope` directly, which is the property the corpus is about, and
+ * this measures `deriveLegacyCandidateEnvelope` directly, which is the property the corpus is about, and
+ * deliberately stays on the LEGACY entry point after B2-B split it from the canonical one. The
+ * canonical door requires a recognised parse and would refuse most of this corpus, so pointing a
+ * sealed measurement at it would change what the score means without changing the score's name.
  * the production path's binding is proven separately by the IR-103 controls in
  * `tests/integration/output-authority.test.ts` with frame-eligible queries.
  *
@@ -27,7 +30,7 @@
  */
 
 import { prisma } from "@/server/db/client";
-import { deriveCandidateEnvelope, isEmptyEnvelope } from "@/server/domain/candidateEnvelope";
+import { deriveLegacyCandidateEnvelope, isEmptyEnvelope } from "@/server/domain/candidateEnvelope";
 import {
   CANDIDATE_RELEVANCE_HOLDOUT,
   CANDIDATE_RELEVANCE_SHA256,
@@ -91,7 +94,7 @@ async function main() {
       }
     }
 
-    const envelope = await deriveCandidateEnvelope(c.query);
+    const envelope = await deriveLegacyCandidateEnvelope(c.query);
     const inEnvelope = seededSeriesId
       ? envelope.seriesIds.includes(seededSeriesId)
       : seededEdgeId

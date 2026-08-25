@@ -28,7 +28,7 @@ describeIfDb("output authority (integration)", () => {
   let prisma: typeof PrismaClientInstance;
   let answerWithInference: typeof import("@/server/domain/askMarketInference").answerWithInference;
   let validateOutputPlan: typeof import("@/server/domain/outputPlan").validateOutputPlan;
-  let deriveCandidateEnvelope: typeof import("@/server/domain/candidateEnvelope").deriveCandidateEnvelope;
+  let deriveLegacyCandidateEnvelope: typeof import("@/server/domain/candidateEnvelope").deriveLegacyCandidateEnvelope;
   let mentionsEachOther: typeof import("@/server/domain/askMarket").mentionsEachOther;
   let publishClaimForDisplay: typeof import("@/server/domain/claimVerification").publishClaimForDisplay;
   let verifyClaim: typeof import("@/server/domain/claimVerification").verifyClaim;
@@ -87,7 +87,7 @@ describeIfDb("output authority (integration)", () => {
     ({ prisma } = await import("@/server/db/client"));
     ({ answerWithInference } = await import("@/server/domain/askMarketInference"));
     ({ validateOutputPlan } = await import("@/server/domain/outputPlan"));
-    ({ deriveCandidateEnvelope } = await import("@/server/domain/candidateEnvelope"));
+    ({ deriveLegacyCandidateEnvelope } = await import("@/server/domain/candidateEnvelope"));
     ({ mentionsEachOther } = await import("@/server/domain/askMarket"));
     ({ publishClaimForDisplay, verifyClaim } = await import("@/server/domain/claimVerification"));
     ({ createFactClaimFromObservation } = await import("@/server/domain/claimStore"));
@@ -660,7 +660,7 @@ describeIfDb("output authority (integration)", () => {
     }
 
     it("reports every failing segment, not only the first", async () => {
-      const envelope = await deriveCandidateEnvelope(ELIGIBLE);
+      const envelope = await deriveLegacyCandidateEnvelope(ELIGIBLE);
       const validation = await validateOutputPlan(
         {
           segments: [
@@ -904,7 +904,7 @@ describeIfDb("output authority (integration)", () => {
     });
 
     it("the envelope names records, and only records the repository indexed", async () => {
-      const reported = await deriveCandidateEnvelope(ELIGIBLE);
+      const reported = await deriveLegacyCandidateEnvelope(ELIGIBLE);
       expect(reported.status).toBe("AUTHORIZED");
       expect(reported.operation).toBe("REPORTED_OBSERVATION");
       expect(reported.seriesIds).toContain(seriesId);
@@ -912,7 +912,7 @@ describeIfDb("output authority (integration)", () => {
       // A reported-fact question authorizes no mechanism, whatever retrieval turned up.
       expect(reported.causalEdgeIds).toHaveLength(0);
 
-      const mechanism = await deriveCandidateEnvelope(MECHANISM);
+      const mechanism = await deriveLegacyCandidateEnvelope(MECHANISM);
       expect(mechanism.status).toBe("AUTHORIZED");
       expect(mechanism.operation).toBe("STORED_MECHANISM");
       expect(mechanism.causalEdgeIds).toContain(explanationId);
@@ -966,7 +966,7 @@ describeIfDb("output authority (integration)", () => {
     });
 
     it("maximal specificity — a shorter nested name is not a second subject", async () => {
-      const envelope = await deriveCandidateEnvelope(ELIGIBLE);
+      const envelope = await deriveLegacyCandidateEnvelope(ELIGIBLE);
       expect(envelope.status).toBe("AUTHORIZED");
       expect(envelope.subjects).toEqual(["Test Output freight index"]);
       const outcome = await answer({ segments: [claimSegment(familyFactId)] });
@@ -975,7 +975,7 @@ describeIfDb("output authority (integration)", () => {
 
     it("Y3 — an ambiguous subject is not the planner's to resolve", async () => {
       const query = `${askAbout("Test Output freight index")} And the Korea napa cabbage wholesale price?`;
-      const envelope = await deriveCandidateEnvelope(query);
+      const envelope = await deriveLegacyCandidateEnvelope(query);
       expect(envelope.status).toBe("AMBIGUOUS");
       const { calls, sink } = countingSink({ segments: [claimSegment(factClaimId)] });
       const outcome = await answerWithInference(query, sink);
@@ -1013,7 +1013,7 @@ describeIfDb("output authority (integration)", () => {
         },
       });
       try {
-        const envelope = await deriveCandidateEnvelope(MECHANISM);
+        const envelope = await deriveLegacyCandidateEnvelope(MECHANISM);
         expect(envelope.status).toBe("AUTHORIZED");
         expect(envelope.causalEdgeIds).toEqual([explanationId]);
 
@@ -1026,7 +1026,7 @@ describeIfDb("output authority (integration)", () => {
         // Control E: the mirror question authorizes the mirror edge, and only that one.
         const mirror =
           "What mechanism connects the Test Output shipping cost to the Test Output freight index?";
-        const mirrorEnvelope = await deriveCandidateEnvelope(mirror);
+        const mirrorEnvelope = await deriveLegacyCandidateEnvelope(mirror);
         expect(mirrorEnvelope.status).toBe("AUTHORIZED");
         expect(mirrorEnvelope.causalEdgeIds).toEqual([reverse.id]);
         const answered = await answerWithInference(
@@ -1088,7 +1088,7 @@ describeIfDb("output authority (integration)", () => {
         "What did analysts publish about the   Test Output   freight index ?",
       ];
       for (const query of variants) {
-        const envelope = await deriveCandidateEnvelope(query);
+        const envelope = await deriveLegacyCandidateEnvelope(query);
         expect(envelope.status).toBe("AUTHORIZED");
         expect(envelope.seriesIds).toEqual([seriesId]);
       }
@@ -1118,7 +1118,7 @@ describeIfDb("output authority (integration)", () => {
     it("Z1 — a sole stored relation does not answer the reverse question", async () => {
       const reverse =
         "What mechanism connects the Test Output shipping cost to the Test Output freight index?";
-      const envelope = await deriveCandidateEnvelope(reverse);
+      const envelope = await deriveLegacyCandidateEnvelope(reverse);
       expect(envelope.status).toBe("UNRESOLVED");
       const { calls, sink } = countingSink({
         segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
@@ -1131,7 +1131,7 @@ describeIfDb("output authority (integration)", () => {
     it("Z1' — and the same refusal through a different directional construction", async () => {
       const reverse =
         "Explain how the Test Output shipping cost affects the Test Output freight index.";
-      const envelope = await deriveCandidateEnvelope(reverse);
+      const envelope = await deriveLegacyCandidateEnvelope(reverse);
       expect(envelope.status).toBe("UNRESOLVED");
     });
 
@@ -1140,7 +1140,7 @@ describeIfDb("output authority (integration)", () => {
       // fail-closed answer is that nothing publishes — not that the sole stored edge wins.
       const undirected =
         "What mechanism relates the Test Output freight index and the Test Output shipping cost?";
-      const envelope = await deriveCandidateEnvelope(undirected);
+      const envelope = await deriveLegacyCandidateEnvelope(undirected);
       expect(envelope.status).toBe("UNRESOLVED");
       expect(envelope.detail).toContain("direction is unproven");
       const { calls, sink } = countingSink({
@@ -1190,7 +1190,7 @@ describeIfDb("output authority (integration)", () => {
 
     it("Z2 — a question naming both nested subjects is ambiguous, not the longer one", async () => {
       const both = `What did analysts publish about the freight index and the Test Output freight index?`;
-      const envelope = await deriveCandidateEnvelope(both);
+      const envelope = await deriveLegacyCandidateEnvelope(both);
       expect(envelope.status).toBe("AMBIGUOUS");
       expect([...envelope.subjects].sort()).toEqual(["Test Output freight index", "freight index"]);
       const { calls, sink } = countingSink({ segments: [claimSegment(factClaimId)] });
@@ -1201,14 +1201,14 @@ describeIfDb("output authority (integration)", () => {
 
     it("incidental containment still resolves to the longer subject", async () => {
       // Control A, and the property maximal specificity was right about all along.
-      const envelope = await deriveCandidateEnvelope(ELIGIBLE);
+      const envelope = await deriveLegacyCandidateEnvelope(ELIGIBLE);
       expect(envelope.status).toBe("AUTHORIZED");
       expect(envelope.subjects).toEqual(["Test Output freight index"]);
     });
 
     it("the shorter subject named alone resolves to itself", async () => {
       // Control B. Nesting is not a demotion: it only matters when both are named.
-      const envelope = await deriveCandidateEnvelope(askAbout("freight index"));
+      const envelope = await deriveLegacyCandidateEnvelope(askAbout("freight index"));
       expect(envelope.status).toBe("AUTHORIZED");
       expect(envelope.subjects).toEqual(["freight index"]);
     });
@@ -1218,14 +1218,14 @@ describeIfDb("output authority (integration)", () => {
       // only inside them, so it never becomes explicit.
       const twice =
         "What did analysts publish about the Test Output freight index, and about the Test Output freight index last week?";
-      const envelope = await deriveCandidateEnvelope(twice);
+      const envelope = await deriveLegacyCandidateEnvelope(twice);
       expect(envelope.status).toBe("AUTHORIZED");
       expect(envelope.subjects).toEqual(["Test Output freight index"]);
     });
 
     it("KO — incidental containment resolves when the name stands free of particles", async () => {
       const longOnly = `증권사가 발표한 Test Output freight index 수치는 무엇입니까?`;
-      const longEnvelope = await deriveCandidateEnvelope(longOnly);
+      const longEnvelope = await deriveLegacyCandidateEnvelope(longOnly);
       expect(longEnvelope.status).toBe("AUTHORIZED");
       expect(longEnvelope.subjects).toEqual(["Test Output freight index"]);
     });
@@ -1241,7 +1241,7 @@ describeIfDb("output authority (integration)", () => {
       // exactly the unbounded bilingual layer this unit is under instructions not to build. It
       // belongs with the repository-owned alias feature, with its own provenance rules.
       const bothNamed = `증권사가 발표한 freight index와 Test Output freight index는 무엇입니까?`;
-      const bothEnvelope = await deriveCandidateEnvelope(bothNamed);
+      const bothEnvelope = await deriveLegacyCandidateEnvelope(bothNamed);
       expect(bothEnvelope.status).toBe("UNRESOLVED");
 
       const { calls, sink } = countingSink({ segments: [claimSegment(factClaimId)] });
@@ -1253,7 +1253,7 @@ describeIfDb("output authority (integration)", () => {
     it("two non-nested subjects remain ambiguous, as before", async () => {
       // Control E: IR-104's behaviour is unchanged where nesting is not involved.
       const two = `What did analysts publish about the Test Output freight index and the Korea napa cabbage wholesale price?`;
-      const envelope = await deriveCandidateEnvelope(two);
+      const envelope = await deriveLegacyCandidateEnvelope(two);
       expect(envelope.status).toBe("AMBIGUOUS");
     });
 
@@ -1264,12 +1264,12 @@ describeIfDb("output authority (integration)", () => {
       // the direction is unproven, and only the first is true here. The reason is the assertion.
       const oneEndpoint =
         "What mechanism connects the Test Output freight index to the Test Output warehouse rent?";
-      const envelope = await deriveCandidateEnvelope(oneEndpoint);
+      const envelope = await deriveLegacyCandidateEnvelope(oneEndpoint);
       expect(envelope.status).toBe("AUTHORIZED");
       expect(envelope.causalEdgeIds).toEqual([counterpartEdgeId]);
 
       // …and the edge that shares only its FROM endpoint with this question is not in it.
-      const sharesOne = await deriveCandidateEnvelope(
+      const sharesOne = await deriveLegacyCandidateEnvelope(
         "What mechanism connects the Test Output freight index to the Test Output dock levy?",
       );
       expect(sharesOne.status).toBe("UNRESOLVED");
@@ -1293,7 +1293,7 @@ describeIfDb("output authority (integration)", () => {
         },
       });
       try {
-        const envelope = await deriveCandidateEnvelope(MECHANISM);
+        const envelope = await deriveLegacyCandidateEnvelope(MECHANISM);
         expect(envelope.status).toBe("AMBIGUOUS");
         const { calls, sink } = countingSink({
           segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
@@ -1367,7 +1367,7 @@ describeIfDb("output authority (integration)", () => {
       const second = await mechanismEdge(LABOUR, TURNAROUND, "POSITIVE");
       try {
         const query = askTwo(FREIGHT, SHIPPING, LABOUR, TURNAROUND);
-        const envelope = await deriveCandidateEnvelope(query);
+        const envelope = await deriveLegacyCandidateEnvelope(query);
         expect(envelope.status).toBe("AMBIGUOUS");
         expect(envelope.causalEdgeIds).toHaveLength(0);
 
@@ -1387,7 +1387,7 @@ describeIfDb("output authority (integration)", () => {
     it("AA2 — the same two clauses in the other order fail the same way", async () => {
       const second = await mechanismEdge(LABOUR, TURNAROUND, "POSITIVE");
       try {
-        const envelope = await deriveCandidateEnvelope(
+        const envelope = await deriveLegacyCandidateEnvelope(
           askTwo(LABOUR, TURNAROUND, FREIGHT, SHIPPING),
         );
         expect(envelope.status).toBe("AMBIGUOUS");
@@ -1400,7 +1400,7 @@ describeIfDb("output authority (integration)", () => {
       const second = await mechanismEdge(LABOUR, TURNAROUND, "POSITIVE");
       try {
         const query = `Explain how ${FREIGHT} affects ${SHIPPING} and the impact of ${LABOUR} on ${TURNAROUND}.`;
-        const envelope = await deriveCandidateEnvelope(query);
+        const envelope = await deriveLegacyCandidateEnvelope(query);
         expect(envelope.status).toBe("AMBIGUOUS");
       } finally {
         await prisma.causalEdge.delete({ where: { id: second.id } });
@@ -1411,22 +1411,22 @@ describeIfDb("output authority (integration)", () => {
       // The failure must come from the request having two relation intents, not from which of them
       // the repository happens to hold. Otherwise "we only stored one" quietly becomes an answer.
       const both = askTwo(FREIGHT, SHIPPING, LABOUR, TURNAROUND);
-      const onlyFirstStored = await deriveCandidateEnvelope(both);
+      const onlyFirstStored = await deriveLegacyCandidateEnvelope(both);
       expect(onlyFirstStored.status).toBe("AMBIGUOUS");
 
       const neither = askTwo(LABOUR, TURNAROUND, "Test Output dock levy", "Test Output demurrage");
-      expect((await deriveCandidateEnvelope(neither)).status).toBe("AMBIGUOUS");
+      expect((await deriveLegacyCandidateEnvelope(neither)).status).toBe("AMBIGUOUS");
     });
 
     it("the same ordered pair asked twice is still two clauses", async () => {
       const twice = askTwo(FREIGHT, SHIPPING, FREIGHT, SHIPPING);
-      const envelope = await deriveCandidateEnvelope(twice);
+      const envelope = await deriveLegacyCandidateEnvelope(twice);
       expect(envelope.status).toBe("AMBIGUOUS");
     });
 
     it("one affirmed clause beside one negated clause authorizes neither", async () => {
       const mixed = `Explain how ${FREIGHT} affects ${SHIPPING} and how ${LABOUR} does not affect ${TURNAROUND}.`;
-      const envelope = await deriveCandidateEnvelope(mixed);
+      const envelope = await deriveLegacyCandidateEnvelope(mixed);
       expect(envelope.status).toBe("AMBIGUOUS");
       const { calls, sink } = countingSink({
         segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
@@ -1438,7 +1438,7 @@ describeIfDb("output authority (integration)", () => {
 
     it("AB1 — an explicit denial does not publish the relation it denies", async () => {
       const denied = `Explain how ${FREIGHT} does not affect ${SHIPPING}.`;
-      const envelope = await deriveCandidateEnvelope(denied);
+      const envelope = await deriveLegacyCandidateEnvelope(denied);
       expect(envelope.status).toBe("UNRESOLVED");
       expect(envelope.detail).toContain("denies the relation");
       const { calls, sink } = countingSink({
@@ -1451,7 +1451,7 @@ describeIfDb("output authority (integration)", () => {
 
     it("AB2 — 'has no impact on' is the same denial", async () => {
       const denied = `Explain how ${FREIGHT} has no impact on ${SHIPPING}.`;
-      const envelope = await deriveCandidateEnvelope(denied);
+      const envelope = await deriveLegacyCandidateEnvelope(denied);
       expect(envelope.status).toBe("UNRESOLVED");
       expect(envelope.detail).toContain("denies the relation");
     });
@@ -1462,11 +1462,11 @@ describeIfDb("output authority (integration)", () => {
       const negativeEdge = await mechanismEdge(LABOUR, TURNAROUND, "NEGATIVE");
       try {
         const denied = `Explain how ${LABOUR} does not affect ${TURNAROUND}.`;
-        expect((await deriveCandidateEnvelope(denied)).status).toBe("UNRESOLVED");
+        expect((await deriveLegacyCandidateEnvelope(denied)).status).toBe("UNRESOLVED");
 
         // …and the affirmative question about that same negative-signed edge still publishes.
         const affirmed = `Explain how ${LABOUR} affects ${TURNAROUND}.`;
-        const envelope = await deriveCandidateEnvelope(affirmed);
+        const envelope = await deriveLegacyCandidateEnvelope(affirmed);
         expect(envelope.status).toBe("AUTHORIZED");
         expect(envelope.causalEdgeIds).toEqual([negativeEdge.id]);
         const outcome = await answerWithInference(
@@ -1485,14 +1485,14 @@ describeIfDb("output authority (integration)", () => {
     it("a denial with no stored edge is still a denial, not a lack of evidence", async () => {
       // The repository must not treat a missing row as proof of absence, so it never looks.
       const denied = `Explain how ${FREIGHT} does not affect Test Output dock levy.`;
-      const envelope = await deriveCandidateEnvelope(denied);
+      const envelope = await deriveLegacyCandidateEnvelope(denied);
       expect(envelope.status).toBe("UNRESOLVED");
       expect(envelope.detail).toContain("denies the relation");
     });
 
     it("a denial of the reverse relation is reported as a denial", async () => {
       const denied = `Explain how ${SHIPPING} does not affect ${FREIGHT}.`;
-      const envelope = await deriveCandidateEnvelope(denied);
+      const envelope = await deriveLegacyCandidateEnvelope(denied);
       expect(envelope.status).toBe("UNRESOLVED");
       expect(envelope.detail).toContain("denies the relation");
     });
@@ -1508,7 +1508,7 @@ describeIfDb("output authority (integration)", () => {
       const other = await mechanismEdge(TURNAROUND, "Test Output berth queue", "POSITIVE");
       try {
         const two = `Explain how ${FREIGHT} affects ${SHIPPING} and ${TURNAROUND}.`;
-        const envelope = await deriveCandidateEnvelope(two);
+        const envelope = await deriveLegacyCandidateEnvelope(two);
         expect(envelope.status).toBe("UNRESOLVED");
         expect(envelope.detail).toContain("effect(s)");
         const { calls, sink } = countingSink({
@@ -1526,7 +1526,7 @@ describeIfDb("output authority (integration)", () => {
       const other = await mechanismEdge(TURNAROUND, "Test Output berth queue", "POSITIVE");
       try {
         const two = `Explain how ${FREIGHT} and ${TURNAROUND} affect ${SHIPPING}.`;
-        const envelope = await deriveCandidateEnvelope(two);
+        const envelope = await deriveLegacyCandidateEnvelope(two);
         expect(envelope.status).toBe("UNRESOLVED");
         expect(envelope.detail).toContain("cause(s)");
       } finally {
@@ -1545,7 +1545,7 @@ describeIfDb("output authority (integration)", () => {
       // the interposed repetition sits between the interrogative and the subject, where only
       // recognised function words may go. Fail-closed, and a capability loss worth naming — an
       // appositive is ordinary English and this grammar cannot read one.
-      const envelope = await deriveCandidateEnvelope(repeated);
+      const envelope = await deriveLegacyCandidateEnvelope(repeated);
       expect(envelope.status).toBe("UNRESOLVED");
       expect(envelope.detail).toContain("recognised framing followed by the subject");
     });
@@ -1558,7 +1558,7 @@ describeIfDb("output authority (integration)", () => {
       const one = relationSyntax(`Explain how the impact of ${FREIGHT} on ${SHIPPING} works.`);
       expect(one.status).toBe("ONE");
 
-      const envelope = await deriveCandidateEnvelope(
+      const envelope = await deriveLegacyCandidateEnvelope(
         `Explain how the impact of ${FREIGHT} on ${SHIPPING} works.`,
       );
       expect(envelope.status).toBe("AUTHORIZED");
@@ -1583,7 +1583,7 @@ describeIfDb("output authority (integration)", () => {
         `Explain how the claim that ${FREIGHT} affects ${SHIPPING} is mistaken.`,
         `Explain how the absence of impact of ${FREIGHT} on ${SHIPPING} works.`,
       ]) {
-        const envelope = await deriveCandidateEnvelope(query);
+        const envelope = await deriveLegacyCandidateEnvelope(query);
         expect(envelope.status).toBe("UNRESOLVED");
         const { calls, sink } = countingSink({
           segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
@@ -1606,7 +1606,7 @@ describeIfDb("output authority (integration)", () => {
         `Explain how false this is: how the impact of ${FREIGHT} on ${SHIPPING} works.`,
         `Explain how mistaken this is: how ${FREIGHT} affects ${SHIPPING}.`,
       ]) {
-        const envelope = await deriveCandidateEnvelope(query);
+        const envelope = await deriveLegacyCandidateEnvelope(query);
         expect(envelope.status).toBe("UNRESOLVED");
         const { calls, sink } = countingSink({
           segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
@@ -1621,7 +1621,7 @@ describeIfDb("output authority (integration)", () => {
       // The case the reset existed to permit. It was a convenience nobody asked for, invented here
       // to justify the reset, and it goes with it. Recorded rather than argued away.
       const query = `There is no shortage of dock capacity. Explain how ${FREIGHT} affects ${SHIPPING}.`;
-      const envelope = await deriveCandidateEnvelope(query);
+      const envelope = await deriveLegacyCandidateEnvelope(query);
       expect(envelope.status).toBe("UNRESOLVED");
     });
 
@@ -1638,7 +1638,7 @@ describeIfDb("output authority (integration)", () => {
         `Explain how ${FREIGHT} rarely affects ${SHIPPING}.`,
         `Explain how ${FREIGHT} cannot affect ${SHIPPING}.`,
       ]) {
-        const envelope = await deriveCandidateEnvelope(query);
+        const envelope = await deriveLegacyCandidateEnvelope(query);
         expect(envelope.status).toBe("UNRESOLVED");
         const { calls, sink } = countingSink({
           segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],
@@ -1654,7 +1654,7 @@ describeIfDb("output authority (integration)", () => {
       // A on B" put the denial outside everything being examined. The negation scan runs over the
       // clause's whole span now — back to the previous clause's end — and still not over the query.
       const denied = `Explain how there is not an impact of ${FREIGHT} on ${SHIPPING}.`;
-      const envelope = await deriveCandidateEnvelope(denied);
+      const envelope = await deriveLegacyCandidateEnvelope(denied);
       expect(envelope.status).toBe("UNRESOLVED");
       const { calls, sink } = countingSink({
         segments: [{ kind: "REPOSITORY_EXPLANATION", explanationId }],

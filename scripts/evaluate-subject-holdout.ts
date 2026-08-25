@@ -8,7 +8,7 @@
  * ## What is measured
  *
  * The whole authority decision — request frame, subject resolution, operation binding — through
- * `deriveCandidateEnvelope`, plus the membership predicates that decide whether the case's target
+ * `deriveLegacyCandidateEnvelope`, plus the membership predicates that decide whether the case's target
  * record would be authorized. The production path's planner-call behaviour is proven by the IR-104
  * controls in `tests/integration/output-authority.test.ts`; running 166 natural questions end to
  * end would score the frame classifier and report it as subject authority, which is the mistake
@@ -30,7 +30,7 @@ import { prisma } from "@/server/db/client";
 import { classifyRequestFrame } from "@/server/domain/requestFrame";
 import {
   claimIsCandidate,
-  deriveCandidateEnvelope,
+  deriveLegacyCandidateEnvelope,
   explanationIsCandidate,
 } from "@/server/domain/candidateEnvelope";
 import {
@@ -100,7 +100,7 @@ async function main() {
       }
     }
 
-    const envelope = await deriveCandidateEnvelope(c.query);
+    const envelope = await deriveLegacyCandidateEnvelope(c.query);
 
     let observed: Observed;
     if (envelope.status === "AMBIGUOUS") {

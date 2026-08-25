@@ -38,13 +38,25 @@
 import { prisma } from "@/server/db/client";
 import { mentionsEachOther } from "./askMarket";
 import {
+  causeRegionIsWellFormed,
+  resolveStoredSubject,
   resolveSubjectAuthority,
+  variablesNamedIn,
   type AuthorizedOperation,
   type SubjectAuthorityStatus,
 } from "./subjectAuthority";
+import type { CanonicalPlannerRequest } from "./requestAuthority";
 
 export interface CandidateEnvelope {
-  /** The authorized query the envelope was derived from. */
+  /**
+   * The request text, for AUDIT AND THE PLANNER PROMPT ONLY.
+   *
+   * On the canonical path this field decides nothing. It said "the authorized query the envelope
+   * was derived from", which was true and is exactly the reading that has to stop: the canonical
+   * envelope is derived from the carried `CanonicalPlannerRequest`, and the text is kept so a log
+   * can show what was asked and so the planner has prose to read. A future caller reaching for it
+   * to work out what the request meant would be reintroducing the second parser this unit removed.
+   */
   query: string;
   /**
    * Exact / ambiguous / unresolved, from `./subjectAuthority`. Only `AUTHORIZED` may publish, and
@@ -93,7 +105,187 @@ export function isEmptyEnvelope(envelope: CandidateEnvelope): boolean {
  * the guidance names — letting `eligible` stand in for relevance — and these are separate
  * authorities: one says the question may be asked, this says what could answer it.
  */
-export async function deriveCandidateEnvelope(query: string): Promise<CandidateEnvelope> {
+/**
+ * Candidate authority for a request the CANONICAL parser recognised.
+ *
+ * IR-107 Unit 2 Phase B2. The sibling below takes raw text and works out afresh what the request
+ * meant — it reconstructs the topic, discovers subjects and endpoints against the whole query, and
+ * hands all of it to `resolveSubjectAuthority`, which reclassifies the frame and re-parses relation
+ * syntax for direction, cardinality and polarity. Fourteen places in total. One sentence, two
+ * parsers, and the lower one winning because it is the one holding the records.
+ *
+ * This one is handed the parse and does not repeat any of it. Its only job is the second question:
+ * WHICH STORED RECORDS satisfy a meaning that is already settled. That is why `status` here means
+ * repository identity resolution and nothing else — AUTHORIZED is one identity found, AMBIGUOUS is
+ * several, UNRESOLVED is none — where the legacy status conflated that with whether the request had
+ * been understood at all.
+ *
+ * `query` is carried into the envelope for audit and for the planner's prompt. It decides nothing.
+ *
+ * The operation mapping is exhaustive and has no default. Three canonical operations are
+ * `plannerPermitted: false` and cannot arrive here: the type will not express them, because
+ * `CanonicalPlannerRequest` is narrowed through a switch in `asPlannerRequest` rather than asserted.
+ */
+export async function deriveCanonicalCandidateEnvelope(
+  query: string,
+  request: CanonicalPlannerRequest,
+): Promise<CandidateEnvelope> {
+  const refuse = (
+    status: SubjectAuthorityStatus,
+    operation: AuthorizedOperation,
+    detail: string,
+    subjects: readonly string[] = [],
+  ): CandidateEnvelope => ({
+    query,
+    status,
+    operation,
+    seriesIds: [],
+    causalEdgeIds: [],
+    subjects,
+    detail,
+  });
+
+  switch (request.operation) {
+    case "ATTRIBUTED_REPORTED_OBSERVATION": {
+      const operation = "REPORTED_OBSERVATION" as const;
+      // Loaded whole and filtered by IDENTITY, rather than discovered by a similarity pass over the
+      // raw query. Discovery narrowing is a performance stage and this path has no query to narrow
+      // with; if the row count ever justifies one, it must be a repository-safe predicate over the
+      // canonical region, never fuzzy matching over the request.
+      const allSeries = await prisma.series.findMany({ select: { id: true, name: true } });
+      const resolved = resolveStoredSubject(
+        request.subjectRegion,
+        request.subjectIdentity,
+        allSeries,
+        (series) => series.name,
+      );
+      if (resolved.length === 0) {
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          `No stored series is named by the authorized subject region "${request.subjectRegion.trim()}".`,
+        );
+      }
+      if (resolved.length > 1) {
+        return refuse(
+          "AMBIGUOUS",
+          operation,
+          `The authorized subject region names ${resolved.length} materially distinct stored ` +
+            "subjects, and this operation answers about one.",
+          resolved.map((series) => series.name),
+        );
+      }
+      return {
+        query,
+        status: "AUTHORIZED",
+        operation,
+        seriesIds: [resolved[0].id],
+        causalEdgeIds: [],
+        subjects: [resolved[0].name],
+        detail: `Resolved to the stored series "${resolved[0].name}" from the canonical parse.`,
+      };
+    }
+
+    case "STORED_MECHANISM": {
+      const operation = "STORED_MECHANISM" as const;
+      // Direction, polarity and one-clause cardinality were established by the canonical parser and
+      // travel as two REGIONS. Nothing here re-reads the sentence; the remaining question is which
+      // stored variable each region names, and whether an edge runs from the first to the second.
+      const cause = request.causeRegion ?? "";
+      const effect = request.effectRegion ?? "";
+      if (!cause.trim() || !effect.trim()) {
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          "The canonical mechanism parse carries no cause or effect region.",
+        );
+      }
+      const edges = await prisma.causalEdge.findMany({
+        select: { id: true, fromVariable: true, toVariable: true },
+      });
+      // Each role resolved against its OWN side's vocabulary, so a variable that only ever appears
+      // as an effect cannot be read as the cause of something.
+      const causes = variablesNamedIn(cause, [...new Set(edges.map((e) => e.fromVariable))]);
+      const effects = variablesNamedIn(effect, [...new Set(edges.map((e) => e.toVariable))]);
+      if (causes.length === 0 || effects.length === 0) {
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          `The authorized regions name ${causes.length} stored cause(s) and ${effects.length} ` +
+            "stored effect(s); a relation needs one of each.",
+        );
+      }
+      if (causes.length > 1 || effects.length > 1) {
+        return refuse(
+          "AMBIGUOUS",
+          operation,
+          `The authorized regions name ${causes.length} cause(s) and ${effects.length} effect(s), ` +
+            "and letting stored inventory choose the pair would answer a different question.",
+          [...causes, ...effects],
+        );
+      }
+      // The cause region must read as recognised framing, then the resolved subject, and nothing
+      // else — IR-106's structural half of polarity, and the architecture round said to omit it
+      // here on the grounds that upstream had already established an affirmed clause.
+      //
+      // It had not, and three existing tests caught it within a minute of the branch going in.
+      // `mechanismMatch` checks `relationSyntax` polarity, which reads a negation MARKER; IR-106
+      // added this because a denylist of ways to deny something cannot be finished. So
+      // `Explain how it is false that A affects B.` parses as AFFIRMED, arrives here as a canonical
+      // parse, and without this check resolves the stored A -> B edge and answers the opposite of
+      // what was asked. The same hole exists on the deterministic serving path and is recorded.
+      //
+      // It stays in the candidate layer rather than moving upstream because it needs the RESOLVED
+      // identity: the question is whether everything before the stored cause name is framing, and
+      // the parser does not know where the name ends. That makes it identity validation, not a
+      // second reading of the request.
+      if (!causeRegionIsWellFormed(cause, causes[0])) {
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          `The authorized cause region "${cause.trim().slice(-60)}" is not recognised framing ` +
+            "followed by the subject. Something qualifies the relation that this grammar has not " +
+            "read, and unread is not affirmed.",
+          [causes[0], effects[0]],
+        );
+      }
+
+      // Exact on BOTH endpoints and in the authorized direction. A reverse edge is a different
+      // relation, and an edge sharing one endpoint is a different relation again.
+      const exact = edges.filter(
+        (e) => e.fromVariable === causes[0] && e.toVariable === effects[0],
+      );
+      if (exact.length === 0) {
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          `No stored mechanism runs from "${causes[0]}" to "${effects[0]}". An edge running the ` +
+            "other way, or sharing one endpoint, is a different relation.",
+          [causes[0], effects[0]],
+        );
+      }
+      if (exact.length > 1) {
+        return refuse(
+          "AMBIGUOUS",
+          operation,
+          `${exact.length} stored mechanisms run from "${causes[0]}" to "${effects[0]}".`,
+          exact.map((e) => `${e.fromVariable} -> ${e.toVariable}`),
+        );
+      }
+      return {
+        query,
+        status: "AUTHORIZED",
+        operation,
+        seriesIds: [],
+        causalEdgeIds: [exact[0].id],
+        subjects: [causes[0], effects[0]],
+        detail: `Resolved to the stored mechanism "${causes[0]} -> ${effects[0]}".`,
+      };
+    }
+  }
+}
+
+export async function deriveLegacyCandidateEnvelope(query: string): Promise<CandidateEnvelope> {
   const topic = query.trim();
   if (!topic) {
     return {

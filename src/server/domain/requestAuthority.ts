@@ -77,6 +77,15 @@ export type RequestOperation = (typeof REQUEST_OPERATIONS)[number];
 export type RecordClass =
   "OBSERVATION" | "COMPUTED_CHANGE" | "CAUSAL_EDGE" | "ATTRIBUTED_OBSERVATION" | "GLOSSARY_ENTRY";
 
+/**
+ * Whether a stored name may be found INSIDE the subject region or must be the whole of it.
+ *
+ * Decided by the grammar that produced the region, because only that grammar knows whether the
+ * region is a phrase with internal structure or a single morpheme that happens to contain
+ * characters a normalizer will split on.
+ */
+export type SubjectIdentityMode = "OCCURRENCE" | "WHOLE_REGION";
+
 export interface OperationContract {
   operation: RequestOperation;
   /** How many distinct stored subjects the request must name. A mechanism names two. */
@@ -175,6 +184,22 @@ export type RequestAuthority =
        */
       causeRegion?: string;
       effectRegion?: string;
+      /**
+       * How the repository must match `subjectRegion` against the names it holds.
+       *
+       * `OCCURRENCE` is the English default and the established rule: a stored name counts when it
+       * OCCURS in the region and is not nested inside a longer match. That works because an English
+       * subject region is several tokens and a stored name occupying some of them is a real, whole
+       * mention of that subject.
+       *
+       * `WHOLE_REGION` is what a single-morpheme subject requires, and it exists because the
+       * difference produced a wrong answer. `USD-KRW는 얼마인가요?` parses to the one stem
+       * `USD-KRW`; normalization turns the hyphen into a space; `KRW` then occurs as a whole token
+       * and, with only `KRW` stored, the question about the pair was answered with one leg of it.
+       * A grammar that produced its subject as ONE indivisible stem is entitled to say so, and the
+       * repository is not entitled to find a smaller subject inside it.
+       */
+      subjectIdentity: SubjectIdentityMode;
       detail: string;
     }
   | { status: "PROHIBITED"; detail: string }
@@ -465,6 +490,8 @@ interface Recognised {
   sourceRegion?: string;
   causeRegion?: string;
   effectRegion?: string;
+  /** How the subject region must be matched against stored names. See `SubjectIdentityMode`. */
+  subjectIdentity?: SubjectIdentityMode;
 }
 
 /**
@@ -581,6 +608,8 @@ function koreanCopularMatch(query: string): KoreanMatch {
     operation,
     subjectRegion: ` ${stem} `,
     residue: [],
+    // One eojeol, one stem, no internal constituent the repository may match separately.
+    subjectIdentity: "WHOLE_REGION",
   });
 
   const candidates: Recognised[] = [];
@@ -621,7 +650,12 @@ function koreanCopularMatch(query: string): KoreanMatch {
   // Deliberately narrow. `원달러환율 얼마야?` stays refused, because a bare Hangul stem still has no
   // evidence of being nominal. This does not reopen zero-marking; it recognises the one host shape
   // whose category is legible without a lexicon.
-  if (candidates.length === 0 && /^[A-Z][A-Z0-9.-]*$/.test(subjectEojeol)) {
+  //
+  // Punctuation is NOT in the shape, and the first version of it allowed `.` and `-`. That admitted
+  // `A-` and `A.B`, and worse: downstream normalization turns those characters into spaces, so a
+  // hyphenated pair stops being one token before the repository sees it. Two characters minimum for
+  // the same reason a single letter is not an acronym.
+  if (candidates.length === 0 && /^[A-Z][A-Z0-9]+$/.test(subjectEojeol)) {
     candidates.push(parse(subjectEojeol));
   }
 
@@ -912,7 +946,18 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
     match.subjectRegion,
     intervalConstituent(normalize(match.subjectRegion)),
   );
-  const subjectTokens = subjectRegion.trim().split(" ").filter(Boolean);
+  // Lowercased before every closed-class comparison, and the omission was exploitable.
+  //
+  // The English path arrives here already normalized, so nobody noticed that these two checks
+  // compare against lowercase literals. The Korean grammar does NOT normalize — it must not, since
+  // case and script are the only category evidence a Latin subject carries — so a case-preserving
+  // subject reached a lowercase membership test. `AND 얼마인가요?` was AUTHORIZED with the
+  // coordinator AND as its subject, walking straight through the check written to stop exactly that.
+  const subjectTokens = subjectRegion
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .map((token) => token.toLowerCase());
   if (subjectTokens.some((token) => PERSONAL_PRONOUNS.includes(token))) {
     return {
       status: "PROHIBITED",
@@ -983,6 +1028,7 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
     causeRegion: match.causeRegion,
     effectRegion: match.effectRegion,
     interval: interval ?? undefined,
+    subjectIdentity: match.subjectIdentity ?? "OCCURRENCE",
     detail: `Recognised as ${match.operation}.`,
   };
 }

@@ -310,6 +310,33 @@ describeIfDb("askMarket (integration)", () => {
         },
       });
     }
+    // IR-107 Unit 2 Phase B. A Korean-named series whose name is one COMPONENT of what a request
+    // might ask about, so that "answered about half of what was asked" is reachable if the subject
+    // identity rule is wrong. `KRW` alone is stored; nothing named `USD-KRW` exists.
+    const koreanSeries = await prisma.series.create({
+      data: {
+        sourceId: source.id,
+        externalId: "TEST_ASK_MARKET_KRW",
+        name: "KRW",
+        unit: "index",
+        frequency: "daily",
+      },
+    });
+    for (const [date, value] of [
+      [daysAgo(2), "1300.0"],
+      [daysAgo(1), "1320.0"],
+    ] as const) {
+      await prisma.observation.create({
+        data: {
+          seriesId: koreanSeries.id,
+          sourceId: source.id,
+          observationDate: date,
+          value,
+          raw: {},
+        },
+      });
+    }
+
     // A stale series: two observations a day apart, both long ago. Its own projected cadence is
     // daily, so being years old is unambiguously past it.
     const staleSource = await prisma.source.create({
@@ -941,6 +968,43 @@ describeIfDb("askMarket (integration)", () => {
     // database cannot produce.
     const result = await askMarket("Widget Price Index");
     expect(result.status).toBe("REQUEST_NOT_SUPPORTED");
+    expect(result.seriesFactors).toHaveLength(0);
+  });
+
+  /**
+   * IR-107 Unit 2 Phase B, adversarial round four. A Korean subject region is ONE morpheme, and the
+   * repository must not find a smaller stored subject inside it.
+   *
+   * These need a seeded database to mean anything: the whole finding is that the answer depended on
+   * what happened to be stored, so a unit test asserting the parser's verdict cannot reach it. The
+   * unit test that tried was vacuous and was replaced by these.
+   */
+  it("does not answer a hyphenated pair with one of its legs", async () => {
+    // `USD-KRW는` parses to the single stem `USD-KRW`. Normalization turns the hyphen into a space,
+    // so `KRW` — which IS stored — occurred as a whole token and the question about the currency
+    // PAIR came back answered with one leg of it: a real value, a real series, the wrong subject.
+    for (const query of ["USD-KRW는 얼마인가요?", "USD/KRW는 얼마인가요?"]) {
+      const result = await askMarket(query);
+      expect(result.status, query).toBe("NOT_FOUND");
+      expect(result.seriesFactors, query).toHaveLength(0);
+    }
+  });
+
+  it("still answers when the Korean subject IS the stored name", async () => {
+    // The control that stops the test above being vacuous. Without it, "always NOT_FOUND" would be
+    // equally consistent with the Korean serving path being dead.
+    const result = await askMarket("KRW는 얼마인가요?");
+    expect(result.status).toBe("FACTORS_FOUND");
+    expect(result.seriesFactors.map((f) => f.seriesName)).toEqual(["KRW"]);
+  });
+
+  it("does not answer a fused coordination about one of its halves", async () => {
+    // The parser cannot see a conjunction compressed inside one eojeol, so `KRW와USD는` authorizes
+    // with cardinality one unproven. What must never follow is an answer about one half. Fused
+    // Hangul has no token boundary for occurrence matching to exploit; whole-region identity is
+    // what makes that true rather than lucky.
+    const result = await askMarket("KRW와USD는 얼마인가요?");
+    expect(result.status).toBe("NOT_FOUND");
     expect(result.seriesFactors).toHaveLength(0);
   });
 

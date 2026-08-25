@@ -1,7 +1,7 @@
 import { prisma } from "@/server/db/client";
 import { computeChange } from "./seriesReadings";
-import { resolveRequestAuthority } from "./requestAuthority";
-import { explicitlyNamed, nameOccursIn } from "./subjectAuthority";
+import { resolveRequestAuthority, type SubjectIdentityMode } from "./requestAuthority";
+import { explicitlyNamed, nameOccursIn, normalizeSubject } from "./subjectAuthority";
 import { computeCalendarEntry } from "./economicCalendar";
 import { resolveObservationPeriod, type ResolvedPeriod } from "./observationPeriod";
 import { getObservationsOneRowPerDate } from "./seriesReadings";
@@ -899,7 +899,11 @@ export function mentionsEachOther(a: string, b: string): boolean {
  *
  * `sourceId` is an identity resolved from the repository, never a name read out of the request.
  */
-async function matchingSeries(topic: string, sourceId?: string) {
+async function matchingSeries(
+  topic: string,
+  sourceId?: string,
+  identity: SubjectIdentityMode = "OCCURRENCE",
+) {
   if (!topic) return [];
   const allSeries = await prisma.series.findMany({
     where: sourceId ? { sourceId } : undefined,
@@ -926,6 +930,18 @@ async function matchingSeries(topic: string, sourceId?: string) {
   // That function's own comment describes this exact mistake, because IR-105 made it once already
   // and fixed it. A second implementation of one rule reproduced the first one's original bug,
   // which is the argument for there being one.
+  //
+  // WHOLE_REGION exists because occurrence produced a wrong answer, not because it is tidier.
+  // `USD-KRW는 얼마인가요?` parses to the single stem `USD-KRW`; normalization turns the hyphen into
+  // a space; `KRW` then occurs as a whole token, and with only `KRW` stored the question about the
+  // currency PAIR came back answered with one leg of it — a real value, a real series, and the
+  // wrong subject. A region the grammar produced as one indivisible morpheme has no interior for
+  // the repository to find a smaller subject in, and only the grammar knows which regions those
+  // are, which is why the authority carries the mode rather than this function guessing it.
+  if (identity === "WHOLE_REGION") {
+    const region = normalizeSubject(topic);
+    return allSeries.filter((series) => normalizeSubject(series.name) === region).slice(0, 5);
+  }
   return explicitlyNamed(allSeries, (series) => series.name, topic).slice(0, 5);
 }
 
@@ -946,11 +962,12 @@ async function matchingSeries(topic: string, sourceId?: string) {
 async function findObservationFactors(
   topic: string,
   asOf: Date,
-  sourceId?: string,
+  sourceId: string | undefined,
+  identity: SubjectIdentityMode,
 ): Promise<SeriesFactor[]> {
   const asOfDate = asOf.toISOString().slice(0, 10);
   const factors: SeriesFactor[] = [];
-  for (const series of await matchingSeries(topic, sourceId)) {
+  for (const series of await matchingSeries(topic, sourceId, identity)) {
     // The newest reading that is not dated after the clock.
     //
     // This took `cadence.lastObservedValue`, which is the newest row full stop. A series carrying a
@@ -1030,13 +1047,14 @@ async function findChangeFactors(
   topic: string,
   operand: string,
   asOf: Date,
+  identity: SubjectIdentityMode,
 ): Promise<SeriesFactor[]> {
   const resolution = resolveObservationPeriod(operand, asOf);
   if (resolution.status !== "RESOLVED") return [];
   const period = resolution.period;
 
   const factors: SeriesFactor[] = [];
-  for (const series of await matchingSeries(topic)) {
+  for (const series of await matchingSeries(topic, undefined, identity)) {
     const endpoints = await selectPeriodEndpoints(series.id, period);
     if (!endpoints) continue;
 
@@ -1306,7 +1324,7 @@ export async function askMarket(
   // not a binding defect.
   const [wideSeries, wideCausal, wideCompany] = isAdviceRequest
     ? await Promise.all([
-        findObservationFactors(trimmed, asOf),
+        findObservationFactors(trimmed, asOf, undefined, "OCCURRENCE"),
         findCausalFactors(trimmed),
         findCompanyFacts(trimmed),
       ])
@@ -1362,7 +1380,11 @@ export async function askMarket(
   // choose. Two providers publishing under the SAME name is one subject, not two, which is why
   // this counts distinct names rather than rows.
   if (authority.contract.subjectCardinality === 1) {
-    const named = new Set((await matchingSeries(subject)).map((series) => series.name));
+    const named = new Set(
+      (await matchingSeries(subject, undefined, authority.subjectIdentity)).map(
+        (series) => series.name,
+      ),
+    );
     if (named.size > 1) {
       return {
         status: "REQUEST_NOT_SUPPORTED",
@@ -1380,7 +1402,7 @@ export async function askMarket(
   switch (authority.contract.recordClass) {
     case "OBSERVATION": {
       const [observations, company] = await Promise.all([
-        findObservationFactors(subject, asOf),
+        findObservationFactors(subject, asOf, undefined, authority.subjectIdentity),
         findCompanyFacts(subject),
       ]);
       return served(trimmed, observations, [], company);
@@ -1389,7 +1411,12 @@ export async function askMarket(
     case "COMPUTED_CHANGE": {
       // The interval is required by the contract and was proven present by the parser; it travels
       // with the figure so the reader is told what period the movement covers.
-      const changes = await findChangeFactors(subject, authority.interval ?? "", asOf);
+      const changes = await findChangeFactors(
+        subject,
+        authority.interval ?? "",
+        asOf,
+        authority.subjectIdentity,
+      );
       return served(trimmed, changes, [], { facts: [] });
     }
 
@@ -1427,7 +1454,12 @@ export async function askMarket(
           companyFacts: [],
         };
       }
-      const attributed = await findObservationFactors(subject, asOf, resolution.sourceId);
+      const attributed = await findObservationFactors(
+        subject,
+        asOf,
+        resolution.sourceId,
+        authority.subjectIdentity,
+      );
       return served(trimmed, attributed, [], { facts: [] });
     }
 

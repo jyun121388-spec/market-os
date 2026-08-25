@@ -102,6 +102,18 @@ async function main(): Promise<void> {
     console.log(`
 control: exact stem  -> ${await ask("환율은 얼마인가요?")}`);
     console.log(`control: embedded    -> ${await ask("금리와환율은 얼마인가요?")}`);
+    await clean();
+
+    // Round four falsified the explanation above for regions that carry punctuation. Normalization
+    // turns `-` and `/` into spaces, so a stored name that is one component of a hyphenated pair
+    // becomes a whole token occurrence and matches. Exact-stem identity is NOT a property of the
+    // Korean path; it is a property of FUSED HANGUL, which has no boundary to expose.
+    await seed(["KRW"]);
+    console.log(`
+only "KRW" stored:`);
+    for (const q of ["USD-KRW는 얼마인가요?", "USD/KRW는 얼마인가요?", "USD-KRW 얼마인가요?"]) {
+      console.log(`  ${q.padEnd(22)} -> ${await ask(q)}`);
+    }
   } finally {
     await clean();
     await prisma.$disconnect();

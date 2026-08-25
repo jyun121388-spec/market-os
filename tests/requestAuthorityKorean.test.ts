@@ -160,6 +160,32 @@ describe("Korean current observation, from the quantity interrogative", () => {
     expect(status("사야 얼마인가요?")).toBe("UNSUPPORTED");
   });
 
+  it("does not mistake an uppercase English word for an acronym subject", () => {
+    // The rule's first version was `[A-Z][A-Z0-9.-]*`, and it authorized `AND 얼마인가요?` with the
+    // COORDINATOR as its subject. Two separate mistakes met there: the shape admitted anything in
+    // caps, and the connective check that exists to stop exactly this compares lowercase literals
+    // against a subject the Korean path deliberately does not lowercase. Both are fixed, and both
+    // are needed — `AND는 얼마인가요?` reaches the check through the MARKED path, where the shape
+    // rule never runs.
+    expect(status("AND 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("OR 무엇인가요?")).toBe("UNSUPPORTED");
+    expect(status("AND는 얼마인가요?")).toBe("UNSUPPORTED");
+    // Punctuation is not part of an acronym, and one letter is not one either.
+    expect(status("A 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("A.B 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("A- 얼마인가요?")).toBe("UNSUPPORTED");
+  });
+
+  it("tells the repository that a Korean subject is one indivisible region", () => {
+    // The mode exists because occurrence matching produced a wrong ANSWER, not because it is
+    // tidier: `USD-KRW는` normalizes its hyphen to a space, `KRW` then occurs as a whole token, and
+    // with only KRW stored the question about the pair was answered with one leg of it. The
+    // end-to-end proof is the integration test; this pins that the parser declares the mode.
+    expect(authorized("기준금리는 얼마인가요?").subjectIdentity).toBe("WHOLE_REGION");
+    expect(authorized("USD-KRW는 얼마인가요?").subjectIdentity).toBe("WHOLE_REGION");
+    expect(authorized("What is the current US headline CPI?").subjectIdentity).toBe("OCCURRENCE");
+  });
+
   it("does not let a compressed coordination be answered about one of its halves", () => {
     // The third round predicted a HIGH defect here: `금리와환율은` authorizes with one subject
     // region, so with only 환율 stored the request would be served about half of what it asked, and
@@ -203,6 +229,50 @@ describe("the grammar is productive, not a list of the strings it was tested on"
    * tables. A phrase table would have to contain all sixteen to survive, at which point it is no
    * longer a shortcut.
    */
+  /**
+   * Stems this repository has never seen, built from the syllable block rather than chosen.
+   *
+   * Round four pointed out that a fixed Cartesian product is still finite: a wrong implementation
+   * could whitelist the eight predicate surfaces, strip the final particle from the four subject
+   * shapes, and pass. So these stems are COMPUTED here — from syllable indices, with no reference
+   * to any production table — and the correct allomorph is derived from the stem's own final
+   * consonant. A lookup table cannot contain a string that did not exist when it was written.
+   *
+   * The near-neighbour half is what makes it a morphology test rather than a coverage test: for
+   * every generated stem the WRONG allomorph of the same particle must refuse. Getting one right
+   * and the other wrong is the signature of a table; getting both right needs the conditioning.
+   */
+  const SYLLABLE_BASE = 0xac00;
+  const generatedStems: { stem: string; vowelFinal: boolean }[] = [];
+  for (let cho = 0; cho < 19; cho += 7) {
+    for (const jong of [0, 4]) {
+      // Two syllables, so the stem cannot collide with a particle or a pronoun.
+      const first = String.fromCodePoint(SYLLABLE_BASE + (cho * 21 + 3) * 28);
+      const second = String.fromCodePoint(SYLLABLE_BASE + (((cho + 5) % 19) * 21 + 8) * 28 + jong);
+      generatedStems.push({ stem: first + second, vowelFinal: jong === 0 });
+    }
+  }
+
+  it.each(generatedStems)(
+    "recognises an unseen stem $stem with the allomorph its own ending selects",
+    ({ stem, vowelFinal }) => {
+      const topic = vowelFinal ? "는" : "은";
+      const nominative = vowelFinal ? "가" : "이";
+      expect(authorized(`${stem}${topic} 얼마인가요?`).subjectRegion.trim()).toBe(stem);
+      expect(authorized(`${stem}${nominative} 무엇인가요?`).subjectRegion.trim()).toBe(stem);
+    },
+  );
+
+  it.each(generatedStems)(
+    "refuses the same unseen stem $stem with the allomorph it does NOT select",
+    ({ stem, vowelFinal }) => {
+      const wrongTopic = vowelFinal ? "은" : "는";
+      const wrongNominative = vowelFinal ? "이" : "가";
+      expect(status(`${stem}${wrongTopic} 얼마인가요?`)).toBe("UNSUPPORTED");
+      expect(status(`${stem}${wrongNominative} 무엇인가요?`)).toBe("UNSUPPORTED");
+    },
+  );
+
   const SUBJECTS = [
     { eojeol: "물가는", stem: "물가" }, // topic, vowel-final host
     { eojeol: "환율이", stem: "환율" }, // nominative, consonant-final host

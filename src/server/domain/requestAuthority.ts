@@ -43,6 +43,13 @@
  */
 
 import { detectPersonalizedAdviceRequest } from "./askMarket";
+import {
+  analyseCopularInterrogative,
+  analyseNoun,
+  containsHangul,
+  eojeols,
+  KOREAN_POSSESSIVE_DETERMINERS,
+} from "./koreanMorphology";
 import { classifyRequestFrame } from "./requestFrame";
 import { relationSyntax } from "./subjectAuthority";
 
@@ -330,6 +337,32 @@ const PERSONAL_PRONOUNS = ["i", "me", "my", "mine", "we", "our", "ours", "you", 
  */
 const FIRST_PERSON_POSSESSIVES = ["my", "mine", "our", "ours"];
 
+/**
+ * The same judgement in either language, made on the same grammatical evidence.
+ *
+ * English marks the possessive with a word; Korean marks it with a determiner that stands as its
+ * own eojeol and governs the noun after it. The rule is identical — a first person attached to a
+ * noun phrase makes that noun the reader's — and only the surface differs, which is why this is one
+ * function and not a Korean copy of an English one.
+ *
+ * The Korean side requires a FOLLOWING eojeol, because a determiner governs something. A trailing
+ * 내 governs nothing and is not a claim about ownership.
+ *
+ * `저` and `우리` are absent from the determiner class on purpose (see `koreanMorphology`), so
+ * `저에게 기준금리를 알려주세요` — "tell ME the policy rate" — is not touched by this. That is the
+ * dative, it names who is being told, and prohibiting it would be the Korean instance of the
+ * 44-case false-prohibition class this file already carries a note about.
+ */
+function firstPersonPossession(query: string, normalized: string): boolean {
+  if (normalizedTokens(normalized).some((token) => FIRST_PERSON_POSSESSIVES.includes(token))) {
+    return true;
+  }
+  const tokens = eojeols(query);
+  return tokens.some(
+    (token, index) => index < tokens.length - 1 && KOREAN_POSSESSIVE_DETERMINERS.includes(token),
+  );
+}
+
 /** Closed set of interval operands. `OBSERVED_CHANGE` refuses without one. */
 const INTERVAL_OPERANDS = [
   "this year",
@@ -498,6 +531,100 @@ function attributionMatch(normalized: string): Recognised | null {
   return null;
 }
 
+/**
+ * Two Korean operations, from one construction and no Korean vocabulary at all.
+ *
+ * `[NOUN + 은/는 | 이/가 | (이)란 | nothing] [무엇 | 뭐 | 얼마 + copula + present interrogative]`.
+ * Which operation it is comes from WHICH closed interrogative pronoun is used — 무엇 and 뭐 ask what
+ * a thing IS, 얼마 asks what quantity it is — and nothing else in the sentence is consulted. There
+ * is no Korean word list here: the subject is whatever the particle is attached to, and the
+ * repository decides later whether that names anything.
+ *
+ * ## Why exactly two eojeol
+ *
+ * The Korean form of "there are no halves". The English path reads a construction and then proves
+ * nothing is left over; here the construction IS the whole request, so the proof is the length.
+ * `현재 기준금리는 얼마인가요?` has three, and refuses.
+ *
+ * That refusal is a deliberate capability loss and worth being explicit about, because 현재 means
+ * "current" and the request is obviously answerable. Admitting it costs one of two things: reading
+ * 현재 as an operation marker, which is translating the English ` current ` construction into
+ * Korean, or adding it to a framing list that would then need 최근, 지금, 오늘, 현시점 and has no
+ * end. The construction is already sufficient without it — 기준금리는 얼마인가요 asks the same
+ * question — so the honest answer is to refuse the adverb and keep the grammar.
+ *
+ * ## Why ambiguity refuses rather than resolving
+ *
+ * A parse is built from EVERY morphological reading of the subject eojeol, including the unsplit
+ * one. Usually only one reading yields a complete parse, and then the reading is not a guess: the
+ * name 신라 survives in `신라는 무엇인가요?` because 신 is not offered as a stem by any rule, not
+ * because anything here knows 신라 is a name. Where two readings both parse to different subjects
+ * the request is genuinely two questions on paper, and choosing between them would need either
+ * inventory — which must never decide what a sentence meant — or a likelihood this repository has
+ * no way to compute.
+ */
+type KoreanMatch =
+  | { status: "ONE"; match: Recognised }
+  | { status: "NONE" }
+  | { status: "AMBIGUOUS"; readings: string[] };
+
+function koreanCopularMatch(query: string): KoreanMatch {
+  const tokens = eojeols(query);
+  if (tokens.length !== 2) return { status: "NONE" };
+  const [subjectEojeol, predicateEojeol] = tokens;
+
+  const predicate = analyseCopularInterrogative(predicateEojeol);
+  if (predicate === null) return { status: "NONE" };
+
+  const operation = predicate.kind === "WHAT" ? "DEFINITION" : "CURRENT_OBSERVATION";
+  const parse = (stem: string): Recognised => ({
+    operation,
+    subjectRegion: ` ${stem} `,
+    residue: [],
+  });
+
+  const analyses = analyseNoun(subjectEojeol);
+  const marked: Recognised[] = [];
+  for (const analysis of analyses) {
+    // 은/는 marks a topic and 이/가 the grammatical subject of the copular clause; either is the
+    // thing being asked about, and which one a speaker reaches for is information structure rather
+    // than a different question. (이)란 cites a term AS a term, so it introduces a definiendum and
+    // can only precede "what is it", never "how much is it".
+    if (analysis.role === "DEFINIENDUM" && predicate.kind !== "WHAT") continue;
+    if (
+      analysis.role !== "TOPIC" &&
+      analysis.role !== "NOMINATIVE" &&
+      analysis.role !== "DEFINIENDUM"
+    ) {
+      continue;
+    }
+    marked.push(parse(analysis.stem));
+  }
+
+  // An overt case marker is evidence of a role; its absence is not evidence of anything. So the
+  // bare reading is consulted only where the eojeol carries NO marker at all — not where it carries
+  // one the grammar declined.
+  //
+  // That distinction is the whole rule and its first version got it wrong: keyed on `marked.length`
+  // it fell back whenever the marked path produced nothing, so `스톱로스란 얼마인가요?` — a term
+  // cited AS a term and then asked a quantity of, which the grammar refuses on purpose — was
+  // rescued as a current-observation request about a subject named "스톱로스란". A refusal is a
+  // decision about evidence that was present, and re-reading the same eojeol as unmarked throws
+  // that decision away.
+  //
+  // Korean drops case particles freely — `원달러환율 얼마야?` is ordinary speech, not ellipsis to be
+  // reconstructed — so refusing zero-marked subjects would refuse a whole register rather than a
+  // construction. Zero-marking is itself a closed grammatical phenomenon; what it is not is
+  // evidence, which is why it never competes with a marker.
+  const overtlyMarked = analyses.some((analysis) => analysis.role !== null);
+  const candidates = overtlyMarked ? marked : [parse(subjectEojeol)];
+  if (candidates.length === 0) return { status: "NONE" };
+
+  const distinct = [...new Set(candidates.map((p) => `${p.operation}:${p.subjectRegion.trim()}`))];
+  if (distinct.length > 1) return { status: "AMBIGUOUS", readings: distinct };
+  return { status: "ONE", match: candidates[0] };
+}
+
 function recogniseAll(normalized: string): Recognised[] {
   const found: Recognised[] = [];
 
@@ -659,17 +786,34 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
   // request asks for, so its answer is a candidate here and not a verdict.
   const mechanism = mechanismMatch(query);
   const attribution = attributionMatch(normalized);
+  // The Korean grammar is consulted only for requests that contain Korean, and it is consulted
+  // LAST among the special cases so that a mixed-script request keeps whatever the English path
+  // made of it. Nothing above this line can match Korean — the constructions, the reporting acts
+  // and the relation verbs are all English literals — so the guard is about intent rather than
+  // necessity: two grammars must never both be allowed an opinion about one sentence.
+  const korean = containsHangul(query) ? koreanCopularMatch(query) : { status: "NONE" as const };
+  if (korean.status === "AMBIGUOUS") {
+    return {
+      status: "AMBIGUOUS",
+      detail:
+        `The request has more than one morphological reading — ${korean.readings.join(", ")} — ` +
+        "and choosing between them would need either the subject inventory, which must not decide " +
+        "what a sentence meant, or a guess.",
+    };
+  }
   const recognised = mechanism
     ? [mechanism]
     : attribution
       ? [attribution]
-      : recogniseAll(normalized);
+      : korean.status === "ONE"
+        ? [korean.match]
+        : recogniseAll(normalized);
   if (recognised.length === 0) {
     // A personal stake still decides, even with nothing recognised. Placed here rather than at the
     // top so that a recognised request keeps being judged by its subject region, which is the
     // narrower and better evidence; this only covers the case where there is no subject region to
     // look at. Refusing these as UNSUPPORTED said "not yet" about something that must never be.
-    if (normalizedTokens(normalized).some((t) => FIRST_PERSON_POSSESSIVES.includes(t))) {
+    if (firstPersonPossession(query, normalized)) {
       return {
         status: "PROHIBITED",
         detail:

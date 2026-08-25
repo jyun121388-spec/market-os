@@ -40,7 +40,7 @@
 
 import { detectPersonalizedAdviceRequest } from "./askMarket";
 import { classifyRequestFrame, type RequestFrame } from "./requestFrame";
-import { resolveRequestAuthority } from "./requestAuthority";
+import { resolveRequestAuthority, type CanonicalAuthorizedRequest } from "./requestAuthority";
 
 /** The only frames a future inference producer may ever see. Narrow, and closed. */
 export const INFERENCE_ELIGIBLE_FRAMES = [
@@ -84,8 +84,44 @@ export type IneligibilityReason =
    */
   | "DETERMINISTIC_OPERATION";
 
+/**
+ * Where an eligible verdict CAME FROM, carried rather than inferred.
+ *
+ * IR-107 Unit 2 Phase B2. This function already resolves the canonical request authority and then
+ * discards it, so `deriveCandidateEnvelope` re-derives operation and subject from the raw query
+ * through the legacy frame classifier. One sentence, two parsers, and the lower one wins because it
+ * is the one holding the records.
+ *
+ * Carrying the canonical parse fixes that for requests the canonical parser recognises. It does not
+ * fix the ones it does not, and this unit deliberately does not close that door — so the eligible
+ * result is a UNION rather than an optional field. `LEGACY_BYPASS` is a request the legacy frame
+ * classifier admitted and the canonical parser did not recognise, and it has no canonical parse to
+ * offer, because there is none.
+ *
+ * An optional `request?: CanonicalAuthorizedRequest` would have been smaller and wrong: absent and
+ * legacy-admitted would be the same value, downstream would branch on a missing field, and the day
+ * the bypass closes there would be nothing to delete. As a union, closing it is removing one
+ * variant and letting the compiler find every place that read it.
+ */
+export type EligibleProvenance =
+  /** The canonical operation parser recognised the whole request. Its parse travels with it. */
+  | { provenance: "CANONICAL"; request: CanonicalAuthorizedRequest }
+  /**
+   * Admitted by the legacy frame classifier alone, with the canonical parser refusing.
+   *
+   * Seven such divergences are measured on the current probe matrix and the reproduced HIGH case is
+   * one of them. Marked rather than hidden: an honest label is what makes the later closure a
+   * deletion instead of another parser migration.
+   *
+   * Carries NOTHING, deliberately. It briefly carried `rawQuery`, and review pointed out the caller
+   * already owns the query one line above — so the field was a second copy of a value nobody
+   * lacked, and a place a future reader might reach for when the canonical parse was missing. The
+   * variant's whole content is its name.
+   */
+  | { provenance: "LEGACY_BYPASS" };
+
 export type InferenceAuthorization =
-  | { eligible: true; frame: EligibleFrame; reason: string }
+  | ({ eligible: true; frame: EligibleFrame; reason: string } & EligibleProvenance)
   | { eligible: false; blockedBy: IneligibilityReason; frame: RequestFrame; reason: string };
 
 /**
@@ -178,9 +214,27 @@ export function authorizeInference(query: string): InferenceAuthorization {
     };
   }
 
+  // The canonical parse travels when there is one. `canonical` was already computed above for its
+  // negative verdicts; using it here is the whole of B2's first step, and it changes no outcome —
+  // exactly the same requests are eligible, and each now says on what authority.
+  if (canonical.status === "AUTHORIZED") {
+    return {
+      eligible: true,
+      frame: frame as EligibleFrame,
+      provenance: "CANONICAL",
+      request: canonical,
+      reason:
+        `Affirmatively classified ${frame}, and the canonical parser recognises it as ` +
+        `${canonical.operation}.`,
+    };
+  }
   return {
     eligible: true,
     frame: frame as EligibleFrame,
-    reason: `Affirmatively classified ${frame}, and not refused by the request guardrail.`,
+    provenance: "LEGACY_BYPASS",
+    reason:
+      `Affirmatively classified ${frame}, and not refused by the request guardrail. The canonical ` +
+      `parser does NOT recognise this request (${canonical.status}); it is admitted by the legacy ` +
+      "frame classifier alone, which is the divergence this unit records and a later one closes.",
   };
 }

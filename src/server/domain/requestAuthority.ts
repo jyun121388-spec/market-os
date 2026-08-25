@@ -155,6 +155,20 @@ export const OPERATION_CONTRACTS: Readonly<Record<RequestOperation, OperationCon
   },
 };
 
+/**
+ * The canonical parse of a request that WAS recognised, as a value that can travel.
+ *
+ * IR-107 Unit 2 Phase B2. `authorizeInference` already computes `resolveRequestAuthority` and then
+ * throws it away, so `deriveCandidateEnvelope` re-derives operation and subject from the raw query
+ * through the LEGACY frame classifier. One sentence, two parsers, and the lower one wins because it
+ * is the one holding the records.
+ *
+ * Naming the positive case as its own type is what lets it be carried instead of recomputed. It is
+ * deliberately the AUTHORIZED variant and nothing else: an unrecognised request has no canonical
+ * parse to pass along, and a type that could represent one would invite a caller to synthesise it.
+ */
+export type CanonicalAuthorizedRequest = Extract<RequestAuthority, { status: "AUTHORIZED" }>;
+
 export type RequestAuthority =
   | {
       status: "AUTHORIZED";

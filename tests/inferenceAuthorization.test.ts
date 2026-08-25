@@ -6,6 +6,7 @@ import {
 } from "@/server/domain/inferenceAuthorization";
 import { detectPersonalizedAdviceRequest } from "@/server/domain/askMarket";
 import { classifyRequestFrame } from "@/server/domain/requestFrame";
+import { resolveRequestAuthority } from "@/server/domain/requestAuthority";
 import { ADVICE_GUARDRAIL_HOLDOUT2 } from "./fixtures/adviceGuardrailHoldout2";
 
 /**
@@ -259,5 +260,66 @@ describe("the canonical request authority decides where it speaks positively", (
     // means binding UNSUPPORTED, which recognition coverage has to come first.
     const authorization = authorizeInference("Explain how alpha does not affect beta.");
     expect(authorization.eligible).toBe(true);
+  });
+});
+
+describe("an eligible verdict says on whose authority it was granted", () => {
+  /**
+   * IR-107 Unit 2 Phase B2. The canonical parse is computed here and was being discarded, so the
+   * candidate layer re-derived operation and subject from raw text through the LEGACY frame
+   * classifier — one sentence, two parsers, and the lower one winning because it holds the records.
+   *
+   * These assert the DISTINCTION rather than the field's presence. A provenance that said CANONICAL
+   * for everything would satisfy a test that only checked the happy path, and would be exactly the
+   * lie the union exists to prevent.
+   */
+  it("carries the canonical parse when the canonical parser recognised the request", () => {
+    const authorization = authorizeInference("What did analysts publish about US headline CPI?");
+    expect(authorization.eligible).toBe(true);
+    if (!authorization.eligible) return;
+    expect(authorization.provenance).toBe("CANONICAL");
+    if (authorization.provenance !== "CANONICAL") return;
+    // The SAME parse, established by equality with the parser's own output rather than by checking
+    // three fields of it. Review's point: an object of the right shape carrying the wrong parse
+    // would satisfy a field-by-field assertion, and the fields not asserted — contract, identity
+    // mode, causal regions, interval — are exactly the ones the candidate layer needs next.
+    expect(authorization.request).toEqual(
+      resolveRequestAuthority("What did analysts publish about US headline CPI?"),
+    );
+    // Spelled out as well, so a failure says which part drifted rather than dumping two objects.
+    expect(authorization.request.operation).toBe("ATTRIBUTED_REPORTED_OBSERVATION");
+    expect(authorization.request.subjectRegion.trim()).toBe("us headline cpi");
+    expect(authorization.request.sourceRegion).toBe("analysts");
+    expect(authorization.request.subjectIdentity).toBe("OCCURRENCE");
+    expect(authorization.request.contract.plannerPermitted).toBe(true);
+  });
+
+  it("admits that a legacy-only request has no canonical parse to carry", () => {
+    // The honest half. `Explain how alpha does not affect beta.` is a DENIED relation: the canonical
+    // parser refuses it and the legacy frame classifier admits it. There is no canonical parse to
+    // attach, so the variant carries the raw query and says why — rather than inventing one, which
+    // an optional field would have quietly encouraged.
+    const authorization = authorizeInference("Explain how alpha does not affect beta.");
+    expect(authorization.eligible).toBe(true);
+    if (!authorization.eligible) return;
+    expect(authorization.provenance).toBe("LEGACY_BYPASS");
+    expect(authorization.reason).toContain("canonical parser does NOT recognise");
+  });
+
+  it("does not label every eligible request CANONICAL", () => {
+    // The discriminating case, and the reason the two tests above are not enough on their own: both
+    // provenances must actually occur. A constant would pass either test alone.
+    const provenances = new Set(
+      [
+        "What did analysts publish about US headline CPI?",
+        "Explain how alpha affects beta.",
+        "Explain how alpha does not affect beta.",
+        "Explain how alpha affects beta and how gamma affects delta.",
+      ]
+        .map((query) => authorizeInference(query))
+        .filter((a) => a.eligible)
+        .map((a) => (a.eligible ? a.provenance : "")),
+    );
+    expect(provenances).toEqual(new Set(["CANONICAL", "LEGACY_BYPASS"]));
   });
 });

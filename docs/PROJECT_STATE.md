@@ -764,10 +764,12 @@ eighty-five since are IR-100 publication-authority, IR-101 output-authority, IR-
 publication-class, IR-103 candidate-relevance, IR-104 subject/operation-authority, IR-105
 direction/nesting, IR-106 relation-cardinality/polarity, and IR-107 request-authority
 corpus-integrity, operation-envelope, temporal-period and Korean-morphology controls). Counts here
-are measured, never estimated. One further test is a PENDING invariant marked `it.fails` and is
-not counted as a pass: `requestAuthorityKorean.test.ts` states that an overt Korean case marker
-should not by itself prove a nominal host. It throws today, which is what `it.fails` expects,
-and it will begin failing the day a constituent analyser makes it true. The frozen release candidate
+are measured, never estimated. Two further tests are PENDING invariants marked `it.fails` and are
+NOT counted as passes. `requestAuthorityKorean.test.ts` states that an overt Korean case marker
+should not by itself prove a nominal host; `integration/ask-market.test.ts` states that two stored
+names differing only in punctuation are not the same subject. Both throw today, which is what
+`it.fails` expects, and each begins failing the day the invariant becomes true — a constituent
+analyser for the first, a lossless canonical subject key for the second. The frozen release candidate
 c03aa73 measured 1580 / 1580 across 110 files; the three files since are release tooling that is
 deliberately not in it.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the

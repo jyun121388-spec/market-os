@@ -638,26 +638,27 @@ function koreanCopularMatch(query: string): KoreanMatch {
     candidates.push(parse(analysis.stem));
   }
 
-  // One zero-marked subject IS admitted, and it is the one shape that carries its own proof.
-  //
-  // I claimed no lexicon-free rule could admit a zero-marked nominal while still refusing 안, 사야
-  // and 사는, and adversarial review falsified that with `CPI 얼마인가요?`. An all-uppercase Latin
-  // token cannot be an inflected Korean verb — Korean inflection is written in Hangul — so the
-  // script and the case ARE the category evidence that a bare Hangul token cannot supply. That is a
-  // closed structural class, not a vocabulary: it admits every acronym the product will ever hold
-  // and no Korean word at all.
-  //
-  // Deliberately narrow. `원달러환율 얼마야?` stays refused, because a bare Hangul stem still has no
-  // evidence of being nominal. This does not reopen zero-marking; it recognises the one host shape
-  // whose category is legible without a lexicon.
-  //
-  // Punctuation is NOT in the shape, and the first version of it allowed `.` and `-`. That admitted
-  // `A-` and `A.B`, and worse: downstream normalization turns those characters into spaces, so a
-  // hyphenated pair stops being one token before the repository sees it. Two characters minimum for
-  // the same reason a single letter is not an acronym.
-  if (candidates.length === 0 && /^[A-Z][A-Z0-9]+$/.test(subjectEojeol)) {
-    candidates.push(parse(subjectEojeol));
-  }
+  /*
+   * A zero-marked ACRONYM subject was admitted here, on the argument that an all-uppercase Latin
+   * token cannot be an inflected Korean verb. Adversarial review falsified my claim that no such
+   * lexicon-free rule existed, and it was right that one exists. It is deleted anyway, because
+   * existing and being worth shipping are different questions and the measurement answers the
+   * second one:
+   *
+   *   corpus value      zero. Coverage was 59/300 before it and 59/300 with it.
+   *   false positives   `BUY 얼마인가요?`, `SELL 무엇인가요?` and `SHORT 얼마인가요?` all authorized
+   *                     with a trading directive as the subject. In a product whose guardrail is
+   *                     about trading advice, that is the wrong shape even while it is inert.
+   *   false negatives   `S&P500 얼마인가요?` refused, because `&` is not in the shape.
+   *
+   * Uppercase is a fact about typography, not about category, and the repair on offer needs either
+   * a lexicon or the inventory deciding grammar. This is the same call as `internalConjunction`,
+   * measured the same way and for the same reason: a surface shape standing in for a category, with
+   * unbounded error on both sides.
+   *
+   * `S&P500은 얼마인가요?` and `CPI는 무엇인가요?` are unaffected — they carry an overt marker, which
+   * is evidence, and they never needed this branch.
+   */
 
   // There is no zero-marked subject any more, and its removal is the largest thing this round did.
   //

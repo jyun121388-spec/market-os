@@ -998,6 +998,24 @@ describeIfDb("askMarket (integration)", () => {
     expect(result.seriesFactors.map((f) => f.seriesName)).toEqual(["KRW"]);
   });
 
+  it.fails(
+    "PENDING: punctuation-only difference between stored names is not identity",
+    async () => {
+      // Found by round-five review, NOT introduced by the subject-identity change: `normalizeSubject`
+      // erases punctuation, so a stored series named `KRW` and a request naming `KRW` are the same
+      // string as a stored `KRW.` or `KRW-`. The reproduction script shows the sharper English form —
+      // stored `C++` answers a request about `C` — and it behaves identically on the OCCURRENCE path,
+      // which is what proves this is older than the WHOLE_REGION rule rather than caused by it.
+      //
+      // Repairing it means changing `normalizeSubject`, which every subject-identity caller shares,
+      // so it is not folded into a Korean recognition unit. Recorded as a PENDING invariant so it is
+      // executable and visible rather than a sentence in a document: it throws today, and it starts
+      // failing the day a lossless canonical key replaces display-name normalization.
+      const collision = await askMarket("KRW.는 얼마인가요?");
+      expect(collision.status).toBe("NOT_FOUND");
+    },
+  );
+
   it("does not answer a fused coordination about one of its halves", async () => {
     // The parser cannot see a conjunction compressed inside one eojeol, so `KRW와USD는` authorizes
     // with cardinality one unproven. What must never follow is an answer about one half. Fused

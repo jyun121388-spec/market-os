@@ -114,6 +114,34 @@ only "KRW" stored:`);
     for (const q of ["USD-KRW는 얼마인가요?", "USD/KRW는 얼마인가요?", "USD-KRW 얼마인가요?"]) {
       console.log(`  ${q.padEnd(22)} -> ${await ask(q)}`);
     }
+    await clean();
+
+    // Round five. Each of these is claimed to be CAUSED by whole-region equality. The question
+    // that decides it is whether occurrence matching answers differently, so both are printed:
+    // a behaviour identical under OCCURRENCE was not introduced by WHOLE_REGION.
+    console.log(`
+round five — is it the new rule, or was it always so?`);
+    await seed(["한국은행 기준금리 (BOK Base Rate)"]);
+    console.log(
+      `  verbose stored name, "기준금리는 얼마인가요?"  -> ${await ask("기준금리는 얼마인가요?")}`,
+    );
+    console.log(
+      `    same subject region, ENGLISH occurrence path: ` +
+        `${await ask("What is the current 기준금리?")}`,
+    );
+    await clean();
+
+    await seed(["C++"]);
+    console.log(`  stored "C++", "C는 얼마인가요?"           -> ${await ask("C는 얼마인가요?")}`);
+    console.log(
+      `    same collision on the occurrence path: ` + `${await ask("What is the current C?")}`,
+    );
+    await clean();
+
+    await seed(["USD-KRW", "USD/KRW"]);
+    console.log(
+      `  two names normalizing alike            -> ${await ask("USD-KRW는 얼마인가요?")}`,
+    );
   } finally {
     await clean();
     await prisma.$disconnect();

@@ -148,16 +148,20 @@ describe("Korean current observation, from the quantity interrogative", () => {
     expect(status("사는 얼마인가요?")).toBe("UNSUPPORTED");
   });
 
-  it("admits a zero-marked acronym, because its script is its category", () => {
-    // The one falsified rejection. I claimed no lexicon-free rule could admit a zero-marked nominal
-    // while refusing the Hangul controls; an all-uppercase Latin token cannot be an inflected
-    // Korean verb, because Korean inflection is written in Hangul.
-    expect(authorized("CPI 얼마인가요?").subjectRegion.trim()).toBe("CPI");
-    expect(authorized("GDP 무엇인가요?").subjectRegion.trim()).toBe("GDP");
-    // And it reopens zero-marking for nothing else.
-    expect(status("원달러환율 얼마야?")).toBe("UNSUPPORTED");
-    expect(status("안 얼마인가요?")).toBe("UNSUPPORTED");
-    expect(status("사야 얼마인가요?")).toBe("UNSUPPORTED");
+  it("does not admit a zero-marked subject on typography alone", () => {
+    // A zero-marked acronym rule lived here for one round. Adversarial review falsified my claim
+    // that no lexicon-free rule could admit a zero-marked nominal, and it was right that one can be
+    // written; the measurement is what removed it. It bought no corpus coverage at all, and it
+    // authorized `BUY`, `SELL` and `SHORT` as subjects — trading directives, in a product whose
+    // guardrail is about trading advice — while refusing `S&P500` because `&` was not in the shape.
+    // Uppercase is a fact about typography, not about category.
+    expect(status("CPI 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("BUY 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("SELL 무엇인가요?")).toBe("UNSUPPORTED");
+    expect(status("SHORT 얼마인가요?")).toBe("UNSUPPORTED");
+    // An overt marker is evidence, and these never needed the deleted branch.
+    expect(authorized("CPI는 무엇인가요?").subjectRegion.trim()).toBe("CPI");
+    expect(authorized("S&P500은 얼마인가요?").subjectRegion.trim()).toBe("S&P500");
   });
 
   it("does not mistake an uppercase English word for an acronym subject", () => {
@@ -167,13 +171,12 @@ describe("Korean current observation, from the quantity interrogative", () => {
     // against a subject the Korean path deliberately does not lowercase. Both are fixed, and both
     // are needed — `AND는 얼마인가요?` reaches the check through the MARKED path, where the shape
     // rule never runs.
-    expect(status("AND 얼마인가요?")).toBe("UNSUPPORTED");
-    expect(status("OR 무엇인가요?")).toBe("UNSUPPORTED");
+    // `AND는` reaches the closed-class check through the MARKED path, which is the one that still
+    // exists — the zero-marked branch that first exposed this is gone, but the lowercasing bug it
+    // exposed was real and is what this pins.
     expect(status("AND는 얼마인가요?")).toBe("UNSUPPORTED");
-    // Punctuation is not part of an acronym, and one letter is not one either.
-    expect(status("A 얼마인가요?")).toBe("UNSUPPORTED");
-    expect(status("A.B 얼마인가요?")).toBe("UNSUPPORTED");
-    expect(status("A- 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("OR는 무엇인가요?")).toBe("UNSUPPORTED");
+    expect(status("AND 얼마인가요?")).toBe("UNSUPPORTED");
   });
 
   it("tells the repository that a Korean subject is one indivisible region", () => {

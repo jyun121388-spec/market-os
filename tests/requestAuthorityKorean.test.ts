@@ -130,17 +130,44 @@ describe("Korean current observation, from the quantity interrogative", () => {
     expect(status("환율가 얼마인가요?")).toBe("UNSUPPORTED");
   });
 
-  it("refuses a coordination compressed into one eojeol", () => {
-    // Whitespace cardinality is not constituent cardinality. 금리와환율 is one compound noun or two
-    // nouns conjoined, and the contract is about to claim exactly one subject — so, as with 길이란,
-    // two readings and no rule to choose means refuse. Not a substring ban: both sides must be
-    // non-empty and the allomorph must fit.
-    expect(status("금리와환율은 얼마인가요?")).toBe("UNSUPPORTED");
-    expect(status("금리와환율 무엇인가요?")).toBe("UNSUPPORTED");
-    // The cost, asserted rather than left to be discovered: a compound with a medial 과 goes too.
-    expect(status("교환과정은 무엇인가요?")).toBe("UNSUPPORTED");
-    // But a 과 with nothing on one side of it is not a conjunction and is untouched.
-    expect(authorized("결과는 무엇인가요?").subjectRegion.trim()).toBe("결과");
+  it("KNOWN LIMITATION: an overt marker does not prove the host is a noun", () => {
+    // 사는 is [noun 사 + topic 는] to this grammar and [verb-stem 사 + adnominal 는] to a Korean
+    // speaker, and separating them needs a lexicon this repository does not have. Adversarial review
+    // called this high severity; it is pinned here rather than repaired, and the reasoning is the
+    // same distinction that removed the zero-marked fallback. A case particle is POSITIVE evidence
+    // of a nominal host — that is what case particles attach to. The absence of one is not evidence
+    // of anything, which is why `안 얼마인가요?` refuses and this does not.
+    //
+    // The residual error is inert: 사 resolves to no stored subject, so nothing is served. The
+    // alternative — dropping 은/는 because they are homographic with the adnominal endings — would
+    // discard the most common Korean subject marker to prevent that.
+    expect(authorized("사는 얼마인가요?").subjectRegion.trim()).toBe("사");
+    expect(authorized("오르는 얼마인가요?").subjectRegion.trim()).toBe("오르");
+  });
+
+  it("KNOWN LIMITATION: cardinality one is a claim about the construction, not the morphology", () => {
+    // 금리와환율 is one compound or two nouns conjoined and this grammar cannot tell. A 와/과 check
+    // was written and removed: measured on the Korean development corpus its only effect was to
+    // break 통화스와프, and Korean compresses coordination with 및 and · as readily as with 와/과, so
+    // it caught none of them. Pinned so that a constituent analyser, when there is one, has a test
+    // to change deliberately.
+    expect(authorized("금리와환율은 얼마인가요?").subjectRegion.trim()).toBe("금리와환율");
+    expect(authorized("금리및환율은 얼마인가요?").subjectRegion.trim()).toBe("금리및환율");
+    // And the compounds that heuristic refused are answerable again.
+    expect(authorized("교환과정은 무엇인가요?").subjectRegion.trim()).toBe("교환과정");
+    expect(authorized("성과급은 무엇인가요?").subjectRegion.trim()).toBe("성과급");
+    expect(authorized("통화스와프는 무엇인가요?").subjectRegion.trim()).toBe("통화스와프");
+  });
+
+  it("refuses where an unequal-length allomorph pair yields two different subjects", () => {
+    // The mixed-script rule doing its work: UNKNOWN finality admits both members of a pair, and for
+    // (이)란 the two members leave different stems, so the request has two subjects and refuses.
+    expect(status("CPI이란 무엇인가요?")).toBe("AMBIGUOUS");
+    // The one-character pairs leave the same stem, so the acronym class stays answerable — 14 of the
+    // 150 Korean development cases end a marked host in a character this module cannot read.
+    expect(authorized("CPI는 무엇인가요?").subjectRegion.trim()).toBe("CPI");
+    expect(authorized("PMI가 무엇인가요?").subjectRegion.trim()).toBe("PMI");
+    expect(authorized("CPI은 무엇인가요?").subjectRegion.trim()).toBe("CPI");
   });
 });
 

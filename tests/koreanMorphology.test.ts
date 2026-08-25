@@ -6,7 +6,6 @@ import {
   decomposeSyllable,
   eojeols,
   finality,
-  internalConjunction,
 } from "@/server/domain/koreanMorphology";
 
 /**
@@ -179,15 +178,12 @@ describe("syllable arithmetic", () => {
     expect(roles("문는")).toEqual(["문는/-"]);
   });
 
-  it("finds a conjunction joining two nouns inside one eojeol, and only then", () => {
-    // 와 needs a vowel-final left side and 과 a consonant-final one, and both sides must be
-    // non-empty — the particle has to actually be joining something.
-    expect(internalConjunction("금리와환율")).toBe(true);
-    expect(internalConjunction("결과")).toBe(false); // nothing after 과
-    expect(internalConjunction("과정")).toBe(false); // nothing before 과
-    expect(internalConjunction("금리과환율")).toBe(false); // 과 after a vowel is not the conjunction
-    // The cost, asserted rather than hidden: a compound with a medial 과 is refused with the rest.
-    expect(internalConjunction("교환과정")).toBe(true);
+  it("offers two different stems for EVERY unequal-length pair, not just (이)란", () => {
+    // (이)라고 has the same property and the comment claiming (이)란 was the sole case was wrong.
+    // Both pairs differ in surface length, so under UNKNOWN finality both readings survive with
+    // DIFFERENT stems — which is what the grammar refuses on, and it must refuse on both.
+    expect(roles("CPI이란")).toEqual(["CPI/DEFINIENDUM", "CPI이/DEFINIENDUM", "CPI이란/-"]);
+    expect(roles("CPI이라고")).toEqual(["CPI/QUOTATIVE", "CPI이/QUOTATIVE", "CPI이라고/-"]);
   });
 
   it("finds Hangul in a mixed request and not in an English one", () => {

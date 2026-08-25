@@ -48,7 +48,6 @@ import {
   analyseNoun,
   containsHangul,
   eojeols,
-  internalConjunction,
   KOREAN_POSSESSIVE_DETERMINERS,
 } from "./koreanMorphology";
 import { classifyRequestFrame } from "./requestFrame";
@@ -598,9 +597,6 @@ function koreanCopularMatch(query: string): KoreanMatch {
     ) {
       continue;
     }
-    // 금리와환율 is one compound noun or two nouns conjoined, and the operation contract is about
-    // to assert `subjectCardinality: 1`. Nothing here can choose, so nothing here does.
-    if (internalConjunction(analysis.stem)) continue;
     // A subject that begins with a first-person possessive determiner. Handled by dropping the
     // analysis rather than by prohibiting, because 내수 and 내 수익률 are the same three syllables
     // with a space moved and no rule available here tells them apart -- prohibiting would accuse

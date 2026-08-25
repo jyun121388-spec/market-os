@@ -255,6 +255,85 @@ describeIfDb("canonical candidate authority (integration)", () => {
     expect(envelope.seriesIds).toHaveLength(0);
   });
 
+  it("refuses a mechanism whose EFFECT region carries an unread condition", async () => {
+    // The cause-side check was in and the effect side was not, which adversarial review found. The
+    // parser returns everything after the verb as the effect region, so this carries
+    // `effectRegion = "<B> only if something else"`. Finding B inside that and authorizing A -> B
+    // answers an UNCONDITIONAL question when a conditional one was asked — the denial's mirror
+    // image, on the other side of the verb.
+    for (const suffix of ["only if something else", "unless rates fall"]) {
+      const query = `Explain how ${CAUSE_A} affects ${EFFECT_B} ${suffix}.`;
+      const authority = resolveRequestAuthority(query);
+      expect(authority.status, query).toBe("AUTHORIZED");
+      if (authority.status !== "AUTHORIZED") continue;
+      const request = asPlannerRequest(authority);
+      expect(request, query).not.toBeNull();
+      if (request === null) continue;
+      const envelope = await deriveCanonicalCandidateEnvelope(query, request);
+      expect(envelope.status, query).toBe("UNRESOLVED");
+      expect(envelope.causalEdgeIds, query).toHaveLength(0);
+    }
+  });
+
+  it("applies the qualifier rule through the production door, not only the helper", async () => {
+    // Finding 11: only ROUTING was proven end to end; every other canonical decision was
+    // helper-only, which is the same gap that let the routing mutant survive in the first place.
+    // A wrapper that kept routing intact while skipping qualifier validation would have passed.
+    const calls: string[] = [];
+    const sink = {
+      generatePlan: async (q: string) => {
+        calls.push(q);
+        return { segments: [] };
+      },
+    };
+    const denial = `Explain how it is false that ${CAUSE_A} affects ${EFFECT_B}.`;
+    const outcome = await answerWithInference(denial, sink);
+    expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    expect(calls).toHaveLength(0);
+
+    // And the affirmative form of the same relation DOES reach the planner, so the refusal above
+    // is the qualifier and not the path being dead.
+    const affirmative = `Explain how ${CAUSE_A} affects ${EFFECT_B}.`;
+    const ok = await answerWithInference(affirmative, sink);
+    expect(calls).toHaveLength(1);
+    expect(ok.status).not.toBe("NO_CANDIDATE_EVIDENCE");
+  });
+
+  it("applies the EFFECT-side qualifier rule through the production door", async () => {
+    // Control D. The cause-side qualifier was already proven end to end; the effect side was the
+    // hole adversarial review found, so it needs the same production-path proof rather than a
+    // helper assertion. A conditional relation must not reach the planner as an unconditional one.
+    const calls: string[] = [];
+    const sink = {
+      generatePlan: async (q: string) => {
+        calls.push(q);
+        return { segments: [] };
+      },
+    };
+    for (const suffix of ["only if something else", "unless rates fall"]) {
+      const outcome = await answerWithInference(
+        `Explain how ${CAUSE_A} affects ${EFFECT_B} ${suffix}.`,
+        sink,
+      );
+      expect(outcome.status, suffix).toBe("NO_CANDIDATE_EVIDENCE");
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("applies canonical direction through the production door", async () => {
+    // The reverse relation, end to end: only C -> D and A -> B are stored, so asking about the
+    // reverse of a stored edge must find nothing rather than the edge that shares its endpoints.
+    const calls: string[] = [];
+    const outcome = await answerWithInference(`Explain how ${EFFECT_B} affects ${CAUSE_A}.`, {
+      generatePlan: async (q: string) => {
+        calls.push(q);
+        return { segments: [] };
+      },
+    });
+    expect(outcome.status).toBe("NO_CANDIDATE_EVIDENCE");
+    expect(calls).toHaveLength(0);
+  });
+
   it("routes a canonical request through the canonical door, proven end to end", async () => {
     // The mutant this exists for: point the CANONICAL branch of `answerWithInference` back at the
     // legacy door. Every other test in this file calls the canonical helper DIRECTLY, so none of

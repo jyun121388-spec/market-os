@@ -38,7 +38,7 @@
 import { prisma } from "@/server/db/client";
 import { mentionsEachOther } from "./askMarket";
 import {
-  causeRegionIsWellFormed,
+  regionIsExactlyFramingAndIdentity,
   resolveStoredSubject,
   resolveSubjectAuthority,
   variablesNamedIn,
@@ -239,11 +239,27 @@ export async function deriveCanonicalCandidateEnvelope(
       // identity: the question is whether everything before the stored cause name is framing, and
       // the parser does not know where the name ends. That makes it identity validation, not a
       // second reading of the request.
-      if (!causeRegionIsWellFormed(cause, causes[0])) {
+      //
+      // BOTH regions, and the effect side was missing. Adversarial review found it: the parser
+      // hands back everything after the verb as the effect region, so
+      // `Explain how A affects B only if C.` carries `effectRegion = "b only if something else"`.
+      // Finding B inside that and authorizing A -> B answers an UNCONDITIONAL question when a
+      // conditional one was asked — the same class of error as the denial, on the other side of
+      // the verb, and the cause-only check could not see it.
+      //
+      // One rule serves both, which is why it was renamed: it asks whether a region is recognised
+      // framing plus this identity and NOTHING ELSE. On the cause side the leftover qualifies the
+      // verb ("may not", "never"); on the effect side it qualifies the proposition ("only if",
+      // "unless"). Neither has been read, and unread is not affirmed.
+      for (const [region, identity, side] of [
+        [cause, causes[0], "cause"],
+        [effect, effects[0], "effect"],
+      ] as const) {
+        if (regionIsExactlyFramingAndIdentity(region, identity)) continue;
         return refuse(
           "UNRESOLVED",
           operation,
-          `The authorized cause region "${cause.trim().slice(-60)}" is not recognised framing ` +
+          `The authorized ${side} region "${region.trim().slice(-60)}" is not recognised framing ` +
             "followed by the subject. Something qualifies the relation that this grammar has not " +
             "read, and unread is not affirmed.",
           [causes[0], effects[0]],

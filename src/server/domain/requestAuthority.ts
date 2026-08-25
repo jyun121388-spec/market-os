@@ -183,11 +183,33 @@ export type CanonicalAuthorizedRequest = Extract<RequestAuthority, { status: "AU
  * Correlating them means a function that accepts this type has been handed a parse whose contract
  * agrees with its operation, without asserting it.
  *
- * Must be reached by an exhaustive switch, never by `as`. A cast here would make the whole boundary
- * decorative — the type would promise something no code had established.
+ * ## What this boundary does and does NOT guarantee
+ *
+ * It guarantees the operation is one of the two planner-permitted ones and that the contract agrees
+ * with it. That is checked, and the switch is exhaustive so a sixth operation is a compile error.
+ *
+ * It does NOT guarantee the REGIONS came from a real construction, and an earlier version of this
+ * comment claimed otherwise. Adversarial review built a value from a genuine parse with
+ * `causeRegion` and `effectRegion` replaced by arbitrary strings, and `asPlannerRequest` accepted
+ * it. The brand below narrows the hole to exactly that — a value must be DERIVED from something
+ * this module produced, so it cannot be conjured from nothing — but a caller that deliberately
+ * overwrites a field of a genuine parse is trusted, and no type can fix that without re-parsing,
+ * which is the thing this whole unit removes.
+ *
+ * So the honest statement is: the constructor proves provenance and the operation/contract
+ * correlation; region CONTENT is a caller obligation. The production caller passes
+ * `authorization.request` untouched.
  */
-export type CanonicalPlannerRequest = CanonicalAuthorizedRequest &
-  (
+declare const plannerRequestBrand: unique symbol;
+
+export type CanonicalPlannerRequest = CanonicalAuthorizedRequest & {
+  /**
+   * Present only on values this module produced. Not readable or constructible elsewhere, because
+   * the symbol is `declare const` and never exported — so a hand-built object literal cannot
+   * satisfy the type, and `asPlannerRequest` is the only way in.
+   */
+  readonly [plannerRequestBrand]: true;
+} & (
     | {
         operation: "ATTRIBUTED_REPORTED_OBSERVATION";
         contract: OperationContract & {

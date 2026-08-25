@@ -6,7 +6,7 @@ import {
   type CandidateEnvelope,
 } from "@/server/domain/candidateEnvelope";
 import {
-  causeRegionIsWellFormed,
+  regionIsExactlyFramingAndIdentity,
   framingIsRecognised,
   nameOccursIn,
   normalizeSubject,
@@ -103,26 +103,36 @@ describe("a cause region is framing, then the subject, and nothing else", () => 
    */
 
   it("accepts recognised framing followed by the subject", () => {
-    expect(causeRegionIsWellFormed(" explain how the freight index ", "freight index")).toBe(true);
-    expect(causeRegionIsWellFormed(" what mechanism the alpha ", "alpha")).toBe(true);
+    expect(
+      regionIsExactlyFramingAndIdentity(" explain how the freight index ", "freight index"),
+    ).toBe(true);
+    expect(regionIsExactlyFramingAndIdentity(" what mechanism the alpha ", "alpha")).toBe(true);
   });
 
   it("refuses anything between the subject and the verb", () => {
-    expect(causeRegionIsWellFormed(" explain how the alpha may not ", "alpha")).toBe(false);
-    expect(causeRegionIsWellFormed(" explain how alpha never ", "alpha")).toBe(false);
-    expect(causeRegionIsWellFormed(" explain how alpha is unlikely to ", "alpha")).toBe(false);
+    expect(regionIsExactlyFramingAndIdentity(" explain how the alpha may not ", "alpha")).toBe(
+      false,
+    );
+    expect(regionIsExactlyFramingAndIdentity(" explain how alpha never ", "alpha")).toBe(false);
+    expect(regionIsExactlyFramingAndIdentity(" explain how alpha is unlikely to ", "alpha")).toBe(
+      false,
+    );
   });
 
   it("refuses unrecognised framing in front of the subject", () => {
-    expect(causeRegionIsWellFormed(" explain how it is false that alpha ", "alpha")).toBe(false);
-    expect(causeRegionIsWellFormed(" explain how the claim that alpha ", "alpha")).toBe(false);
+    expect(regionIsExactlyFramingAndIdentity(" explain how it is false that alpha ", "alpha")).toBe(
+      false,
+    );
+    expect(regionIsExactlyFramingAndIdentity(" explain how the claim that alpha ", "alpha")).toBe(
+      false,
+    );
   });
 
   it("requires the subject last even when every other token is framing", () => {
     // The case that separates the two clauses. "a" and "the" are both allowlisted, so the framing
     // half is satisfied by the head while the subject is not where it must be.
-    expect(causeRegionIsWellFormed(" explain how the a the ", "a")).toBe(false);
-    expect(causeRegionIsWellFormed(" explain how the a ", "a")).toBe(true);
+    expect(regionIsExactlyFramingAndIdentity(" explain how the a the ", "a")).toBe(false);
+    expect(regionIsExactlyFramingAndIdentity(" explain how the a ", "a")).toBe(true);
   });
 
   it("reads every token in front of the relation, with no restart", () => {
@@ -136,8 +146,8 @@ describe("a cause region is framing, then the subject, and nothing else", () => 
   });
 
   it("refuses an empty or absent subject", () => {
-    expect(causeRegionIsWellFormed(" explain how the ", "")).toBe(false);
-    expect(causeRegionIsWellFormed(" ", "alpha")).toBe(false);
+    expect(regionIsExactlyFramingAndIdentity(" explain how the ", "")).toBe(false);
+    expect(regionIsExactlyFramingAndIdentity(" ", "alpha")).toBe(false);
   });
 });
 

@@ -336,9 +336,9 @@ export function framingIsRecognised(region: string): boolean {
  * So both clauses stay and both are exercised directly, because through the production path only
  * their conjunction is observable.
  */
-export function causeRegionIsWellFormed(region: string, causeName: string): boolean {
+export function regionIsExactlyFramingAndIdentity(region: string, identityName: string): boolean {
   const tokens = normalizeSubject(region).trim().split(" ").filter(Boolean);
-  const nameTokens = normalizeSubject(causeName).trim().split(" ").filter(Boolean);
+  const nameTokens = normalizeSubject(identityName).trim().split(" ").filter(Boolean);
   if (nameTokens.length === 0 || tokens.length < nameTokens.length) return false;
 
   const tail = tokens.slice(tokens.length - nameTokens.length);
@@ -689,7 +689,7 @@ export async function resolveSubjectAuthority(
     // trailing half catches whatever qualifies the VERB ("may not", "never", "is unlikely to"); the
     // framing half catches whatever qualifies the PROPOSITION ("it is false that", "the claim
     // that"), which sits in front of a subject that ends its region quite legitimately.
-    if (!causeRegionIsWellFormed(clause.cause, causes[0])) {
+    if (!regionIsExactlyFramingAndIdentity(clause.cause, causes[0])) {
       return NOT_ELIGIBLE(
         frame,
         `The clause reads "${normalizeSubject(clause.cause).trim().slice(-60)}", which is not ` +

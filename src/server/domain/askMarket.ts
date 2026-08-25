@@ -1,7 +1,12 @@
 import { prisma } from "@/server/db/client";
 import { computeChange } from "./seriesReadings";
 import { resolveRequestAuthority, type SubjectIdentityMode } from "./requestAuthority";
-import { explicitlyNamed, nameOccursIn, normalizeSubject } from "./subjectAuthority";
+import {
+  explicitlyNamed,
+  nameOccursIn,
+  normalizeSubject,
+  regionIsExactlyFramingAndIdentity,
+} from "./subjectAuthority";
 import { computeCalendarEntry } from "./economicCalendar";
 import { resolveObservationPeriod, type ResolvedPeriod } from "./observationPeriod";
 import { getObservationsOneRowPerDate } from "./seriesReadings";
@@ -1184,7 +1189,26 @@ async function findMechanismEdges(cause: string, effect: string): Promise<Causal
   // occurrence anyway, so relaxing the pre-filter's AND to an OR changed no result. Both sides are
   // resolved independently, which is what enforces the direction.
   const maximalCause = explicitlyNamed(allEdges, (e) => e.fromVariable, cause);
-  return explicitlyNamed(maximalCause, (e) => e.toVariable, effect)
+  const oriented = explicitlyNamed(maximalCause, (e) => e.toVariable, effect);
+
+  // The qualifier rule, which this path did not have at all.
+  //
+  // Reproduced against real PostgreSQL with A -> B stored: `Explain how it is false that A affects
+  // B.` and `Explain how A affects B only if something else.` BOTH returned FACTORS_FOUND with the
+  // stored edge. The first answers the OPPOSITE of what was asked; the second answers an
+  // unconditional question that nobody asked. Meanwhile the inference candidate path refuses both —
+  // two answer-bearing paths, one request, opposite verdicts, and this is the one users reach.
+  //
+  // The check needs the RESOLVED identity to partition the region, so it runs here rather than in
+  // the parser, and it is the SAME primitive the candidate path uses rather than a second
+  // deterministic-only rule. Both regions, because the effect side was the half that was missing
+  // when only the cause was checked.
+  return oriented
+    .filter(
+      (e) =>
+        regionIsExactlyFramingAndIdentity(cause, e.fromVariable) &&
+        regionIsExactlyFramingAndIdentity(effect, e.toVariable),
+    )
     .slice(0, 10)
     .map((e) => ({
       fromVariable: e.fromVariable,

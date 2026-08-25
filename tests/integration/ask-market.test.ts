@@ -998,6 +998,41 @@ describeIfDb("askMarket (integration)", () => {
     expect(result.seriesFactors.map((f) => f.seriesName)).toEqual(["KRW"]);
   });
 
+  /**
+   * Deterministic mechanism serving applies the SAME qualifier rule as inference candidate
+   * authority, or one path publishes a relation the other refuses.
+   *
+   * Reproduced against this database before the repair: with the edge stored,
+   * `Explain how it is false that <cause> affects <effect>.` and
+   * `... affects <effect> only if something else.` BOTH returned FACTORS_FOUND with the stored
+   * edge — the first answering the OPPOSITE of what was asked, the second answering an
+   * unconditional question nobody asked — while the inference candidate path refused both. Two
+   * answer-bearing paths, one request, opposite verdicts, and this is the one a user reaches.
+   */
+  const MECH_CAUSE = "TEST: Widget demand (ask-market)";
+
+  it("serves the affirmative mechanism, which is what makes the refusals below mean something", async () => {
+    const result = await askMarket(`Explain how ${MECH_CAUSE} affects ${SERIES_NAME}.`);
+    expect(result.status).toBe("FACTORS_FOUND");
+    expect(result.causalFactors.map((f) => `${f.fromVariable} -> ${f.toVariable}`)).toContain(
+      `${MECH_CAUSE} -> ${SERIES_NAME}`,
+    );
+  });
+
+  it("does not serve a stored edge in answer to a denial of that relation", async () => {
+    const result = await askMarket(
+      `Explain how it is false that ${MECH_CAUSE} affects ${SERIES_NAME}.`,
+    );
+    expect(result.causalFactors).toHaveLength(0);
+  });
+
+  it("does not serve an unconditional edge in answer to a conditional question", async () => {
+    for (const suffix of ["only if something else", "unless rates fall"]) {
+      const result = await askMarket(`Explain how ${MECH_CAUSE} affects ${SERIES_NAME} ${suffix}.`);
+      expect(result.causalFactors, suffix).toHaveLength(0);
+    }
+  });
+
   it.fails(
     "PENDING: punctuation-only difference between stored names is not identity",
     async () => {

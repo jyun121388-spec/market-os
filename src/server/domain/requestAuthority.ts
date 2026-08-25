@@ -609,6 +609,22 @@ function koreanCopularMatch(query: string): KoreanMatch {
     candidates.push(parse(analysis.stem));
   }
 
+  // One zero-marked subject IS admitted, and it is the one shape that carries its own proof.
+  //
+  // I claimed no lexicon-free rule could admit a zero-marked nominal while still refusing 안, 사야
+  // and 사는, and adversarial review falsified that with `CPI 얼마인가요?`. An all-uppercase Latin
+  // token cannot be an inflected Korean verb — Korean inflection is written in Hangul — so the
+  // script and the case ARE the category evidence that a bare Hangul token cannot supply. That is a
+  // closed structural class, not a vocabulary: it admits every acronym the product will ever hold
+  // and no Korean word at all.
+  //
+  // Deliberately narrow. `원달러환율 얼마야?` stays refused, because a bare Hangul stem still has no
+  // evidence of being nominal. This does not reopen zero-marking; it recognises the one host shape
+  // whose category is legible without a lexicon.
+  if (candidates.length === 0 && /^[A-Z][A-Z0-9.-]*$/.test(subjectEojeol)) {
+    candidates.push(parse(subjectEojeol));
+  }
+
   // There is no zero-marked subject any more, and its removal is the largest thing this round did.
   //
   // It was added to lift Korean recall from one development case to three, and adversarial review

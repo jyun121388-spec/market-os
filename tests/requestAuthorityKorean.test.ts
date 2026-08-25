@@ -130,30 +130,50 @@ describe("Korean current observation, from the quantity interrogative", () => {
     expect(status("환율가 얼마인가요?")).toBe("UNSUPPORTED");
   });
 
-  it("KNOWN LIMITATION: an overt marker does not prove the host is a noun", () => {
-    // 사는 is [noun 사 + topic 는] to this grammar and [verb-stem 사 + adnominal 는] to a Korean
-    // speaker, and separating them needs a lexicon this repository does not have. Adversarial review
-    // called this high severity; it is pinned here rather than repaired, and the reasoning is the
-    // same distinction that removed the zero-marked fallback. A case particle is POSITIVE evidence
-    // of a nominal host — that is what case particles attach to. The absence of one is not evidence
-    // of anything, which is why `안 얼마인가요?` refuses and this does not.
+  it.fails("PENDING: an overt marker should not be enough to prove the host is a noun", () => {
+    // Written as a PENDING invariant rather than a passing assertion, which is the correction the
+    // third review round asked for and it was right: a test demanding the current wrong answer
+    // makes the eventual fix look like a regression.
     //
-    // The residual error is inert: 사 resolves to no stored subject, so nothing is served. The
-    // alternative — dropping 은/는 because they are homographic with the adnominal endings — would
-    // discard the most common Korean subject marker to prevent that.
-    expect(authorized("사는 얼마인가요?").subjectRegion.trim()).toBe("사");
-    expect(authorized("오르는 얼마인가요?").subjectRegion.trim()).toBe("오르");
+    // 사는 is [noun 사 + topic 는] to this grammar and [verb stem 사 + adnominal 는] to a speaker,
+    // and separating them needs a lexicon. The line held meanwhile is the one that removed the
+    // zero-marked fallback: a case particle is POSITIVE evidence of a nominal host, and the absence
+    // of one is not evidence of anything -- which is why `안 얼마인가요?` refuses and this does not.
+    // Review searched for a stem that both has a verb reading and plausibly names a stored economic
+    // subject and found none, so the residual error is inert.
+    //
+    // This body states what SHOULD happen. It throws today, `it.fails` expects that, and the day a
+    // constituent analyser lands it starts passing and this test starts failing -- which is the
+    // signal to delete the `.fails`, not to explain a broken suite.
+    expect(status("사는 얼마인가요?")).toBe("UNSUPPORTED");
   });
 
-  it("KNOWN LIMITATION: cardinality one is a claim about the construction, not the morphology", () => {
-    // 금리와환율 is one compound or two nouns conjoined and this grammar cannot tell. A 와/과 check
-    // was written and removed: measured on the Korean development corpus its only effect was to
-    // break 통화스와프, and Korean compresses coordination with 및 and · as readily as with 와/과, so
-    // it caught none of them. Pinned so that a constituent analyser, when there is one, has a test
-    // to change deliberately.
-    expect(authorized("금리와환율은 얼마인가요?").subjectRegion.trim()).toBe("금리와환율");
-    expect(authorized("금리및환율은 얼마인가요?").subjectRegion.trim()).toBe("금리및환율");
-    // And the compounds that heuristic refused are answerable again.
+  it("admits a zero-marked acronym, because its script is its category", () => {
+    // The one falsified rejection. I claimed no lexicon-free rule could admit a zero-marked nominal
+    // while refusing the Hangul controls; an all-uppercase Latin token cannot be an inflected
+    // Korean verb, because Korean inflection is written in Hangul.
+    expect(authorized("CPI 얼마인가요?").subjectRegion.trim()).toBe("CPI");
+    expect(authorized("GDP 무엇인가요?").subjectRegion.trim()).toBe("GDP");
+    // And it reopens zero-marking for nothing else.
+    expect(status("원달러환율 얼마야?")).toBe("UNSUPPORTED");
+    expect(status("안 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("사야 얼마인가요?")).toBe("UNSUPPORTED");
+  });
+
+  it("does not let a compressed coordination be answered about one of its halves", () => {
+    // The third round predicted a HIGH defect here: `금리와환율은` authorizes with one subject
+    // region, so with only 환율 stored the request would be served about half of what it asked, and
+    // with both stored it would refuse -- repository contents deciding what a sentence meant. Run
+    // against real PostgreSQL it does not happen, and the reason is worth pinning because nobody
+    // had articulated it: `explicitlyNamed` matches on space-delimited token boundaries, and a
+    // fused Korean coordination contains no boundary, so an embedded stored name can never match.
+    // Korean subject identity is exact-stem by construction. The end-to-end evidence is in
+    // scripts/reproduce-korean-cardinality.ts and the integration suite.
+    //
+    // The parser-level limitation is real and unchanged: cardinality one is a claim about the
+    // CONSTRUCTION -- one marked subject slot -- not about the morphology inside it.
+    expect(status("금리와 환율은 얼마인가요?")).toBe("UNSUPPORTED"); // spaced: refused by eojeol count
+    // The compounds the deleted 와/과 heuristic used to refuse are answerable again.
     expect(authorized("교환과정은 무엇인가요?").subjectRegion.trim()).toBe("교환과정");
     expect(authorized("성과급은 무엇인가요?").subjectRegion.trim()).toBe("성과급");
     expect(authorized("통화스와프는 무엇인가요?").subjectRegion.trim()).toBe("통화스와프");
@@ -169,6 +189,46 @@ describe("Korean current observation, from the quantity interrogative", () => {
     expect(authorized("PMI가 무엇인가요?").subjectRegion.trim()).toBe("PMI");
     expect(authorized("CPI은 무엇인가요?").subjectRegion.trim()).toBe("CPI");
   });
+});
+
+describe("the grammar is productive, not a list of the strings it was tested on", () => {
+  /**
+   * The wronger implementation this exists to kill, named by adversarial review: replace
+   * `koreanCopularMatch` with a phrase table holding exactly the surfaces the rest of this file
+   * asserts, and return UNSUPPORTED otherwise. Every other test here passes, because every other
+   * test names a surface someone already wrote down.
+   *
+   * So this crosses the axes instead — every subject-marking particle against every interrogative
+   * ending — and the combinations are generated here rather than copied from the production
+   * tables. A phrase table would have to contain all sixteen to survive, at which point it is no
+   * longer a shortcut.
+   */
+  const SUBJECTS = [
+    { eojeol: "물가는", stem: "물가" }, // topic, vowel-final host
+    { eojeol: "환율이", stem: "환율" }, // nominative, consonant-final host
+    { eojeol: "소비자물가가", stem: "소비자물가" }, // nominative, vowel-final host
+    { eojeol: "실업률은", stem: "실업률" }, // topic, consonant-final host
+  ];
+  const QUANTITY = ["얼마인가요?", "얼마입니까?", "얼마예요?", "얼마야?"];
+  const WHAT = ["무엇인가요?", "무엇입니까?", "뭔가요?", "뭐예요?"];
+
+  it.each(SUBJECTS.flatMap((s) => QUANTITY.map((p) => [s.eojeol, p, s.stem] as const)))(
+    "reads %s %s as a current observation about %s",
+    (subject, predicate, stem) => {
+      const authority = authorized(`${subject} ${predicate}`);
+      expect(authority.operation).toBe("CURRENT_OBSERVATION");
+      expect(authority.subjectRegion.trim()).toBe(stem);
+    },
+  );
+
+  it.each(SUBJECTS.flatMap((s) => WHAT.map((p) => [s.eojeol, p, s.stem] as const)))(
+    "reads %s %s as a definition of %s",
+    (subject, predicate, stem) => {
+      const authority = authorized(`${subject} ${predicate}`);
+      expect(authority.operation).toBe("DEFINITION");
+      expect(authority.subjectRegion.trim()).toBe(stem);
+    },
+  );
 });
 
 describe("neither operation may reach a planner", () => {

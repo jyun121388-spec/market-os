@@ -757,14 +757,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2098 / 2098 PASS across 126 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+2130 / 2130 PASS across 126 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment), measured 2026-08-25 on the ask-guardrail architecture branch (2048 on 2026-08-24,
 1894, 1888 and 1878 earlier that day, 1847 on 2026-08-23, 1838 on 2026-08-21; the hundred and
 eighty-five since are IR-100 publication-authority, IR-101 output-authority, IR-102
 publication-class, IR-103 candidate-relevance, IR-104 subject/operation-authority, IR-105
 direction/nesting, IR-106 relation-cardinality/polarity, and IR-107 request-authority
 corpus-integrity, operation-envelope, temporal-period and Korean-morphology controls). Counts here
-are measured, never estimated. The frozen release candidate
+are measured, never estimated. One further test is a PENDING invariant marked `it.fails` and is
+not counted as a pass: `requestAuthorityKorean.test.ts` states that an overt Korean case marker
+should not by itself prove a nominal host. It throws today, which is what `it.fails` expects,
+and it will begin failing the day a constituent analyser makes it true. The frozen release candidate
 c03aa73 measured 1580 / 1580 across 110 files; the three files since are release tooling that is
 deliberately not in it.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the

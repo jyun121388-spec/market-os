@@ -5,8 +5,8 @@ import {
   containsHangul,
   decomposeSyllable,
   eojeols,
-  isVowelFinal,
-  peelFinalJamo,
+  finality,
+  internalConjunction,
 } from "@/server/domain/koreanMorphology";
 
 /**
@@ -96,9 +96,10 @@ describe("the copular interrogative is computed, not listed", () => {
     expect(analyseCopularInterrogative("얼마예요")).toEqual({ kind: "HOW_MUCH", pronoun: "얼마" });
   });
 
-  it("covers the copula's interrogative slot at every speech level", () => {
-    // 하십시오체, 해요체, 해체, and the -ㄴ가 form. A closed grammatical dimension completed, not a
-    // list of endings that happened to appear in a corpus.
+  it("covers the copula's interrogative slot at four speech levels", () => {
+    // 하십시오체, 해요체, 해체, and the -ㄴ가 form. A deliberately bounded subset chosen to span the
+    // speech levels — NOT a completed paradigm, which is what an earlier version of this comment
+    // claimed and adversarial review correctly refused: 이냐 and other style distinctions exist.
     expect(analyseCopularInterrogative("얼마입니까")).not.toBeNull(); // 하십시오체
     expect(analyseCopularInterrogative("얼마예요")).not.toBeNull(); // 해요체
     expect(analyseCopularInterrogative("얼마야")).not.toBeNull(); // 해체
@@ -112,6 +113,22 @@ describe("the copular interrogative is computed, not listed", () => {
     expect(analyseCopularInterrogative("얼마입니까요")).toBeNull();
     expect(analyseCopularInterrogative("얼마예요요")).toBeNull();
     expect(analyseCopularInterrogative("얼마야요")).toBeNull();
+  });
+
+  it("never matches an ending whose jamo did not attach to anything", () => {
+    // Adversarial review's attack 9. The recogniser compared ENDING surfaces against whatever
+    // followed the pronoun, so a bare `ㅂ니까` was a candidate string in its own right and
+    // 얼마ㅂ니까 matched. A jamo that has not become some syllable's final consonant has not
+    // attached, and comparing whole composed surfaces is what makes that unrepresentable.
+    expect(analyseCopularInterrogative("얼마ㅂ니까")).toBeNull();
+    expect(analyseCopularInterrogative("얼마ㄴ가요")).toBeNull();
+    expect(analyseCopularInterrogative("뭐ㅂ니까")).toBeNull();
+    expect(analyseCopularInterrogative("뭐ㄴ가요")).toBeNull();
+    // And the words those malformed strings were standing in for still match.
+    expect(analyseCopularInterrogative("얼마입니까")).not.toBeNull();
+    expect(analyseCopularInterrogative("얼마인가요")).not.toBeNull();
+    expect(analyseCopularInterrogative("뭡니까")).not.toBeNull();
+    expect(analyseCopularInterrogative("뭔가요")).not.toBeNull();
   });
 
   it("does not recognise the past, and that is the answer rather than a gap", () => {
@@ -137,20 +154,40 @@ describe("syllable arithmetic", () => {
     expect(decomposeSyllable("1")).toBeNull();
   });
 
-  it("peels a final consonant back off", () => {
-    expect(peelFinalJamo("뭔")).toEqual({ head: "뭐", jamo: "ㄴ" });
-    expect(peelFinalJamo("입")).toEqual({ head: "이", jamo: "ㅂ" });
-    expect(peelFinalJamo("뭐")).toBeNull();
+  it("says UNKNOWN rather than guessing for anything it cannot read", () => {
+    // The three-valued repair. This answered a boolean, and false — "not vowel-final" — was then
+    // read as positive evidence of a consonant, so `CPI이` was accepted as CPI plus the allomorph
+    // that attaches to consonants. Not knowing is now its own answer.
+    expect(finality("신라")).toBe("VOWEL");
+    expect(finality("한국은행")).toBe("CONSONANT"); // 행 carries the final consonant ㅇ
+    expect(finality("3.5%")).toBe("UNKNOWN");
+    expect(finality("CPI")).toBe("UNKNOWN");
+    expect(finality("")).toBe("UNKNOWN");
   });
 
-  it("answers vowel-final conservatively for anything it cannot read", () => {
-    // A digit or a Latin letter has no final consonant this module can see. Answering false offers
-    // only the consonant-final allomorph, which declines a split rather than inventing one.
-    expect(isVowelFinal("신라")).toBe(true);
-    expect(isVowelFinal("한국은행")).toBe(false); // 행 carries the final consonant ㅇ
-    expect(isVowelFinal("3.5%")).toBe(false);
-    expect(isVowelFinal("CPI")).toBe(false);
-    expect(isVowelFinal("")).toBe(false);
+  it("offers both allomorphs where the conditioning is unknown", () => {
+    // Neither validated nor rejected. For the one-character pairs both readings leave the same
+    // stem, so admitting both tolerates an ill-formed spelling without deciding anything.
+    expect(roles("CPI는")).toEqual(["CPI/TOPIC", "CPI는/-"]);
+    expect(roles("CPI은")).toEqual(["CPI/TOPIC", "CPI은/-"]);
+    expect(roles("CPI가")).toEqual(["CPI/NOMINATIVE", "CPI가/-"]);
+    expect(roles("CPI이")).toEqual(["CPI/NOMINATIVE", "CPI이/-"]);
+  });
+
+  it("still separates the allomorphs when the conditioning IS known", () => {
+    expect(roles("나은")).toEqual(["나은/-"]);
+    expect(roles("문는")).toEqual(["문는/-"]);
+  });
+
+  it("finds a conjunction joining two nouns inside one eojeol, and only then", () => {
+    // 와 needs a vowel-final left side and 과 a consonant-final one, and both sides must be
+    // non-empty — the particle has to actually be joining something.
+    expect(internalConjunction("금리와환율")).toBe(true);
+    expect(internalConjunction("결과")).toBe(false); // nothing after 과
+    expect(internalConjunction("과정")).toBe(false); // nothing before 과
+    expect(internalConjunction("금리과환율")).toBe(false); // 과 after a vowel is not the conjunction
+    // The cost, asserted rather than hidden: a compound with a medial 과 is refused with the rest.
+    expect(internalConjunction("교환과정")).toBe(true);
   });
 
   it("finds Hangul in a mixed request and not in an English one", () => {

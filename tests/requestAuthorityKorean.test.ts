@@ -81,18 +81,23 @@ describe("Korean current observation, from the quantity interrogative", () => {
     expect(authorized("환율이 얼마인가요?").subjectRegion.trim()).toBe("환율");
   });
 
-  it("accepts a subject with no case marker at all", () => {
-    // Korean drops particles freely; 원달러환율 얼마야 is ordinary speech rather than ellipsis.
-    const authority = authorized("원달러환율 얼마야?");
-    expect(authority.operation).toBe("CURRENT_OBSERVATION");
-    expect(authority.subjectRegion.trim()).toBe("원달러환율");
+  it("requires an overt case marker, and refuses ordinary speech that drops it", () => {
+    // 원달러환율 얼마야 is perfectly ordinary spoken Korean and it is refused. Accepting it meant
+    // accepting ANY first eojeol, because exactly-two-eojeol counts whitespace and proves nothing
+    // about the first token being a noun phrase — see the negative controls below for what that
+    // admitted. Telling a Korean noun from an inflected verb needs a lexicon this repository does
+    // not have, so the marker is the only evidence available and it is now required.
+    expect(status("원달러환율 얼마야?")).toBe("UNSUPPORTED");
+    expect(authorized("원달러환율은 얼마야?").subjectRegion.trim()).toBe("원달러환율");
   });
 
-  it("prefers the marked reading over the bare one, and does not call that ambiguous", () => {
-    // Both readings of 기준금리는 exist — the noun plus a topic particle, and a word that happens to
-    // end in 는. An overt marker is evidence and its absence is not, so the marked reading wins
-    // outright rather than the pair being declared undecidable.
-    expect(authorized("기준금리는 얼마인가요?").subjectRegion.trim()).toBe("기준금리");
+  it("refuses a first eojeol that is not a noun phrase", () => {
+    // Every one of these was AUTHORIZED, with the negator, an obligation form and a connective
+    // promoted to subject on the strength of the second eojeol alone.
+    expect(status("안 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("사야 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("사서 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("그리고 얼마인가요?")).toBe("UNSUPPORTED");
   });
 
   it("refuses the past, because that is a different question", () => {
@@ -113,6 +118,29 @@ describe("Korean current observation, from the quantity interrogative", () => {
     expect(status("스톱로스란 얼마인가요?")).toBe("UNSUPPORTED");
     expect(status("기준금리를 얼마인가요?")).toBe("UNSUPPORTED");
     expect(status("기준금리의 얼마인가요?")).toBe("UNSUPPORTED");
+  });
+
+  it("does not re-read a MALFORMED marker as no marker either", () => {
+    // The other half of the same invariant, and the half that was missing. 은 after a vowel-final
+    // syllable is not a topic particle, so the split is refused during morphology — and the token
+    // was then read as an unmarked name, authorizing a subject called "기준금리은". Evidence that
+    // was present and declined never falls through to a weaker reading, whether it was declined by
+    // the grammar or by the phonology.
+    expect(status("기준금리은 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("환율가 얼마인가요?")).toBe("UNSUPPORTED");
+  });
+
+  it("refuses a coordination compressed into one eojeol", () => {
+    // Whitespace cardinality is not constituent cardinality. 금리와환율 is one compound noun or two
+    // nouns conjoined, and the contract is about to claim exactly one subject — so, as with 길이란,
+    // two readings and no rule to choose means refuse. Not a substring ban: both sides must be
+    // non-empty and the allomorph must fit.
+    expect(status("금리와환율은 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("금리와환율 무엇인가요?")).toBe("UNSUPPORTED");
+    // The cost, asserted rather than left to be discovered: a compound with a medial 과 goes too.
+    expect(status("교환과정은 무엇인가요?")).toBe("UNSUPPORTED");
+    // But a 과 with nothing on one side of it is not a conjunction and is untouched.
+    expect(authorized("결과는 무엇인가요?").subjectRegion.trim()).toBe("결과");
   });
 });
 
@@ -175,6 +203,27 @@ describe("safety, which recognition must not have loosened", () => {
     expect(status("내 기준금리는 얼마인가요?")).toBe("PROHIBITED");
     expect(status("제 계좌의 수익률은 얼마인가요?")).toBe("PROHIBITED");
     expect(status("저의 포트폴리오는 무엇인가요?")).toBe("PROHIBITED");
+  });
+
+  it("never authorizes a fused possessive, and does not accuse it either", () => {
+    // Written correctly a possessive determiner is its own eojeol and the rule above prohibits it.
+    // Fused, there is no boundary to see: 내수익률 and 내수 are the same syllable followed by more
+    // of them, and no rule available here separates "my rate of return" from "domestic demand".
+    // So the subject analysis is dropped and the request is UNSUPPORTED — refused, but not accused,
+    // because prohibiting would tell someone asking about domestic demand that they asked for
+    // advice. The cost is stated in the third assertion rather than discovered later.
+    expect(status("내수익률은 얼마인가요?")).toBe("UNSUPPORTED");
+    expect(status("제포트폴리오는 무엇인가요?")).toBe("UNSUPPORTED");
+    expect(status("내수는 얼마인가요?")).toBe("UNSUPPORTED"); // the capability this costs
+  });
+
+  it("prohibits a possessive that is outside the subject but still in the request", () => {
+    // The possessive check ran only where NOTHING was recognised, and this got through it:
+    // AUTHORIZED as an attributed report whose SOURCE was the reader's own bank. The subject region
+    // is clean, so the pronoun rule never saw it, and a source made only partly of pronouns is not
+    // rejected by the disqualifier list.
+    expect(status("What did my bank publish about US headline CPI?")).toBe("PROHIBITED");
+    expect(status("What did our fund manager report about US inflation?")).toBe("PROHIBITED");
   });
 
   it("does not prohibit the dative first person, which names who is being told", () => {

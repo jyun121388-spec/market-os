@@ -48,6 +48,7 @@ import {
   analyseNoun,
   containsHangul,
   eojeols,
+  internalConjunction,
   KOREAN_POSSESSIVE_DETERMINERS,
 } from "./koreanMorphology";
 import { classifyRequestFrame } from "./requestFrame";
@@ -583,9 +584,8 @@ function koreanCopularMatch(query: string): KoreanMatch {
     residue: [],
   });
 
-  const analyses = analyseNoun(subjectEojeol);
-  const marked: Recognised[] = [];
-  for (const analysis of analyses) {
+  const candidates: Recognised[] = [];
+  for (const analysis of analyseNoun(subjectEojeol)) {
     // 은/는 marks a topic and 이/가 the grammatical subject of the copular clause; either is the
     // thing being asked about, and which one a speaker reaches for is information structure rather
     // than a different question. (이)란 cites a term AS a term, so it introduces a definiendum and
@@ -598,26 +598,45 @@ function koreanCopularMatch(query: string): KoreanMatch {
     ) {
       continue;
     }
-    marked.push(parse(analysis.stem));
+    // 금리와환율 is one compound noun or two nouns conjoined, and the operation contract is about
+    // to assert `subjectCardinality: 1`. Nothing here can choose, so nothing here does.
+    if (internalConjunction(analysis.stem)) continue;
+    // A subject that begins with a first-person possessive determiner. Handled by dropping the
+    // analysis rather than by prohibiting, because 내수 and 내 수익률 are the same three syllables
+    // with a space moved and no rule available here tells them apart -- prohibiting would accuse
+    // "what is domestic demand" of asking for advice, which is the 44-case error in Korean.
+    if (
+      KOREAN_POSSESSIVE_DETERMINERS.some((d) => analysis.stem.startsWith(d) && analysis.stem !== d)
+    ) {
+      continue;
+    }
+    candidates.push(parse(analysis.stem));
   }
 
-  // An overt case marker is evidence of a role; its absence is not evidence of anything. So the
-  // bare reading is consulted only where the eojeol carries NO marker at all — not where it carries
-  // one the grammar declined.
+  // There is no zero-marked subject any more, and its removal is the largest thing this round did.
   //
-  // That distinction is the whole rule and its first version got it wrong: keyed on `marked.length`
-  // it fell back whenever the marked path produced nothing, so `스톱로스란 얼마인가요?` — a term
-  // cited AS a term and then asked a quantity of, which the grammar refuses on purpose — was
-  // rescued as a current-observation request about a subject named "스톱로스란". A refusal is a
-  // decision about evidence that was present, and re-reading the same eojeol as unmarked throws
-  // that decision away.
+  // It was added to lift Korean recall from one development case to three, and adversarial review
+  // showed what it actually bought: `안 얼마인가요?` authorized with the NEGATOR as its subject, and
+  // `사야 얼마인가요?` with an obligation form as its subject. Exactly two eojeol proves how many
+  // whitespace tokens there are; it proves nothing about the first one being a noun phrase, so any
+  // token at all was being promoted to a subject on the strength of the second one alone.
   //
-  // Korean drops case particles freely — `원달러환율 얼마야?` is ordinary speech, not ellipsis to be
-  // reconstructed — so refusing zero-marked subjects would refuse a whole register rather than a
-  // construction. Zero-marking is itself a closed grammatical phenomenon; what it is not is
-  // evidence, which is why it never competes with a marker.
-  const overtlyMarked = analyses.some((analysis) => analysis.role !== null);
-  const candidates = overtlyMarked ? marked : [parse(subjectEojeol)];
+  // Telling a Korean noun from an inflected verb needs a lexicon or a POS model, and this
+  // repository has neither. So the grammar requires an OVERT case marker, and 원달러환율 얼마야 --
+  // ordinary spoken Korean -- is refused with the rest. That is the capability this costs, stated
+  // rather than absorbed.
+  //
+  // What survives is the rule underneath: evidence that was present and declined never falls
+  // through to a weaker reading. A malformed marker is the same case — `기준금리은` carries 은 after
+  // a vowel, which `analyseNoun` refuses, and a speaker who wrote a case marker meant one.
+  //
+  // A `DECLINED_MARKER` state stood here to say that in the refusal message, distinguishing "ended
+  // in something shaped like a particle that cannot be one" from "no marker at all". Mutation
+  // reported it MISSED, and the reason is structural: with the zero-marked reading gone, both cases
+  // already reach UNSUPPORTED, because a subject with no surviving marked analysis has no way
+  // through. It changed the wording and never the outcome, so it is deleted rather than kept — one
+  // rule doing the work instead of one rule and a spare, the same call as the second guard removed
+  // from `attributionMatch`. The invariant is enforced by requiring the marker, not by naming it.
   if (candidates.length === 0) return { status: "NONE" };
 
   const distinct = [...new Set(candidates.map((p) => `${p.operation}:${p.subjectRegion.trim()}`))];
@@ -849,6 +868,30 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
 
   const [match] = recognised;
   const contract = OPERATION_CONTRACTS[match.operation];
+
+  // A possessive anywhere in a RECOGNISED request, not only in an unrecognised one.
+  //
+  // This check used to run in the `nothing recognised` branch alone, and adversarial review said
+  // that ordering was exploitable without giving a case that worked. It is:
+  //
+  //     "What did my bank publish about US headline CPI?"
+  //
+  // was AUTHORIZED as an attributed report with the source region "my bank". The subject region is
+  // clean, so the pronoun rule below never sees the possessive, and `SOURCE_DISQUALIFIERS` only
+  // rejects a source made ENTIRELY of pronouns — "my bank" has a noun in it, so it bound. The
+  // reader's own bank became a publisher whose reporting the product would serve.
+  //
+  // Recognising an operation says what KIND of answer was asked for. It says nothing about whether
+  // the request is about the reader, and the two questions were being answered by one branch.
+  if (firstPersonPossession(query, normalized)) {
+    return {
+      status: "PROHIBITED",
+      detail:
+        "The request is about something the reader owns. A possessive first person attaches to a " +
+        "noun phrase and makes that noun theirs, which is a personalized request whatever " +
+        "operation it would otherwise have been.",
+    };
+  }
 
   // The subject cannot also be the interval. A trailing construction's subject region runs to the
   // end of the request, so "us gdp last year" arrives with the adjunct inside it; leaving it there

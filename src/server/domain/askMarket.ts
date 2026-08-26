@@ -1,6 +1,10 @@
 import { prisma } from "@/server/db/client";
 import { computeChange } from "./seriesReadings";
-import { resolveRequestAuthority, type SubjectIdentityMode } from "./requestAuthority";
+import {
+  resolveRequestAuthority,
+  type AuthorizedRequest,
+  type SubjectIdentityMode,
+} from "./requestAuthority";
 import {
   explicitlyNamed,
   nameOccursIn,
@@ -872,6 +876,21 @@ const REDIRECT_MESSAGE =
   "tracked data, for you to interpret yourself.";
 
 /**
+ * The same refusal, for a request that asked for nothing else.
+ *
+ * A second message exists because the first one makes a promise. "Here's a factor analysis
+ * instead" printed above an empty page is not a redirect, it is a claim contradicted by the screen
+ * underneath it, and a bare `Should I buy X?` now publishes nothing by design. Which message is
+ * used follows from whether anything was actually published, not from which branch produced it, so
+ * it cannot drift out of agreement with the page.
+ */
+const REDIRECT_MESSAGE_NOTHING_ASKED =
+  "Market OS doesn't give personalized buy/sell recommendations. This request didn't ask for " +
+  "anything else, so there's nothing to show alongside it — ask about a specific figure, a change " +
+  "over a period, a relationship between two variables, or what a named source reported, and the " +
+  "answer will come with the tracked data behind it.";
+
+/**
  * True if `a` and `b` are talking about the same thing, tolerating extra words either side
  * (a query embedded in a sentence, a corp name with a suffix like "Inc"/"㈜" the user didn't
  * type). A plain substring check isn't enough: "Should I buy Demo Semiconductor now?" doesn't
@@ -1323,47 +1342,53 @@ export async function askMarket(
   const isAdviceRequest =
     authority.status === "PROHIBITED" || detectPersonalizedAdviceRequest(trimmed);
 
-  // The personalized-redirect contract is unchanged and is why this retrieval still runs on the
-  // wide topic: `ask-market-refusal-invariant` requires a redirected request to show exactly the
-  // factors its neutral twin would show, so that refusing to advise is visibly not refusing to
-  // inform. Narrowing this would change what a redirect displays, which is a product decision and
-  // not a binding defect.
-  // Causal edges are the exception to that width, and they are no longer published here at all.
+  // A redirect publishes what the request ASKED FOR, through the same selector as any other
+  // request, or it publishes nothing.
   //
-  // `findCausalFactors` was the ONLY wide edge search in this file and this was its ONLY caller: no
-  // authorized operation publishes an edge that way. `STORED_MECHANISM` serves `findMechanismEdges`
-  // on resolved, oriented, exactly-framed regions, and every other branch publishes none. So the
-  // redirect had an edge-publishing rule of its own, looser than the only real one, and it showed
-  // relations no neutral form would show -- `Should I buy A? Explain how A affects B only if
-  // something else.` published A -> B unconditionally, in answer to a conditional, while the
-  // neutral form returned nothing.
+  // The three retrievals here used to run wide over the raw string, on the reading that a redirect
+  // must show whatever its "neutral twin" would show. That reading does not survive contact with a
+  // request that also names an operation. Measured, before this changed:
   //
-  // The twin's own computation cannot be run here, and that is measured, not assumed: all three
-  // advice forms resolve `PROHIBITED`, so no `causeRegion` or `effectRegion` exists on this path.
-  // Rebuilding them from `trimmed` would make the raw query a second source of authority, which is
-  // the thing B2 exists to remove. So the honest option is the narrow one.
+  //     "Define X."                   -> REQUEST_NOT_SUPPORTED, no facts
+  //     "Should I buy X? Define X."   -> REDIRECTED, and X's figures published anyway
   //
-  // KNOWN NARROWING, deliberate and in the conservative direction: an advice-framed AFFIRMATIVE
-  // relation now shows no edge where its neutral form shows one. The enforced refusal invariant
-  // compares a TOPICAL twin and is unaffected; a relation twin was never covered by it. A refusal
-  // that publishes strictly less cannot become advice by arrangement, which is what that invariant
-  // is protecting.
-  const [wideSeries, wideCompany] = isAdviceRequest
-    ? await Promise.all([
-        findObservationFactors(trimmed, asOf, undefined, "OCCURRENCE"),
-        findCompanyFacts(trimmed),
-      ])
-    : [[], { facts: [] as CompanyFactFactor[] }];
-
+  // The neutral form refuses because this repository holds no glossary; the redirect published
+  // because a wide company lookup only needs the name to occur somewhere in the string. A refusal
+  // was publishing what the same repository, asked plainly, declines to publish.
+  //
+  // The rule is now: the authority pass recognises the informational constituent, if there is one,
+  // and it is answered as that operation. `Should I buy X? Define X` selects GLOSSARY_ENTRY, which
+  // has no record class here, so nothing is published and the refusal stops disagreeing with the
+  // refusal. `Should I buy A? Explain how A affects B.` selects STORED_MECHANISM and serves the
+  // edge, so an affirmative relation is no longer narrowed away.
+  //
+  // A BARE `Should I buy X?` names no operation and therefore publishes nothing. That reverses the
+  // older contract, deliberately: refusing to advise is not refusing to inform, but bare advice
+  // asked to be informed of nothing. The alternative is the wide search, and the wide search is the
+  // defect above. The message says so rather than promising an analysis that is not there.
   if (isAdviceRequest) {
+    const informational = authority.status === "PROHIBITED" ? authority.informational : undefined;
+    const served = informational
+      ? await selectAuthorizedOperation(informational, trimmed, asOf)
+      : undefined;
+
+    // Only the FACTORS cross over. The selector's own status and message stay behind: a redirected
+    // request is `PERSONALIZED_ADVICE_REDIRECTED`, never `REQUEST_NOT_SUPPORTED` or `NOT_FOUND`,
+    // because the outer verdict is the prohibition and a factual clause never rescues a directive.
+    const seriesFactors = served?.seriesFactors ?? [];
+    const causalFactors = served?.causalFactors ?? [];
+    const companyFacts = served?.companyFacts ?? [];
+    const published =
+      seriesFactors.length > 0 || causalFactors.length > 0 || companyFacts.length > 0;
+
     return {
       status: "PERSONALIZED_ADVICE_REDIRECTED",
       query: trimmed,
-      redirectMessage: REDIRECT_MESSAGE,
-      matchedTopic: wideCompany.matchedCorpName,
-      seriesFactors: wideSeries,
-      causalFactors: [],
-      companyFacts: wideCompany.facts,
+      redirectMessage: published ? REDIRECT_MESSAGE : REDIRECT_MESSAGE_NOTHING_ASKED,
+      matchedTopic: served?.matchedTopic,
+      seriesFactors,
+      causalFactors,
+      companyFacts,
     };
   }
 
@@ -1381,6 +1406,26 @@ export async function askMarket(
     };
   }
 
+  return selectAuthorizedOperation(authority, trimmed, asOf);
+}
+
+/**
+ * Everything an AUTHORIZED request is allowed to be answered with, and the ONLY way to retrieve it.
+ *
+ * Split out so the advice redirect can call it too. The redirect previously ran its own retrieval
+ * over the raw string, and that second rule is what let a refusal publish records the neutral form
+ * refuses: `Should I buy X? Define X` returned X's figures while `Define X` correctly refused,
+ * because this repository holds no glossary and DEFINITION has no record class here.
+ *
+ * There is now one selector. A redirected request reaches it only through the informational
+ * constituent its authority carried, so it is answered as the operation it actually named -- or,
+ * when it named none, not answered at all.
+ */
+async function selectAuthorizedOperation(
+  authority: AuthorizedRequest,
+  trimmed: string,
+  asOf: Date,
+): Promise<AskMarketResult> {
   // ---------------------------------------------------------------------------------------------
   // The operation decides what may be served, and retrieval is chosen by it rather than filtered
   // after the fact.

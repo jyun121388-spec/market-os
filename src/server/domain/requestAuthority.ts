@@ -250,54 +250,85 @@ export function asPlannerRequest(
   }
 }
 
+/**
+ * Named separately so that `PROHIBITED` can carry one without the union referring to itself.
+ *
+ * `CanonicalAuthorizedRequest` remains `Extract<RequestAuthority, { status: "AUTHORIZED" }>` and is
+ * the same type; extracting the member here is what lets a prohibited verdict hold an authorized
+ * one as DATA. A type alias that referenced the union from inside the union would be circular.
+ */
+export type AuthorizedRequest = {
+  status: "AUTHORIZED";
+  operation: RequestOperation;
+  contract: OperationContract;
+  /** The span of the request the operation was read from, for the log and for tests. */
+  subjectRegion: string;
+  /**
+   * The source constituent, as TEXT and nothing more.
+   *
+   * `attributionBound` recorded that a source existed and threw away which one, so the serving
+   * path could not tell "what did source A report" from "what did anyone report" — and with two
+   * providers publishing the same subject it answered with both. Carrying the span is not
+   * carrying authority: it is unresolved until the repository matches it to a source it holds,
+   * and a caller or model asserting an id is never a substitute for that.
+   */
+  sourceRegion?: string;
+  /** The interval constituent, for the operation that requires one. Text, likewise. */
+  interval?: string;
+  /**
+   * The two halves of a relation clause, kept apart.
+   *
+   * Merged into one subject region they prove a relation was asked about and lose which way
+   * round it runs, and IR-105 established that reading direction off word order is a guess.
+   * Serving needs them separate to return the edge that was asked for rather than an edge that
+   * shares an endpoint with it.
+   */
+  causeRegion?: string;
+  effectRegion?: string;
+  /**
+   * How the repository must match `subjectRegion` against the names it holds.
+   *
+   * `OCCURRENCE` is the English default and the established rule: a stored name counts when it
+   * OCCURS in the region and is not nested inside a longer match. That works because an English
+   * subject region is several tokens and a stored name occupying some of them is a real, whole
+   * mention of that subject.
+   *
+   * `WHOLE_REGION` is what a single-morpheme subject requires, and it exists because the
+   * difference produced a wrong answer. `USD-KRW는 얼마인가요?` parses to the one stem
+   * `USD-KRW`; normalization turns the hyphen into a space; `KRW` then occurs as a whole token
+   * and, with only `KRW` stored, the question about the pair was answered with one leg of it.
+   * A grammar that produced its subject as ONE indivisible stem is entitled to say so, and the
+   * repository is not entitled to find a smaller subject inside it.
+   */
+  subjectIdentity: SubjectIdentityMode;
+  detail: string;
+};
+
 export type RequestAuthority =
+  | AuthorizedRequest
   | {
-      status: "AUTHORIZED";
-      operation: RequestOperation;
-      contract: OperationContract;
-      /** The span of the request the operation was read from, for the log and for tests. */
-      subjectRegion: string;
-      /**
-       * The source constituent, as TEXT and nothing more.
-       *
-       * `attributionBound` recorded that a source existed and threw away which one, so the serving
-       * path could not tell "what did source A report" from "what did anyone report" — and with two
-       * providers publishing the same subject it answered with both. Carrying the span is not
-       * carrying authority: it is unresolved until the repository matches it to a source it holds,
-       * and a caller or model asserting an id is never a substitute for that.
-       */
-      sourceRegion?: string;
-      /** The interval constituent, for the operation that requires one. Text, likewise. */
-      interval?: string;
-      /**
-       * The two halves of a relation clause, kept apart.
-       *
-       * Merged into one subject region they prove a relation was asked about and lose which way
-       * round it runs, and IR-105 established that reading direction off word order is a guess.
-       * Serving needs them separate to return the edge that was asked for rather than an edge that
-       * shares an endpoint with it.
-       */
-      causeRegion?: string;
-      effectRegion?: string;
-      /**
-       * How the repository must match `subjectRegion` against the names it holds.
-       *
-       * `OCCURRENCE` is the English default and the established rule: a stored name counts when it
-       * OCCURS in the region and is not nested inside a longer match. That works because an English
-       * subject region is several tokens and a stored name occupying some of them is a real, whole
-       * mention of that subject.
-       *
-       * `WHOLE_REGION` is what a single-morpheme subject requires, and it exists because the
-       * difference produced a wrong answer. `USD-KRW는 얼마인가요?` parses to the one stem
-       * `USD-KRW`; normalization turns the hyphen into a space; `KRW` then occurs as a whole token
-       * and, with only `KRW` stored, the question about the pair was answered with one leg of it.
-       * A grammar that produced its subject as ONE indivisible stem is entitled to say so, and the
-       * repository is not entitled to find a smaller subject inside it.
-       */
-      subjectIdentity: SubjectIdentityMode;
+      status: "PROHIBITED";
       detail: string;
+      /**
+       * The informational request this prohibited one ALSO contains, if it contains one.
+       *
+       * Carrying it does not soften the verdict and cannot: the outer status stays `PROHIBITED`,
+       * the redirect still fires, and a factual clause never rescues a directive. What it changes
+       * is what the redirect may publish. The redirect used to run its own wide retrieval over the
+       * raw string, which published records the same repository refuses to publish when asked
+       * neutrally — `Should I buy X? Define X` returned X's figures while `Define X` correctly
+       * refused, because this repository holds no glossary.
+       *
+       * Only a canonically AUTHORIZED recognition is attached. `UNSUPPORTED` and `AMBIGUOUS` are
+       * not informational constituents, and neither is a recognition that itself came back
+       * PROHIBITED — a request can be personalized twice over.
+       *
+       * ABSENT means the request asked for no information, which is the ordinary case for a bare
+       * `Should I buy X?`. Nothing is published then. That is a deliberate contract choice and it
+       * replaced the opposite one; see the redirect branch in `askMarket`.
+       */
+      informational?: AuthorizedRequest;
     }
-  | { status: "PROHIBITED"; detail: string }
   | { status: "UNSUPPORTED"; detail: string }
   | { status: "AMBIGUOUS"; detail: string };
 
@@ -930,15 +961,86 @@ function intervalConstituent(normalized: string): IntervalConstituent | null {
  * others. Everything after it is positive recognition, and nothing recognised means UNSUPPORTED.
  */
 export function resolveRequestAuthority(query: string): RequestAuthority {
+  // Recognition runs for EVERY request, including a prohibited one, and this is the only ordering
+  // change: the screen used to return before recognition had happened, so a redirected request
+  // carried no idea what — if anything — it had also asked for. `askMarket` filled that gap with a
+  // wide search over the raw string, which is how a redirect came to publish records the neutral
+  // form refuses.
+  //
+  // Precedence is unchanged and still absolute. The screen decides the STATUS; recognition only
+  // supplies what the redirect is allowed to publish. Recognition is pure and consults no
+  // repository, so running it first costs nothing and decides nothing.
+  const recognised = recogniseOperation(query);
   if (detectPersonalizedAdviceRequest(query)) {
+    const informational = recogniseInformationalConstituent(query, recognised);
     return {
       status: "PROHIBITED",
       detail:
         "The request asks the product to decide, choose or act on the reader's behalf. " +
         "docs/LEGAL_GUARDRAILS.md requires a redirect, and a factual clause alongside it does not " +
         "change that.",
+      ...(informational ? { informational } : {}),
     };
   }
+  return recognised;
+}
+
+/** Explicit top-level clause boundaries: a sentence terminator followed by space. */
+const CLAUSE_BOUNDARY = /(?<=[.?!;])\s+/;
+
+/**
+ * The one informational request a prohibited request also contains, if there is exactly one.
+ *
+ * This exists because attaching only a WHOLE-request recognition attached nothing, ever, for the
+ * class it was built for. Measured: `Should I buy X? What is the current X?`, `Should I buy X?
+ * Define X` and `Should I buy A? Explain how A affects B.` all came back with no constituent. The
+ * reason is structural — a directive clause is leftover text, and IR-107 requires the whole request
+ * to parse as one operation with nothing left over, so recognition refuses precisely the requests
+ * whose constituent is wanted.
+ *
+ * ANSWERABILITY AND DISPLAYABILITY ARE SEPARATE, and that is the whole justification. The outer
+ * verdict stays PROHIBITED and the mixed request is still not factually answerable, which is what
+ * "there are no halves" was built to guarantee. What a clause can decide is only what the REFUSAL
+ * may show.
+ *
+ * It is not "strip the advice and reparse the remainder". Nothing is located by the advice
+ * detector, nothing is deleted, and no residue is reinterpreted. The query is split at explicit
+ * punctuation, each clause is kept as its exact substring, and each is put through the SAME
+ * unchanged complete-operation grammar. A clause earns its operation on its own or not at all.
+ *
+ * Fail-closed on both sides of one: zero authorized clauses attach nothing, and two or more attach
+ * nothing either, because choosing between them would be inventing which half the reader meant.
+ */
+function recogniseInformationalConstituent(
+  query: string,
+  wholeRequest: RequestAuthority,
+): AuthorizedRequest | undefined {
+  // A single complete operation can trip the prohibition screen on its own — a subject containing
+  // "target price" is recognised AND prohibited. Then the whole request IS the constituent and
+  // there is nothing to split.
+  if (wholeRequest.status === "AUTHORIZED") return wholeRequest;
+
+  const clauses = query
+    .split(CLAUSE_BOUNDARY)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0);
+  if (clauses.length < 2) return undefined;
+
+  const authorized = clauses
+    .map((clause) => recogniseOperation(clause))
+    .filter((authority): authority is AuthorizedRequest => authority.status === "AUTHORIZED");
+  return authorized.length === 1 ? authorized[0] : undefined;
+}
+
+/**
+ * Positive recognition, with no prohibited pre-screen of its own.
+ *
+ * Split out of `resolveRequestAuthority` so that both a permitted request and a redirected one are
+ * read by THE SAME pass over THE SAME text. It is deliberately not typed as excluding `PROHIBITED`:
+ * the first-person-possessive and personal-pronoun checks below are inside recognition and return
+ * it, and pretending otherwise in the signature would be a lie the compiler would then enforce.
+ */
+function recogniseOperation(query: string): RequestAuthority {
   const directiveFramed = classifyRequestFrame(query) === "REQUEST_DIRECTIVE";
   const normalized = normalize(query);
 

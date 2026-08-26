@@ -757,8 +757,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2169 / 2169 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-26 on the ask-guardrail architecture branch (2165 on 2026-08-25, 2048 on 2026-08-24,
+2176 / 2176 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-26 on the ask-guardrail architecture branch (2169 earlier that day, 2165 on 2026-08-25, 2048 on 2026-08-24,
 1894, 1888 and 1878 earlier that day, 1847 on 2026-08-23, 1838 on 2026-08-21; the hundred and
 eighty-five since are IR-100 publication-authority, IR-101 output-authority, IR-102
 publication-class, IR-103 candidate-relevance, IR-104 subject/operation-authority, IR-105
@@ -780,9 +780,22 @@ gate must be run as `next build --webpack`** (2026-08-26): `node_modules` here i
 main checkout's, and Turbopack refuses it — `Symlink [project]/node_modules is invalid, it points
 out of the filesystem root` — during module resolution, before compiling anything. Webpack builds
 the identical tree clean. It is an environment limitation of the linked worktree, not a defect in
-the tree, and it must not be "fixed" by changing product code. Read the build's OWN exit status:
-`npx next build | tail` reported exit 0 while the build was failing, because that is `tail`'s
-status. Full suite 136-516s against a live
+the tree, and it must not be "fixed" by changing product code.
+
+**`npm run format:check` cannot pass in this worktree either** (2026-08-26), and the earlier claim
+that it did was never measured. `core.autocrlf=true` checks every file out with CRLF — measured,
+not inferred: `tsconfig.json` 34/34 CR lines, `vitest.config.mts` 43/43, `askMarket.ts` 1576/1576 —
+while `.prettierrc` sets no `endOfLine`, so prettier's `lf` default flags the whole repository. 292
+files, most untouched for weeks. `prettier --write` on individual files is what has actually been
+run, and that is a weaker claim than the gate passing. Do NOT reformat 292 files to make it green:
+that is a repo-wide diff fighting a checkout setting, and it hides an environment fact behind a
+product change. Record the gate as ENVIRONMENT_LIMITED.
+
+**Read a gate's OWN exit status.** `npx next build | tail` reported exit 0 while the build was
+failing, and `npx prettier --check | tail -6; echo $?` reported 0 directly beneath "issues found in
+240 files" — both times `$?` belonged to `tail`. Redirect to a file and capture the exit code of the
+command itself. This mistake has been made twice in one session, the second time an hour after
+writing the first one down. Full suite 136-516s against a live
 database across several runs — the variance is real and is the integration files contending for
 one Postgres, not noise worth averaging away.
 

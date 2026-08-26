@@ -291,3 +291,42 @@ variance in a badly-covered space; both are reported and neither is "the" number
 
 **Not a reason to write more patterns.** 69 of 82 misses match nothing at all. The next move here
 is a design decision.
+
+## REPAIRED, RE-REVIEW PENDING — Codex review of 76fbaf5 (2026-08-26): REWORK_REQUIRED
+
+Both items are repaired by the commit following 76fbaf5, isolation mutation 11/11. The account
+below is kept exactly as it was written while they were open — including the paragraph explaining
+why the prescribed repair could not be built as specified — because that reasoning is the evidence
+that the fix addresses the class rather than the two examples. Repair is not closure: the
+re-review of the repaired tree is PENDING and nothing here is closed by self-assessment.
+
+Recorded here so the finding cannot be dropped by a session boundary. Both items are REPRODUCED
+against real PostgreSQL (`scripts/reproduce-redirect-informational.ts`), not merely asserted.
+
+    definition / company   neutral  REQUEST_NOT_SUPPORTED           company 0
+                           ADVICE   PERSONALIZED_ADVICE_REDIRECTED  company 1   DIVERGENT
+    affirmative relation   neutral  FACTORS_FOUND                   causal  1
+                           ADVICE   PERSONALIZED_ADVICE_REDIRECTED  causal  0   DIVERGENT
+    topical (control)      neutral  FACTORS_FOUND                   company 1
+                           ADVICE   PERSONALIZED_ADVICE_REDIRECTED  company 1   same
+
+**P1 — the redirect publishes company facts its neutral form refuses.** `Should I buy X? Define X`
+redirects AND publishes X's figures, while `Define X` returns REQUEST_NOT_SUPPORTED and publishes
+nothing, because this repository holds no glossary. Same class as the causal defect fixed in
+76fbaf5, different record class: 76fbaf5 repaired only what had been reproduced at the time, and
+review was asked directly whether the class was open on the other two retrievals. It is.
+
+**CONTRACT_BREACH — the affirmative narrowing in 76fbaf5 was not accepted.** I argued that
+publishing strictly less cannot become advice by arrangement and that the enforced invariant covers
+only a topical twin. Review's answer: the contract is worded "IDENTICAL" with no topical
+qualification, so the narrowing is a breach regardless of its safety direction. Recorded as
+rejected, not carried forward as settled.
+
+**Why it is not yet repaired.** Review's prescribed shape — PROHIBITED carries a recognised
+informational operation, and the redirect publishes only through that operation's normal selector —
+breaks the third row, which is the case the ENFORCED test covers. `Should I buy X?` contains no
+informational operation at all, so under that rule it would publish nothing while its neutral twin
+publishes facts. Two contracts are in tension: the redirect must inform (the original guardrail,
+why `Should I buy Apple?` shows Apple figures) and the redirect must not publish what the
+repository would refuse (the P1). An architect round is open on which governs a bare directive.
+Implementing before that resolves would trade a reproduced defect for a reproduced regression.

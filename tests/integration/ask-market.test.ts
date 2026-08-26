@@ -940,11 +940,30 @@ describeIfDb("askMarket (integration)", () => {
     expect(quarterly.fiscalYear).toBe(noStart.fiscalYear);
   });
 
-  it("redirects a personalized buy request even when a real match exists, but still shows factors", async () => {
-    const result = await askMarket("Should I buy TEST Widget Corp now?");
-    expect(result.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(result.redirectMessage).toBeTruthy();
-    expect(result.companyFacts.length).toBeGreaterThanOrEqual(1);
+  /**
+   * AMENDED 2026-08-26. This asserted the redirect "still shows factors" for a BARE buy request.
+   * That behaviour is gone deliberately: those factors came from a wide search over the raw string,
+   * and the same width let a refusal publish what the repository refuses when asked plainly --
+   * `Should I buy X? What is the definition of X?` returned X's figures while the neutral form
+   * returns none. A redirect is now answered through the operation the request named, and a bare
+   * directive named none.
+   *
+   * The half that still matters -- a real match EXISTS, so an empty redirect is a decision rather
+   * than an empty repository -- is kept by asserting both forms here.
+   */
+  it("redirects a personalized buy request, showing factors only if it asked for some", async () => {
+    const bare = await askMarket("Should I buy TEST Widget Corp now?");
+    expect(bare.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(bare.redirectMessage).toBeTruthy();
+    expect(bare.companyFacts).toHaveLength(0);
+
+    // Same company, same directive, plus a clause that names an operation. This control is what
+    // stops the assertion above from being satisfied by an absent fixture.
+    const withOperation = await askMarket(
+      "Should I buy TEST Widget Corp now? What is the current TEST Widget Corp?",
+    );
+    expect(withOperation.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(withOperation.companyFacts.length).toBeGreaterThanOrEqual(1);
   });
 
   it("returns NOT_FOUND for a topic with no matching data, never fabricating a match", async () => {

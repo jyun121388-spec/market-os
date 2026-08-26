@@ -195,6 +195,33 @@ describe("prohibited purpose has precedence", () => {
   it("carries nothing for a bare directive", () => {
     expect(constituentOf("Should I buy Acme?")).toBeUndefined();
   });
+
+  /**
+   * Two requests of the SAME operation must not be joined into one.
+   *
+   * Reuniting an over-split name means preferring a longer run, and that preference cannot be
+   * unconditional. Here both clauses authorize alone AND the joined run authorizes too -- as one
+   * `CURRENT_OBSERVATION` whose subject has swallowed the second construction. Preferring the
+   * longer run answered neither question and invented a third.
+   *
+   * The ambiguity test above missed this because it used two DIFFERENT operations, which the
+   * grammar rejects as ambiguous on its own -- so it passed without the rule it was meant to check.
+   * Same operation is the case that needed the rule.
+   */
+  it("fails closed on two requests of the same operation rather than joining them", () => {
+    expect(
+      constituentOf("Should I buy stock? What is the current Acme? What is the current Beta?"),
+    ).toBeUndefined();
+  });
+
+  it("refuses to enumerate an unbounded number of candidate fragments", () => {
+    // Run enumeration is quadratic in fragments and parses every run, and nothing upstream bounds
+    // the query. Past the cap the answer is "no constituent", which is the same answer any
+    // unreadable request gets -- fail closed rather than expensive. Asserted behaviourally: this
+    // input contains exactly ONE recognisable clause and would otherwise attach it.
+    const many = `Should I buy stock? ${"A. ".repeat(20)}What is the current Acme?`;
+    expect(constituentOf(many)).toBeUndefined();
+  });
 });
 
 describe("an imperative is not a decision request", () => {

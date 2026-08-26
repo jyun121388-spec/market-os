@@ -1000,6 +1000,9 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
  */
 const CLAUSE_BOUNDARY_CANDIDATE = /(?<=[.?!;])\s+/g;
 
+/** Fail-closed bound on constituent enumeration. See the cost note in the recogniser. */
+const MAX_CANDIDATE_FRAGMENTS = 12;
+
 /** Exact substrings between candidate boundaries, as offsets into the original query. */
 function candidateFragments(query: string): { start: number; end: number }[] {
   const fragments: { start: number; end: number }[] = [];
@@ -1047,6 +1050,13 @@ function recogniseInformationalConstituent(
   const fragments = candidateFragments(query);
   if (fragments.length < 2) return undefined;
 
+  // Enumeration is quadratic in fragments and each run is parsed, so an input with thousands of
+  // `A. ` fragments would buy a lot of work with very little text. Nothing upstream bounds the
+  // query, so the bound lives here and it FAILS CLOSED: past the cap no constituent is recognised
+  // and the redirect publishes nothing, which is the same answer an unreadable request gets.
+  // A real compound request is two or three sentences; twelve is already generous.
+  if (fragments.length > MAX_CANDIDATE_FRAGMENTS) return undefined;
+
   // Every CONTIGUOUS run of fragments, as its exact substring. Splitting is a guess, so instead of
   // trusting one segmentation this considers all of them at once: a run of two fragments is the
   // same text with a candidate boundary ignored. `Yahoo! Finance` is reunited by the run that spans
@@ -1062,14 +1072,41 @@ function recogniseInformationalConstituent(
     }
   }
 
-  // MAXIMAL runs only. `What is the definition of Yahoo!` authorizes on its own with the subject
-  // `Yahoo`, and it is contained by `What is the definition of Yahoo! Finance?`, which authorizes
-  // with the subject the reader wrote. The contained one is a smaller question the reader did not
-  // ask, so it is discarded rather than competed with -- otherwise every over-split would look like
-  // an ambiguity and fail closed, which is a worse answer than the right one.
-  const maximal = authorized.filter(
+  // A run that CONTAINS TWO DISJOINT AUTHORIZING RUNS is two requests, not an over-split name, and
+  // it may not subsume anything.
+  //
+  // Maximality alone confused those two cases, and review found the input that separates them:
+  //
+  //     "Should I buy stock? What is the current Acme? What is the current Beta?"
+  //
+  // Both clauses authorize alone, AND the joined run authorizes too -- as one CURRENT_OBSERVATION
+  // whose subject has swallowed the second construction. Maximality preferred the longer run and
+  // discarded both real questions, answering neither and inventing one. Two requests silently
+  // resolved as one is worse than the over-splitting this rule was added to fix.
+  //
+  // The test is structural and needs no knowledge of constructions: `Yahoo! Finance` splits into a
+  // fragment that authorizes and a fragment (`Finance?`) that does not, so its joined run contains
+  // only ONE authorizing sub-run and is a genuine reunification. Acme/Beta contains two that do not
+  // overlap, so it is a compound and is rejected -- leaving its two clauses to compete as maximal
+  // runs, which then fails closed on count, as a two-request ambiguity should.
+  const composite = (span: { start: number; end: number }) =>
+    authorized.some(
+      (a) =>
+        a.start >= span.start &&
+        a.end <= span.end &&
+        authorized.some((b) => b.start > a.end && b.end <= span.end && b.start >= span.start),
+    );
+
+  // MAXIMAL runs only, among those that are not compounds. `What is the definition of Yahoo!`
+  // authorizes on its own with the subject `Yahoo`, and it is contained by `What is the definition
+  // of Yahoo! Finance?`, which authorizes with the subject the reader wrote. The contained one is a
+  // smaller question the reader did not ask, so it is discarded rather than competed with --
+  // otherwise every over-split would look like an ambiguity and fail closed, which is a worse
+  // answer than the right one.
+  const candidates = authorized.filter((span) => !composite(span));
+  const maximal = candidates.filter(
     (span) =>
-      !authorized.some(
+      !candidates.some(
         (other) => other !== span && other.start <= span.start && other.end >= span.end,
       ),
   );

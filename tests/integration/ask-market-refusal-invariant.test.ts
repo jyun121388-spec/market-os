@@ -242,9 +242,11 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     const { askMarket } = await import("@/server/domain/askMarket");
 
     // The clause splitter treated `.` as a sentence boundary, so `... Acme Inc. revenue?` was cut
-    // into `... Acme Inc.` and `revenue?`, neither of which parses, and the redirect published
-    // nothing. Every earlier test wrote its directive as `Inc.?`, where the split lands on the
-    // question mark, so the period was never judged -- the examples passed and the class did not.
+    // into `... Acme Inc.` and `revenue?`. The leading fragment PARSES ON ITS OWN, so a constituent
+    // still attached and still published -- carrying the subject `Acme Inc.` for a question asked
+    // about `Acme Inc. revenue`. Same company, same rows, different question, which is why this
+    // integration test cannot see the defect and the assertion that can lives in
+    // `requestAuthority.test.ts` on the subject region. This one is kept as parity coverage.
     //
     // The clause has to CONTINUE past the suffix for the period to be judged at all. `NEUTRAL`
     // ends `Inc.?`, so it would not reproduce this and would pass either way -- the same trap as

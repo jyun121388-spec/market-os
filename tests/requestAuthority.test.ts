@@ -148,14 +148,52 @@ describe("prohibited purpose has precedence", () => {
    * test comparing figures cannot see it, because both subjects resolve to the same company; it was
    * written that way first and a mutation restoring the period boundary survived it.
    */
-  it("carries the whole informational clause, not a fragment ending at a company suffix", () => {
-    const a = authorize("Should I buy stock? What is the current Acme Inc. revenue?");
-    expect(a.status).toBe("PROHIBITED");
-    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
-    expect(informational?.operation).toBe("CURRENT_OBSERVATION");
-    // The subject the request named runs past the suffix. A constituent stopping at `Inc.` is a
-    // different question that happens to share a company.
-    expect(informational?.subjectRegion).toContain("revenue");
+  const constituentOf = (query: string) => {
+    const a = authorize(query);
+    expect(a.status, query).toBe("PROHIBITED");
+    return a.status === "PROHIBITED" ? a.informational : undefined;
+  };
+
+  /**
+   * Punctuation inside a NAME must not end the clause, and no punctuation set gets this right.
+   *
+   * Two boundary sets were tried and both were refuted by a real input. `[.?!;]` cut
+   * `... Acme Inc. revenue?` after the company suffix. Narrowing to `[?!;]` fixed that and came
+   * with the claim that those three "end a sentence and end nothing else" -- refuted by
+   * `Yahoo! Finance` and `Smith; Jones`. Any character that can end a sentence can also sit inside
+   * a name, so the boundaries are now CANDIDATES and the recogniser considers every contiguous run
+   * of them, keeping only maximal runs that authorize.
+   *
+   * Each case below is a fragment that authorizes ON ITS OWN with a SHORTER subject, which is what
+   * makes them dangerous: the request is answered, plausibly, about something else. The assertion
+   * is therefore on the subject region and not on any published record.
+   */
+  it.each([
+    ["company suffix", "Should I buy stock? What is the current Acme Inc. revenue?", "revenue"],
+    [
+      "exclamation in a name",
+      "Should I buy stock? What is the definition of Yahoo! Finance?",
+      "finance",
+    ],
+    [
+      "semicolon in a name",
+      "Should I buy stock? What is the current Smith; Jones revenue?",
+      "jones",
+    ],
+  ])("carries the whole informational clause across %s", (_label, query, mustContain) => {
+    expect(constituentOf(query)?.subjectRegion).toContain(mustContain);
+  });
+
+  it("still fails closed when two informational clauses are named", () => {
+    // Maximality resolves over-splitting, not genuine ambiguity: these are two separate maximal
+    // runs, neither containing the other, and choosing would invent which was meant.
+    expect(
+      constituentOf("Should I buy X? What is the current Acme? What is the definition of Acme?"),
+    ).toBeUndefined();
+  });
+
+  it("carries nothing for a bare directive", () => {
+    expect(constituentOf("Should I buy Acme?")).toBeUndefined();
   });
 });
 

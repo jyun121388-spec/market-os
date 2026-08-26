@@ -986,31 +986,31 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
 }
 
 /**
- * Explicit top-level clause boundaries: `?`, `!` or `;` followed by space. NOT `.`.
+ * CANDIDATE boundaries. Every one of them is a guess, and none is trusted on its own.
  *
- * The period was included and it was wrong, in the way this project keeps rediscovering: the
- * examples happened to work. Every test string ended its directive with `Inc.?`, where the split
- * lands on the question mark, so the period never had to be judged. Review supplied the input that
- * judged it:
+ * Two attempts at a trustworthy punctuation set both failed on real inputs, and the second failure
+ * is the useful one. `[.?!;]` cut `... Acme Inc. revenue?` after the company suffix. Removing the
+ * period fixed that and I wrote that `?`, `!` and `;` "end a sentence and end nothing else" --
+ * which review refuted with `Yahoo! Finance` and `Smith; Jones`. There is no punctuation that
+ * cannot appear inside a name, so no boundary set can be correct by itself.
  *
- *     "Should I buy Acme? What is the current Acme Inc. revenue?"
- *     with `.`  -> ["Should I buy Acme?", "What is the current Acme Inc.", "revenue?"]
- *     without   -> ["Should I buy Acme?", "What is the current Acme Inc. revenue?"]
- *
- * The informational clause was being cut in half by the period in a company suffix, so neither
- * fragment parsed and nothing was published.
- *
- * `?`, `!` and `;` end a sentence and end nothing else. A period does not: it ends sentences,
- * abbreviations, company suffixes and decimals, and no rule here can tell which without knowing
- * what the words are. So it is not a boundary. That is structural rather than a list of suffixes to
- * keep extending -- there is nothing to extend.
- *
- * The cost is a compound whose directive ends in a period: `Should I buy X. What is the current X?`
- * yields one clause, nothing is recognised, and nothing is published. That is the fail-closed
- * direction, and it is the same answer a period-ambiguous sentence deserves. A stray `?` inside a
- * quoted phrase splits too, and both fragments then fail to parse, which lands in the same place.
+ * So the period is back, deliberately, and the set is LIBERAL. Getting the boundaries right is no
+ * longer the job of this regex; see `recogniseInformationalConstituent`, which re-joins whatever
+ * this over-splits.
  */
-const CLAUSE_BOUNDARY = /(?<=[?!;])\s+/;
+const CLAUSE_BOUNDARY_CANDIDATE = /(?<=[.?!;])\s+/g;
+
+/** Exact substrings between candidate boundaries, as offsets into the original query. */
+function candidateFragments(query: string): { start: number; end: number }[] {
+  const fragments: { start: number; end: number }[] = [];
+  let start = 0;
+  for (const match of query.matchAll(CLAUSE_BOUNDARY_CANDIDATE)) {
+    fragments.push({ start, end: match.index });
+    start = match.index + match[0].length;
+  }
+  fragments.push({ start, end: query.length });
+  return fragments.filter((f) => query.slice(f.start, f.end).trim().length > 0);
+}
 
 /**
  * The one informational request a prohibited request also contains, if there is exactly one.
@@ -1044,16 +1044,40 @@ function recogniseInformationalConstituent(
   // there is nothing to split.
   if (wholeRequest.status === "AUTHORIZED") return wholeRequest;
 
-  const clauses = query
-    .split(CLAUSE_BOUNDARY)
-    .map((clause) => clause.trim())
-    .filter((clause) => clause.length > 0);
-  if (clauses.length < 2) return undefined;
+  const fragments = candidateFragments(query);
+  if (fragments.length < 2) return undefined;
 
-  const authorized = clauses
-    .map((clause) => recogniseOperation(clause))
-    .filter((authority): authority is AuthorizedRequest => authority.status === "AUTHORIZED");
-  return authorized.length === 1 ? authorized[0] : undefined;
+  // Every CONTIGUOUS run of fragments, as its exact substring. Splitting is a guess, so instead of
+  // trusting one segmentation this considers all of them at once: a run of two fragments is the
+  // same text with a candidate boundary ignored. `Yahoo! Finance` is reunited by the run that spans
+  // the `!`, without any rule knowing that `Yahoo!` is part of a name.
+  const authorized: { start: number; end: number; request: AuthorizedRequest }[] = [];
+  for (let first = 0; first < fragments.length; first += 1) {
+    for (let last = first; last < fragments.length; last += 1) {
+      const span = query.slice(fragments[first].start, fragments[last].end);
+      const recognised = recogniseOperation(span);
+      if (recognised.status === "AUTHORIZED") {
+        authorized.push({ start: first, end: last, request: recognised });
+      }
+    }
+  }
+
+  // MAXIMAL runs only. `What is the definition of Yahoo!` authorizes on its own with the subject
+  // `Yahoo`, and it is contained by `What is the definition of Yahoo! Finance?`, which authorizes
+  // with the subject the reader wrote. The contained one is a smaller question the reader did not
+  // ask, so it is discarded rather than competed with -- otherwise every over-split would look like
+  // an ambiguity and fail closed, which is a worse answer than the right one.
+  const maximal = authorized.filter(
+    (span) =>
+      !authorized.some(
+        (other) => other !== span && other.start <= span.start && other.end >= span.end,
+      ),
+  );
+
+  // Still exactly one. Two maximal runs are two informational requests, and choosing between them
+  // would be inventing which the reader meant. `there are no halves` does the rest of the work:
+  // a run that swallows the directive carries unread text and cannot authorize at all.
+  return maximal.length === 1 ? maximal[0].request : undefined;
 }
 
 /**

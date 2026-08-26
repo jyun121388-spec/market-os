@@ -238,6 +238,27 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     expect(refused.seriesFactors).toEqual([]);
   });
 
+  it("does not cut the informational clause at a period inside a company suffix", async () => {
+    const { askMarket } = await import("@/server/domain/askMarket");
+
+    // The clause splitter treated `.` as a sentence boundary, so `... Acme Inc. revenue?` was cut
+    // into `... Acme Inc.` and `revenue?`, neither of which parses, and the redirect published
+    // nothing. Every earlier test wrote its directive as `Inc.?`, where the split lands on the
+    // question mark, so the period was never judged -- the examples passed and the class did not.
+    //
+    // The clause has to CONTINUE past the suffix for the period to be judged at all. `NEUTRAL`
+    // ends `Inc.?`, so it would not reproduce this and would pass either way -- the same trap as
+    // before. This one ends `Inc. revenue?`, where the old splitter cut between `Inc.` and
+    // `revenue?`.
+    const informational = `What is the current ${CORP_NAME} revenue?`;
+    const neutral = await askMarket(informational);
+    expect(neutral.companyFacts.length).toBeGreaterThan(0);
+
+    const refused = await askMarket(`Should I buy stock? ${informational}`);
+    expect(refused.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(fingerprint(refused.companyFacts)).toEqual(fingerprint(neutral.companyFacts));
+  });
+
   it("publishes nothing when the request names more than one informational operation", async () => {
     const { askMarket } = await import("@/server/domain/askMarket");
 

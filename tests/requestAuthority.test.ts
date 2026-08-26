@@ -130,6 +130,33 @@ describe("prohibited purpose has precedence", () => {
     const a = authorize("What is the current price of the stock I should buy?");
     expect(a.status).toBe("PROHIBITED");
   });
+
+  /**
+   * The constituent must be the clause the reader wrote, not a prefix of it.
+   *
+   * A prohibited request carries the one informational operation it also named, so that a redirect
+   * can answer THAT rather than searching the raw string. Which substring becomes the constituent
+   * is therefore a claim about what was asked, and it has to be exact.
+   *
+   * The clause splitter treated `.` as a sentence terminator, so `... Acme Inc. revenue?` was cut
+   * after the company suffix. Review reported the symptom as "nothing is published"; measured, that
+   * is not what happens and the truth is worse to detect: the leading fragment
+   * `What is the current Acme Inc.` PARSES ON ITS OWN, so a constituent attaches and publishes --
+   * with a subject the reader did not ask about. Same company, same rows, different question.
+   *
+   * That is why this is asserted on the SUBJECT REGION and not on published records. An integration
+   * test comparing figures cannot see it, because both subjects resolve to the same company; it was
+   * written that way first and a mutation restoring the period boundary survived it.
+   */
+  it("carries the whole informational clause, not a fragment ending at a company suffix", () => {
+    const a = authorize("Should I buy stock? What is the current Acme Inc. revenue?");
+    expect(a.status).toBe("PROHIBITED");
+    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
+    expect(informational?.operation).toBe("CURRENT_OBSERVATION");
+    // The subject the request named runs past the suffix. A constituent stopping at `Inc.` is a
+    // different question that happens to share a company.
+    expect(informational?.subjectRegion).toContain("revenue");
+  });
 });
 
 describe("an imperative is not a decision request", () => {

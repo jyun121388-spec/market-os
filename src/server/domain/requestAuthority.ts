@@ -985,8 +985,32 @@ export function resolveRequestAuthority(query: string): RequestAuthority {
   return recognised;
 }
 
-/** Explicit top-level clause boundaries: a sentence terminator followed by space. */
-const CLAUSE_BOUNDARY = /(?<=[.?!;])\s+/;
+/**
+ * Explicit top-level clause boundaries: `?`, `!` or `;` followed by space. NOT `.`.
+ *
+ * The period was included and it was wrong, in the way this project keeps rediscovering: the
+ * examples happened to work. Every test string ended its directive with `Inc.?`, where the split
+ * lands on the question mark, so the period never had to be judged. Review supplied the input that
+ * judged it:
+ *
+ *     "Should I buy Acme? What is the current Acme Inc. revenue?"
+ *     with `.`  -> ["Should I buy Acme?", "What is the current Acme Inc.", "revenue?"]
+ *     without   -> ["Should I buy Acme?", "What is the current Acme Inc. revenue?"]
+ *
+ * The informational clause was being cut in half by the period in a company suffix, so neither
+ * fragment parsed and nothing was published.
+ *
+ * `?`, `!` and `;` end a sentence and end nothing else. A period does not: it ends sentences,
+ * abbreviations, company suffixes and decimals, and no rule here can tell which without knowing
+ * what the words are. So it is not a boundary. That is structural rather than a list of suffixes to
+ * keep extending -- there is nothing to extend.
+ *
+ * The cost is a compound whose directive ends in a period: `Should I buy X. What is the current X?`
+ * yields one clause, nothing is recognised, and nothing is published. That is the fail-closed
+ * direction, and it is the same answer a period-ambiguous sentence deserves. A stray `?` inside a
+ * quoted phrase splits too, and both fragments then fail to parse, which lands in the same place.
+ */
+const CLAUSE_BOUNDARY = /(?<=[?!;])\s+/;
 
 /**
  * The one informational request a prohibited request also contains, if there is exactly one.

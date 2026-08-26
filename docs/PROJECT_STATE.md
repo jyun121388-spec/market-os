@@ -757,8 +757,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2176 / 2176 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-26 on the ask-guardrail architecture branch (2169 earlier that day, 2165 on 2026-08-25, 2048 on 2026-08-24,
+2178 / 2178 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-26 on the ask-guardrail architecture branch (2176 and 2169 earlier that day, 2165 on 2026-08-25, 2048 on 2026-08-24,
 1894, 1888 and 1878 earlier that day, 1847 on 2026-08-23, 1838 on 2026-08-21; the hundred and
 eighty-five since are IR-100 publication-authority, IR-101 output-authority, IR-102
 publication-class, IR-103 candidate-relevance, IR-104 subject/operation-authority, IR-105
@@ -775,7 +775,12 @@ deliberately not in it.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real
-data.sec.gov. Lint / typecheck / format / production build all clean. **In this worktree the build
+data.sec.gov. **Gate status, one line, no contradiction: lint clean, typecheck clean, build clean
+UNDER WEBPACK, format ENVIRONMENT_LIMITED.** This sentence used to end "lint / typecheck / format /
+production build all clean" and then two paragraphs explained that two of those four cannot run
+here — a summary asserting PASS above the measurement that says otherwise, which is the failure mode
+this file exists to prevent. Details follow and the summary must keep agreeing with them.
+**In this worktree the build
 gate must be run as `next build --webpack`** (2026-08-26): `node_modules` here is a symlink to the
 main checkout's, and Turbopack refuses it — `Symlink [project]/node_modules is invalid, it points
 out of the filesystem root` — during module resolution, before compiling anything. Webpack builds

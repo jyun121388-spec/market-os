@@ -3,6 +3,8 @@ import {
   OPERATION_CONTRACTS,
   REQUEST_OPERATIONS,
   resolveRequestAuthority,
+  __resetSpanEvaluationsForTest,
+  __spanEvaluationsForTest,
 } from "@/server/domain/requestAuthority";
 
 /**
@@ -639,5 +641,162 @@ describe("attribution is three bound roles, not eight constructions", () => {
     expect(authorize("What did Goldman Sachs buy for the pension fund?").status).not.toBe(
       "AUTHORIZED",
     );
+  });
+});
+
+/**
+ * The cost of the cover model, asserted as a COUNT rather than a clock.
+ *
+ * Making recognition enumerate intervals composed badly with the constituent layer, which already
+ * enumerated intervals and called recognition on each. Twelve fragments meant 78 outer runs each
+ * re-parsing up to 78 inner spans with four recognizers at every leaf -- thousands of parses for a
+ * request somebody could type. The bound was enforced at each level and never on their product.
+ *
+ * Both boundaries ask about the SAME substrings, so a per-request span cache collapses the
+ * composition without restructuring either. The invariant is therefore countable: no interval is
+ * ever offered to the recognizer union twice.
+ *
+ * Wall-clock would be the wrong gate. It passes on a fast machine while the composition is still
+ * quadratic-on-quadratic, and it fails on a loaded one while the code is correct -- this session
+ * has already had one full suite invalidated by exactly that kind of machine contention.
+ */
+describe("interval recognition is evaluated once per interval", () => {
+  const compound = (fragments: number) =>
+    "Should I buy stock? " +
+    Array.from({ length: fragments - 1 }, (_, i) => `What is the current S${i}?`).join(" ");
+
+  it.each([2, 4, 8, 12])("evaluates at most n(n+1)/2 spans for %i fragments", (n) => {
+    __resetSpanEvaluationsForTest();
+    authorize(compound(n));
+    expect(__spanEvaluationsForTest()).toBeLessThanOrEqual((n * (n + 1)) / 2);
+  });
+
+  it("evaluates every interval exactly once, neither twice nor skipped", () => {
+    // Tighter than the bound above and it is the real property: equality means the cache is
+    // covering the composition completely, and that nothing silently stopped being analysed.
+    __resetSpanEvaluationsForTest();
+    authorize(compound(12));
+    expect(__spanEvaluationsForTest()).toBe((12 * 13) / 2);
+  });
+
+  it("refuses a request with more fragments than it will analyse, without partial analysis", () => {
+    // Fail closed and whole. Reading the first twelve sentences of a twenty-sentence request would
+    // be choosing which parts of it to answer.
+    const overBound = "Should I buy stock? " + "A. ".repeat(30) + "What is the current Acme?";
+    const a = authorize(overBound);
+    expect(a.status).not.toBe("AUTHORIZED");
+  });
+});
+
+/**
+ * Behaviour the unification CHANGED, recorded so the change is visible rather than discovered.
+ *
+ * Codex is unavailable until 2026-09-01 (usage limit, and an expired token -- both HUMAN GATES,
+ * neither worked around). These are pinned at their MEASURED values so the exact-tree review can
+ * judge them when it can run. They are not asserted to be correct; they are asserted to be what
+ * this tree does, so that any later drift is deliberate.
+ */
+describe("recorded consequences of unifying the recognizers", () => {
+  it("lets a Korean fragment become a constituent, which it could not before", () => {
+    // NEW REACHABLE CAPABILITY, and not from new morphology or vocabulary -- the generic cover
+    // engine granted it. Korean used to be consulted only for the WHOLE query, so the constituent
+    // path never saw a Korean reading. OPEN for review.
+    const a = authorize("Should I buy stock? 기준금리는 얼마인가요?");
+    expect(a.status).toBe("PROHIBITED");
+    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
+    expect(informational?.operation).toBe("CURRENT_OBSERVATION");
+    expect(informational?.subjectRegion).toContain("기준금리");
+  });
+
+  it("refuses two Korean questions and a mixed-script pair", () => {
+    expect(authorize("기준금리는 얼마인가요? CPI는 무엇인가요?").status).not.toBe("AUTHORIZED");
+    expect(authorize("What is the current CPI? 기준금리는 얼마인가요?").status).not.toBe(
+      "AUTHORIZED",
+    );
+  });
+
+  it("still refuses single-fragment compounds, now by span multiplicity", () => {
+    // These carry no sentence punctuation, so cover ambiguity cannot protect them: one fragment
+    // means one span. They still refuse, but the deciding rule moved from the coordinator/unread
+    // guards to two readings in one span. Those guards are therefore NOT deleted -- twice in this
+    // unit a guard that looked redundant was the only thing covering a case, and proving mechanical
+    // replacement needs the architect that is currently gated.
+    for (const query of [
+      "Explain how Alpha affects Beta then what is the current Gamma",
+      "What did Reuters publish about Alpha and what is the current Gamma",
+      "What is the current Alpha and what is the definition of Beta",
+    ]) {
+      expect(authorize(query).status, query).not.toBe("AUTHORIZED");
+    }
+  });
+
+  it("treats the same question asked twice as more than one question", () => {
+    expect(authorize("What is the current Acme? What is the current Acme?").status).not.toBe(
+      "AUTHORIZED",
+    );
+  });
+});
+
+/**
+ * The unification's own invariants, which the mutation set caught me not having pinned.
+ *
+ * Five mutants survived the first run -- restore mechanism precedence, restore attribution
+ * precedence, take the first of several interpretations, and two identity collapses -- because
+ * every one of these behaviours had been established by PROBE and never written down as a test.
+ * Measuring something and pinning it are different acts, and the score is what said so.
+ */
+describe("no recognizer may silence another", () => {
+  it("refuses a relation followed by a separate question", () => {
+    // U1. Was AUTHORIZED as one STORED_MECHANISM whose subject had eaten the second question,
+    // because mechanism recognition pre-empted the construction branch entirely.
+    expect(authorize("Explain how Alpha affects Beta. What is the current Gamma?").status).not.toBe(
+      "AUTHORIZED",
+    );
+  });
+
+  it("refuses an attribution followed by a separate question", () => {
+    // U2. `attributionMatch` takes its subject to the END of the span, so the reading covered the
+    // whole request and no residue rule could see the tail.
+    expect(
+      authorize("What did Reuters publish about Alpha? What is the current Gamma?").status,
+    ).not.toBe("AUTHORIZED");
+  });
+
+  it("attaches no constituent when a redirect carries two questions", () => {
+    const a = authorize(
+      "Should I buy stock? What did Reuters publish about Alpha? What is the current Gamma?",
+    );
+    expect(a.status).toBe("PROHIBITED");
+    expect(a.status === "PROHIBITED" ? a.informational : undefined).toBeUndefined();
+  });
+
+  it.each([
+    ["two relations", "Explain how Alpha affects Beta? Explain how Gamma affects Delta?"],
+    ["two attributions", "What did Reuters publish about Alpha? What did OECD publish about Beta?"],
+    [
+      "relation and attribution",
+      "Explain how Alpha affects Beta? What did Reuters publish about Gamma?",
+    ],
+    [
+      "attribution and observation",
+      "What did Reuters publish about Alpha? What is the current Beta?",
+    ],
+    ["relation and definition", "Explain how Alpha affects Beta? What is the definition of Gamma?"],
+  ])("refuses %s in one request", (_label, query) => {
+    // Cross-parser multiplicity. Under precedence the first recognizer answered and the second
+    // question vanished; the union means both opinions exist and neither is unique.
+    expect(authorize(query).status, query).not.toBe("AUTHORIZED");
+  });
+
+  it("still authorizes each of those requests on its own", () => {
+    // The control that stops the five above from passing because everything refuses.
+    for (const query of [
+      "Explain how Alpha affects Beta.",
+      "What did Reuters publish about Alpha?",
+      "What is the current Beta?",
+      "What is the definition of Gamma?",
+    ]) {
+      expect(authorize(query).status, query).toBe("AUTHORIZED");
+    }
   });
 });

@@ -1007,6 +1007,20 @@ function intervalConstituent(normalized: string): IntervalConstituent | null {
  * others. Everything after it is positive recognition, and nothing recognised means UNSUPPORTED.
  */
 export function resolveRequestAuthority(query: string): RequestAuthority {
+  // One span cache for exactly this request. Both boundaries below enumerate the same intervals,
+  // and without sharing they parse every one of them twice over -- see `spanCache`. Re-entrancy is
+  // checked rather than assumed: only the outermost call owns the cache, so a nested call cannot
+  // clear it out from under its caller.
+  const outermost = spanCache === null;
+  if (outermost) spanCache = new Map();
+  try {
+    return resolveWithSharedSpans(query);
+  } finally {
+    if (outermost) spanCache = null;
+  }
+}
+
+function resolveWithSharedSpans(query: string): RequestAuthority {
   // Recognition runs for EVERY request, including a prohibited one, and this is the only ordering
   // change: the screen used to return before recognition had happened, so a redirected request
   // carried no idea what — if anything — it had also asked for. `askMarket` filled that gap with a
@@ -1135,21 +1149,29 @@ function recogniseInformationalConstituent(
   // only ONE authorizing sub-run and is a genuine reunification. Acme/Beta contains two that do not
   // overlap, so it is a compound and is rejected -- leaving its two clauses to compete as maximal
   // runs, which then fails closed on count, as a two-request ambiguity should.
-  const composite = (span: { start: number; end: number }) =>
-    authorized.some(
-      (a) =>
-        a.start >= span.start &&
-        a.end <= span.end &&
-        authorized.some((b) => b.start > a.end && b.end <= span.end && b.start >= span.start),
-    );
-
-  // MAXIMAL runs only, among those that are not compounds. `What is the definition of Yahoo!`
-  // authorizes on its own with the subject `Yahoo`, and it is contained by `What is the definition
-  // of Yahoo! Finance?`, which authorizes with the subject the reader wrote. The contained one is a
-  // smaller question the reader did not ask, so it is discarded rather than competed with --
-  // otherwise every over-split would look like an ambiguity and fail closed, which is a worse
-  // answer than the right one.
-  const candidates = authorized.filter((span) => !composite(span));
+  // The composite/disjoint-sub-run guard stood here and is DELETED, after measuring that its
+  // invariant MOVED rather than vanished.
+  //
+  // It rejected a span containing two independent authorizing sub-runs. Unified recognition makes
+  // that a consequence instead of a rule: a span holding two requests now carries two readings, so
+  // it never becomes a reading, and no such run reaches this point. Measured rather than assumed --
+  // the guard was disabled and its own killer asked, `Should I buy stock? What is the current Acme?
+  // What is the current Beta?`, which refused identically with the guard live and disabled, while
+  // the single-question control kept attaching its constituent.
+  //
+  // What holds that killer now is redundant BY MEASUREMENT, and that is recorded rather than
+  // tidied: the exactly-one-maximal-run count refuses it, and with that count removed the
+  // outside-construction check refuses it too. So no single mutation makes it authorize. Two rules
+  // independently covering one input is not two guards for one invariant, but it does mean this
+  // deletion cannot be proven by one mutant, and manufacturing one would be inventing evidence.
+  // Flagged for the exact-tree review currently gated on Codex quota (HG-CODEX-QUOTA).
+  //
+  // MAXIMAL runs only. `What is the definition of Yahoo!` authorizes on its own with the subject
+  // `Yahoo`, and it is contained by `What is the definition of Yahoo! Finance?`, which authorizes
+  // with the subject the reader wrote. The contained one is a smaller question the reader did not
+  // ask, so it is discarded rather than competed with -- otherwise every over-split would look like
+  // an ambiguity and fail closed, which is a worse answer than the right one.
+  const candidates = authorized;
   const maximal = candidates.filter(
     (span) =>
       !candidates.some(
@@ -1194,37 +1216,231 @@ function recogniseInformationalConstituent(
  * the first-person-possessive and personal-pronoun checks below are inside recognition and return
  * it, and pretending otherwise in the signature would be a lie the compiler would then enforce.
  */
+/**
+ * The closed identity of a reading. Two recognizers seeing the same question is ONE reading.
+ *
+ * Exhaustive by operation and with no default: a relation keeps cause and effect apart, an
+ * attribution keeps source and subject apart, and everything else is identified by its subject.
+ * `operation + subjectRegion` was not enough -- it cannot tell `A -> B` from `B -> A`, and it cannot
+ * tell two sources reporting one subject apart.
+ */
+function readingIdentity(r: Recognised): string {
+  const key = (s: string | undefined) => (s ?? "").trim().split(/\s+/).filter(Boolean).join(" ");
+  switch (r.operation) {
+    case "STORED_MECHANISM":
+      return `STORED_MECHANISM|${key(r.causeRegion)}|${key(r.effectRegion)}`;
+    case "ATTRIBUTED_REPORTED_OBSERVATION":
+      return `ATTRIBUTED_REPORTED_OBSERVATION|${key(r.sourceRegion)}|${key(r.subjectRegion)}`;
+    case "CURRENT_OBSERVATION":
+    case "OBSERVED_CHANGE":
+    case "DEFINITION":
+      return `${r.operation}|${canonicalSubjectKey(r.operation, r.subjectRegion)}`;
+  }
+}
+
+/**
+ * Every reading this grammar can offer for ONE exact span, with NO precedence between recognizers.
+ *
+ * `mechanism ? [mechanism] : attribution ? [attribution] : korean ? [korean] : recogniseAll(...)`
+ * was the shape, and it let one recognizer silence the others -- which is why the readings rule and
+ * the all-occurrences fix, both living in the construction branch, never ran for a relation or an
+ * attribution request. Each recognizer now offers an opinion and none can suppress another.
+ *
+ * The span is the EXACT original substring. Recognizers normalize it themselves for parsing and
+ * return the same region text they always did, so nothing here rewrites what is served.
+ */
+type SpanRecognition = { readings: Recognised[]; koreanAmbiguous: string[] | null };
+
+/**
+ * One parse per distinct span, for the whole of one request.
+ *
+ * The cover model made recognition enumerate intervals, and the constituent layer ALREADY enumerated
+ * intervals and called recognition on each -- so the two composed. Twelve fragments give 78 runs at
+ * the outer level, each re-parsing up to 78 inner spans with four recognizers at every leaf: on the
+ * order of thousands of parses for a request somebody could type. The bound existed at each level
+ * and not on their product.
+ *
+ * The fix needs no restructuring of either boundary, because both are asking about THE SAME
+ * SUBSTRINGS: every span the constituent layer offers is a run of the same fragmentation, and every
+ * sub-span recognition then considers is a run of it too. Keyed by exact span text, the cache
+ * collapses the composition to one evaluation per interval -- n(n+1)/2 for n fragments -- and the
+ * remaining enumeration is arithmetic over an already-computed table.
+ *
+ * Lifetime is ONE top-level `resolveRequestAuthority` call. It is not a persistent cache: a request
+ * is parsed fresh, and nothing about one request may leak into the reading of another.
+ */
+let spanCache: Map<string, SpanRecognition> | null = null;
+
+/**
+ * Test-only instrumentation for the bound above, counted rather than timed.
+ *
+ * Wall-clock would make this a flaky performance test that passes on a fast machine while the
+ * composition is still quadratic-on-quadratic. The invariant is a COUNT: no interval is offered to
+ * the recognizer union twice.
+ */
+let spanEvaluations = 0;
+export function __spanEvaluationsForTest(): number {
+  return spanEvaluations;
+}
+export function __resetSpanEvaluationsForTest(): void {
+  spanEvaluations = 0;
+}
+
+function recogniseSpan(span: string): SpanRecognition {
+  const cached = spanCache?.get(span);
+  if (cached) return cached;
+  const computed = recogniseSpanUncached(span);
+  spanCache?.set(span, computed);
+  return computed;
+}
+
+function recogniseSpanUncached(span: string): SpanRecognition {
+  spanEvaluations += 1;
+  const normalized = normalize(span);
+  const korean = containsHangul(span) ? koreanCopularMatch(span) : { status: "NONE" as const };
+  if (korean.status === "AMBIGUOUS") return { readings: [], koreanAmbiguous: korean.readings };
+
+  const mechanism = mechanismMatch(span);
+  const attribution = attributionMatch(normalized);
+  const readings = [
+    ...(mechanism ? [mechanism] : []),
+    ...(attribution ? [attribution] : []),
+    ...(korean.status === "ONE" ? [korean.match] : []),
+    ...recogniseAll(normalized),
+  ];
+
+  const seen = new Set<string>();
+  const distinct: Recognised[] = [];
+  for (const reading of readings) {
+    const id = readingIdentity(reading);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    distinct.push(reading);
+  }
+  return { readings: distinct, koreanAmbiguous: null };
+}
+
+/** One fragment run that carries exactly one reading. */
+interface SpanReading {
+  first: number;
+  last: number;
+  reading: Recognised;
+}
+
+/**
+ * Does exactly one way of reading the whole request exist?
+ *
+ * Punctuation is PROVISIONAL. Rather than bounding a role span at a terminator -- which normalized
+ * text cannot even see, since `normalize` turns every mark into a space -- every contiguous run of
+ * fragments is offered to the grammar, and an interpretation is a set of non-overlapping runs that
+ * tiles the request exactly.
+ *
+ * That is what stops a swallowing reading without refusing it directly. `What did Reuters publish
+ * about Alpha? What is the current Gamma?` still produces the attribution whose subject ran to the
+ * end -- but it ALSO produces the two-fragment cover, so two complete interpretations exist and
+ * neither is unique. `What is the definition of Yahoo! Finance?` produces only the joined run,
+ * because `Finance?` alone reads as nothing, so the name is reunited without any rule knowing it is
+ * a name.
+ */
+function completeInterpretations(fragmentCount: number, readings: SpanReading[]): SpanReading[][] {
+  const covers: SpanReading[][] = [];
+  const walk = (next: number, chosen: SpanReading[]) => {
+    if (next === fragmentCount) {
+      covers.push([...chosen]);
+      return;
+    }
+    for (const r of readings) {
+      if (r.first !== next) continue;
+      chosen.push(r);
+      walk(r.last + 1, chosen);
+      chosen.pop();
+    }
+  };
+  walk(0, []);
+  return covers;
+}
+
 function recogniseOperation(query: string): RequestAuthority {
   const directiveFramed = classifyRequestFrame(query) === "REQUEST_DIRECTIVE";
   const normalized = normalize(query);
 
-  // `subjectAuthority` resolves the relation, its direction, its polarity and its cardinality, and
-  // refuses when any of those is unproven. What it cannot say is whether the relation is all the
-  // request asks for, so its answer is a candidate here and not a verdict.
-  const mechanism = mechanismMatch(query);
-  const attribution = attributionMatch(normalized);
-  // The Korean grammar is consulted only for requests that contain Korean, and it is consulted
-  // LAST among the special cases so that a mixed-script request keeps whatever the English path
-  // made of it. Nothing above this line can match Korean — the constructions, the reporting acts
-  // and the relation verbs are all English literals — so the guard is about intent rather than
-  // necessity: two grammars must never both be allowed an opinion about one sentence.
-  const korean = containsHangul(query) ? koreanCopularMatch(query) : { status: "NONE" as const };
-  if (korean.status === "AMBIGUOUS") {
+  // Recognition over FRAGMENT COVERS, with no recognizer able to silence another.
+  //
+  // The whole span is still offered -- it is the run [0..n-1] -- so a single-sentence request is
+  // decided exactly as before. What is new is that a request with candidate boundaries also offers
+  // its pieces, and a reading that swallowed a following question now has to compete with the cover
+  // that reads both. Two complete interpretations is not one answer.
+  const fragments = candidateFragments(query);
+  if (fragments.length > MAX_CANDIDATE_FRAGMENTS) {
+    return {
+      status: "UNSUPPORTED",
+      detail:
+        "The request has more sentence-like pieces than this grammar will consider at once, and " +
+        "reading some of them would be choosing which parts of the request to answer.",
+    };
+  }
+
+  const spanReadings: SpanReading[] = [];
+  let koreanAmbiguous: string[] | null = null;
+  let wholeSpanReadings: Recognised[] = [];
+  for (let first = 0; first < fragments.length; first += 1) {
+    for (let last = first; last < fragments.length; last += 1) {
+      const span = query.slice(fragments[first].start, fragments[last].end);
+      const { readings, koreanAmbiguous: ambiguous } = recogniseSpan(span);
+      if (first === 0 && last === fragments.length - 1) {
+        wholeSpanReadings = readings;
+        if (ambiguous) koreanAmbiguous = ambiguous;
+      }
+      // A span carrying more than one distinct reading is not a reading; it is a span that has to
+      // be read some other way, or not at all.
+      if (readings.length === 1) spanReadings.push({ first, last, reading: readings[0] });
+    }
+  }
+
+  if (koreanAmbiguous) {
     return {
       status: "AMBIGUOUS",
       detail:
-        `The request has more than one morphological reading — ${korean.readings.join(", ")} — ` +
+        `The request has more than one morphological reading — ${koreanAmbiguous.join(", ")} — ` +
         "and choosing between them would need either the subject inventory, which must not decide " +
         "what a sentence meant, or a guess.",
     };
   }
-  const recognised = mechanism
-    ? [mechanism]
-    : attribution
-      ? [attribution]
-      : korean.status === "ONE"
-        ? [korean.match]
-        : recogniseAll(normalized);
+
+  // Two readings of one span was the old ambiguity check and is kept for its message: it is the
+  // most specific thing that can be said about a request that reads two ways at once.
+  if (wholeSpanReadings.length > 1) {
+    const operations = new Set(wholeSpanReadings.map((r) => r.operation));
+    return {
+      status: "AMBIGUOUS",
+      detail:
+        operations.size > 1
+          ? `The request reads as ${[...operations].join(" and ")}, and one answer cannot be both.`
+          : `The request reads as more than one ${[...operations][0]}, and answering one would be ` +
+            "choosing which was meant.",
+    };
+  }
+
+  const interpretations = completeInterpretations(fragments.length, spanReadings);
+  if (interpretations.length > 1) {
+    return {
+      status: "AMBIGUOUS",
+      detail:
+        "The request can be read as a different number of questions depending on where its " +
+        "sentences are taken to end, and choosing one of those readings would be choosing what " +
+        "was asked.",
+    };
+  }
+  const cover = interpretations[0];
+  if (cover && cover.length > 1) {
+    return {
+      status: "UNSUPPORTED",
+      detail:
+        `The request asks ${cover.length} separate questions, and this repository answers one ` +
+        "operation at a time rather than choosing among them.",
+    };
+  }
+  const recognised = cover ? [cover[0].reading] : [];
   if (recognised.length === 0) {
     // A personal stake still decides, even with nothing recognised. Placed here rather than at the
     // top so that a recognised request keeps being judged by its subject region, which is the

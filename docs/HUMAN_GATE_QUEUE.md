@@ -596,3 +596,34 @@ wrong answer comfortable to live with.
 
 `docs/escalation/PENDING_COMMENTS.md` remains the staging path for the case where the credential
 genuinely is absent. It is a fallback now, not the normal route.
+
+## HG-CODEX-QUOTA — Codex unavailable until 2026-09-01 (recorded 2026-08-26)
+
+`codex exec` now exits non-zero with TWO independent blocks:
+
+    401 Unauthorized: Provided authentication token is expired   (code: token_expired)
+    ERROR: You've hit your usage limit ... try again at Sep 1st, 2026 11:15 PM
+
+Both are HUMAN GATES and neither may be worked around by this session:
+
+  * Re-authenticating requires real credentials. Never extracted, never generated, never prompted
+    for during unattended operation.
+  * "Upgrade to Pro" / "purchase more credits" is metered billing. The zero-extra-cost rule is
+    absolute and does not bend because a review is inconvenient.
+
+DECISION PACKET
+  Decision needed : re-authenticate the existing Codex login, or wait for the 2026-09-01 reset.
+  Options         : (a) human re-auths locally at no cost -- reviews resume immediately;
+                    (b) wait until 2026-09-01 -- costs nothing, delays every exact-tree review;
+                    (c) purchase credits -- REFUSED by policy, listed only for completeness.
+  Recommended     : (a) if the login is simply stale, otherwise (b).
+  Continues meanwhile: everything that does not need an architect verdict. Implementation,
+                    reproduction, mutation, gates, commits and pushes are unaffected.
+
+CONSEQUENCE FOR THE CURRENT UNIT: the recognizer-unification cost repair proceeds against the
+STRUCTURAL DIRECTION GIVEN IN THE USER BRIEF (shared `RequestFragmentAnalysis`, memoized intervals,
+single bound owner, mechanical invocation-count assertion), which is specified concretely enough to
+build. It does NOT proceed against my own architectural judgement on the three open semantic
+questions -- Korean constituent capability, coordinator-guard redundancy, and which rule should own
+the repeated-identical refusal. Those stay OPEN and unresolved rather than being settled by the only
+party still able to write.

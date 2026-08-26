@@ -331,7 +331,7 @@ why `Should I buy Apple?` shows Apple figures) and the redirect must not publish
 repository would refuse (the P1). An architect round is open on which governs a bare directive.
 Implementing before that resolves would trade a reproduced defect for a reproduced regression.
 
-## OPEN BLOCKER — d6d09e2's parser repair is incomplete (self-found, 2026-08-26)
+## RESOLVED by 9139152 — d6d09e2's parser repair was incomplete (self-found, 2026-08-26)
 
 d6d09e2 made `resolveRequestAuthority` treat two readings of one operation as AMBIGUOUS, keyed on
 `operation:subjectRegion`. It closes the case review found and NOT the case its own title names.
@@ -391,3 +391,37 @@ is NOT to be deleted on the strength of the miss.
 STATUS: OPEN. The redirect/constituent/parser authority unit does not close. Two reproduced defects
 and one uncertifiable mutant (M-CON-2), all three rooted in the same fact: three recognition paths
 with three different notions of "nothing left over".
+
+
+## RESOLVED — M-CON-2 was REPRODUCED, not merely untested (2026-08-26)
+
+Recorded here because the wrong disposition was written down twice before the right one.
+
+The exactly-one-maximal-run guard survived the whole suite. I first read that as redundancy and
+nearly deleted the guard; then as "genuinely untested, keep it", which review refused because the
+absence of a hand-built counterexample is not evidence. It required a generated property.
+
+`scripts/search-overlapping-runs.ts` enumerates every ordered fragment combination from a pool and
+reports the three conditions that must hold together for the count to decide anything:
+
+  1. the whole query does NOT authorize — otherwise recognition returns it before runs are reached
+  2. two maximal runs partially overlap — [0..1] and [1..2], neither containing the other
+  3. the outside-construction check would not catch the survivor
+
+90,432 combinations examined, 2,464 overlapping pairs, **120 where the guard is load-bearing**.
+
+Both earlier arguments were wrong in their details, and only running the search showed it:
+
+  * The first overlap found could not have killed the mutant. Production decides it at the early
+    return, because the attribution parser claims the entire string — condition 1, which hand
+    analysis kept missing.
+  * The blindness is not "the marker sits in the overlap". The case that kills the mutant is two
+    MECHANISM runs, and relations are recognised by `relationSyntax` rather than by a CONSTRUCTIONS
+    marker, so a marker scan finds nothing anywhere.
+
+Pinned: `Should I buy stock? Explain how Alpha affects Beta? Zeta? Explain how Alpha affects Beta?`
+verified PROHIBITED / informational=NONE on the production path. Mutation set now 17 of 18.
+
+STILL OPEN: M-CON-14, and the mechanism/attribution swallowing defects above. Review has architected
+one repair for all three — union the recognition parsers, structured reading identity, one residue
+rule, delete the composite guard as TARGET_REMOVED — and that unit is next.

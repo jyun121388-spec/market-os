@@ -300,6 +300,36 @@ describe("prohibited purpose has precedence", () => {
     expect(constituentOf(query)).toBeUndefined();
   });
 
+  /**
+   * Two MAXIMAL runs that partially overlap, which is the only case the exactly-one-run count
+   * decides alone.
+   *
+   * This mutant (M-CON-2) survived the whole suite and I twice reasoned about it instead of
+   * measuring: first "the outside-construction check makes the count redundant", then "I cannot
+   * construct an overlap, so keep the guard as untested". Review rejected both -- absence of a
+   * hand-built example is not evidence -- and required a generated property. `scripts/
+   * search-overlapping-runs.ts` enumerates every ordered fragment combination from a pool and looks
+   * for the three conditions that make the count load-bearing at once:
+   *
+   *   1. the WHOLE query does not authorize   (or recognition returns it and never reaches runs)
+   *   2. two maximal runs partially overlap    ([0..1] and [1..2], neither containing the other)
+   *   3. the outside-construction check would not catch the survivor
+   *
+   * 120 such cases exist. Condition 1 is the one hand analysis kept missing: the first overlap the
+   * search produced was decided by the early return, because the attribution parser claimed the
+   * entire string.
+   *
+   * Why the outside check is blind here: both runs are MECHANISMS, and relations are recognised by
+   * `relationSyntax`, not by a `CONSTRUCTIONS` marker. There is nothing for a marker scan to find.
+   */
+  it("publishes nothing when two maximal runs partially overlap", () => {
+    expect(
+      constituentOf(
+        "Should I buy stock? Explain how Alpha affects Beta? Zeta? Explain how Alpha affects Beta?",
+      ),
+    ).toBeUndefined();
+  });
+
   it("refuses to enumerate an unbounded number of candidate fragments", () => {
     // Run enumeration is quadratic in fragments and parses every run, and nothing upstream bounds
     // the query. Past the cap the answer is "no constituent", which is the same answer any

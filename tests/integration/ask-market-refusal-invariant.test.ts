@@ -156,3 +156,100 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     expect(verify(input!).dimensions.adversarial_resilience.status).toBe("PASS");
   });
 });
+
+/**
+ * A refusal must not publish a relation the same repository refuses to publish neutrally.
+ *
+ * The invariant above is the "not less" half: a redirect shows the figures its neutral twin shows,
+ * so refusing to advise is visibly not refusing to inform. This is the "not more" half, and it was
+ * open. The redirect ran a WIDE topical edge search -- an edge matched when EITHER endpoint loosely
+ * mentioned the query -- while the only authorized edge path, `STORED_MECHANISM`, requires resolved,
+ * oriented, exactly-framed regions. Two publishing rules, and the loose one was reachable through
+ * the door that refuses.
+ *
+ *     stored A -> B
+ *     "Should I buy A? Explain how A affects B only if something else."
+ *     ->  PERSONALIZED_ADVICE_REDIRECTED  causalFactors [A -> B]
+ *     "Explain how A affects B only if something else."
+ *     ->  NOT_FOUND                       causalFactors []
+ *
+ * A conditional question answered unconditionally, underneath a refusal, in a product that may not
+ * give advice. The redirect now publishes no edges at all.
+ *
+ * Why not "publish what the twin would publish" instead: measured, all three advice forms resolve
+ * PROHIBITED, so no cause or effect region exists on this path to run that computation with, and
+ * rebuilding them from the raw query is the second source of authority B2 exists to remove. The
+ * affirmative case is therefore a deliberate narrowing and is pinned below rather than left to be
+ * discovered -- a refusal that publishes strictly less cannot become advice by arrangement.
+ */
+const EDGE_SOURCE = "TEST_ASK_REDIRECT_EDGE";
+const CAUSE = "TEST Redirect Cause";
+const EFFECT = "TEST Redirect Effect";
+
+describeIfDb("the advice redirect publishes no causal edge its neutral form would refuse", () => {
+  let prisma: typeof PrismaClientInstance;
+
+  beforeAll(async () => {
+    ({ prisma } = await import("@/server/db/client"));
+    await prisma.causalEdge.deleteMany({ where: { fromVariable: CAUSE } });
+    await prisma.causalEdge.create({
+      data: {
+        fromVariable: CAUSE,
+        toVariable: EFFECT,
+        direction: "POSITIVE",
+        confidence: "MEDIUM",
+        mechanism: "test transmission mechanism",
+        evidence: EDGE_SOURCE,
+        lag: "1 quarter",
+        counterexamples: "test fixture",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.causalEdge.deleteMany({ where: { fromVariable: CAUSE } });
+    await prisma.$disconnect();
+  });
+
+  const edges = (r: { causalFactors: { fromVariable: string; toVariable: string }[] }) =>
+    r.causalFactors.map((f) => `${f.fromVariable} -> ${f.toVariable}`);
+
+  // Positive control, and it is load-bearing: every assertion below expects an EMPTY array, which
+  // an empty database would satisfy without the rule ever firing. This proves the edge is stored
+  // and reachable, so the empties are refusals rather than absence.
+  it("serves the affirmative relation on the authorized path", async () => {
+    const { askMarket } = await import("@/server/domain/askMarket");
+
+    const result = await askMarket(`Explain how ${CAUSE} affects ${EFFECT}.`);
+    expect(result.status).toBe("FACTORS_FOUND");
+    expect(edges(result)).toEqual([`${CAUSE} -> ${EFFECT}`]);
+  });
+
+  it.each([
+    [
+      "conditional",
+      `Should I buy ${CAUSE}? Explain how ${CAUSE} affects ${EFFECT} only if something else.`,
+    ],
+    ["denial", `Should I buy ${CAUSE}? Explain how it is false that ${CAUSE} affects ${EFFECT}.`],
+  ])("redirects a %s relation without publishing the edge", async (_label, query) => {
+    const { askMarket } = await import("@/server/domain/askMarket");
+
+    const refused = await askMarket(query);
+    expect(refused.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(refused.redirectMessage).toBeTruthy();
+    expect(edges(refused)).toEqual([]);
+  });
+
+  // The deliberate narrowing, pinned so that changing it is a decision rather than a side effect.
+  // The neutral form of this one DOES serve the edge (asserted by the positive control above); the
+  // redirect does not, because a PROHIBITED request carries no regions to serve it from.
+  it("publishes no edge for an advice-framed affirmative relation either", async () => {
+    const { askMarket } = await import("@/server/domain/askMarket");
+
+    const refused = await askMarket(
+      `Should I buy ${CAUSE}? Explain how ${CAUSE} affects ${EFFECT}.`,
+    );
+    expect(refused.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(edges(refused)).toEqual([]);
+  });
+});

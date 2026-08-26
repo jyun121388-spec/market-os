@@ -1165,12 +1165,14 @@ async function resolveSourceIdentity(sourceRegion: string): Promise<SourceResolu
 /**
  * The edge that was asked about, in the direction it was asked in.
  *
- * `findCausalFactors` matches an edge when EITHER endpoint mentions the topic, which is right for
- * a broad topic page and wrong for a mechanism request: a question about freight and shipping came
+ * This is now the only way this module publishes a stored edge. The alternative it replaced,
+ * `findCausalFactors`, matched an edge when EITHER endpoint mentioned the topic -- defensible for a
+ * broad topic page and wrong for a mechanism request: a question about freight and shipping came
  * back with warehouse rent, because sharing one endpoint was enough. IR-104 settled this for the
  * inference path -- candidate Y4, an authentic edge sharing one endpoint with the question and
  * something else at the far end answers a question nobody asked -- and the serving path was never
- * taught it.
+ * taught it. The advice redirect was its last caller and now publishes no edges at all, so this is
+ * the one edge-publishing rule in the module rather than the strict half of two.
  *
  * Cause and effect are matched separately, so orientation is enforced rather than assumed. The
  * parser proved the direction; this is where that proof is spent.
@@ -1219,26 +1221,6 @@ async function findMechanismEdges(cause: string, effect: string): Promise<Causal
       lag: e.lag,
       counterexamples: e.counterexamples,
     }));
-}
-
-async function findCausalFactors(topic: string): Promise<CausalFactor[]> {
-  if (!topic) return [];
-  const allEdges = await prisma.causalEdge.findMany();
-  const edges = allEdges
-    .filter(
-      (e) => mentionsEachOther(e.fromVariable, topic) || mentionsEachOther(e.toVariable, topic),
-    )
-    .slice(0, 10);
-
-  return edges.map((e) => ({
-    fromVariable: e.fromVariable,
-    toVariable: e.toVariable,
-    direction: e.direction,
-    confidence: e.confidence,
-    mechanism: e.mechanism,
-    lag: e.lag,
-    counterexamples: e.counterexamples,
-  }));
 }
 
 async function findCompanyFacts(
@@ -1346,13 +1328,32 @@ export async function askMarket(
   // factors its neutral twin would show, so that refusing to advise is visibly not refusing to
   // inform. Narrowing this would change what a redirect displays, which is a product decision and
   // not a binding defect.
-  const [wideSeries, wideCausal, wideCompany] = isAdviceRequest
+  // Causal edges are the exception to that width, and they are no longer published here at all.
+  //
+  // `findCausalFactors` was the ONLY wide edge search in this file and this was its ONLY caller: no
+  // authorized operation publishes an edge that way. `STORED_MECHANISM` serves `findMechanismEdges`
+  // on resolved, oriented, exactly-framed regions, and every other branch publishes none. So the
+  // redirect had an edge-publishing rule of its own, looser than the only real one, and it showed
+  // relations no neutral form would show -- `Should I buy A? Explain how A affects B only if
+  // something else.` published A -> B unconditionally, in answer to a conditional, while the
+  // neutral form returned nothing.
+  //
+  // The twin's own computation cannot be run here, and that is measured, not assumed: all three
+  // advice forms resolve `PROHIBITED`, so no `causeRegion` or `effectRegion` exists on this path.
+  // Rebuilding them from `trimmed` would make the raw query a second source of authority, which is
+  // the thing B2 exists to remove. So the honest option is the narrow one.
+  //
+  // KNOWN NARROWING, deliberate and in the conservative direction: an advice-framed AFFIRMATIVE
+  // relation now shows no edge where its neutral form shows one. The enforced refusal invariant
+  // compares a TOPICAL twin and is unaffected; a relation twin was never covered by it. A refusal
+  // that publishes strictly less cannot become advice by arrangement, which is what that invariant
+  // is protecting.
+  const [wideSeries, wideCompany] = isAdviceRequest
     ? await Promise.all([
         findObservationFactors(trimmed, asOf, undefined, "OCCURRENCE"),
-        findCausalFactors(trimmed),
         findCompanyFacts(trimmed),
       ])
-    : [[], [], { facts: [] as CompanyFactFactor[] }];
+    : [[], { facts: [] as CompanyFactFactor[] }];
 
   if (isAdviceRequest) {
     return {
@@ -1361,7 +1362,7 @@ export async function askMarket(
       redirectMessage: REDIRECT_MESSAGE,
       matchedTopic: wideCompany.matchedCorpName,
       seriesFactors: wideSeries,
-      causalFactors: wideCausal,
+      causalFactors: [],
       companyFacts: wideCompany.facts,
     };
   }

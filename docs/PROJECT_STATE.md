@@ -757,8 +757,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2165 / 2165 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-25 on the ask-guardrail architecture branch (2048 on 2026-08-24,
+2169 / 2169 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-26 on the ask-guardrail architecture branch (2165 on 2026-08-25, 2048 on 2026-08-24,
 1894, 1888 and 1878 earlier that day, 1847 on 2026-08-23, 1838 on 2026-08-21; the hundred and
 eighty-five since are IR-100 publication-authority, IR-101 output-authority, IR-102
 publication-class, IR-103 candidate-relevance, IR-104 subject/operation-authority, IR-105
@@ -775,7 +775,14 @@ deliberately not in it.
 `npm run e2e` 33/33 checks in a real browser against the **production build** (up from 12) — the
 walkthrough drives the Ask Market guardrail and the Company X-Ray page through real rendered
 HTML, not just the domain functions. `npm run verify:live:edgar` **67/67** against real
-data.sec.gov. Lint / typecheck / format / production build all clean. Full suite 136-516s against a live
+data.sec.gov. Lint / typecheck / format / production build all clean. **In this worktree the build
+gate must be run as `next build --webpack`** (2026-08-26): `node_modules` here is a symlink to the
+main checkout's, and Turbopack refuses it — `Symlink [project]/node_modules is invalid, it points
+out of the filesystem root` — during module resolution, before compiling anything. Webpack builds
+the identical tree clean. It is an environment limitation of the linked worktree, not a defect in
+the tree, and it must not be "fixed" by changing product code. Read the build's OWN exit status:
+`npx next build | tail` reported exit 0 while the build was failing, because that is `tail`'s
+status. Full suite 136-516s against a live
 database across several runs — the variance is real and is the integration files contending for
 one Postgres, not noise worth averaging away.
 

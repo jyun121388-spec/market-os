@@ -800,3 +800,46 @@ describe("no recognizer may silence another", () => {
     }
   });
 });
+
+/**
+ * Precedence removal IS observable, and the generated search is what showed it.
+ *
+ * U-PRE-1 and U-PRE-2 survived the suite, and I could not tell from the survival whether the tests
+ * were thin or the removal was semantically inert. `scratchpad/diff_precedence.py` compares the
+ * full authority -- status, operation, subject, source, cause, effect, and the informational
+ * constituent -- across the union and each precedence variant over a generated corpus. 400 queries:
+ * 16 divergences for mechanism-first, 10 for attribution-first.
+ *
+ * THE QUALIFICATION MATTERS. Every divergence is AMBIGUOUS versus UNSUPPORTED. Both REFUSE, so
+ * precedence changes how a refusal is described and not whether anything is authorized. Under
+ * precedence the surviving recognizer's reading leaves unread text and the request is refused as
+ * unreadable; under the union the span genuinely carries two readings and is refused as ambiguous,
+ * which is the truer description of `X and Y`.
+ *
+ * So this pins a diagnostic property, not a safety one, and the mutants become discriminated
+ * without anyone claiming precedence removal is what closed U1/U2. It was not -- the cover model
+ * was, and that is recorded in the commit.
+ */
+describe("a recognizer union describes a two-reading request as ambiguous", () => {
+  it("reports a relation coordinated with an observation as AMBIGUOUS, not merely unread", () => {
+    expect(authorize("Explain how Alpha affects Beta and What is the current Alpha?").status).toBe(
+      "AMBIGUOUS",
+    );
+  });
+
+  it("reports an attribution coordinated with an observation as AMBIGUOUS", () => {
+    expect(
+      authorize("What did Reuters publish about Delta and What is the current Alpha?").status,
+    ).toBe("AMBIGUOUS");
+  });
+
+  it("still refuses both under either description", () => {
+    // The point of the pair above is the CATEGORY. Neither may ever authorize, whatever rule wins.
+    for (const query of [
+      "Explain how Alpha affects Beta and What is the current Alpha?",
+      "What did Reuters publish about Delta and What is the current Alpha?",
+    ]) {
+      expect(authorize(query).status, query).not.toBe("AUTHORIZED");
+    }
+  });
+});

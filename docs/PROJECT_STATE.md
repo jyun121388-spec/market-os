@@ -757,8 +757,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2184 / 2184 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-26 on the ask-guardrail architecture branch (2182, 2178, 2176 and 2169 earlier that day, 2165 on 2026-08-25, 2048 on 2026-08-24,
+2188 / 2188 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-26 on the ask-guardrail architecture branch (2184, 2182, 2178, 2176 and 2169 earlier that day, 2165 on 2026-08-25, 2048 on 2026-08-24,
 1894, 1888 and 1878 earlier that day, 1847 on 2026-08-23, 1838 on 2026-08-21; the hundred and
 eighty-five since are IR-100 publication-authority, IR-101 output-authority, IR-102
 publication-class, IR-103 candidate-relevance, IR-104 subject/operation-authority, IR-105

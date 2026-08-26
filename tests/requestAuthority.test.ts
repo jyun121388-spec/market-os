@@ -81,6 +81,35 @@ describe("recognition is required, not assumed", () => {
     const a = authorize("What is the current change in US headline CPI this year?");
     expect(a.status).toBe("AMBIGUOUS");
   });
+
+  /**
+   * Two readings of the SAME operation are still two readings.
+   *
+   * The collapse keyed on operation alone and then took the first match, so a second question could
+   * hide inside the first's trailing subject region:
+   *
+   *     "What is the current Acme? What about latest Beta?"
+   *     -> AUTHORIZED, CURRENT_OBSERVATION, subject "acme what about latest beta"
+   *
+   * ` current ` and ` latest ` are both CURRENT_OBSERVATION constructions, so the operation set had
+   * one element and nothing objected. This is `there are no halves` failing where both halves are
+   * the same kind of half: the coordinator list catches `and latest Beta`, and nothing caught
+   * `? What about`. Found through the constituent path, but it was never confined to it -- this is
+   * the ordinary parser answering a two-question request as one.
+   *
+   * The Korean path has always keyed on operation AND subject. This is that rule where it was
+   * missing.
+   */
+  it("is ambiguous when a request reads as two of the SAME operation", () => {
+    const a = authorize("What is the current Acme? What about latest Beta?");
+    expect(a.status).toBe("AMBIGUOUS");
+  });
+
+  it("is ambiguous when two constructions of one operation disagree about the subject", () => {
+    // ` current ` and ` latest ` in one sentence give subjects "latest acme" and "acme". Choosing
+    // the first was arbitrary; there is no basis in the sentence for preferring either.
+    expect(authorize("What is the current latest Acme?").status).toBe("AMBIGUOUS");
+  });
 });
 
 describe("there are no halves", () => {
@@ -212,6 +241,34 @@ describe("prohibited purpose has precedence", () => {
     expect(
       constituentOf("Should I buy stock? What is the current Acme? What is the current Beta?"),
     ).toBeUndefined();
+  });
+
+  /**
+   * A constituent must account for EVERY informational construction in the request.
+   *
+   * Disjointness rejects a compound whose clauses each authorize alone. It cannot see one whose
+   * second clause does NOT authorize alone, and that is the gap review found:
+   *
+   *     "Should I buy stock? What is the current Acme? What about latest Beta?"
+   *
+   * `What about latest Beta?` is not a complete operation -- `about` is unread -- so it never enters
+   * the authorizing set, and the first question was attached while the second vanished. Answering
+   * one of two questions is choosing which was meant.
+   *
+   * So the text outside the chosen run is checked for construction MARKERS rather than for
+   * authorizations: a marker out there means another request is present, complete or not.
+   */
+  it.each([
+    [
+      "a second clause that does not authorize alone",
+      "Should I buy stock? What is the current Acme? What about latest Beta?",
+    ],
+    [
+      "three constructions, one complete",
+      "Should I buy stock? What is the current Acme? What about latest Beta? What about most recent Gamma?",
+    ],
+  ])("publishes nothing when a construction sits outside the constituent (%s)", (_l, query) => {
+    expect(constituentOf(query)).toBeUndefined();
   });
 
   it("refuses to enumerate an unbounded number of candidate fragments", () => {

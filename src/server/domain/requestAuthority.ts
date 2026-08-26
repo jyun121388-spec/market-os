@@ -1114,7 +1114,30 @@ function recogniseInformationalConstituent(
   // Still exactly one. Two maximal runs are two informational requests, and choosing between them
   // would be inventing which the reader meant. `there are no halves` does the rest of the work:
   // a run that swallows the directive carries unread text and cannot authorize at all.
-  return maximal.length === 1 ? maximal[0].request : undefined;
+  if (maximal.length !== 1) return undefined;
+  const chosen = maximal[0];
+
+  // THE CHOSEN RUN MUST ACCOUNT FOR EVERY INFORMATIONAL CONSTRUCTION IN THE REQUEST.
+  //
+  // Disjointness catches a second request that authorizes on its own. It cannot catch one that does
+  // not, and review found that gap exactly where I predicted it would be:
+  //
+  //     "Should I buy stock? What is the current Acme? What about latest Beta?"
+  //
+  // `What about latest Beta?` is not a complete operation -- `about` is unread -- so it never enters
+  // the authorizing set, disjointness sees a single sub-run, and the first question is attached
+  // while the second is discarded in silence. Answering one of two questions is choosing which was
+  // meant, which is the thing this whole recogniser refuses to do.
+  //
+  // So the leftover text is checked for construction markers rather than for authorizations. A
+  // marker outside the chosen run means another informational request is present, complete or not,
+  // and the honest answer is to publish nothing.
+  const outside =
+    query.slice(0, fragments[chosen.start].start) + " " + query.slice(fragments[chosen.end].end);
+  const outsideNormalized = normalize(outside);
+  if (CONSTRUCTIONS.some((c) => outsideNormalized.includes(c.markers[0]))) return undefined;
+
+  return chosen.request;
 }
 
 /**
@@ -1192,6 +1215,32 @@ function recogniseOperation(query: string): RequestAuthority {
     return {
       status: "AMBIGUOUS",
       detail: `The request reads as ${[...operations].join(" and ")}, and one answer cannot be both.`,
+    };
+  }
+
+  // Two readings of the SAME operation are still two readings.
+  //
+  // This collapsed on operation alone and then took the first match, which let one question hide
+  // inside another's subject region:
+  //
+  //     "What is the current Acme? What about latest Beta?"
+  //     -> AUTHORIZED, CURRENT_OBSERVATION, subject "acme what about latest beta"
+  //
+  // ` current ` and ` latest ` are both CURRENT_OBSERVATION constructions, so the set had one
+  // element, the first match won, and its trailing subject region swallowed the second question
+  // whole. That is `there are no halves` failing on the case where both halves are the same kind of
+  // half -- the coordinator list catches `and latest Beta`, and nothing caught `? What about`.
+  //
+  // The Korean path has always keyed on operation AND subject for exactly this reason. This is that
+  // rule, applied where it was missing rather than invented here.
+  const readings = new Set(recognised.map((r) => `${r.operation}:${r.subjectRegion.trim()}`));
+  if (readings.size > 1) {
+    return {
+      status: "AMBIGUOUS",
+      detail:
+        `The request reads as more than one ${[...operations][0]} — ` +
+        `${[...readings].map((r) => r.split(":")[1]).join(" and ")} — and answering one would be ` +
+        `choosing which was meant.`,
     };
   }
 

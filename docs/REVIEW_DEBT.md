@@ -330,3 +330,64 @@ publishes facts. Two contracts are in tension: the redirect must inform (the ori
 why `Should I buy Apple?` shows Apple figures) and the redirect must not publish what the
 repository would refuse (the P1). An architect round is open on which governs a bare directive.
 Implementing before that resolves would trade a reproduced defect for a reproduced regression.
+
+## OPEN BLOCKER — d6d09e2's parser repair is incomplete (self-found, 2026-08-26)
+
+d6d09e2 made `resolveRequestAuthority` treat two readings of one operation as AMBIGUOUS, keyed on
+`operation:subjectRegion`. It closes the case review found and NOT the case its own title names.
+
+    "What is the current Acme? What about latest Beta?"   -> AMBIGUOUS      (fixed)
+    "What is the current Acme? What is the current Beta?" -> AUTHORIZED     (STILL BROKEN)
+                                                             subject " acme what is the current beta "
+
+`recogniseAll` locates each construction with `normalized.indexOf(opening)` -- the FIRST occurrence
+only. Two DIFFERENT constructions therefore produce two matches and two readings; the SAME
+construction twice produces one match, one reading, and a subject region that has swallowed the
+second question whole. Same defect, same severity, one line further down.
+
+Found by attempting to construct the overlapping-maximal-run case for M-CON-2 rather than by a test.
+
+**Why the obvious repair is not obviously right.** Finding every occurrence instead of the first
+would refuse a legitimate request: ` current ` occurs twice in
+`What is the current current account balance?`, where the second is part of the stored name. All-
+occurrences turns that into AMBIGUOUS. Distinguishing "a name containing the marker word" from "a
+second question" is a grammar question -- the second has a full construction with its own framing --
+and picking it by phrase would be the vocabulary-as-grammar substitution this unit exists to remove.
+Architecture round required; this is not a repair to improvise.
+
+STATUS: the redirect/constituent authority unit is NOT closed. The chain through d6d09e2 is real
+work and its other repairs stand, but this specific claim is overstated in that commit message and
+is corrected here rather than by rewriting history.
+
+## OPEN BLOCKER — the same swallowing defect on the mechanism and attribution paths (2026-08-26)
+
+Reproduced while investigating why M-CON-14 stopped being isolated:
+
+    "Explain how Alpha affects Beta. What is the current Gamma?"
+      -> AUTHORIZED  STORED_MECHANISM
+         subject " explain how alpha   beta what is the current gamma "
+
+    "Should I buy stock? What did Reuters publish about Alpha? What is the current Gamma?"
+      -> constituent ATTRIBUTED_REPORTED_OBSERVATION
+         subject " alpha what is the current gamma "
+
+The first is a STANDALONE two-question request answered as one mechanism. The second reaches the
+redirect and would publish under a subject that has eaten the following question.
+
+ROOT CAUSE, and review predicted it before I found it. `recogniseOperation` is not one grammar:
+`mechanismMatch` and `attributionMatch` pre-empt `recogniseAll`, delegating to `relationSyntax` and
+the attribution binder. The readings rule added in d6d09e2, and the all-occurrences fix after it,
+both live in the `recogniseAll` branch -- so neither runs for a request the delegated parsers claim
+first. Codex said exactly this when refusing to certify M-CON-2: "their delegated parsers do not
+provide a demonstrated union-closure property."
+
+WHY M-CON-14 NOW SURVIVES. The composite/disjointness guard used to be the only thing rejecting a
+run that contains two whole requests. On the `recogniseAll` path the readings rule now rejects those
+runs earlier, so the guard is no longer load-bearing THERE. It is still the only guard on the
+mechanism and attribution paths -- and the attribution measurement above shows it is not sufficient
+there either. So M-CON-14 is neither cleanly redundant nor cleanly untested, and the composite guard
+is NOT to be deleted on the strength of the miss.
+
+STATUS: OPEN. The redirect/constituent/parser authority unit does not close. Two reproduced defects
+and one uncertifiable mutant (M-CON-2), all three rooted in the same fact: three recognition paths
+with three different notions of "nothing left over".

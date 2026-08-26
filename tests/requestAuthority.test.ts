@@ -105,10 +105,39 @@ describe("recognition is required, not assumed", () => {
     expect(a.status).toBe("AMBIGUOUS");
   });
 
-  it("is ambiguous when two constructions of one operation disagree about the subject", () => {
-    // ` current ` and ` latest ` in one sentence give subjects "latest acme" and "acme". Choosing
-    // the first was arbitrary; there is no basis in the sentence for preferring either.
-    expect(authorize("What is the current latest Acme?").status).toBe("AMBIGUOUS");
+  /**
+   * CORRECTED. This asserted that `What is the current latest Acme?` is AMBIGUOUS, and I called
+   * that "defensible and fail-closed" without checking whether it was a request a person would
+   * write. Review called it an availability defect and was right: two markers of ONE operation
+   * describing one subject is redundancy, not a second question.
+   *
+   * Review's repair -- canonicalise the subject before serving it -- is NOT what is implemented,
+   * and the reason is measured. `What is the current current account balance?` authorizes today
+   * with the subject `current account balance`, which is the stored name. Canonicalising the served
+   * subject would cut it to `account balance` and delete a word the reader wrote. The two inputs
+   * are structurally identical -- a marker, then a span beginning with another marker word -- so a
+   * rule that fixes one by rewriting the subject breaks the other.
+   *
+   * So canonicalisation is used ONLY as the comparison key, and the subject served stays the raw
+   * region of the first match. Both requests authorize; neither subject is rewritten.
+   */
+  it("authorizes when two markers of one operation describe the same subject", () => {
+    const a = authorize("What is the current latest Acme?");
+    expect(a.status).toBe("AUTHORIZED");
+  });
+
+  it("keeps a marker word that belongs to the stored name", () => {
+    const a = authorize("What is the current current account balance?");
+    expect(a.status).toBe("AUTHORIZED");
+    expect(a.status === "AUTHORIZED" && a.subjectRegion).toContain("current account balance");
+  });
+
+  it("is ambiguous when the SAME construction introduces two different subjects", () => {
+    // The case the previous repair missed entirely: two different constructions produced two
+    // readings and were caught, while the same construction twice produced one reading, because
+    // recognition found only its FIRST occurrence.
+    const a = authorize("What is the current Acme? What is the current Beta?");
+    expect(a.status).toBe("AMBIGUOUS");
   });
 });
 
@@ -435,15 +464,32 @@ describe("each refusing layer decides something no other layer decides", () => {
     expect(a.status === "UNSUPPORTED" && a.detail).toContain("quickly");
   });
 
-  it("refuses two operations joined by a coordinator, leaving no unread text to catch them", () => {
-    // Coordinator alone: the subject region runs to end-of-sentence, so it swallows the second
-    // question entirely and the unread check sees nothing left over. Without the coordinator bound
-    // this authorizes one operation and answers about a subject the asker never named.
+  /**
+   * The coordinator bound and the two-readings rule catch the same SHAPE by different evidence, and
+   * this pair keeps both honest about which decides what.
+   *
+   * This test used to use `What is the current US headline CPI, and also the current UK policy
+   * rate?` to prove the coordinator was the only layer that could see it. That stopped being true:
+   * two ` current ` markers make two readings, and the readings rule now refuses it first with a
+   * message that names the actual problem. The coordinator layer is NOT thereby dead -- measured,
+   * a single-reading coordination still reaches only it -- so the input moved rather than the test
+   * being deleted.
+   */
+  it("refuses a coordinated second subject that produces only ONE reading", () => {
+    // One ` current `, so the readings rule sees a single reading and says nothing. The subject
+    // region runs to end-of-sentence and swallows "the silver price", leaving no unread text. Only
+    // the coordinator bound can refuse this, which is what makes it load-bearing.
+    const a = authorize("What is the current gold price and the silver price?");
+    expect(a.status).toBe("UNSUPPORTED");
+    expect(a.status === "UNSUPPORTED" && a.detail).toContain("another clause");
+  });
+
+  it("refuses two coordinated operations as AMBIGUOUS once both are readable", () => {
     const a = authorize(
       "What is the current US headline CPI, and also the current UK policy rate?",
     );
-    expect(a.status).toBe("UNSUPPORTED");
-    expect(a.status === "UNSUPPORTED" && a.detail).toContain("another clause");
+    expect(a.status).toBe("AMBIGUOUS");
+    expect(a.status === "AMBIGUOUS" && a.detail).toContain("more than one");
   });
 });
 

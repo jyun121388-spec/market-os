@@ -822,37 +822,83 @@ function recogniseAll(normalized: string): Recognised[] {
 
   for (const construction of CONSTRUCTIONS) {
     const [opening, closing] = construction.markers;
-    const at = normalized.indexOf(opening);
-    if (at === -1) continue;
-
-    let subjectStart: number;
-    let subjectEnd: number;
-    let before: string;
-    let after: string;
-
-    if (construction.subjectSide === "BEFORE") {
-      subjectStart = 0;
-      subjectEnd = at + 1;
-      before = " ";
-      after = normalized.slice(at + opening.length - 1);
-    } else {
-      subjectStart = at + opening.length - 1;
-      subjectEnd = closing ? normalized.indexOf(closing, subjectStart) : normalized.length;
-      if (closing && subjectEnd === -1) continue;
-      before = normalized.slice(0, at + 1);
-      after = closing ? normalized.slice(subjectEnd + closing.length - 1) : " ";
+    // EVERY occurrence, not the first.
+    //
+    // `indexOf` alone found one match per construction, so two questions built from the SAME
+    // construction collapsed into a single reading and the second hid inside the first's subject:
+    //
+    //     "What is the current Acme? What is the current Beta?"
+    //     -> AUTHORIZED, subject "acme what is the current beta"
+    //
+    // Two DIFFERENT constructions already produced two readings and were caught. The same
+    // construction twice produced one and was not -- the same defect, one line further down, and it
+    // survived the repair that was written for it.
+    const positions: number[] = [];
+    for (
+      let seen = normalized.indexOf(opening);
+      seen !== -1;
+      seen = normalized.indexOf(opening, seen + 1)
+    ) {
+      positions.push(seen);
     }
+    for (const at of positions) {
+      let subjectStart: number;
+      let subjectEnd: number;
+      let before: string;
+      let after: string;
 
-    const subjectRegion = normalized.slice(subjectStart, subjectEnd);
-    if (!subjectRegion.trim()) continue;
-    found.push({
-      operation: construction.operation,
-      subjectRegion,
-      residue: `${before} ${after}`.trim().split(" ").filter(Boolean),
-    });
+      if (construction.subjectSide === "BEFORE") {
+        subjectStart = 0;
+        subjectEnd = at + 1;
+        before = " ";
+        after = normalized.slice(at + opening.length - 1);
+      } else {
+        subjectStart = at + opening.length - 1;
+        subjectEnd = closing ? normalized.indexOf(closing, subjectStart) : normalized.length;
+        if (closing && subjectEnd === -1) continue;
+        before = normalized.slice(0, at + 1);
+        after = closing ? normalized.slice(subjectEnd + closing.length - 1) : " ";
+      }
+
+      const subjectRegion = normalized.slice(subjectStart, subjectEnd);
+      if (!subjectRegion.trim()) continue;
+      found.push({
+        operation: construction.operation,
+        subjectRegion,
+        residue: `${before} ${after}`.trim().split(" ").filter(Boolean),
+      });
+    }
   }
 
   return found;
+}
+
+/**
+ * A subject region with same-operation construction markers removed, FOR COMPARISON ONLY.
+ *
+ * Enumerating every occurrence makes two readings out of one legitimate request as well as out of
+ * two questions, and the two must be told apart without asking the repository what it holds:
+ *
+ *     "What is the current current account balance?"   ONE question. Readings differ only by
+ *                                                      whether the second ` current ` is inside the
+ *                                                      subject; both mean the same subject.
+ *     "What is the current Acme? What is the current Beta?"
+ *                                                      TWO questions. The readings disagree about
+ *                                                      what the subject IS.
+ *
+ * Stripping the operation's own markers collapses the first pair and leaves the second pair
+ * distinct. It is used ONLY as the comparison key: the subject actually served stays the raw region
+ * of the first match, because `current account balance` is the stored name and canonicalising it to
+ * `account balance` would delete a word the reader wrote.
+ */
+function canonicalSubjectKey(operation: RequestOperation, subjectRegion: string): string {
+  let canonical = ` ${subjectRegion.trim()} `;
+  for (const construction of CONSTRUCTIONS) {
+    if (construction.operation !== operation) continue;
+    const marker = construction.markers[0];
+    while (canonical.includes(marker)) canonical = canonical.replace(marker, " ");
+  }
+  return canonical.trim().split(/\s+/).filter(Boolean).join(" ");
 }
 
 /**
@@ -1233,7 +1279,9 @@ function recogniseOperation(query: string): RequestAuthority {
   //
   // The Korean path has always keyed on operation AND subject for exactly this reason. This is that
   // rule, applied where it was missing rather than invented here.
-  const readings = new Set(recognised.map((r) => `${r.operation}:${r.subjectRegion.trim()}`));
+  const readings = new Set(
+    recognised.map((r) => `${r.operation}:${canonicalSubjectKey(r.operation, r.subjectRegion)}`),
+  );
   if (readings.size > 1) {
     return {
       status: "AMBIGUOUS",

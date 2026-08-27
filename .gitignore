@@ -46,3 +46,7 @@ next-env.d.ts
 
 # local dev tooling installed into the workspace (portable Postgres, throwaway data dirs)
 .local/
+
+# Python bytecode from the mutation assurance scripts. Never source.
+__pycache__/
+*.pyc

@@ -128,42 +128,59 @@ def _pid_alive(pid):
     return f'"{int(pid)}"' in probe.stdout.decode("utf-8", "replace")
 
 
-def acquire_lock(run_id):
+def acquire_lock(token):
     """One active mutation transaction per worktree, or fail closed.
 
     Two harnesses in one worktree is not a slow run, it is a corrupt one: B would snapshot A's
     MUTANT as its own before-image and then "restore" the tree to a mutated state that nothing
     records as wrong. That is a worse outcome than either run failing.
 
-    A lock left by a DEAD process is not contention, it is wreckage: it is reclaimed so a crash
-    cannot wedge the worktree forever, and the manifest left beside it still drives recovery.
+    A lock held by a DEAD process is wreckage rather than contention, so it is reclaimed -- but the
+    reclaim is where the race lives. Read-pid-then-overwrite is TOCTOU: two processes can both see
+    the same dead pid, both write, and both proceed believing they own the worktree. So the reclaim
+    writes a UNIQUE TOKEN through an atomic replace and then READS IT BACK. Exactly one writer can
+    see its own token afterwards; everyone else lost and says so.
     """
     os.makedirs(RECOVERY_DIR, exist_ok=True)
     try:
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, f"{os.getpid()} {run_id}".encode())
+        os.write(fd, token.encode())
         os.close(fd)
         return True
     except FileExistsError:
         pass
+
     try:
-        holder = int(io.open(LOCK, encoding="utf-8").read().split()[0])
+        holder = io.open(LOCK, encoding="utf-8").read().strip()
+        holder_pid = int(holder.split("-")[0])
     except (ValueError, IndexError, OSError):
-        holder = None
-    if holder is not None and _pid_alive(holder):
-        emit(f"HARNESS_BUSY: pid {holder} already owns this worktree's mutation transaction")
+        holder, holder_pid = "(unreadable)", None
+    if holder_pid is not None and _pid_alive(holder_pid):
+        emit(f"HARNESS_BUSY: {holder} already owns this worktree's mutation transaction")
         return False
-    emit(f"   reclaiming lock from dead pid {holder}")
-    io.open(LOCK, "w", encoding="utf-8").write(f"{os.getpid()} {run_id}")
+
+    emit(f"   lock held by dead owner {holder}; attempting atomic reclaim")
+    staging = f"{LOCK}.{token}.claim"
+    io.open(staging, "w", encoding="utf-8", newline="\n").write(token)
+    os.replace(staging, LOCK)
+    # Whoever's token survives the last replace owns it. Reading back is what turns a racy
+    # overwrite into a decision.
+    winner = io.open(LOCK, encoding="utf-8").read().strip()
+    if winner != token:
+        emit(f"HARNESS_BUSY: lost the reclaim race to {winner}")
+        return False
     return True
 
 
-def release_lock():
-    if os.path.exists(LOCK):
-        try:
-            os.remove(LOCK)
-        except OSError:
-            pass
+def release_lock(token):
+    """Release ONLY if we still hold it. Deleting unconditionally would remove a lock another run
+    legitimately reclaimed after we were declared dead, handing the worktree to a third process."""
+    try:
+        if io.open(LOCK, encoding="utf-8").read().strip() != token:
+            return
+        os.remove(LOCK)
+    except OSError:
+        pass
 
 
 def owned_worktree_dirt(paths):
@@ -284,6 +301,49 @@ def startup_recovery():
     return True
 
 
+RUN_STARTED_LINE = re.compile(r"^RUN_STARTED ([0-9a-f]{12}) ")
+RUN_COMPLETED_LINE = re.compile(r"^RUN_COMPLETED ([0-9a-f]{12})\s*$")
+VERDICT_LINE = re.compile(r"^(ISOLATED|CAUGHT-BUT-BROAD|MISSED) +\[([0-9a-f]{12})\] (.+?)\s*$")
+
+
+def verify_report(text):
+    """Decide which verdict lines in a harness log are admissible as evidence.
+
+    Aggregation does not happen inside the harness process. A `verdicts` list built and then
+    filtered in the same function can only ever contain this run's ids, so filtering it proves
+    nothing -- review called that out, correctly. The place a stale verdict actually gets counted is
+    HERE: a log, read afterwards, by a session or a person totalling the lines they can see.
+
+    That failure is not hypothetical in this project. A run stalled 59 minutes and its truncated log
+    was indistinguishable from a short successful one, and a scrollback holding two runs looks like
+    one longer run. So the rule is bracket-based, not id-based-in-memory:
+
+      a verdict is admissible only if its own run id also appears on a RUN_COMPLETED line.
+
+    An interrupted run emits RUN_STARTED and verdicts but never RUN_COMPLETED, so every verdict it
+    produced is rejected -- including when its lines sit directly above a genuine run's.
+    """
+    started, completed, seen = set(), set(), []
+    for line in text.splitlines():
+        found = RUN_STARTED_LINE.match(line)
+        if found:
+            started.add(found.group(1))
+            continue
+        found = RUN_COMPLETED_LINE.match(line)
+        if found:
+            completed.add(found.group(1))
+            continue
+        found = VERDICT_LINE.match(line)
+        if found:
+            seen.append({"run_id": found.group(2), "verdict": found.group(1),
+                         "label": found.group(3)})
+    return {
+        "admissible": [v for v in seen if v["run_id"] in completed],
+        "rejected": [v for v in seen if v["run_id"] not in completed],
+        "unbracketed_runs": sorted(started - completed),
+    }
+
+
 FILES_LINE = re.compile(r"Test Files\s+(.+?)\s*\(\d+\)")
 TESTS_LINE = re.compile(r"Tests\s+(.+?)\s*\(\d+\)")
 
@@ -361,6 +421,27 @@ def harness(owned_paths, binding_tests, unrelated_tests, mutations, wall_seconds
     os.chdir(WORKTREE)
     owned = [owned_relpath(p) for p in owned_paths]
 
+    # THE LOCK COMES FIRST, before recovery and before the before-image. Review found the ordering
+    # defect and it is not theoretical: with recovery ahead of the lock, a second harness starting
+    # while the first is mid-mutation would read the first's incomplete manifest, "recover" its
+    # ACTIVE mutant, delete the manifest -- and only then discover the lock is held. The first run
+    # would carry on measuring against bytes a stranger had restored underneath it, with its own
+    # recovery record gone. Everything that inspects or writes shared state now happens inside the
+    # lock.
+    token = f"{os.getpid()}-{time.time_ns()}"
+    if not acquire_lock(token):
+        return 8
+
+    originals, hashes = None, None
+    try:
+        return _run_locked(owned, binding_tests, unrelated_tests, mutations,
+                           wall_seconds, command, needs_db, token)
+    finally:
+        release_lock(token)
+
+
+def _run_locked(owned, binding_tests, unrelated_tests, mutations, wall_seconds, command,
+                needs_db, token):
     if not startup_recovery():
         emit("HARNESS_INVALID: could not recover a previous interrupted run")
         return 5
@@ -387,10 +468,8 @@ def harness(owned_paths, binding_tests, unrelated_tests, mutations, wall_seconds
                 return False
         return True
 
-    # A. owned paths  B. before bytes  C. hashes  D. payloads  E. atomic manifest  F. RUN_STARTED
-    # G. only then the first mutant. A death between any two of these leaves enough to recover.
-    if not acquire_lock(run_id):
-        return 8
+    # Ordering inside the lock: before-image -> hashes -> payloads -> atomic manifest ->
+    # RUN_STARTED -> only then the first mutant. A death between any two leaves enough to recover.
     snapshot_owned(originals, run_id)
     baseline_dirt = owned_worktree_dirt(owned)
     emit(f"RUN_STARTED {run_id} pid={os.getpid()} mutations={len(mutations)}")
@@ -461,10 +540,10 @@ def harness(owned_paths, binding_tests, unrelated_tests, mutations, wall_seconds
             caught, clean = binding.testsFailed > 0, unrelated.green
             verdict = "ISOLATED" if caught and clean else ("CAUGHT-BUT-BROAD" if caught else "MISSED")
             isolated += 1 if caught and clean else 0
-            # Every verdict carries this run's id, so one from an interrupted run can never be
-            # aggregated into a current denominator.
             verdicts.append({"run_id": run_id, "verdict": verdict, "label": label})
-            emit(f"{verdict:<16} {label}")
+            # The run id goes in the LINE, not only in memory. Aggregation happens outside this
+            # process, when the log is read; `verify_report` is the checker for that path.
+            emit(f"{verdict:<16} [{run_id}] {label}")
             emit(f"                 binding: {binding}   unrelated: {unrelated}")
     finally:
         # Clearing the manifest belongs HERE, not after the try, and the self-test found that the
@@ -480,14 +559,14 @@ def harness(owned_paths, binding_tests, unrelated_tests, mutations, wall_seconds
         if restore():
             if os.path.exists(MANIFEST):
                 os.remove(MANIFEST)
-            release_lock()
         else:
             emit("RESTORE FAILED - recovery manifest and lock KEPT for the next invocation")
 
-    foreign = [v for v in verdicts if v["run_id"] != run_id]
-    if foreign:
-        emit(f"HARNESS_INVALID: {len(foreign)} verdict(s) from a foreign run reached aggregation")
-        return 7
+    # There was a `foreign = [v for v in verdicts if v["run_id"] != run_id]` check here and review
+    # was right to call it vacuous: `verdicts` is local, appended to in one place, with a literal
+    # `run_id` -- no value could ever fail it. It read like a safeguard while guarding nothing, and
+    # a control that watched it pass would have certified the absence of a defect it could not see.
+    # The real cross-run contamination happens in the log, so the check lives in `verify_report`.
 
     if os.path.exists(MANIFEST):
         os.remove(MANIFEST)

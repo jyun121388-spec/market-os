@@ -9,7 +9,7 @@ holding the test turns red and forces someone to look. That is the whole reason 
 comments: a comment describing a defect outlives the defect silently, and a test demanding the
 current wrong answer makes the eventual fix look like a regression.
 
-**16 pinned, verified by a full run against real PostgreSQL** (2331 tests across 133 files: 2315
+**16 pinned, verified by a full run against real PostgreSQL** (2333 tests across 133 files: 2317
 passed, 16 expected fail). Two were closed during ESC-015 §10 and are recorded at the bottom, since
 "closed" is a claim that needs its own evidence. Three were ADDED by ESC-015 §6 -- the company role
 turned out to carry the same defect and to be the one role where the cover cannot be applied as

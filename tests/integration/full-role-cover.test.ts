@@ -114,3 +114,131 @@ describeIfDb("a stored name occurring inside a larger role is not publication au
     expect(r.status, query).not.toBe("NOT_FOUND");
   });
 });
+
+/**
+ * RESIDUE must not fall through to another candidate source; NO_CANDIDATE must still fall through.
+ *
+ * Required before closure by `[CHATGPT_GUIDANCE][ESC-015-EXACT-ROLE-COVER-EXACT-TREE-20260829]`
+ * point 5. The two halves are one design decision and pull in opposite directions, so both are
+ * asserted against the same seeded repository or neither means anything.
+ *
+ * The cover refuses on RESIDUE and NOT on absence, deliberately: an OBSERVATION request can be
+ * answered by a series or by a company's filings, and a role naming no stored series has failed the
+ * series lookup rather than failed authority. Getting that wrong turned twenty company questions
+ * into REQUEST_NOT_SUPPORTED in one run.
+ *
+ * The risk the two halves create between them is a fall-through: a role that named a series and
+ * then said more, refused by the series cover, being answered instead by a company whose name also
+ * occurs in it. Both a series and a company are seeded here under names that share a token, so the
+ * fall-through is available if the code permits it.
+ */
+describeIfDb("refusal does not fall through to another candidate source", () => {
+  let prisma: typeof PrismaClientInstance;
+  let sourceId: string;
+
+  const SHARED = "TESTFALL Meridian";
+  const FALL_SOURCE = "TEST_FULL_ROLE_FALLTHROUGH";
+
+  beforeAll(async () => {
+    ({ prisma } = await import("@/server/db/client"));
+    const source = await prisma.source.upsert({
+      where: { code: FALL_SOURCE },
+      update: {},
+      create: { code: FALL_SOURCE, name: "Fall-through test", tier: "TIER_S" },
+    });
+    sourceId = source.id;
+    await prisma.observation.deleteMany({ where: { sourceId } });
+    await prisma.series.deleteMany({ where: { sourceId } });
+    await prisma.financialFact.deleteMany({ where: { sourceId } });
+    await prisma.filing.deleteMany({ where: { sourceId } });
+
+    const day = 24 * 60 * 60 * 1000;
+    const series = await prisma.series.create({
+      data: {
+        sourceId,
+        externalId: `${FALL_SOURCE}_SERIES`,
+        name: SHARED,
+        unit: "index",
+        frequency: "daily",
+      },
+    });
+    for (const [ago, value] of [
+      [1, "102.0"],
+      [2, "100.0"],
+    ] as const) {
+      await prisma.observation.create({
+        data: {
+          seriesId: series.id,
+          sourceId,
+          observationDate: new Date(Date.now() - ago * day),
+          value,
+          raw: {},
+        },
+      });
+    }
+
+    // A company sharing the distinguishing token, so a fall-through has somewhere to land.
+    await prisma.filing.create({
+      data: {
+        sourceId,
+        corpCode: "TESTFALL0",
+        corpName: `${SHARED} Holdings`,
+        reportName: "Annual report",
+        receiptNo: `${FALL_SOURCE}_0`,
+        receiptDate: new Date(Date.now() - day),
+        raw: {},
+      },
+    });
+    for (const ago of [1, 92]) {
+      const periodEnd = new Date(Date.now() - ago * day);
+      await prisma.financialFact.create({
+        data: {
+          sourceId,
+          corpCode: "TESTFALL0",
+          taxonomy: "us-gaap",
+          concept: "Revenues",
+          unit: "USD",
+          periodStart: new Date(periodEnd.getTime() - 90 * day),
+          periodEnd,
+          form: "10-Q",
+          accessionNumber: `${FALL_SOURCE}_0_${ago}`,
+          filedDate: periodEnd,
+          value: "1000.0000",
+          raw: {},
+        },
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.observation.deleteMany({ where: { sourceId } });
+    await prisma.series.deleteMany({ where: { sourceId } });
+    await prisma.financialFact.deleteMany({ where: { sourceId } });
+    await prisma.filing.deleteMany({ where: { sourceId } });
+    await prisma.source.delete({ where: { id: sourceId } });
+    await prisma.$disconnect();
+  });
+
+  const ask = async (query: string) => {
+    const { askMarket } = await import("@/server/domain/askMarket");
+    return askMarket(query);
+  };
+
+  it("keeps the company fallback available when no series is named", async () => {
+    // NO_CANDIDATE on the series lookup. The company must still answer, or the refusal is too wide
+    // and this whole block is measuring a broken path rather than a working one.
+    const r = await ask(`What is the current ${SHARED} Holdings revenue?`);
+    expect(r.status, JSON.stringify(r)).toBe("FACTORS_FOUND");
+    expect(r.companyFacts.length).toBeGreaterThan(0);
+  });
+
+  it("does not answer a refused series role from a company instead", async () => {
+    // RESIDUE on the series lookup, with a company whose name contains the same token sitting right
+    // there. Refusing the series and then publishing the company would be the same defect wearing a
+    // different record class.
+    const r = await ask(`What is the current ${SHARED}. Purchase Gamma shares.`);
+    expect(r.companyFacts, JSON.stringify(r)).toHaveLength(0);
+    expect(r.seriesFactors).toHaveLength(0);
+    expect(r.status).toBe("REQUEST_NOT_SUPPORTED");
+  });
+});

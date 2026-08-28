@@ -1132,6 +1132,46 @@ async function findChangeFactors(
 }
 
 /**
+ * Series whose name is NOT merely read out of a longer stored COMPANY name that also occurs.
+ *
+ * Maximality across record classes, and it exists because applying the role cover without it broke
+ * an ordinary company question. `What is the current TESTFALL Meridian Holdings revenue?` names a
+ * company; a stored series called `TESTFALL Meridian` also occurs inside that role, purely as a
+ * prefix of the company's name. Series discovery found it, cover could not explain the trailing
+ * `holdings revenue`, and the request was refused before the company path -- which would have
+ * answered it correctly -- was ever reached.
+ *
+ * The fix is the rule this module already applies everywhere else, extended across the boundary
+ * between two record classes rather than stopped at it: a stored name occurring only INSIDE an
+ * occurrence of a longer stored name has not been named by the request. `explicitlyNamed` enforces
+ * exactly that, and it was being run over series alone, so a company name could not out-compete a
+ * series name no matter how much longer it was.
+ *
+ * This is not the repository choosing a sentence reading. Both readings are the same operation; what
+ * is being decided is which stored identity the role names, which is the question this layer exists
+ * to answer. The refusal it protects is unaffected: with no company named, nothing out-competes the
+ * series and residue still refuses.
+ */
+async function seriesNotReadOutOfALongerStoredName<T extends { name: string }>(
+  region: string,
+  series: T[],
+): Promise<T[]> {
+  if (series.length === 0) return series;
+  const filings = await prisma.filing.findMany({ select: { corpName: true } });
+  if (filings.length === 0) return series;
+  const competing = [
+    ...series.map((s) => ({ name: s.name, series: s as T | undefined })),
+    ...filings.map((f) => ({ name: f.corpName, series: undefined })),
+  ];
+  const survivors = new Set(
+    explicitlyNamed(competing, (c) => c.name, region)
+      .map((c) => c.series)
+      .filter((s): s is T => s !== undefined),
+  );
+  return series.filter((s) => survivors.has(s));
+}
+
+/**
  * A named source resolved to a repository identity, or a refusal.
  *
  * The parsed source constituent is TEXT. It becomes authority only by matching a `Source` this
@@ -1538,7 +1578,10 @@ async function selectAuthorizedOperation(
     // The question is now whether the WHOLE role is explained by one stored identity. A role with
     // a name in it and anything else left over is not authority to render that name's rows; it is
     // a request this grammar did not finish reading.
-    const candidates = await matchingSeries(subject, undefined, authority.subjectIdentity);
+    const candidates = await seriesNotReadOutOfALongerStoredName(
+      subject,
+      await matchingSeries(subject, undefined, authority.subjectIdentity),
+    );
     const cover = exactRoleCover(
       subject,
       authority.subjectIdentity,

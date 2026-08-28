@@ -597,6 +597,23 @@ wrong answer comfortable to live with.
 `docs/escalation/PENDING_COMMENTS.md` remains the staging path for the case where the credential
 genuinely is absent. It is a fallback now, not the normal route.
 
+## CLOSED 2026-08-28 — Codex is available again, verified by invocation
+
+`CODEX_UNAVAILABLE_EXTERNAL` no longer holds. Each model id was checked POSITIVELY, one probe each,
+and each returned its own answer rather than being inferred from another's:
+
+    gpt-5.6-luna    MODEL_OK, then two full reviews (REWORK_REQUIRED, then APPROVE)
+    gpt-5.6-terra   MODEL_OK, then three architecture rounds
+    gpt-5.6-sol     MODEL_OK
+
+Nothing was bought and no key was switched: this is the included Pro allowance. If it exhausts
+again the classification returns to `CODEX_UNAVAILABLE_EXTERNAL`, which is still not a Human Gate
+and still not permission to spend.
+
+The reason each id was probed separately is the HG-001 lesson one section down: `gh auth status`
+exits non-zero when logged out, a compound probe swallowed it, and "unauthenticated" was recorded
+as "absent" for most of a session. One capability, one probe, one result.
+
 ## SUPERSEDED 2026-08-27 — HG-CODEX-QUOTA was never a Human Gate
 
 Reclassified: **CODEX_UNAVAILABLE_EXTERNAL, reason USAGE_LIMIT, HUMAN_GATE = NONE.**

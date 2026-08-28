@@ -23,6 +23,31 @@ STATUS as of 2026-08-18:
 
 ## The last thing done
 
+**2026-08-28 — the redirect/informational P1 is repaired, reviewed and committed (`009341d`).**
+
+A second clause that did not authorize on its own could be swallowed into an open-class region of
+the first, and in the worst instance the advice DIRECTIVE ended up inside a source region the
+redirect path serves. Cover competition could not refuse it: it refuses a swallowing reading only
+by producing a rival tiling, and a tail that reads as nothing produces no rival.
+
+A candidate boundary is now confirmed only when the fragment after it opens a clause AND the run's
+head is itself a complete request. Four rules were tried and refuted by measurement before this
+one, including two written after review approved the design.
+
+9 boundary mutants, 9 of 9 ISOLATED full suite 127 files / 2237 pass / 2 expected fail
+114 binding, 49 unrelated, pinned typecheck, eslint, prettier, build all clean
+
+The mutation harness that produced those numbers was reviewed and repaired FIRST, across three
+commits, because evidence from an unverified harness is not evidence. Its lock took three designs;
+the first two looked correct and were measured admitting two simultaneous holders.
+
+Codex Pro is working again: `gpt-5.6-luna`, `gpt-5.6-terra` and `gpt-5.6-sol` all verified by
+invocation, not assumed. Luna reviewed the harness twice (REWORK, then APPROVE), Terra reviewed the
+P1 architecture three times (APPROVE, then REFINE_IN_THIS_UNIT, then REFINE_FURTHER, each time on a
+measurement it had asked for). Sol's exact-tree P1 review of `009341d` is the open item.
+
+### Earlier
+
 The provider capability matrix (`src/server/fabric/providerCapability.ts`), continuing directly
 from the vintage contract and answering the question it kept raising: is this evidence absent
 because the provider withholds it, or because nobody has looked? `SUPPORTED` and `NOT_SUPPORTED`
@@ -38,7 +63,13 @@ tiebreak. See `docs/PROJECT_STATE.md` for what each layer gained.
 
 ## NEXT EXACT ACTION, in order
 
-1. **If a FRED key has arrived** (HG-002), this is the highest-value work available and it closes
+0. **Read Sol's exact-tree P1 review of `009341d`** and repair anything it REPRODUCES. A reviewer's
+   confidence is not evidence and neither is mine: reproduce before repairing, as the two
+   architect rounds on this same unit both required.
+1. Then the framing-positionality unit (`scripts/reproduce-framing-position.ts` is written and
+   untracked), then B2-C, then B2-D. `src/server/domain/sourceAuthority.ts` is written, referenced
+   by nothing, and is B2-C's starting point -- it must be wired or deleted, not left as it is.
+2. **If a FRED key has arrived** (HG-002), this is the highest-value work available and it closes
    two things at once. Live-verify the adapter the way EDGAR was verified — real endpoint, real
    response shape against the declared TypeScript types, then a real ingest followed by a
    re-ingest for idempotency, using `scripts/verify-fred-live.ts`. Then check what
@@ -47,11 +78,11 @@ tiebreak. See `docs/PROJECT_STATE.md` for what each layer gained.
    `NOT_VERIFIED` with a test forbidding an upgrade to `KNOWN` without a live response. Confirming
    their real semantics is what turns `SEMANTIC_REVISION_UNRESOLVED` from a standing verdict into
    a resolved one for the macro path.
-2. **If an ECOS or OpenDART key has arrived** (HG-003 / HG-004), same procedure with
+3. **If an ECOS or OpenDART key has arrived** (HG-003 / HG-004), same procedure with
    `verify-ecos-live.ts` / `verify-dart-live.ts`. Expect drift: EDGAR's live check found four
    real divergences from its documented shape on the first run, and these three adapters were
    written the same way, from documentation.
-3. **If no key has arrived**, continue in shadow. The open items, in order of value:
+4. **If no key has arrived**, continue in shadow. The open items, in order of value:
    - A third Verify adapter. Two exist (Filing Diff, and Morning Brief's "What Changed"), and the
      second immediately produced two verdicts the first never could. Macro Regime and Ask Market
      are the remaining real output shapes; Ask Market is the interesting one, because its output

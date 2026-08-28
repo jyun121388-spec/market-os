@@ -369,11 +369,36 @@ function normalize(text: string): string {
  *
  * Scanning ALL of `FRAMING_TOKENS` instead was tried and refuted in both directions: it refuses the
  * institutional names above, and it misses a Hangul tail entirely, which carries no English token.
+ *
+ * ## This set is NOT closed by any evidence in this repository, and that is a live limitation
+ *
+ * P1 review found `who` and `why` missing. Reproducing it found four more -- `Who said that?`,
+ * `Compare it to Gamma.`, `List the Gamma figures.`, `Any Gamma figures?`, `Same for Gamma?` were
+ * all being swallowed -- so the finding was wider than reported, and each instance was one absent
+ * word. They are added below and each has a discriminator.
+ *
+ * The method is the part that is not fixed. Every mutant here asks whether the implemented set is
+ * LOAD-BEARING; none can ask whether it is COMPLETE, and a mutation score cannot distinguish
+ * "nothing is missing" from "nothing missing has been thought of". Deriving the set from
+ * `FRAMING_TOKENS` by subtraction would not help either: `who`, `why`, `compare`, `list`, `any`
+ * and `same` are not in `FRAMING_TOKENS` at all -- they reach an open-class region, where unread
+ * content is not checked, which is the defect rather than a gap in the allowlist.
+ *
+ * Recorded as an open method question in `docs/REVIEW_DEBT.md` rather than declared solved.
  */
 const CLAUSE_OPENING_TOKENS = new Set([
+  // Interrogatives. The first three were here; the rest were the P1. `whose`, `whom`, `when` and
+  // `where` happened to be refused already, each through some OTHER token in the same clause
+  // (`is`, `did`, `was`), which is coverage by luck and is why they are named explicitly now.
   "what",
   "which",
   "how",
+  "who",
+  "whom",
+  "whose",
+  "why",
+  "when",
+  "where",
   "is",
   "are",
   "was",
@@ -392,12 +417,16 @@ const CLAUSE_OPENING_TOKENS = new Set([
   "might",
   "must",
   "there",
+  // Imperatives. `compare` and `list` belong to exactly the class `tell`/`show`/`give` already
+  // names, and were swallowing `Compare it to Gamma.` and `List the Gamma figures.`
   "please",
   "tell",
   "show",
   "give",
   "explain",
   "describe",
+  "compare",
+  "list",
 ]);
 
 const FRAMING_TOKENS = new Set([
@@ -1468,11 +1497,31 @@ function recogniseOperation(query: string): RequestAuthority {
     // the difference without any new vocabulary: `analyseCopularInterrogative` is the same
     // predicate analyser the Korean recognizer uses. `현재 기준금리는 얼마인가요?` carries a
     // predicate; `삼성전자?` is a bare nominal and continues the name it follows.
+    // The terminator itself is evidence, and only ONE of them is. `.`, `!` and `;` occur inside
+    // names in this domain -- `Inc.`, `U.S.`, `Mr.`, `No.`, `Yahoo!` -- which is the entire reason
+    // candidate boundaries are provisional. `?` does not: no product, ticker, index or issuer name
+    // here contains one, and architect review could not name a counterexample either.
+    //
+    // That is deliberately NOT stated as an invariant. "No counterexample currently known" is a
+    // reason to measure, not a proof, and review said so before I could write it down the wrong
+    // way. What IS established is the measurement it asked for, over 99,072 generated requests:
+    // 258 swallows closed, 0 requests wrongly admitted. Four of them are ordinary terse follow-ups
+    // rather than generator artifacts --
+    //
+    //     What is the current US headline CPI? Korea?   -> subject " us headline cpi korea "
+    //     What did Reuters publish about Alpha? Gamma?  -> subject " alpha gamma "
+    //
+    // -- two questions answered as one composite subject. The head condition still applies, so a
+    // `?` after an incomplete head confirms nothing.
+    if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;
     if (containsHangul(text)) {
       return eojeols(text).some((eojeol) => analyseCopularInterrogative(eojeol) !== null);
     }
     const tokens = normalizedTokens(normalize(text));
-    if (tokens.length > 0 && ["the", "a", "an"].includes(tokens[0])) return true;
+    // Boundary-adjacent determiners, first position only: a determiner there OPENS a noun phrase,
+    // while the same word later CONTINUES one. `any` and `same` were the P1's determiner half --
+    // `Any Gamma figures?` and `Same for Gamma?` were being swallowed.
+    if (tokens.length > 0 && ["the", "a", "an", "any", "same"].includes(tokens[0])) return true;
     return tokens.some((token) => CLAUSE_OPENING_TOKENS.has(token));
   });
 

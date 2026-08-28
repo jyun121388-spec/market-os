@@ -49,6 +49,38 @@ mutations of the safety gates are each detected. Implementing it surfaced IR-086
 has three segments and the parser read two, so the ESC-012 escalation was recorded as an exchange
 called MARKET-OS and its own decision matched nothing.
 
+POST-RC UNIT — redirect / informational authority (branch `claude/ask-guardrail-architecture-20260823`)
+
+The frozen RC is untouched and PR #1 is not involved. This branch carries one reproduced P1 and the
+assurance apparatus that measures it.
+
+    P1_REDIRECT_INFORMATIONAL_AUTHORITY   REPAIR_CANDIDATE, under review
+    CODEX_AVAILABLE                       YES, verified by invocation per model id 2026-08-28
+    HUMAN_GATE                            NONE for this unit
+
+A second clause that did not authorize on its own could be swallowed into an open-class region of
+the first; the worst instance put the advice directive inside a source region the redirect path
+serves. A candidate boundary is now confirmed only when the fragment after it opens a clause AND
+the run's head is itself a complete request, with `?` -- the one terminator that never occurs
+name-internally here -- confirming on its own.
+
+Reviews so far, none of them a formality: Luna twice on the harness (REWORK_REQUIRED, then
+APPROVE), Terra four times on the architecture (APPROVE, REFINE_IN_THIS_UNIT, REFINE_FURTHER,
+RECORD_AS_DEBT), Sol once on P1 closure (REWORK_REQUIRED, and it found a real defect the mutation
+score could not). Every finding was reproduced before being repaired, and reproducing two of them
+found MORE instances than the reviewer had named.
+
+What is NOT established, recorded rather than rounded off: `CLAUSE_OPENING_TOKENS_COMPLETENESS =
+UNESTABLISHED`. Six absent tokens sat behind a 9-of-9 mutation score, and the architect's answer to
+"can this ever be checked" was no -- not at this design's level, because a generated opener corpus
+only moves the unproved claim into its generator. The known instances are closed and pinned; the
+next omission is not findable by anything this repository runs.
+
+The mutation harness itself was reviewed and repaired BEFORE its numbers were used, across four
+commits. Its lock took three designs; the first two looked correct and were measured admitting two
+simultaneous holders. 54 self-test controls, 180 clean rounds of a four-way reclaim race. Explicitly
+NOT claimed: POWER_LOSS_SAFE, FILESYSTEM_CRASH_SAFE, ARBITRARY_CONCURRENT_WRITER_SAFE.
+
 STATUS
 Local environment is fully operational and reproducible:
 

@@ -935,8 +935,72 @@ describe("a second question may not hide inside an open-class region", () => {
       "the clause opener sits behind a fronted adjunct",
       "What did Reuters publish about Alpha. For Korea what is the policy rate?",
     ],
+    // P1 review found `who` and `why` absent from CLAUSE_OPENING_TOKENS. Reproducing it found four
+    // more, so the finding was wider than reported and every instance was one missing word. These
+    // seven are the reproduction; the added tokens are measured to close 2,876 swallows across the
+    // generated corpus and to introduce zero wrong refusals in it.
+    //
+    // The METHOD stays open and is recorded as such: a mutant can show the set is load-bearing and
+    // cannot show it is complete. Adding these seven does not make the next omission findable.
+    ["the tail opens with who", "What did Reuters publish about Alpha? Who published Gamma?"],
+    ["the tail opens with why", "What did Reuters publish about Alpha? Why the Gamma decline?"],
+    ["the tail is a who-question", "What did Reuters publish about Alpha? Who said that?"],
+    [
+      "the tail is an imperative compare",
+      "What did Reuters publish about Alpha? Compare it to Gamma.",
+    ],
+    [
+      "the tail is an imperative list",
+      "What did Reuters publish about Alpha? List the Gamma figures.",
+    ],
+    ["the tail opens with any", "What did Reuters publish about Alpha? Any Gamma figures?"],
+    ["the tail opens with same", "What did Reuters publish about Alpha? Same for Gamma?"],
+    // A terse follow-up after a `?`. These carry NO clause-opening evidence at all -- the tail is a
+    // bare name -- so no lexical rule can reach them, which is the point: the terminator itself is
+    // the evidence. `?` is the one that never occurs inside a name here, while `.`, `!` and `;`
+    // demonstrably do, and the "still authorizes" cases below are what would break if that were
+    // extended to the others.
+    ["a bare name follows a question mark", "What is the current US headline CPI? Korea?"],
+    ["a bare subject follows a question mark", "What did Reuters publish about Alpha? Gamma?"],
+    ["a company name follows a question mark", "What is the current Acme Inc. revenue? Gamma?"],
+    // The SAME requests with the boundary changed from `?` to `.`, and they are here because
+    // adding the terminator rule turned five mutants from ISOLATED to MISSED at once -- the Korean
+    // clause rule, the determiner rule, and all three groups of clause-opening tokens.
+    //
+    // One cause for all five, and it is this unit's recurring one: every case above uses `?`, `?`
+    // now confirms on its own, so nothing above reaches the lexical rules any more. The tests had
+    // again picked the half of the space where the mechanism cannot fail -- exactly what B-M3 was.
+    // A rule that only matters at `.`, `!` and `;` has to be tested at `.`, `!` and `;`.
+    ["who follows a period", "What did Reuters publish about Alpha. Who published Gamma?"],
+    ["why follows a period", "What did Reuters publish about Alpha. Why the Gamma decline?"],
+    ["compare follows a period", "What did Reuters publish about Alpha. Compare it to Gamma."],
+    ["list follows a period", "What did Reuters publish about Alpha. List the Gamma figures."],
+    ["the follows a period", "What did Reuters publish about Alpha. The Gamma level too?"],
+    ["any follows a period", "What did Reuters publish about Alpha. Any Gamma figures?"],
+    ["same follows a period", "What did Reuters publish about Alpha. Same for Gamma?"],
+    ["a korean clause follows a period", "What is the current Gamma. 현재 기준금리는 얼마인가요?"],
+    [
+      "a korean clause follows an attribution and a period",
+      "What did Reuters publish about Alpha. 현재 기준금리는 얼마인가요?",
+    ],
   ])("refuses when %s", (_label, query) => {
     expect(authorize(query).status, query).not.toBe("AUTHORIZED");
+  });
+
+  it("keeps a who-question out of the served informational region", () => {
+    // The publication shape of the P1 review finding, and the one that matters most: the outer
+    // refusal was already correct, so only the informational payload showed the defect. It carried
+    // subject ` alpha who published gamma ` -- a composite of two questions, offered as the thing
+    // the system would answer.
+    const a = authorize(
+      "Should I buy stock? What did Reuters publish about Alpha? Who published Gamma?",
+    );
+    expect(a.status).toBe("PROHIBITED");
+    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
+    expect(informational?.sourceRegion).toBe("reuters");
+    expect(informational?.subjectRegion).toContain("alpha");
+    expect(informational?.subjectRegion).not.toContain("gamma");
+    expect(informational?.subjectRegion).not.toContain("who");
   });
 
   it("does not bury a prepositionally-fronted second question in the subject region", () => {

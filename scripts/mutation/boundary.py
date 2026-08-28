@@ -27,8 +27,13 @@ Three wider or narrower rules were tried and refuted by running them, never by r
 ## One mutant per separable clause
 
 so a survivor means "this clause is not load-bearing" rather than "something somewhere changed".
-B-M2 and B-M3 share an anchor, as do B-M5, B-M6 and B-M7; the preflight requires each anchor to
-appear exactly once in the ORIGINAL, which they do.
+B-M2 and B-M3 share an anchor, as do B-M5/B-M6/B-M7 and B-M8/B-M10; the preflight requires each
+anchor to appear exactly once in the ORIGINAL, which they do.
+
+None of these can show that CLAUSE_OPENING_TOKENS is COMPLETE. Every mutant asks whether an
+implemented clause is load-bearing, and a review found six absent tokens that no mutation score
+could have surfaced. B-M11 to B-M13 pin the groups that finding added; the method question is
+recorded in docs/REVIEW_DEBT.md rather than treated as answered.
 
 B-M6 is deliberately different. It "optimises" by skipping evaluation of blocked runs rather than
 withholding them from the tiling. Behaviour is unchanged, so no semantic control can see it -- only
@@ -56,6 +61,22 @@ UNRELATED_TESTS = [
 ]
 
 MUTATIONS = [
+    # The terminator rule. `?` never occurs name-internally in this domain and `.`/`!`/`;` do, so
+    # only `?` is evidence on its own. B-M14 removes it. B-M15 extends it to every terminator,
+    # which is the failure it exists to prevent: that mutant should refuse `Yahoo! Finance` and
+    # every other name carrying internal punctuation.
+    (
+        "B-M14 a question mark is no longer evidence on its own",
+        RA,
+        '    if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;\n',
+        "",
+    ),
+    (
+        "B-M15 every terminator confirms, not only the question mark",
+        RA,
+        '    if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;',
+        "    if (/[.?!;]$/.test(query.slice(0, fragment.start).trimEnd())) return true;",
+    ),
     # The Hangul rule is two conjuncts now -- the fragment must be Hangul AND must carry a Korean
     # predicate -- so it takes two mutants, one per conjunct, failing in opposite directions.
     (
@@ -87,7 +108,8 @@ MUTATIONS = [
     (
         "B-M4 a boundary-adjacent determiner no longer confirms",
         RA,
-        '    if (tokens.length > 0 && ["the", "a", "an"].includes(tokens[0])) return true;',
+        '    if (tokens.length > 0 && ["the", "a", "an", "any", "same"].includes(tokens[0]))'
+        " return true;",
         "",
     ),
     (
@@ -119,6 +141,37 @@ MUTATIONS = [
         "      headReads = readings.length > 0 || detectPersonalizedAdviceRequest(span);",
         "      headReads = readings.length > 0;",
     ),
+    # P1 review pointed out that B-M7 removes the whole head condition and B-M8 removes only its
+    # advice clause, so the OTHER alternative -- `readings.length > 0` -- had no mutant of its own
+    # and its isolation was being claimed rather than measured.
+    (
+        "B-M10 a readable head no longer counts, only a prohibited one",
+        RA,
+        "      headReads = readings.length > 0 || detectPersonalizedAdviceRequest(span);",
+        "      headReads = detectPersonalizedAdviceRequest(span);",
+    ),
+    # And one per group of clause-opening tokens the same review's finding added, so that each
+    # group is load-bearing rather than assumed to be. None of these can show the set is COMPLETE;
+    # see the note on CLAUSE_OPENING_TOKENS and the open method question in docs/REVIEW_DEBT.md.
+    (
+        "B-M11 the added interrogatives no longer confirm",
+        RA,
+        '  "who",\n  "whom",\n  "whose",\n  "why",\n  "when",\n  "where",\n',
+        "",
+    ),
+    (
+        "B-M12 the added imperatives no longer confirm",
+        RA,
+        '  "compare",\n  "list",\n',
+        "",
+    ),
+    (
+        "B-M13 the added determiners no longer confirm",
+        RA,
+        '    if (tokens.length > 0 && ["the", "a", "an", "any", "same"].includes(tokens[0]))'
+        " return true;",
+        '    if (tokens.length > 0 && ["the", "a", "an"].includes(tokens[0])) return true;',
+    ),
 ]
 
 # An optional id filter, so a single mutant can be re-measured after a repair without paying for
@@ -130,6 +183,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 8 mutants. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 15 mutants. Not a substitute for the full set.")
 
 sys.exit(harness([RA], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1200))

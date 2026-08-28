@@ -314,6 +314,12 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     // necessarily contains the directive; the first version of this assertion caught that and it
     // was the assertion that was wrong, not the output. Everything else here is something the
     // system CHOSE to say.
+    //
+    // Excluded is NOT the same as never displayed, and review was right to make the distinction:
+    // `/ask` does render `result.query`, on the NOT_FOUND branch (`src/app/ask/page.tsx`). What
+    // keeps it off the redirect surface is that the two statuses are exclusive, not that the field
+    // is unrendered. So this exclusion is scoped to derived-content checking and must not be read
+    // as a claim that the echo is invisible.
     const derived = { ...swallowed, query: undefined };
     const published = JSON.stringify(derived).toLowerCase();
     expect(published).not.toContain("should i buy");

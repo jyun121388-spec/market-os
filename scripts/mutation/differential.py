@@ -60,6 +60,74 @@ CASES = {
         "new": "      if (readings.length === 1) {",
         "probe": "npx tsx scripts/probe-name-tail-openers.ts",
     },
+    # The three groups of tokens P1 review's finding added, one case each, measured over the big
+    # corpus. The question these answer is the OTHER direction: closing seven swallows is only a
+    # repair if it does not start refusing legitimate requests, and `list`, `any` and `same` are
+    # ordinary enough to sit in a real name tail.
+    "wh-interrogatives": {
+        "label": "the added interrogatives no longer confirm",
+        "path": RA,
+        "old": '  "who",\n  "whom",\n  "whose",\n  "why",\n  "when",\n  "where",\n',
+        "new": "",
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
+    "wh-imperatives": {
+        "label": "the added imperatives no longer confirm",
+        "path": RA,
+        "old": '  "compare",\n  "list",\n',
+        "new": "",
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
+    "wh-determiners": {
+        "label": "the added determiners no longer confirm",
+        "path": RA,
+        "old": '    if (tokens.length > 0 && ["the", "a", "an", "any", "same"].includes(tokens[0]))'
+               " return true;",
+        "new": '    if (tokens.length > 0 && ["the", "a", "an"].includes(tokens[0])) return true;',
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
+    # A CANDIDATE, not a repair, and measured before being proposed rather than after.
+    #
+    # Architect review's answer to "can the token set's completeness ever be checked" was no -- not
+    # at this design's level, and a generated opener corpus only relocates the unproved claim into
+    # its generator. It did name one bounded structural strengthening: `?` appears never to occur
+    # name-internally in this domain, while `.` and `!` demonstrably do (`Inc.`, `U.S.`, `Mr.`,
+    # `No.`, `Yahoo!`). Treating `?` as always confirming would have caught five of the seven
+    # swallowed clauses structurally instead of lexically.
+    #
+    # Review also declined to call that a universal invariant -- "no counterexample currently known"
+    # is a reason to measure, not a proof -- and required the two directions to be reported
+    # separately. So this case exists to produce that number. `new` here is the CANDIDATE; the
+    # differential runs current-versus-candidate.
+    # B-M1 went from ISOLATED to MISSED when the terminator rule landed. Disable-and-measure, which
+    # is the only thing that may retire a rule here -- a surviving mutant never is. This removes the
+    # Korean branch entirely and asks whether ANY behaviour changes once `?` confirms on its own.
+    "korean-branch": {
+        "label": "the Korean-clause confirmation removed entirely",
+        "path": RA,
+        "old": "    if (containsHangul(text)) {\n"
+               "      return eojeols(text).some((eojeol) => analyseCopularInterrogative(eojeol) !== null);\n"
+               "    }\n",
+        "new": "",
+        "probe": "npx tsx scripts/probe-korean-after-period.ts",
+    },
+    "korean-branch-corpus": {
+        "label": "the Korean-clause confirmation removed entirely, over the big corpus",
+        "path": RA,
+        "old": "    if (containsHangul(text)) {\n"
+               "      return eojeols(text).some((eojeol) => analyseCopularInterrogative(eojeol) !== null);\n"
+               "    }\n",
+        "new": "",
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
+    "question-mark-confirms": {
+        "label": "CANDIDATE: a ? boundary always confirms, . ! ; stay provisional",
+        "path": RA,
+        "old": "    if (containsHangul(text)) {",
+        "new": '    if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;\n'
+               "    if (containsHangul(text)) {",
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
 }
 
 CASE = CASES[sys.argv[2] if len(sys.argv) > 2 else "bm3"]

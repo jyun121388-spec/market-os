@@ -468,7 +468,15 @@ ALSO FOUND, P2, PRE-EXISTING at bc9c6b5: `SOURCE_DISQUALIFIERS` omits first and 
 downstream -- source `"i"` resolves to nothing -- but it contradicts the module's own pronoun
 principle. Reproduced. Should ride along with the rework rather than being fixed separately.
 
-STATUS 2026-08-28: **the P1 is REPAIRED and all five reproductions are pinned as tests.** The
+STATUS 2026-08-28, CORRECTED the same day after a P1 closure review: **the five original
+reproductions are repaired and pinned, and the first version of this line said "the P1 is REPAIRED"
+full stop, which was contradicted within hours.** `Who published Gamma?` and `Why the Gamma
+decline?` were still being swallowed, and reproducing those found four more. They are repaired and
+pinned too -- but the line is corrected rather than re-asserted, because what was actually
+established is that the reproductions are closed, not that the token set is complete. See "P1
+closure review of 009341d (Sol)" below: `CLAUSE_OPENING_TOKENS_COMPLETENESS = UNESTABLISHED`.
+
+The
 confirmed-clause-boundary rule closes it; see "Architect review of the P1 repair (Terra)" below for
 the design, the two rules that were tried and refuted by measurement first, and the two
 over-refusals the repair itself introduced and then had to close.
@@ -480,9 +488,11 @@ shipped instead is narrower and two-sided -- only tokens that can stand CLAUSE-I
 boundary, plus a boundary-adjacent determiner, plus a Korean CLAUSE (not merely Hangul), and the
 run's HEAD must itself be a complete request.
 
-Nine mutants, 9 of 9 ISOLATED, one per separable clause of the rule. The `Should I buy stock?`
-reproduction is pinned at both levels: on the authority object, and on the publication path where a
-redirect could actually show it.
+Thirteen mutants, one per separable clause of the rule. "One per separable clause" was itself an
+overstatement when it said nine: the same review pointed out that `readings.length > 0` had no
+mutant of its own, and B-M10 now covers it. The `Should I buy stock?` reproduction is pinned at both
+levels: on the authority object, and on the publication path where a redirect could actually show
+it.
 
 The P2 pronoun finding below is NOT closed by this and does not ride along after all -- it is
 `SOURCE_DISQUALIFIERS`, a different mechanism in a different function, and bundling it would have
@@ -784,3 +794,153 @@ Luna verified explicitly that nothing in the reviewed files claims `POWER_LOSS_S
 child, a parent killed between mutant write and restore, a third-party edit during recovery, a
 second harness against a live one, the lock startup window, four-way dead-owner reclaim, and
 non-owner release.
+
+### P1 closure review of `009341d` (Sol, 2026-08-28) — VERDICT: REWORK_REQUIRED, and it was right
+
+Reviewer: `gpt-5.6-sol`, READ-ONLY, exact tree at `009341d`.
+
+**The finding: `who` and `why` were missing from `CLAUSE_OPENING_TOKENS`.**
+
+    What did Reuters publish about Alpha? Why the Gamma decline?
+      -> AUTHORIZED, subject " alpha why the gamma decline "
+    Should I buy stock? What did Reuters publish about Alpha? Who published Gamma?
+      -> PROHIBITED, informational subject " alpha who published gamma ", source "reuters"
+
+Reproduced before anything was touched (`scripts/reproduce-wh-tokens.ts`), and the reproduction
+found **four more** the review had not named:
+
+    Who said that?            Compare it to Gamma.
+    Any Gamma figures?        Same for Gamma?          List the Gamma figures.
+
+Seven swallows, each one absent word. `whose`, `whom`, `when` and `where` were already refused —
+but each only through some OTHER token in the same clause (`is`, `did`, `was`), which is coverage
+by luck, so they are now named explicitly rather than left to it.
+
+**Measured after the addition**, over a corpus extended with both the new tail forms and the
+name-tail forms that the additions put at risk (`list`, `any Gamma`, `same period revenue`,
+`Compare Inc`, `List Ltd revenue`):
+
+| group added | swallows closed | requests wrongly refused |
+| ----------- | --------------- | ------------------------ |
+| interrogatives `who whom whose why when where` | 456 | **0** |
+| imperatives `compare list` | 1,380 | **0** |
+| determiners `any same` | 1,040 | **0** |
+
+99,072 generated requests, one direction only. Three new mutants (B-M11 to B-M13) pin the groups.
+
+**The method question this leaves open, which is the more important half.** Every mutant asks
+whether an implemented clause is LOAD-BEARING. None can ask whether the set is COMPLETE, and a
+mutation score cannot tell "nothing is missing" from "nothing missing has been thought of". Six
+absent tokens sat behind a 9-of-9 score. Adding these seven does not make the eighth findable.
+
+Deriving the set from `FRAMING_TOKENS` by subtraction was considered and does not help: `who`,
+`why`, `compare`, `list`, `any` and `same` are not in `FRAMING_TOKENS` at all. They reach an
+OPEN-CLASS region, where unread content is not checked — which is the defect's real shape, not a
+gap in the allowlist. **OPEN: `CLAUSE_OPENING_TOKENS_COMPLETENESS = UNESTABLISHED`.** The `?`
+candidate named here has since been measured, reviewed and implemented — see "The completeness
+question" below — and it closes a defect class without closing this one.
+
+**Sol's other findings, and what was done with each.**
+
+- **S5, and it was right**: "one per separable clause" was overstated. B-M7 removed the whole head
+  condition and B-M8 only its advice clause, so `readings.length > 0` had no mutant of its own and
+  its isolation was being claimed rather than measured. **B-M10 added.**
+- **S6, overstatement**: "the P1 is REPAIRED" was contradicted by the reproductions above. The
+  status line is corrected rather than edited away.
+- **S2**: excluding `query` from the publication assertion is correct for derived-content checking,
+  but the comment must not imply `query` is never displayed — `/ask` renders `result.query` on the
+  `NOT_FOUND` branch, and it is status exclusivity, not non-display, that keeps it off the redirect
+  surface. Comment corrected.
+- **S2, noted not closed**: the same parser feeds `inferenceAuthorization`, so a malformed
+  authorized form reaches the planner authority path too. The demonstrated reading is
+  planner-permitted by its operation contract. No wrong output was demonstrated there; recorded.
+- **S3**: no additional over-refusal found beyond the recorded `Mr. Show` P2.
+- **S4**: the reproduced mixed request stays PROHIBITED. No path reclassifies a directive as
+  informational and none produces or implies buy/sell/allocation content. The failure was narrower
+  and is still real: polluted informational authority retrieving records for a composite subject.
+- **S7**: no P0. No secrets, destructive behaviour, security or data-integrity defect.
+
+### The completeness question, put to the architect and answered NO (Terra, 2026-08-28)
+
+`CLAUSE_OPENING_TOKENS_COMPLETENESS = UNESTABLISHED`, **DECISION: RECORD_AS_DEBT.**
+
+The question was not whether the rule is right — three earlier rounds settled that — but whether
+its method can ever be finished. Six absent tokens sat behind a 9-of-9 mutation score, and they
+were found by a reviewer reading, not by anything this repository runs.
+
+Terra's answer, and it is the one worth keeping:
+
+> No measurement at this design level can prove `CLAUSE_OPENING_TOKENS` complete. The current
+> mutants correctly prove implemented members are load-bearing, but cannot discover omitted
+> members. **A generated "complete opener" corpus merely relocates the unproved completeness claim
+> into its generator.** Completeness would require a formally specified, sound-and-complete grammar
+> plus a complete name/abbreviation model; this design intentionally accepts open-class names by
+> position. That model does not exist here.
+
+Graded **recorded debt, not an active P1**: the seven reproduced instances are pinned and measured
+closed; what is open is that the eighth is not findable. Standing instruction attached to it: **do
+not claim completeness after any later change**, punctuation-class ones included.
+
+### The one bounded strengthening it named, measured before being implemented
+
+`?` appears never to occur name-internally in this domain, while `.`, `!` and `;` demonstrably do —
+`Inc.`, `U.S.`, `Mr.`, `No.`, `Yahoo!` — which is the entire reason candidate boundaries are
+provisional at all. Terra could not name a `?`-bearing product, ticker, index or issuer either, and
+was careful that this is **evidence for a measurement, not a universal invariant**, and asked for
+the two directions to be reported separately before anything was implemented.
+
+    99,072 generated requests
+      swallows closed          258
+      wrongly admitted           0
+
+Those 258 are all generator strings, so a separate probe asked whether the shape occurs in requests
+a person would actually write (`scripts/probe-question-mark-tails.ts`). It does:
+
+    What is the current US headline CPI? Korea?   ->  subject " us headline cpi korea "
+    What did Reuters publish about Alpha? Gamma?  ->  subject " alpha gamma "
+    What is the current Acme Inc. revenue? Gamma? ->  subject " acme inc revenue gamma "
+
+Two questions answered as one composite subject — the same defect class as the P1, in an ordinary
+terse follow-up. Implemented on that basis, with two mutants: **B-M14** removes the rule, **B-M15**
+extends it to every terminator, which is precisely the failure it exists to prevent and must break
+`Yahoo! Finance` and every other name carrying internal punctuation.
+
+This closes a defect class. It does **not** close the completeness question, and Terra was explicit
+that it cannot: `Compare it to Gamma.` and `List the Gamma figures.` end in `.`, so the lexical set
+is still load-bearing and still unproved complete.
+
+### The terminator rule turned five mutants from ISOLATED to MISSED, and the tests were the reason
+
+Adding `?`-confirms dropped the boundary score from 13/13 to **10 of 15** in one step. The five
+that died were the Korean clause rule, the determiner rule, and all three groups of clause-opening
+tokens the P1 review's finding had just added — every lexical rule in the predicate, and none of
+the structural ones.
+
+One cause for all five. **Every discriminator in the suite used `?` as its internal boundary**, and
+`?` now confirms on its own, so not one of them reached the lexical rules any more. Nothing about
+the product was wrong; the tests had stopped being able to see it.
+
+This is the third time this exact shape has appeared in this unit, which is why it is written down
+rather than just fixed:
+
+| when | the half the tests could not fail on |
+| ---- | ------------------------------------ |
+| pre-repair | every swallowing test picked a tail that authorizes ALONE — the precondition for cover competition to work |
+| B-M3 | every swallowed tail either opened with a determiner or had its clause-opening word first |
+| here | every internal boundary was `?`, which the terminator rule now catches without consulting anything lexical |
+
+The repair is the same each time: pose the case on the other side. Nine discriminators added with
+the boundary changed from `?` to `.` — `What did Reuters publish about Alpha. Who published Gamma?`
+and its siblings — measured to refuse (`scripts/probe-period-boundary.ts`) BEFORE being asserted,
+because a discriminator written from expectation rather than measurement is how a suite acquires a
+test that passes for a reason nobody checked.
+
+The five name controls were re-measured on the same probe and still authorize, so the lexical rules
+are being tested where they still do work rather than widened until something breaks.
+
+**Do not read the recovered score as the rules being redundant.** B-M1 and B-M4 were MISSED because
+no test reached them, not because the Korean and determiner rules do nothing — `What is the current
+Gamma. 현재 기준금리는 얼마인가요?` needs the Korean rule and always did. Nothing here is deleted on
+the strength of a surviving mutant; that requires a disable-and-measure proof, and
+`scripts/mutation/differential.py` case `korean-branch` exists to produce one if the question is
+ever reopened.

@@ -40,6 +40,21 @@ const FRAGMENTS = [
   "Under the new basis is the reading comparable",
   "At the time there was a revision",
   "Of those which one moved",
+  // The tokens P1 review found missing, and the four that reproducing it found alongside them.
+  // Each of these was being swallowed into the preceding subject region.
+  "Who published Gamma",
+  "Why the Gamma decline",
+  "Compare it to Gamma",
+  "List the Gamma figures",
+  "Any Gamma figures",
+  "Same for Gamma",
+  // The over-refusal risk those additions carry: the SAME words as name tails, after a name's
+  // internal terminator. `list`, `any` and `same` are ordinary enough to appear in one.
+  "list",
+  "any Gamma",
+  "same period revenue",
+  "Compare Inc",
+  "List Ltd revenue",
   // no clause-opening token anywhere -- neither rule may confirm
   "Finance",
   "revenue",

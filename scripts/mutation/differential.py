@@ -120,6 +120,19 @@ CASES = {
         "new": "",
         "probe": "npx tsx scripts/diff-clause-token-scan.ts",
     },
+    # Which of the "must keep authorizing" names does the HEAD condition protect, and which are
+    # carried by a tail property? Architect review needs this before it can say how narrow a
+    # name-continuation class could be: if the head condition already carries the verb-bearing
+    # tails (`Mr. Show report about Alpha`, `Bureau of Labor Statistics publish about ...`), a
+    # continuation class only has to cover short nominals. Disable the head condition and see which
+    # of them changes.
+    "head-condition": {
+        "label": "the head no longer has to read (B-M7), against the name controls",
+        "path": RA,
+        "old": "      if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;",
+        "new": "      if (last > first && confirmedBoundary[last]) crossesConfirmed = true;",
+        "probe": "npx tsx scripts/probe-period-boundary.ts",
+    },
     "question-mark-confirms": {
         "label": "CANDIDATE: a ? boundary always confirms, . ! ; stay provisional",
         "path": RA,

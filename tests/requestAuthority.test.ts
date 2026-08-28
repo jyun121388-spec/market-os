@@ -1078,4 +1078,30 @@ describe("a second question may not hide inside an open-class region", () => {
     const served = a.status === "AUTHORIZED" ? `${a.subjectRegion} ${a.sourceRegion ?? ""}` : "";
     expect(served, query).toContain(expected);
   });
+
+  /**
+   * KNOWN AND ACCEPTED, pinned as a failure rather than described in a comment.
+   *
+   * The `?` rule was implemented on the belief that `?` never occurs inside a name in this domain.
+   * The belief was false: Companies House company 09804638 is registered as
+   * `CAN I USE A QUESTION MARK IN A COMPANY NAME? LTD`. The architect reviewer had warned in
+   * writing, before the rule was written, that "no counterexample currently known" is a reason to
+   * measure rather than a proof, and the counterexample was found by a reviewer who went and
+   * looked rather than reasoning about it.
+   *
+   * Kept anyway, and the reason is a weighing rather than a measurement: 258 swallows closed and 0
+   * wrongly admitted across 99,072 requests, including ordinary terse follow-ups like `What is the
+   * current US headline CPI? Korea?`, against one false refusal of a novelty registration. The
+   * architect ruled KEEP on that evidence and required the exception be pinned.
+   *
+   * `it.fails` and not a comment, so that the day a continuation-aware rule subsumes `?` this test
+   * starts failing and forces the exception to be revisited instead of quietly outliving its
+   * justification.
+   */
+  it.fails("authorizes an issuer name that itself contains a question mark", () => {
+    const a = authorize(
+      "What is the definition of Can I Use A Question Mark In A Company Name? Ltd?",
+    );
+    expect(a.status).toBe("AUTHORIZED");
+  });
 });

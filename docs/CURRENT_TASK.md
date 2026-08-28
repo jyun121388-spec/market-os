@@ -23,7 +23,10 @@ STATUS as of 2026-08-18:
 
 ## The last thing done
 
-**2026-08-28 — the redirect/informational P1 is repaired, reviewed and committed (`009341d`).**
+**2026-08-28 — the redirect/informational P1 is UNDER REVIEW and NOT closed.** This line said
+"repaired, reviewed and committed" while the same document listed the closure review as still open,
+and the closure review then reproduced two more instances. Corrected rather than deleted: the
+overstatement is the point.
 
 A second clause that did not authorize on its own could be swallowed into an open-class region of
 the first, and in the worst instance the advice DIRECTIVE ended up inside a source region the
@@ -63,9 +66,21 @@ tiebreak. See `docs/PROJECT_STATE.md` for what each layer gained.
 
 ## NEXT EXACT ACTION, in order
 
-0. **Read Sol's exact-tree P1 review of `009341d`** and repair anything it REPRODUCES. A reviewer's
-   confidence is not evidence and neither is mine: reproduce before repairing, as the two
-   architect rounds on this same unit both required.
+0. **BLOCKED, and it is the first thing to read: `P1_UNBOUNDED_CLAUSE_OPENING_CLASS`.** Two
+   closure reviews and five architect rounds are done; the last one graded the remaining class a
+   P1 that blocks this unit. 28 of 38 unknown tails are swallowed
+   (`scripts/probe-unknown-tail.ts`). It cannot be closed by adding words -- that is the
+   unfinishable direction the module's own `FRAMING_TOKENS` comment warns about -- and the
+   fail-closed inversion needs a POS/name lexicon this design does not have.
+
+   The open decision is **accept as a known release risk, or redesign**, and it is a product
+   decision rather than an engineering one, so it is escalated and NOT assumed either way. Do not
+   close this unit by adding a ninth, tenth and eleventh word.
+
+   Two measurements the architect named are still unrun: a continuation false-refusal corpus of
+   real issuer names stratified by tail shape, and the head-alone matrix extended to every
+   candidate boundary rather than the first.
+
 1. Then the framing-positionality unit (`scripts/reproduce-framing-position.ts` is written and
    untracked), then B2-C, then B2-D. `src/server/domain/sourceAuthority.ts` is written, referenced
    by nothing, and is B2-C's starting point -- it must be wired or deleted, not left as it is.

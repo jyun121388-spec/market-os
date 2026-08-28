@@ -883,11 +883,15 @@ not claim completeness after any later change**, punctuation-class ones included
 
 ### The one bounded strengthening it named, measured before being implemented
 
-`?` appears never to occur name-internally in this domain, while `.`, `!` and `;` demonstrably do —
-`Inc.`, `U.S.`, `Mr.`, `No.`, `Yahoo!` — which is the entire reason candidate boundaries are
-provisional at all. Terra could not name a `?`-bearing product, ticker, index or issuer either, and
-was careful that this is **evidence for a measurement, not a universal invariant**, and asked for
-the two directions to be reported separately before anything was implemented.
+`?` was believed never to occur name-internally in this domain, while `.`, `!` and `;`
+demonstrably do — `Inc.`, `U.S.`, `Mr.`, `No.`, `Yahoo!` — which is the entire reason candidate
+boundaries are provisional at all. Terra could not name a `?`-bearing product, ticker, index or
+issuer either, and was careful that this is **evidence for a measurement, not a universal
+invariant**, and asked for the two directions to be reported separately before implementation.
+
+**That belief was FALSE and is corrected below**: a later review found Companies House company
+09804638, `CAN I USE A QUESTION MARK IN A COMPANY NAME? LTD`. Terra's caution was the right call
+and the sentence written after it was not.
 
     99,072 generated requests
       swallows closed          258
@@ -944,3 +948,145 @@ Gamma. 현재 기준금리는 얼마인가요?` needs the Korean rule and always
 the strength of a surviving mutant; that requires a disable-and-measure proof, and
 `scripts/mutation/differential.py` case `korean-branch` exists to produce one if the question is
 ever reopened.
+
+### P1 closure review, round 2 (Sol, 2026-08-28) — REWORK_REQUIRED, and both findings are worse than reported
+
+**Finding 1 — the lexical set is not incomplete, it is UNBOUNDED.**
+
+Review named one more absent token:
+
+    Should I buy stock? What did Reuters publish about Alpha. Summarize Gamma.
+      -> PROHIBITED, informational subject " alpha summarize gamma ", source "reuters"
+
+Reproducing it (`scripts/reproduce-sol-round2.ts`) found six more in a single probe, without
+searching:
+
+    summarise   break down   outline   chart   plot   find
+
+Every one authorizes with the second clause absorbed into the subject region. `explain` and
+`describe` refuse only because they happen to be in the set. This is not a gap to be filled. It is
+every ordinary way to ask for something, and the previous round already added seven words believing
+they were the tail of the distribution.
+
+This changes the grading. `CLAUSE_OPENING_TOKENS_COMPLETENESS = UNESTABLISHED` was recorded as debt
+on the architect's ruling that completeness cannot be measured at this design's level. That ruling
+stands, but the debt is no longer abstract: it has a reproducible publication-authority defect class
+with an unbounded instance set, and the module's own stated principle says why —
+
+> An allowlist, for the reason IR-106 settled: a denylist of ways to ask for something improper
+> cannot be finished, and an allowlist of function words can.
+
+`FRAMING_TOKENS` obeys that. `CLAUSE_OPENING_TOKENS` does not: it enumerates ways a clause may
+OPEN, which is the unfinishable direction. The swallowing happens inside an OPEN-CLASS region, where
+unread content is not checked at all, so the allowlist discipline never reaches it.
+
+**Finding 2 — `?` DOES occur inside a registered issuer name, and the claim was false.**
+
+Companies House company 09804638: `CAN I USE A QUESTION MARK IN A COMPANY NAME? LTD`. Reproduced:
+
+    What is the definition of Can I Use A Question Mark In A Company Name? Ltd?
+      -> UNSUPPORTED   (should authorize the whole name)
+
+The architect had written, before the rule was implemented, that "no counterexample currently known"
+is evidence for a measurement and not a universal invariant. The code comment and two documents then
+asserted it as fact anyway. Two reviewers failing to think of an example is not evidence that none
+exists, and the reviewer who found it went and looked rather than reasoning. All three statements
+are corrected in place.
+
+What survives is a **trade-off**, stated as one: 258 swallows closed and 0 wrongly admitted over
+99,072 requests, against one known false refusal of a novelty registration. That weighing is a
+judgement, not a measurement, and it belongs to the architect.
+
+Also observed while reproducing, and NOT caused by either finding — pre-existing, recorded so it is
+not rediscovered as part of this unit:
+
+    What did Can I Use A Question Mark In A Company Name? Ltd report about revenue?
+      -> AUTHORIZED, source "i use a question mark in a company name ltd"
+
+The leading `Can` is dropped because `can` is a framing token, so the served source is a TRUNCATED
+version of a real name. Same class as the `Bloomberg L.P. show` finding: a framing-token
+interaction, not a boundary one.
+
+**Confirmed by the same review, and worth keeping:** the five mutants that went MISSED and were
+revived by the nine `.`-boundary discriminators are genuinely load-bearing — none is equivalent
+under the `?` rule — and the nine discriminators are honest, each avoiding the `?` shortcut with no
+alternative trigger substituting for the rule it names. No P0.
+
+### OPEN BLOCKER P1 — the clause-opening set is unbounded, and 28 of 38 unknown tails are swallowed
+
+**STATUS: `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` — OPEN. This unit does NOT close.**
+
+Architect ruling (Terra, 2026-08-28, round 5): **P1, blocks closure.** Not recorded debt any more:
+
+> "Known instances closed" is not enough after the very next ordinary probe produced six further
+> instances. Record it only if the product explicitly accepts the remaining class as a known
+> release risk; it is not a clean P1 closure.
+
+The measurement it asked for (`scripts/probe-unknown-tail.ts`): one head that reads
+(`What did Reuters publish about Alpha.`), thirty-eight tails of every shape the lexical set does
+not enumerate, `.` boundary throughout.
+
+| tail shape | swallowed |
+| ---------- | --------- |
+| imperative not in the set (`Summarize`, `Break down`, `Chart`, `Plot`, `Find`, `Check`, `Look up`, `Graph`, `Pull the ... series`) | 11 of 12 |
+| imperative IN the set (control) | 0 of 5 |
+| interrogative fragment (control) | 0 of 4 |
+| bare noun (`Gamma.`, `Revenue.`, `Inflation.`) | 4 of 4 |
+| proper-name-shaped (`Gamma Corp.`, `Alpha Holdings.`) | 4 of 4 |
+| coined token (`Zorbulate Gamma.`) | 4 of 4 |
+| Hangul after a period | 2 of 2 |
+| digits (`2024.`, `Q3 Gamma.`) | 3 of 3 |
+| | **28 of 38** |
+
+Every swallow serves a composite subject — ` alpha summarize gamma `, ` alpha 2024 `,
+` alpha zorbulate gamma ` — with source `reuters`. Factual records represented as answering a
+question nobody asked. Not advice, and no LEGAL_GUARDRAILS breach, but a publication-authority
+breach.
+
+**Why it cannot be closed by adding words.** The module's own principle, at `FRAMING_TOKENS`:
+
+> a denylist of ways to ask for something improper cannot be finished, and an allowlist of function
+> words can.
+
+`CLAUSE_OPENING_TOKENS` enumerates ways a clause may OPEN — the unfinishable direction — and the
+swallowing happens inside an open-class region where unread content is never checked, so the
+allowlist discipline never reaches the tail. Seven tokens were added in one round believing they
+were the tail of the distribution; six more fell out of the next probe; twenty-eight out of this one.
+
+**Why the obvious inversion is not implementable here.** "Confirm the boundary unless the tail is a
+name continuation" is right as a fail-closed policy — the architect agreed — but the continuation
+class is not closed:
+
+> bare nominals are an open lexical class ... "first token is unread open-class" is a useful risk
+> predicate, not a closed discriminator without a POS/name lexicon. It cannot distinguish
+> `Chart Gamma` as an imperative from `Chart Gamma` as a name.
+
+That lexicon does not exist in this repository and building one is not a bounded change.
+
+**Where the review was WRONG, checked rather than accepted.** The same ruling claimed `headReads`
+is computed but not used, so "the executed condition is tail-only". That is false, and three
+independent things say so: the executed line is
+`if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;`; mutant B-M7
+removes `&& headReads` and is ISOLATED; and a disable-and-measure run
+(`differential.py` case `head-condition`) flips `What did Mr. Show report about Alpha?` from
+AUTHORIZED to UNSUPPORTED when it is removed. The bilateral rule runs as documented.
+
+That same run corrected a belief of MINE, in the other direction: of the seven name controls, the
+head condition protects only `Mr. Show`. `What did the U.S. Bureau of Labor Statistics publish
+about nonfarm payrolls?` is carried by its tail containing no clause-opening token, not by the
+head — so a continuation class would have to admit a tail containing `publish` and `about`, which
+is a much stronger constraint than I had assumed when I put the question.
+
+**What is decided and what is not.**
+
+- `?` rule: **KEEP**, architect ruling, with the registered-issuer exception pinned as an
+  `it.fails` test so it cannot quietly outlive its justification.
+- The seven, then six, then twenty-eight known instances: the first thirteen are closed and pinned.
+- The CLASS: open. Closing it needs either a POS/name lexicon this design does not have, or an
+  explicit product decision to accept it as a known release risk. **That decision is not mine and
+  is not an engineering question**, so it is escalated rather than assumed either way.
+
+Two further measurements the architect named are NOT yet run, and are named here rather than
+quietly skipped: a continuation false-refusal corpus of real issuer names stratified by tail shape,
+and the head-alone matrix extended to every candidate boundary within each query rather than the
+first.

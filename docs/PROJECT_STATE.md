@@ -54,21 +54,28 @@ POST-RC UNIT — redirect / informational authority (branch `claude/ask-guardrai
 The frozen RC is untouched and PR #1 is not involved. This branch carries one reproduced P1 and the
 assurance apparatus that measures it.
 
-    P1_REDIRECT_INFORMATIONAL_AUTHORITY   REPAIR_CANDIDATE, under review
+    P1_REDIRECT_INFORMATIONAL_AUTHORITY   thirteen known instances closed and pinned
+    P1_UNBOUNDED_CLAUSE_OPENING_CLASS     OPEN -- BLOCKS CLOSURE of this unit
+    ESCALATED                             accept-as-known-risk vs redesign: not an
+                                          engineering question, so not decided here
     CODEX_AVAILABLE                       YES, verified by invocation per model id 2026-08-28
     HUMAN_GATE                            NONE for this unit
 
 A second clause that did not authorize on its own could be swallowed into an open-class region of
 the first; the worst instance put the advice directive inside a source region the redirect path
 serves. A candidate boundary is now confirmed only when the fragment after it opens a clause AND
-the run's head is itself a complete request, with `?` -- the one terminator that never occurs
-name-internally here -- confirming on its own.
+the run's head is itself a complete request, with `?` confirming on its own -- a measured
+trade-off (258 swallows closed, 0 wrongly admitted) and NOT the invariant an earlier version of
+this paragraph claimed. `?` does occur inside a registered issuer name; see REVIEW_DEBT.md.
 
 Reviews so far, none of them a formality: Luna twice on the harness (REWORK_REQUIRED, then
-APPROVE), Terra four times on the architecture (APPROVE, REFINE_IN_THIS_UNIT, REFINE_FURTHER,
-RECORD_AS_DEBT), Sol once on P1 closure (REWORK_REQUIRED, and it found a real defect the mutation
-score could not). Every finding was reproduced before being repaired, and reproducing two of them
-found MORE instances than the reviewer had named.
+APPROVE), Terra five times on the architecture (APPROVE, REFINE_IN_THIS_UNIT, REFINE_FURTHER,
+RECORD_AS_DEBT, then P1-BLOCKS-CLOSURE), Sol twice on P1 closure (REWORK_REQUIRED both times, and
+both times it found a real defect no mutation score could). Every finding was reproduced before
+being repaired, and reproducing three of them found MORE instances than the reviewer had named --
+`who`/`why` became seven, `Summarize` became seven more, and the unknown-tail matrix then found 28
+of 38. One review claim was checked and REFUTED rather than accepted: `headReads` is used in the
+executed condition, contrary to the fifth architect round.
 
 What is NOT established, recorded rather than rounded off: `CLAUSE_OPENING_TOKENS_COMPLETENESS =
 UNESTABLISHED`. Six absent tokens sat behind a 9-of-9 mutation score, and the architect's answer to

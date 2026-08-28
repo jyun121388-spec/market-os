@@ -1497,22 +1497,31 @@ function recogniseOperation(query: string): RequestAuthority {
     // the difference without any new vocabulary: `analyseCopularInterrogative` is the same
     // predicate analyser the Korean recognizer uses. `현재 기준금리는 얼마인가요?` carries a
     // predicate; `삼성전자?` is a bare nominal and continues the name it follows.
-    // The terminator itself is evidence, and only ONE of them is. `.`, `!` and `;` occur inside
-    // names in this domain -- `Inc.`, `U.S.`, `Mr.`, `No.`, `Yahoo!` -- which is the entire reason
-    // candidate boundaries are provisional. `?` does not: no product, ticker, index or issuer name
-    // here contains one, and architect review could not name a counterexample either.
+    // The terminator itself is evidence, and `?` is stronger evidence than the others. `.`, `!`
+    // and `;` occur inside names constantly -- `Inc.`, `U.S.`, `Mr.`, `No.`, `Yahoo!` -- which is
+    // the entire reason candidate boundaries are provisional at all.
     //
-    // That is deliberately NOT stated as an invariant. "No counterexample currently known" is a
-    // reason to measure, not a proof, and review said so before I could write it down the wrong
-    // way. What IS established is the measurement it asked for, over 99,072 generated requests:
-    // 258 swallows closed, 0 requests wrongly admitted. Four of them are ordinary terse follow-ups
-    // rather than generator artifacts --
+    // CORRECTED. This comment said `?` never occurs name-internally, and both I and the architect
+    // reviewer failed to find a counterexample. A later review found one by going and looking:
+    // Companies House company 09804638 is registered as `CAN I USE A QUESTION MARK IN A COMPANY
+    // NAME? LTD`. So the claim was false, and it was stated as fact after being warned in writing
+    // that "no counterexample currently known" is a reason to measure rather than a proof. Two
+    // people not thinking of an example is not evidence that none exists.
+    //
+    // What survives the correction is a TRADE-OFF, not an invariant, and it is stated as one.
+    // Measured over 99,072 generated requests: 258 swallows closed, 0 wrongly admitted. Four are
+    // ordinary terse follow-ups rather than generator artifacts --
     //
     //     What is the current US headline CPI? Korea?   -> subject " us headline cpi korea "
     //     What did Reuters publish about Alpha? Gamma?  -> subject " alpha gamma "
     //
-    // -- two questions answered as one composite subject. The head condition still applies, so a
-    // `?` after an incomplete head confirms nothing.
+    // -- two questions answered as one composite subject. Against that, the known cost is a false
+    // refusal of `What is the definition of Can I Use A Question Mark In A Company Name? Ltd?`,
+    // reproduced and recorded in docs/REVIEW_DEBT.md. A novelty registration weighed against a
+    // publication-authority defect class is a judgement, not a measurement, and it is the
+    // architect's to revisit.
+    //
+    // The head condition still applies, so a `?` after an incomplete head confirms nothing.
     if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;
     if (containsHangul(text)) {
       return eojeols(text).some((eojeol) => analyseCopularInterrogative(eojeol) !== null);

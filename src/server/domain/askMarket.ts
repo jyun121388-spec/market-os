@@ -1227,6 +1227,42 @@ async function resolveSourceIdentity(sourceRegion: string): Promise<SourceResolu
  * Cause and effect are matched separately, so orientation is enforced rather than assumed. The
  * parser proved the direction; this is where that proof is spent.
  */
+/**
+ * Did either relation endpoint name a stored variable and then say something else?
+ *
+ * Discovery and cover, asked separately, so that "nothing stored under that name" and "a name plus
+ * unexplained words" are distinguishable. Only the second is a role-authority failure; the first is
+ * an ordinary gap and belongs to NOT_FOUND.
+ *
+ * The endpoint vocabulary is the relation one -- `explain how the` -- which is the default, unlike
+ * the observation subject and the source role. Three roles, one rule, three vocabularies.
+ */
+async function mechanismRoleResidue(cause: string, effect: string): Promise<string | null> {
+  if (!cause.trim() || !effect.trim()) return null;
+  const edges = await prisma.causalEdge.findMany({
+    orderBy: [{ fromVariable: "asc" }, { toVariable: "asc" }, { id: "asc" }],
+  });
+  const uncovered = (region: string, nameOf: (e: (typeof edges)[number]) => string) => {
+    const discovered = explicitlyNamed(edges, nameOf, region);
+    if (discovered.length === 0) return false;
+    return !discovered.some((e) => regionIsExactlyFramingAndIdentity(region, nameOf(e)));
+  };
+  if (uncovered(cause, (e) => e.fromVariable)) {
+    return (
+      "The cause role names a stored variable and then says more. A name occurring inside a " +
+      "longer role is not authority to publish a relation about that variable."
+    );
+  }
+  if (uncovered(effect, (e) => e.toVariable)) {
+    return (
+      "The effect role names a stored variable and then says more, so the request names more " +
+      "than one thing on that side. Publishing the relation to the first of them would answer a " +
+      "narrower question than the one asked."
+    );
+  }
+  return null;
+}
+
 async function findMechanismEdges(cause: string, effect: string): Promise<CausalFactor[]> {
   if (!cause.trim() || !effect.trim()) return [];
   const allEdges = await prisma.causalEdge.findMany({
@@ -1549,13 +1585,33 @@ async function selectAuthorizedOperation(
       return served(trimmed, changes, [], { facts: [] });
     }
 
-    case "CAUSAL_EDGE":
-      return served(
-        trimmed,
-        [],
-        await findMechanismEdges(authority.causeRegion ?? "", authority.effectRegion ?? ""),
-        { facts: [] },
-      );
+    case "CAUSAL_EDGE": {
+      // Both endpoint roles must be covered, and a role that named a stored variable and then said
+      // more is refused rather than reported as an inventory gap. ESC-015 §13.
+      //
+      // `findMechanismEdges` already required each endpoint to be exactly framing plus identity, so
+      // an uncovered role produced no edges and the request came back NOT_FOUND -- "this repository
+      // has no such relation", when the truth was that the role was not read. That reading matters
+      // here more than elsewhere: `Explain how Alpha affects Beta, Gamma.` has a perfectly good
+      // stored `A -> B` behind it, and answering it while discarding `C` is the defect the raw
+      // comma test used to prevent from the parser.
+      const causeRegion = authority.causeRegion ?? "";
+      const effectRegion = authority.effectRegion ?? "";
+      const residue = await mechanismRoleResidue(causeRegion, effectRegion);
+      if (residue) {
+        return {
+          status: "REQUEST_NOT_SUPPORTED",
+          query: trimmed,
+          redirectMessage: residue,
+          seriesFactors: [],
+          causalFactors: [],
+          companyFacts: [],
+        };
+      }
+      return served(trimmed, [], await findMechanismEdges(causeRegion, effectRegion), {
+        facts: [],
+      });
+    }
 
     case "ATTRIBUTED_OBSERVATION": {
       // Syntax proved a source was NAMED. Only the repository can prove which one, and until it

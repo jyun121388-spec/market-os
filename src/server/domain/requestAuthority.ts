@@ -1021,9 +1021,20 @@ function canonicalSubjectKey(operation: RequestOperation, subjectRegion: string)
  * comparator inside an endpoint region contradicts it. Refusing is the only honest answer, because
  * publishing `A -> B` while dropping `C` answers a question nobody asked.
  *
- * The comma is checked on the RAW query, not on the regions: `normalize` deletes punctuation, so by
- * the time a region exists `Beta, Gamma` and `Beta Gamma` are the same string. The cost is that a
- * relation naming a comma-bearing entity refuses. That is a capability loss and it fails closed.
+ * RETIRED: the raw comma test. It read the comma from the unnormalized query, because by the time
+ * a region exists `Beta, Gamma` and `Beta Gamma` are the same string -- and it therefore refused
+ * every relation naming a comma-bearing entity, `Alpha, Inc.` included. That was pinned as an open
+ * availability defect for as long as nothing else could refuse `Beta, Gamma`.
+ *
+ * Something else can now. The endpoint roles are covered against stored identities in `askMarket`,
+ * where `beta gamma` names `Beta` and then says more, and residue refuses. The comma was never the
+ * evidence; it was a proxy for "this role says more than one thing", and the repository can answer
+ * that question directly where the comma could only guess at it from punctuation.
+ *
+ * The refusal stays independent of inventory in the sense the pinned test demands: a KNOWN second
+ * object and a COINED one both leave residue on the effect role, so both refuse identically. What
+ * inventory changes is whether the request is a role-authority failure or an ordinary gap, and
+ * those are different answers that deserve different statuses.
  *
  * CORRECTED: an earlier version of this called the placement "principled rather than fitted"
  * because STORED_MECHANISM is the only `subjectCardinality: 2` contract. Review pointed out that
@@ -1036,7 +1047,6 @@ function canonicalSubjectKey(operation: RequestOperation, subjectRegion: string)
  * that control is pinned.
  */
 function relationEndpointNamesTwoThings(query: string, cause: string, effect: string): boolean {
-  if (query.includes(",")) return true;
   const tokens = [...normalizedTokens(normalize(cause)), ...normalizedTokens(normalize(effect))];
   return tokens.some((token) => OBJECT_COORDINATORS.includes(token));
 }

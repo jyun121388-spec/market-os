@@ -911,17 +911,25 @@ describe("a recognizer union describes a two-reading request as ambiguous", () =
  * integration test could not tell those apart.
  *
  * `and` and `or` were already refused by `CLAUSE_CONNECTIVES`. The three that were not, and which
- * a mutation run then showed had no test of their own, are the comma and the two comparators.
+ * a mutation run then showed had no test of their own, were the comma and the two comparators.
+ *
+ * The COMMA has since left this block. It was never connective vocabulary -- it was read from the
+ * raw query, because normalization deletes punctuation before a region exists, and it could not
+ * tell `Beta, Gamma` from `Alpha, Inc.`. Both refused, and the second was pinned as an open
+ * availability defect. Endpoint roles are now covered against stored identities in `askMarket`,
+ * which answers directly what the comma inferred from punctuation, so both comma shapes moved to
+ * `tests/integration/relation-role-cover.test.ts` and `Alpha, Inc.` is served.
+ *
+ * The five that remain are decided by closed vocabulary with no lookup, which is why the argument
+ * above still holds for them.
  */
 describe("a relation role may not name two things", () => {
   it.each([
     ["and", "Explain how Alpha affects Beta and Gamma."],
     ["or", "Explain how Alpha affects Beta or Gamma."],
-    ["a comma", "Explain how Alpha affects Beta, Gamma."],
     ["versus", "Explain how Alpha affects Beta versus Gamma."],
     ["compared with", "Explain how Alpha affects Beta compared with Gamma."],
     ["a conjoined cause", "Explain how Alpha and Gamma affect Beta."],
-    ["a comma in the cause", "Explain how Alpha, Gamma affect Beta."],
   ])("refuses a second object introduced by %s", (_label, query) => {
     expect(authorize(query).status, query).not.toBe("AUTHORIZED");
   });
@@ -936,10 +944,12 @@ describe("a relation role may not name two things", () => {
   });
 
   it("refuses whether or not the second object could ever be known", () => {
-    // The same shape with a coined second object that no repository could hold. If the refusal
-    // depended on inventory these two would differ; they must not.
-    const known = authorize("Explain how Alpha affects Beta, Gamma.");
-    const coined = authorize("Explain how Alpha affects Beta, Zorbulate.");
+    // A coined second object that no repository could hold, refused exactly as a plausible one is.
+    // Kept at the parser for the CONNECTIVE shapes, where a closed vocabulary decides it and no
+    // lookup happens; the comma pair now proves the same invariant in
+    // `tests/integration/relation-role-cover.test.ts`, where the repository is what refuses.
+    const known = authorize("Explain how Alpha affects Beta and Gamma.");
+    const coined = authorize("Explain how Alpha affects Beta and Zorbulate.");
     expect(known.status).not.toBe("AUTHORIZED");
     expect(coined.status).not.toBe("AUTHORIZED");
     expect(coined.status).toBe(known.status);
@@ -1256,21 +1266,12 @@ describe("a second question may not hide inside an open-class region", () => {
    * starts failing and forces the exception to be revisited instead of quietly outliving its
    * justification.
    */
-  /**
-   * OPEN, found by structural review. The cost of reading the comma from the RAW query.
-   *
-   * `Alpha, Inc.` is ordinary US style, and the comma refuses the whole relation before the
-   * relation is even recognised. The comma cannot be read from the role span instead: regions are
-   * slices of NORMALIZED text and normalization deletes punctuation, so by the time a region
-   * exists the comma is gone.
-   *
-   * Kept rather than reverted, and the trade is explicit. Dropping the comma test restores this
-   * name and re-opens `Explain how Alpha affects Beta, Gamma.` publishing `A -> B` while
-   * discarding `C` -- a publication-authority defect that ESC-015 refuses to accept as V1 debt,
-   * against an availability defect that fails closed. Reported to ESC-015 rather than decided
-   * here.
-   */
-  it.fails("authorizes a relation whose endpoint name contains a comma", () => {
+  it("authorizes a relation whose endpoint name contains a comma", () => {
+    // WAS PINNED. `Alpha, Inc.` is ordinary US style, and the raw comma test refused the whole
+    // relation before it was even recognised -- a capability loss kept only because nothing else
+    // could refuse `Explain how Alpha affects Beta, Gamma.` Something else can now, one layer down,
+    // so the guard is retired and the name is authorized here and served in
+    // `tests/integration/relation-role-cover.test.ts`.
     const a = authorize("Explain how Alpha, Inc. affects Beta.");
     expect(a.status).toBe("AUTHORIZED");
   });

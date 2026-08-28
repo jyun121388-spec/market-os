@@ -306,12 +306,19 @@ check("H3 the dead owner is genuinely dead", not H._pid_alive(_corpse.pid),
       f"pid {_corpse.pid} still lists as running")
 
 # Repeated, because one green round of a race is not evidence that the race is gone -- it is one
-# sample of a schedule. Two rejected designs are the reason for the count: renaming the whole lock
-# directory admitted two winners in 6 of 30 rounds, and renaming the `owner` record inside it in 3
-# of 30. At those rates a single round would have certified either of them roughly four times in
-# five. Twelve rounds is not proof of exclusion -- nothing here is -- but it is enough that the two
-# designs this one replaced would not have survived it.
-ROUNDS, holder_name = 12, None
+# sample of a schedule. Three rejected designs set the count, and their measured failure rates are
+# what the round count has to be honest about:
+#
+#   rename the whole lock directory   2 winners, 6 of 30    12 rounds detect ~93%
+#   rename the `owner` record         2-3 winners, 3 of 30  12 rounds detect ~72%
+#   rmtree the lock in place          0 winners, 1 of 60    12 rounds detect ~18%
+#
+# So twelve rounds is a fast regression check, NOT coverage. Review did the arithmetic and it is
+# recorded here rather than left implied: the stranding mode needs about 137 rounds for 90% and 275
+# for 99%, which is why `--soak` exists and why the committed protocol's evidence is 180 rounds
+# from a separate soak rather than from this control.
+SOAK = "--soak" in sys.argv
+ROUNDS, holder_name = (150 if SOAK else 12), None
 outcomes = []
 for round_index in range(ROUNDS):
     force_release()
@@ -331,6 +338,14 @@ for round_index in range(ROUNDS):
     holder_name = H._owner_of(H.LOCK)
 check(f"H4 exactly one of four concurrent reclaimers won, in each of {ROUNDS} rounds",
       outcomes == [1] * ROUNDS, f"winners per round: {outcomes}")
+# Split out, because the two ways H4 can fail mean opposite things and a combined assertion reports
+# them identically. More than one winner is a broken exclusion and loses the worktree; ZERO winners
+# is the stranding mode, where the lock survives with a claim and no owner and every later run must
+# refuse. Review pointed out that H4 alone could not tell them apart.
+check("H4a no round produced TWO winners (exclusion)",
+      all(n <= 1 for n in outcomes), f"winners per round: {outcomes}")
+check("H4b no round produced ZERO winners (stranding)",
+      all(n >= 1 for n in outcomes), f"winners per round: {outcomes}")
 check("H5 the surviving lock names a winner, not the dead owner",
       holder_name is not None and holder_name != DEAD, str(holder_name))
 

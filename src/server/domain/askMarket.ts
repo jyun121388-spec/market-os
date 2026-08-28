@@ -1311,7 +1311,7 @@ async function findMechanismEdges(cause: string, effect: string): Promise<Causal
 
 async function findCompanyFacts(
   topic: string,
-): Promise<{ matchedCorpName?: string; facts: CompanyFactFactor[] }> {
+): Promise<{ matchedCorpName?: string; facts: CompanyFactFactor[]; ambiguous?: string[] }> {
   if (!topic) return { facts: [] };
   const allFilings = await prisma.filing.findMany({
     orderBy: { receiptDate: "desc" },
@@ -1321,7 +1321,24 @@ async function findCompanyFacts(
   // question about "TEST Widget Staleness Probe Index" -- enough shared tokens -- so a refusal of
   // a stale series came back as a success carrying a company's revenue. The company has to be
   // named, not merely resembled.
-  const filing = allFilings.find((f) => nameOccursIn(f.corpName, topic));
+  //
+  // MAXIMALITY AND CARDINALITY, which `.find` had neither of. It returned whichever filing
+  // `receiptDate desc` happened to put first, so a role naming two stored companies was answered
+  // about one of them with nothing in the output saying a choice had been made -- reproduced
+  // against a real repository, where a question naming both `TESTCO Acme` and
+  // `TESTCO Beta Industries` came back with Beta's revenue. Every other role in this module has
+  // refused that since ESC-015 §15; this one had no such rule.
+  //
+  // `explicitlyNamed` is the same maximality the series, source and relation paths use: a company
+  // survives if it occurs somewhere that is not inside an occurrence of a longer matched company,
+  // so `Acme` nested inside `Acme Holdings` drops out while two genuinely named companies both
+  // remain and are refused below.
+  const named = explicitlyNamed(allFilings, (f) => f.corpName, topic);
+  const distinct = [...new Set(named.map((f) => normalizeSubject(f.corpName).trim()))];
+  if (distinct.length > 1) {
+    return { facts: [], ambiguous: [...new Set(named.map((f) => f.corpName))].sort() };
+  }
+  const filing = named[0];
   if (!filing) return { facts: [] };
 
   // Scoped to the source the FILING came from. `corpCode` is not a company: both unique indexes
@@ -1570,6 +1587,19 @@ async function selectAuthorizedOperation(
         findObservationFactors(subject, asOf, undefined, authority.subjectIdentity),
         findCompanyFacts(subject),
       ]);
+      if (company.ambiguous) {
+        return {
+          status: "REQUEST_NOT_SUPPORTED",
+          query: trimmed,
+          redirectMessage:
+            `The subject role names ${company.ambiguous.length} stored companies ` +
+            `(${company.ambiguous.join(", ")}), and this operation answers about one. Choosing ` +
+            "between them would answer a different question.",
+          seriesFactors: [],
+          causalFactors: [],
+          companyFacts: [],
+        };
+      }
       return served(trimmed, observations, [], company);
     }
 

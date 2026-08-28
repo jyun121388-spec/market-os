@@ -9,9 +9,12 @@ holding the test turns red and forces someone to look. That is the whole reason 
 comments: a comment describing a defect outlives the defect silently, and a test demanding the
 current wrong answer makes the eventual fix look like a regression.
 
-**13 pinned, verified by a full run against real PostgreSQL** (2325 tests across 132 files: 2312
-passed, 13 expected fail). Two were closed during ESC-015 §10 and are recorded at the bottom, since
-"closed" is a claim that needs its own evidence.
+**16 pinned, verified by a full run against real PostgreSQL** (2331 tests across 133 files: 2315
+passed, 16 expected fail). Two were closed during ESC-015 §10 and are recorded at the bottom, since
+"closed" is a claim that needs its own evidence. Three were ADDED by ESC-015 §6 -- the company role
+turned out to carry the same defect and to be the one role where the cover cannot be applied as
+written -- and a defect that has been reproduced and pinned is in better shape than the same defect
+unrecorded, even though the count went up.
 
 ---
 
@@ -120,6 +123,52 @@ WHOLE_REGION rule rather than caused by it.
 
 **Closes when** a lossless canonical key replaces display-name normalization for identity
 comparison.
+
+---
+
+## 14–16. The company role's unexplained remainder
+
+**File** `tests/integration/company-role-cover.test.ts` — `it.fails.each("serves nothing when the
+company role carries %s")`
+
+| #   | Shape                            | Query                                                           |
+| --- | -------------------------------- | --------------------------------------------------------------- |
+| 14  | a trading imperative             | `What is the current <company> revenue. Purchase Gamma shares.` |
+| 15  | a coined tail                    | `What is the current <company> revenue. Zorbulate Gamma.`       |
+| 16  | an informational second question | `What is the current <company> revenue. Summarize Gamma.`       |
+
+**Invariant** A stored company name occurring inside a larger role is not authority to publish that
+company's figures — the same invariant the other three roles now hold.
+
+**Severity** P1 in kind, identical to the defect ESC-015 opened on, arriving through the one path
+the first repair had to leave open. The subject cover refuses on RESIDUE only when discovery found a
+stored SERIES, deliberately: a role naming no series has not failed authority, it has failed that
+lookup, and the company path is entitled to try. So a company question with an unread second clause
+passes the cover as NO_CANDIDATE and is then matched by occurrence. Reproduced against real
+PostgreSQL: all three publish the company's revenue today.
+
+**Owner** ESC-015 §6, escalated rather than guessed, and the obstruction is structural rather than
+unfinished. The other three roles are covered by requiring the stored identity to BE the role modulo
+framing. §6 says explicitly not to do that here, and it is right: a company question names a company
+AND a fact concept, `revenue` is not framing, and exact cover would refuse every ordinary company
+question.
+
+Closing it needs §6's other half, a fact concept identity, and the repository has no matchable form
+of one. Concepts are stored as raw taxonomy identifiers — `Revenues`, `NetIncomeLoss` — the request
+says `revenue` and `net income`, and nothing maps between them. `findCompanyFacts` does not consult
+the concept at all today: `<company> revenue` and bare `<company>` return exactly the same facts.
+Writing that mapping by hand is the vocabulary list ESC-015 forbids. Deriving it from stored
+identifiers means normalizing camel-case taxonomy names and matching tokens, which decides what a
+concept identity IS — an architecture contract, not an implementation detail.
+
+**Closes when** a fact concept identity exists. Then the company role is covered by company identity
+plus concept identity plus framing, exactly as §6 specifies.
+
+**Closed alongside, needing no concept vocabulary**: maximality and cardinality. `findCompanyFacts`
+selected with `allFilings.find(...)`, returning whichever filing `receiptDate desc` put first, so a
+role naming two stored companies was answered about one with nothing saying a choice had been made —
+reproduced, and it answered about the _second_ one. It now uses the same `explicitlyNamed` maximality
+as the other three roles and refuses two distinct identities as AMBIGUOUS.
 
 ---
 

@@ -309,25 +309,6 @@ export type RequestAuthority =
   | {
       status: "PROHIBITED";
       detail: string;
-      /**
-       * The informational request this prohibited one ALSO contains, if it contains one.
-       *
-       * Carrying it does not soften the verdict and cannot: the outer status stays `PROHIBITED`,
-       * the redirect still fires, and a factual clause never rescues a directive. What it changes
-       * is what the redirect may publish. The redirect used to run its own wide retrieval over the
-       * raw string, which published records the same repository refuses to publish when asked
-       * neutrally — `Should I buy X? Define X` returned X's figures while `Define X` correctly
-       * refused, because this repository holds no glossary.
-       *
-       * Only a canonically AUTHORIZED recognition is attached. `UNSUPPORTED` and `AMBIGUOUS` are
-       * not informational constituents, and neither is a recognition that itself came back
-       * PROHIBITED — a request can be personalized twice over.
-       *
-       * ABSENT means the request asked for no information, which is the ordinary case for a bare
-       * `Should I buy X?`. Nothing is published then. That is a deliberate contract choice and it
-       * replaced the opposite one; see the redirect branch in `askMarket`.
-       */
-      informational?: AuthorizedRequest;
     }
   | { status: "UNSUPPORTED"; detail: string }
   | { status: "AMBIGUOUS"; detail: string };
@@ -538,6 +519,24 @@ const CONSTRUCTIONS: readonly Construction[] = [
  * kind of list this project keeps having to abandon.
  */
 const CLAUSE_CONNECTIVES = ["and", "then", "but", "also", "plus", "while", "so", "or"];
+
+/**
+ * Coordination and comparison of OBJECTS, as opposed to of clauses.
+ *
+ * The same closed grammatical class as `CLAUSE_CONNECTIVES` above and legitimate for the same
+ * reason: these are function words, not an open set of ways to phrase something. `versus` cannot
+ * be paraphrased into existence by a verb nobody enumerated.
+ *
+ * ESC-015's acceptance case is what forced this. `Explain how Alpha affects Beta and Gamma.`
+ * already refused, because `and` is a clause connective. `Beta, Gamma`, `Beta versus Gamma` and
+ * `Beta compared with Gamma` did NOT -- they authorized a stored mechanism whose effect region was
+ * ` beta versus gamma `, publishing A->B while silently discarding C.
+ *
+ * The decisive point is that this must hold whether or not `C` is a name the repository knows.
+ * Inventory cannot be the proof: a missing row is evidence about the repository and never evidence
+ * about what the request meant. So the check is on the REQUEST TEXT, before any lookup.
+ */
+const OBJECT_COORDINATORS = ["versus", "vs", "compared", "comparing", "alongside", "besides"];
 
 /**
  * Pronouns that make a request about the reader.
@@ -992,12 +991,37 @@ function canonicalSubjectKey(operation: RequestOperation, subjectRegion: string)
  * a mechanism request is one that contains exactly one affirmed relation clause — which is what the
  * words "mechanism request" mean, rather than which phrasebook entry it matched.
  */
+/**
+ * Does either endpoint of a relation clause name more than one thing?
+ *
+ * STORED_MECHANISM is the only operation whose contract declares `subjectCardinality: 2`. That is a
+ * claim about the REQUEST -- exactly one cause and exactly one effect -- and a coordinator or
+ * comparator inside an endpoint region contradicts it. Refusing is the only honest answer, because
+ * publishing `A -> B` while dropping `C` answers a question nobody asked.
+ *
+ * The comma is checked on the RAW query, not on the regions: `normalize` deletes punctuation, so by
+ * the time a region exists `Beta, Gamma` and `Beta Gamma` are the same string. The cost is that a
+ * relation naming a comma-bearing entity refuses. That is a capability loss and it fails closed.
+ *
+ * Cardinality-1 operations are deliberately NOT covered. Their subject is one region and a comma
+ * inside it belongs to the name -- `What is the current Smith, Jones revenue?` is one issuer, and
+ * that control is pinned.
+ */
+function relationEndpointNamesTwoThings(query: string, cause: string, effect: string): boolean {
+  if (query.includes(",")) return true;
+  const tokens = [...normalizedTokens(normalize(cause)), ...normalizedTokens(normalize(effect))];
+  return tokens.some((token) => OBJECT_COORDINATORS.includes(token));
+}
+
 function mechanismMatch(query: string): Recognised | null {
   const syntax = relationSyntax(query);
   // AFFIRMED as well as ONE. A denial is a recognised relation clause and not a request for the
   // relation — IR-106 established that the repository stores evidence relations exist and none
   // that one does not, so "how A does not affect B" is unanswerable rather than a mechanism ask.
   if (syntax.status !== "ONE" || syntax.clause.polarity !== "AFFIRMED") return null;
+  // ESC-015 items 3 and 6: unconsumed second-object residue fails closed, and it must do so
+  // whether or not the repository has ever heard of the second object.
+  if (relationEndpointNamesTwoThings(query, syntax.clause.cause, syntax.clause.effect)) return null;
   // A `Recognised`, not a verdict.
   //
   // This returned an AUTHORIZED verdict directly, and adversarial review found the hole that made:
@@ -1110,14 +1134,24 @@ function resolveWithSharedSpans(query: string): RequestAuthority {
   // repository, so running it first costs nothing and decides nothing.
   const recognised = recogniseOperation(query);
   if (detectPersonalizedAdviceRequest(query)) {
-    const informational = recogniseInformationalConstituent(query, recognised);
+    // ESC-015 item 4: PROHIBITED DOMINATES THE WHOLE REQUEST, and nothing informational may be
+    // materialized alongside it.
+    //
+    // This used to attach a recognised informational constituent so a redirect could still show
+    // figures -- "refusing to advise is not refusing to inform". That contract is withdrawn by
+    // decision, and the reason is in the record: every attempt to bound which text belongs to the
+    // constituent leaked. The directive itself reached a served SOURCE region at `.`, then at `!`
+    // and `;` after the period case was closed, and each repair moved the leak rather than ending
+    // it. A payload that cannot be proven clean is not published.
+    //
+    // The cost is real and is not hidden: `Should I buy X? What is the current X revenue?` now
+    // publishes no figures at all. That was a deliberate capability and it is deliberately gone.
     return {
       status: "PROHIBITED",
       detail:
         "The request asks the product to decide, choose or act on the reader's behalf. " +
         "docs/LEGAL_GUARDRAILS.md requires a redirect, and a factual clause alongside it does not " +
         "change that.",
-      ...(informational ? { informational } : {}),
     };
   }
   return recognised;
@@ -1133,7 +1167,7 @@ function resolveWithSharedSpans(query: string): RequestAuthority {
  * cannot appear inside a name, so no boundary set can be correct by itself.
  *
  * So the period is back, deliberately, and the set is LIBERAL. Getting the boundaries right is no
- * longer the job of this regex; see `recogniseInformationalConstituent`, which re-joins whatever
+ * longer the job of this regex; contiguous runs of fragments are re-joined and re-parsed, which
  * this over-splits.
  */
 const CLAUSE_BOUNDARY_CANDIDATE = /(?<=[.?!;])\s+/g;
@@ -1151,139 +1185,6 @@ function candidateFragments(query: string): { start: number; end: number }[] {
   }
   fragments.push({ start, end: query.length });
   return fragments.filter((f) => query.slice(f.start, f.end).trim().length > 0);
-}
-
-/**
- * The one informational request a prohibited request also contains, if there is exactly one.
- *
- * This exists because attaching only a WHOLE-request recognition attached nothing, ever, for the
- * class it was built for. Measured: `Should I buy X? What is the current X?`, `Should I buy X?
- * Define X` and `Should I buy A? Explain how A affects B.` all came back with no constituent. The
- * reason is structural — a directive clause is leftover text, and IR-107 requires the whole request
- * to parse as one operation with nothing left over, so recognition refuses precisely the requests
- * whose constituent is wanted.
- *
- * ANSWERABILITY AND DISPLAYABILITY ARE SEPARATE, and that is the whole justification. The outer
- * verdict stays PROHIBITED and the mixed request is still not factually answerable, which is what
- * "there are no halves" was built to guarantee. What a clause can decide is only what the REFUSAL
- * may show.
- *
- * It is not "strip the advice and reparse the remainder". Nothing is located by the advice
- * detector, nothing is deleted, and no residue is reinterpreted. The query is split at explicit
- * punctuation, each clause is kept as its exact substring, and each is put through the SAME
- * unchanged complete-operation grammar. A clause earns its operation on its own or not at all.
- *
- * Fail-closed on both sides of one: zero authorized clauses attach nothing, and two or more attach
- * nothing either, because choosing between them would be inventing which half the reader meant.
- */
-function recogniseInformationalConstituent(
-  query: string,
-  wholeRequest: RequestAuthority,
-): AuthorizedRequest | undefined {
-  // A single complete operation can trip the prohibition screen on its own — a subject containing
-  // "target price" is recognised AND prohibited. Then the whole request IS the constituent and
-  // there is nothing to split.
-  if (wholeRequest.status === "AUTHORIZED") return wholeRequest;
-
-  const fragments = candidateFragments(query);
-  if (fragments.length < 2) return undefined;
-
-  // Enumeration is quadratic in fragments and each run is parsed, so an input with thousands of
-  // `A. ` fragments would buy a lot of work with very little text. Nothing upstream bounds the
-  // query, so the bound lives here and it FAILS CLOSED: past the cap no constituent is recognised
-  // and the redirect publishes nothing, which is the same answer an unreadable request gets.
-  // A real compound request is two or three sentences; twelve is already generous.
-  if (fragments.length > MAX_CANDIDATE_FRAGMENTS) return undefined;
-
-  // Every CONTIGUOUS run of fragments, as its exact substring. Splitting is a guess, so instead of
-  // trusting one segmentation this considers all of them at once: a run of two fragments is the
-  // same text with a candidate boundary ignored. `Yahoo! Finance` is reunited by the run that spans
-  // the `!`, without any rule knowing that `Yahoo!` is part of a name.
-  const authorized: { start: number; end: number; request: AuthorizedRequest }[] = [];
-  for (let first = 0; first < fragments.length; first += 1) {
-    for (let last = first; last < fragments.length; last += 1) {
-      const span = query.slice(fragments[first].start, fragments[last].end);
-      const recognised = recogniseOperation(span);
-      if (recognised.status === "AUTHORIZED") {
-        authorized.push({ start: first, end: last, request: recognised });
-      }
-    }
-  }
-
-  // A run that CONTAINS TWO DISJOINT AUTHORIZING RUNS is two requests, not an over-split name, and
-  // it may not subsume anything.
-  //
-  // Maximality alone confused those two cases, and review found the input that separates them:
-  //
-  //     "Should I buy stock? What is the current Acme? What is the current Beta?"
-  //
-  // Both clauses authorize alone, AND the joined run authorizes too -- as one CURRENT_OBSERVATION
-  // whose subject has swallowed the second construction. Maximality preferred the longer run and
-  // discarded both real questions, answering neither and inventing one. Two requests silently
-  // resolved as one is worse than the over-splitting this rule was added to fix.
-  //
-  // The test is structural and needs no knowledge of constructions: `Yahoo! Finance` splits into a
-  // fragment that authorizes and a fragment (`Finance?`) that does not, so its joined run contains
-  // only ONE authorizing sub-run and is a genuine reunification. Acme/Beta contains two that do not
-  // overlap, so it is a compound and is rejected -- leaving its two clauses to compete as maximal
-  // runs, which then fails closed on count, as a two-request ambiguity should.
-  // The composite/disjoint-sub-run guard stood here and is DELETED, after measuring that its
-  // invariant MOVED rather than vanished.
-  //
-  // It rejected a span containing two independent authorizing sub-runs. Unified recognition makes
-  // that a consequence instead of a rule: a span holding two requests now carries two readings, so
-  // it never becomes a reading, and no such run reaches this point. Measured rather than assumed --
-  // the guard was disabled and its own killer asked, `Should I buy stock? What is the current Acme?
-  // What is the current Beta?`, which refused identically with the guard live and disabled, while
-  // the single-question control kept attaching its constituent.
-  //
-  // What holds that killer now is redundant BY MEASUREMENT, and that is recorded rather than
-  // tidied: the exactly-one-maximal-run count refuses it, and with that count removed the
-  // outside-construction check refuses it too. So no single mutation makes it authorize. Two rules
-  // independently covering one input is not two guards for one invariant, but it does mean this
-  // deletion cannot be proven by one mutant, and manufacturing one would be inventing evidence.
-  // Flagged for the exact-tree review currently gated on Codex quota (HG-CODEX-QUOTA).
-  //
-  // MAXIMAL runs only. `What is the definition of Yahoo!` authorizes on its own with the subject
-  // `Yahoo`, and it is contained by `What is the definition of Yahoo! Finance?`, which authorizes
-  // with the subject the reader wrote. The contained one is a smaller question the reader did not
-  // ask, so it is discarded rather than competed with -- otherwise every over-split would look like
-  // an ambiguity and fail closed, which is a worse answer than the right one.
-  const candidates = authorized;
-  const maximal = candidates.filter(
-    (span) =>
-      !candidates.some(
-        (other) => other !== span && other.start <= span.start && other.end >= span.end,
-      ),
-  );
-
-  // Still exactly one. Two maximal runs are two informational requests, and choosing between them
-  // would be inventing which the reader meant. `there are no halves` does the rest of the work:
-  // a run that swallows the directive carries unread text and cannot authorize at all.
-  if (maximal.length !== 1) return undefined;
-  const chosen = maximal[0];
-
-  // THE CHOSEN RUN MUST ACCOUNT FOR EVERY INFORMATIONAL CONSTRUCTION IN THE REQUEST.
-  //
-  // Disjointness catches a second request that authorizes on its own. It cannot catch one that does
-  // not, and review found that gap exactly where I predicted it would be:
-  //
-  //     "Should I buy stock? What is the current Acme? What about latest Beta?"
-  //
-  // `What about latest Beta?` is not a complete operation -- `about` is unread -- so it never enters
-  // the authorizing set, disjointness sees a single sub-run, and the first question is attached
-  // while the second is discarded in silence. Answering one of two questions is choosing which was
-  // meant, which is the thing this whole recogniser refuses to do.
-  //
-  // So the leftover text is checked for construction markers rather than for authorizations. A
-  // marker outside the chosen run means another informational request is present, complete or not,
-  // and the honest answer is to publish nothing.
-  const outside =
-    query.slice(0, fragments[chosen.start].start) + " " + query.slice(fragments[chosen.end].end);
-  const outsideNormalized = normalize(outside);
-  if (CONSTRUCTIONS.some((c) => outsideNormalized.includes(c.markers[0]))) return undefined;
-
-  return chosen.request;
 }
 
 /**
@@ -1438,63 +1339,6 @@ function completeInterpretations(fragmentCount: number, readings: SpanReading[])
   return covers;
 }
 
-/**
- * Does the terminator before `fragmentStart` look like the end of a SENTENCE, or the inside of a
- * name? ESC-015 Option B: narrow the surface, structurally, instead of enumerating vocabulary.
- *
- * ## Why this shape and not a longer word list
- *
- * The clause-opening set enumerates ways a clause may OPEN, which cannot be finished. It was
- * measured: 28 of 38 unknown tails were swallowed into a served subject region, after six absent
- * tokens had already been found sitting behind a 9-of-9 mutation score. Token accumulation was
- * rejected outright.
- *
- * What IS closed is the shape of an abbreviation. Name-internal periods in this domain occur after
- * abbreviations and essentially nowhere else -- `Inc.`, `U.S.`, `Mr.`, `No.`, `Co.`, `L.P.` -- and
- * an abbreviation is either short or already carries internal periods. That test is structural: it
- * asks about token shape, not membership of any list, so it does not grow a word at a time and
- * cannot be defeated by a verb nobody thought of.
- *
- *     `?`  a sentence end. The registered-issuer exception below is the known cost.
- *     `!`  NEVER, and this is load-bearing rather than cautious. `Yahoo!` is a brand, and treating
- *          `!` as a sentence end refuses it. `Alpha! What is the CPI?` is still refused, by the
- *          tail evidence below -- the two rules are a UNION, and the first version of this was a
- *          REPLACEMENT that opened 1,032 new swallows at `!` boundaries before the wide corpus
- *          caught it.
- *     `;`  NEVER, for the same reason and found the same way. `Smith; Jones` is an ordinary
- *          partnership name, and a control the suite already held -- not my corpus, which had no
- *          semicolon-in-a-name case at all -- refused `What is the current Smith; Jones revenue?`
- *          down to the subject ` smith `. A shorter subject that authorizes is the dangerous
- *          failure here, not an error the reader would notice.
- *     `.`  a sentence end UNLESS the token before it is abbreviation-shaped.
- *
- * ## What was measured before this shipped
- *
- * Plain Option B -- block on ANY candidate boundary whose head reads -- closes all 28 but refuses
- * 6 of 14 ordinary name controls, including three the decision named. It was NOT implemented. This
- * narrowing closes the same 28 with 0 false refusals on that corpus, and over 99,072 generated
- * requests changes 174 outputs in ONE direction, all of them swallows.
- *
- * CORRECTED: this said 288, which was measured BEFORE `;` was moved to provisional and was left
- * standing afterwards. Review caught it against the 174 in the review record. The number that
- * describes the shipped rule is 174.
- *
- * KNOWN OPEN, and the reason this unit does not close: the length half of the abbreviation test is
- * fitted rather than principled. 10 of 31 ordinary entity suffixes are refused -- `Corp.`, `GmbH.`,
- * `Dept.` among them -- and no threshold fixes it, because ordinary three-letter subjects (`Oil.`,
- * `CPI.`) are already swallowed at the same length `Inc.` must join at. Pinned as `it.fails` and
- * returned to ESC-015.
- */
-function terminatorEndsASentence(query: string, fragmentStart: number): boolean {
-  const before = query.slice(0, fragmentStart).trimEnd();
-  const terminator = before.slice(-1);
-  if (terminator === "!" || terminator === ";") return false;
-  if (terminator === "?") return true;
-  const previous = before.slice(0, -1).trim().split(/\s+/).pop() ?? "";
-  const letters = previous.replace(/[^0-9A-Za-z]/gu, "");
-  return !(letters.length <= 3 || previous.includes("."));
-}
-
 function recogniseOperation(query: string): RequestAuthority {
   const directiveFramed = classifyRequestFrame(query) === "REQUEST_DIRECTIVE";
   const normalized = normalize(query);
@@ -1543,13 +1387,11 @@ function recogniseOperation(query: string): RequestAuthority {
   // needs no mapping -- and it covers all four recognizers and all four open-class roles at once.
   const confirmedBoundary = fragments.map((fragment, index) => {
     if (index === 0) return false;
-    // ESC-015 Option B. The terminator's SHAPE decides first, and the tail evidence below is now a
-    // fallback rather than the whole rule.
-    //
-    // Enumerating ways a clause may OPEN is the unfinishable direction, and measurement said so:
-    // 28 of 38 unknown tails were swallowed, six absent tokens having already been found behind a
-    // 9-of-9 mutation score. Adding a ninth and tenth word was rejected outright.
-    if (terminatorEndsASentence(query, fragment.start)) return true;
+    // ESC-015 item 2: delimiter-local classification is NOT the authority mechanism, and the
+    // terminator-shape rule that used to sit here is gone. It refused 10 of 31 ordinary entity
+    // abbreviations (`Corp.`, `GmbH.`, `Dept.`) and no threshold could fix that, because `Inc`
+    // must join at three letters while `CPI` must split at three. What follows is TAIL evidence
+    // only, and it is provisional: it can suggest a boundary, never establish one.
     const text = query.slice(fragment.start, fragment.end);
     // Hangul used to confirm unconditionally, and that refused an ordinary Korean issuer name:
     // `What is the definition of Samsung Electronics Co. 삼성전자?` split at the abbreviation

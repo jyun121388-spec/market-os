@@ -215,6 +215,30 @@ CASES = {
         ),
         "probe": "npx tsx scripts/diff-clause-token-scan.ts",
     },
+    # M-EXACT-COVER survived the mutation run. A survivor never proves a branch is unreachable, so
+    # this is the disable-and-measure that can: apply the mutation and ask whether ANY of 99,072
+    # generated requests changes. The `interpretations.length > 1` branch needs the JOINED run to be
+    # admitted while the split cover also exists, and the tail evidence that blocks a joined run is
+    # the same evidence that makes a tail read alone -- so the two conditions may be anti-correlated
+    # by construction. May be. That is what this measures.
+    "exact-cover-unreachable": {
+        "label": "M-EXACT-COVER over the big corpus, to test reachability",
+        "path": RA,
+        "old": "  if (interpretations.length > 1) {",
+        "new": "  if (false as boolean) {",
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
+    # B-M8 survived the boundary run on the exact-cover tree. Plausible reason: ESC-015 item 4 made
+    # a prohibited request publish nothing at all, so whether a prohibited span counts as a complete
+    # HEAD may no longer change any outcome. Plausible is not measured, and a survivor never proves
+    # equivalence, so this is the disable-and-measure.
+    "bm8-advice-head": {
+        "label": "B-M8 a standalone prohibited request no longer counts as a complete head",
+        "path": RA,
+        "old": "      headReads = readings.length > 0 || detectPersonalizedAdviceRequest(span);",
+        "new": "      headReads = readings.length > 0;",
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
     "question-mark-confirms": {
         "label": "CANDIDATE: a ? boundary always confirms, . ! ; stay provisional",
         "path": RA,

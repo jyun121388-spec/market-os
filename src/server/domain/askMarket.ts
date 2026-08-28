@@ -870,10 +870,10 @@ export function detectPersonalizedAdviceRequest(query: string): boolean {
   return requestsAFinancialDecision(query);
 }
 
-const REDIRECT_MESSAGE =
-  "Market OS doesn't give personalized buy/sell recommendations. Here's a factor analysis " +
-  "instead — the economic and company variables currently relevant to this topic, sourced from " +
-  "tracked data, for you to interpret yourself.";
+// REMOVED with ESC-015 item 4: the message that promised "a factor analysis instead". There is
+// never an analysis underneath a redirect now, so a message offering one would be a claim the
+// screen contradicts -- which is the exact defect the second message below was written to avoid.
+// Every redirect uses that one.
 
 /**
  * The same refusal, for a request that asked for nothing else.
@@ -1362,33 +1362,27 @@ export async function askMarket(
   // refusal. `Should I buy A? Explain how A affects B.` selects STORED_MECHANISM and serves the
   // edge, so an affirmative relation is no longer narrowed away.
   //
-  // A BARE `Should I buy X?` names no operation and therefore publishes nothing. That reverses the
-  // older contract, deliberately: refusing to advise is not refusing to inform, but bare advice
-  // asked to be informed of nothing. The alternative is the wide search, and the wide search is the
-  // defect above. The message says so rather than promising an analysis that is not there.
+  // ESC-015 item 4: an advice request publishes NOTHING. Prohibited authority dominates the whole
+  // request, and no informational constituent may be materialized alongside it.
+  //
+  // This branch used to recognise an informational constituent and serve its figures, on the
+  // contract that refusing to advise is not refusing to inform. That contract is withdrawn by
+  // decision. The record is why: bounding which text belonged to the constituent leaked three
+  // times, each repair moved the leak rather than ending it, and the last one put the advice
+  // directive itself into a served SOURCE region. There is no retrieval here any more to get
+  // wrong -- not a narrower one, none -- so the class cannot recur through this path.
+  //
+  // The capability lost is real and named rather than glossed: `Should I buy X? What is the
+  // current X revenue?` returns no figures. The message says so instead of promising an analysis
+  // that is not there.
   if (isAdviceRequest) {
-    const informational = authority.status === "PROHIBITED" ? authority.informational : undefined;
-    const served = informational
-      ? await selectAuthorizedOperation(informational, trimmed, asOf)
-      : undefined;
-
-    // Only the FACTORS cross over. The selector's own status and message stay behind: a redirected
-    // request is `PERSONALIZED_ADVICE_REDIRECTED`, never `REQUEST_NOT_SUPPORTED` or `NOT_FOUND`,
-    // because the outer verdict is the prohibition and a factual clause never rescues a directive.
-    const seriesFactors = served?.seriesFactors ?? [];
-    const causalFactors = served?.causalFactors ?? [];
-    const companyFacts = served?.companyFacts ?? [];
-    const published =
-      seriesFactors.length > 0 || causalFactors.length > 0 || companyFacts.length > 0;
-
     return {
       status: "PERSONALIZED_ADVICE_REDIRECTED",
       query: trimmed,
-      redirectMessage: published ? REDIRECT_MESSAGE : REDIRECT_MESSAGE_NOTHING_ASKED,
-      matchedTopic: served?.matchedTopic,
-      seriesFactors,
-      causalFactors,
-      companyFacts,
+      redirectMessage: REDIRECT_MESSAGE_NOTHING_ASKED,
+      seriesFactors: [],
+      causalFactors: [],
+      companyFacts: [],
     };
   }
 

@@ -951,19 +951,23 @@ describeIfDb("askMarket (integration)", () => {
    * The half that still matters -- a real match EXISTS, so an empty redirect is a decision rather
    * than an empty repository -- is kept by asserting both forms here.
    */
-  it("redirects a personalized buy request, showing factors only if it asked for some", async () => {
+  it("redirects a personalized buy request and publishes nothing", async () => {
     const bare = await askMarket("Should I buy TEST Widget Corp now?");
     expect(bare.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
     expect(bare.redirectMessage).toBeTruthy();
     expect(bare.companyFacts).toHaveLength(0);
 
-    // Same company, same directive, plus a clause that names an operation. This control is what
-    // stops the assertion above from being satisfied by an absent fixture.
+    // ESC-015 item 4: naming an operation alongside the directive no longer publishes anything.
+    // The non-vacuity control moves to the NEUTRAL form, which must still answer -- otherwise the
+    // empty above would be satisfied by an absent fixture, which is what this control was for.
+    const neutral = await askMarket("What is the current TEST Widget Corp?");
+    expect(neutral.companyFacts.length).toBeGreaterThanOrEqual(1);
+
     const withOperation = await askMarket(
       "Should I buy TEST Widget Corp now? What is the current TEST Widget Corp?",
     );
     expect(withOperation.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(withOperation.companyFacts.length).toBeGreaterThanOrEqual(1);
+    expect(withOperation.companyFacts).toHaveLength(0);
   });
 
   it("returns NOT_FOUND for a topic with no matching data, never fabricating a match", async () => {

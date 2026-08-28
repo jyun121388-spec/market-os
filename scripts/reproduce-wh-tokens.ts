@@ -41,9 +41,7 @@ for (const query of CASES) {
   let served = "-";
   if (a.status === "AUTHORIZED") {
     served = `${a.operation}|${a.subjectRegion}|${a.sourceRegion ?? "-"}`;
-  } else if (a.status === "PROHIBITED" && a.informational) {
-    const i = a.informational;
-    served = `informational ${i.operation}|${i.subjectRegion}|${i.sourceRegion ?? "-"}`;
   }
+  // ESC-015 item 4 removed the informational payload: a PROHIBITED request carries nothing.
   process.stdout.write(`${JSON.stringify(query)}\t${a.status}\t${served}\n`);
 }

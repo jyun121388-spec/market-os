@@ -1187,3 +1187,106 @@ domain, and the only control that separates the two halves of the abbreviation t
 
 `What did S.E.C. publish about Alpha?` serves source `e c`: the leading `S` is dropped. Same class
 as the `Can I Use A Question Mark...` truncation — a framing-token interaction, not a boundary one.
+
+### ESC-015 whole-request exact-cover redesign (2026-08-28), continuing from `cfcacad`
+
+Consumed: `[CHATGPT_DECISION][ESC-015]` comment 5448672325, and
+`[CHATGPT_DECISION][MARKET-ESC015-AUTHORITY-REANCHOR-20260828]` comment 5451226106. The
+`[CHATGPT_ARCHITECT_GUIDANCE]` at comment 5450568344 is anchored to `8baf368`, 45 commits behind,
+and was read ONLY as a subsumed acceptance-case source. Local == remote == `cfcacad` verified
+before any write.
+
+#### The reproduction matrix
+
+`scripts/reproduce-exact-cover-matrix.ts`, 34 cases, one per load-bearing item the contract names,
+each carrying its expectation. **14 failed at `cfcacad`; 6 fail now.**
+
+One of the original 14 was my error rather than a defect: I expected `현재 기준금리는 얼마인가요?`
+to publish, and the 3-eojeol form is a documented capability limit of the Korean copular matcher.
+Corrected in the matrix; the 2-eojeol control is used instead.
+
+#### Item 2 — delimiter-local classification removed
+
+`terminatorEndsASentence` is deleted. It refused 10 of 31 ordinary entity and title abbreviations
+and no threshold could fix that: `Inc` must join at three letters while `CPI` must split at three.
+Removing it restored `Corp.`, `GmbH.`, `Dept.`, `Prof.`, `Assn.`, `Bros.`, `Univ.`, `Corpn.`,
+`Assoc.` and `Sched.`, and the `it.fails` pinning `Corp.` became an ordinary passing control.
+
+No threshold, no suffix registry, no opener vocabulary was added. Seven mutants (B-M14..B-M20) were
+deleted with the rule, because a mutant whose target does not exist is not evidence.
+
+#### Item 4 — prohibited dominance, and the capability it costs
+
+A prohibited constituent now dominates the whole request. The `informational` payload, its producer
+`recogniseInformationalConstituent`, the retrieval behind it in `askMarket`, and the redirect
+message that promised "a factor analysis instead" are all removed.
+
+This closes the directive-in-source class **at every boundary at once** -- not by bounding the
+payload better, which failed three times, but by there being no payload. The `!` and `;` cases that
+blocked the previous round are closed as a consequence.
+
+**The cost is a designed capability, and it is gone by decision rather than by accident.**
+`Should I buy X? What is the current X revenue?` returns no figures. Eight integration tests
+encoded the old contract and were rewritten; every one keeps its NEUTRAL control non-empty, so the
+new emptiness is provably the rule and not an empty fixture -- a trap that file has fallen into
+before. The anti-flattery property those tests protected is not lost but made trivial: a refusal
+serving nothing cannot re-rank anything.
+
+Also reduced, and recorded rather than hidden: `adversarial_resilience` no longer has a populated
+refusal to examine anywhere in the suite. Its control now asserts `figureCount === 0`, which is a
+weaker thing to check than what it replaced.
+
+#### Items 3, 6, 7 — second-object residue, decided without inventory
+
+A relation role that names more than one thing refuses. `and` and `or` were already refused by the
+existing `CLAUSE_CONNECTIVES`; the comma, `versus` and `compared with` were not, and authorized a
+stored mechanism with effect ` beta versus gamma `.
+
+`OBJECT_COORDINATORS` is a sibling closed function-word class, justified the same way
+`CLAUSE_CONNECTIVES` already is in this module. The comma is checked on the RAW query because
+`normalize` deletes punctuation before any region exists.
+
+Keyed to relation roles only, and that is principled rather than fitted: STORED_MECHANISM is the
+only operation whose contract declares `subjectCardinality: 2`, so a coordinator inside an endpoint
+contradicts a claim the contract makes. Cardinality-1 subjects keep their commas --
+`What is the current Smith, Jones revenue?` is one issuer and is pinned.
+
+The acceptance case is asserted at the PARSER, which consults no repository, so a refusal there
+cannot be confused with a lookup that found nothing. A coined second object refuses identically to
+a known one; both are pinned.
+
+#### Mutation evidence
+
+    exact-cover set   6 of 7 ISOLATED     baseline 158 binding / 49 unrelated
+    boundary set      13 mutants, re-run on the moved tree
+
+M-DOMINANCE, M-RESIDUE (three variants), M-EXACT-COVER-MULTI and M-ROLE-SPAN all turn their
+intended controls red.
+
+**M-RESIDUE first survived, and the reason is worth keeping**: I had verified the residue guard with
+a SCRIPT and never added tests. The matrix is not the suite. Three acceptance tests were added and
+the mutants then died -- the mutation run found a missing test, which is what it is for.
+
+**M-EXACT-COVER survives and is NOT being explained away.** `interpretations.length > 1` needs the
+joined run admitted while a split cover also exists, and the tail evidence that blocks a joined run
+is the same evidence that makes a tail read alone, so the conditions appear anti-correlated by
+construction. Disable-and-measure over 99,072 generated requests found **zero** differing outputs.
+That is `EQUIVALENT_OVER_CORPUS`, not proof of unreachability, and no test was manufactured to
+force it red.
+
+#### What is NOT closed — six cases, one class
+
+Informational-only multi-intent joined by a bare sentence boundary, with no coordinator, no
+clause-opening token, no Hangul predicate and no directive:
+
+    What did Reuters publish about Alpha. Summarize Gamma.   -> subject ` alpha summarize gamma `
+    ... the same at `!` and at `;`, plus `Oil.` and `CPI.` heads, plus the mechanism-tail form
+
+Every closed grammar available here is blind to them. Separating a name continuation from a new
+clause needs the POS/name model ESC-015 defers, and the delimiter rule that had been masking them
+is exactly what item 2 removed. They are pinned as `it.fails` so the class is visible rather than
+absent.
+
+What has changed for this class: none of it can reach a served field when a directive is present,
+because a prohibited request now publishes nothing at all. What remains is a composite SUBJECT on a
+purely informational request.

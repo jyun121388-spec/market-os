@@ -21,6 +21,21 @@ import {
 
 const authorize = (query: string) => resolveRequestAuthority(query);
 
+/**
+ * REPOINTED by ESC-015 item 4: prohibited authority dominates the whole request, so there is no
+ * informational constituent to inspect any more. The helper now proves the stronger property --
+ * the request is refused and NOTHING is carried alongside the refusal.
+ *
+ * The cases below were written to check that a constituent was clean. They are kept because each
+ * one is a reproduced P1, and "no payload exists" subsumes "the payload is clean".
+ */
+const servesNothing = (query: string) => {
+  const a = authorize(query);
+  expect(a.status, query).toBe("PROHIBITED");
+  expect(Object.keys(a), query).toEqual(["status", "detail"]);
+  return undefined as undefined;
+};
+
 describe("the operation set is closed", () => {
   it("names exactly five operations", () => {
     expect([...REQUEST_OPERATIONS]).toEqual([
@@ -208,11 +223,7 @@ describe("prohibited purpose has precedence", () => {
    * test comparing figures cannot see it, because both subjects resolve to the same company; it was
    * written that way first and a mutation restoring the period boundary survived it.
    */
-  const constituentOf = (query: string) => {
-    const a = authorize(query);
-    expect(a.status, query).toBe("PROHIBITED");
-    return a.status === "PROHIBITED" ? a.informational : undefined;
-  };
+  const constituentOf = servesNothing;
 
   /**
    * Punctuation inside a NAME must not end the clause, and no punctuation set gets this right.
@@ -240,8 +251,11 @@ describe("prohibited purpose has precedence", () => {
       "Should I buy stock? What is the current Smith; Jones revenue?",
       "jones",
     ],
-  ])("carries the whole informational clause across %s", (_label, query, mustContain) => {
-    expect(constituentOf(query)?.subjectRegion).toContain(mustContain);
+  ])("publishes nothing for a directive alongside %s", (_label, query) => {
+    // Was: the informational constituent must carry the whole name across the punctuation. The
+    // name-boundary property these inputs were built for is now tested on the NEUTRAL forms in
+    // "still authorizes"; here the directive dominates and nothing is served at all.
+    servesNothing(query);
   });
 
   it("still fails closed when two informational clauses are named", () => {
@@ -723,11 +737,10 @@ describe("recorded consequences of unifying the recognizers", () => {
     // NEW REACHABLE CAPABILITY, and not from new morphology or vocabulary -- the generic cover
     // engine granted it. Korean used to be consulted only for the WHOLE query, so the constituent
     // path never saw a Korean reading. OPEN for review.
-    const a = authorize("Should I buy stock? 기준금리는 얼마인가요?");
-    expect(a.status).toBe("PROHIBITED");
-    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
-    expect(informational?.operation).toBe("CURRENT_OBSERVATION");
-    expect(informational?.subjectRegion).toContain("기준금리");
+    // The Korean constituent used to be served alongside the refusal. It is not any more, and
+    // the neutral form `기준금리는 얼마인가요?` still authorizes on its own -- that control lives
+    // in the Korean suite, so this one is free to assert only the domination.
+    servesNothing("Should I buy stock? 기준금리는 얼마인가요?");
   });
 
   it("refuses two Korean questions and a mixed-script pair", () => {
@@ -789,7 +802,7 @@ describe("no recognizer may silence another", () => {
       "Should I buy stock? What did Reuters publish about Alpha? What is the current Gamma?",
     );
     expect(a.status).toBe("PROHIBITED");
-    expect(a.status === "PROHIBITED" ? a.informational : undefined).toBeUndefined();
+    expect(Object.keys(a)).toEqual(["status", "detail"]);
   });
 
   it.each([
@@ -883,6 +896,65 @@ describe("a recognizer union describes a two-reading request as ambiguous", () =
  * punctuation exists to reunite. Scanning the tail for ANY framing token refuses
  * `the U.S. Bureau of Labor Statistics` (`of` is framing) AND misses a Hangul tail entirely.
  */
+/**
+ * ESC-015 items 3, 6 and 7: a relation role that names more than one thing refuses, and repository
+ * inventory never gets a say in it.
+ *
+ * The acceptance case the decision subsumed from the stale-anchored guidance. `Explain how A affects
+ * B and C` was authorizing stored `A -> B` and silently discarding `C` whenever `C` was not an
+ * endpoint of any discovered edge -- publication authority inferred from inventory coverage, which
+ * is backwards. A missing row is evidence about the repository and never evidence about what the
+ * request meant.
+ *
+ * These are asserted HERE, at the parser, and that placement is the point: this layer consults no
+ * repository at all, so a refusal here cannot be confused with a lookup that found nothing. An
+ * integration test could not tell those apart.
+ *
+ * `and` and `or` were already refused by `CLAUSE_CONNECTIVES`. The three that were not, and which
+ * a mutation run then showed had no test of their own, are the comma and the two comparators.
+ */
+describe("a relation role may not name two things", () => {
+  it.each([
+    ["and", "Explain how Alpha affects Beta and Gamma."],
+    ["or", "Explain how Alpha affects Beta or Gamma."],
+    ["a comma", "Explain how Alpha affects Beta, Gamma."],
+    ["versus", "Explain how Alpha affects Beta versus Gamma."],
+    ["compared with", "Explain how Alpha affects Beta compared with Gamma."],
+    ["a conjoined cause", "Explain how Alpha and Gamma affect Beta."],
+    ["a comma in the cause", "Explain how Alpha, Gamma affect Beta."],
+  ])("refuses a second object introduced by %s", (_label, query) => {
+    expect(authorize(query).status, query).not.toBe("AUTHORIZED");
+  });
+
+  it("still authorizes the single-pair form", () => {
+    // Non-vacuity. Without this the block above passes if the mechanism path is simply broken.
+    const a = authorize("Explain how Alpha affects Beta.");
+    expect(a.status).toBe("AUTHORIZED");
+    expect(a.status === "AUTHORIZED" && a.operation).toBe("STORED_MECHANISM");
+    expect(a.status === "AUTHORIZED" && a.causeRegion).toContain("alpha");
+    expect(a.status === "AUTHORIZED" && a.effectRegion).toContain("beta");
+  });
+
+  it("refuses whether or not the second object could ever be known", () => {
+    // The same shape with a coined second object that no repository could hold. If the refusal
+    // depended on inventory these two would differ; they must not.
+    const known = authorize("Explain how Alpha affects Beta, Gamma.");
+    const coined = authorize("Explain how Alpha affects Beta, Zorbulate.");
+    expect(known.status).not.toBe("AUTHORIZED");
+    expect(coined.status).not.toBe("AUTHORIZED");
+    expect(coined.status).toBe(known.status);
+  });
+
+  it("leaves a cardinality-one subject alone", () => {
+    // The cost this rule deliberately does NOT pay. A comma inside the subject of a one-endpoint
+    // operation belongs to the name -- `Smith; Jones` and `Smith, Jones` are one issuer -- and the
+    // guard is keyed to relation roles for exactly that reason.
+    const a = authorize("What is the current Smith, Jones revenue?");
+    expect(a.status).toBe("AUTHORIZED");
+    expect(a.status === "AUTHORIZED" && a.subjectRegion).toContain("jones");
+  });
+});
+
 describe("a second question may not hide inside an open-class region", () => {
   it.each([
     [
@@ -960,9 +1032,6 @@ describe("a second question may not hide inside an open-class region", () => {
     // the evidence. `?` is the one that never occurs inside a name here, while `.`, `!` and `;`
     // demonstrably do, and the "still authorizes" cases below are what would break if that were
     // extended to the others.
-    ["a bare name follows a question mark", "What is the current US headline CPI? Korea?"],
-    ["a bare subject follows a question mark", "What did Reuters publish about Alpha? Gamma?"],
-    ["a company name follows a question mark", "What is the current Acme Inc. revenue? Gamma?"],
     // The SAME requests with the boundary changed from `?` to `.`, and they are here because
     // adding the terminator rule turned five mutants from ISOLATED to MISSED at once -- the Korean
     // clause rule, the determiner rule, and all three groups of clause-opening tokens.
@@ -991,12 +1060,6 @@ describe("a second question may not hide inside an open-class region", () => {
     // One per tail shape from the 38-case matrix that measured the class. All 28 of its swallows
     // close; the full set lives in `scripts/probe-option-b.ts` because pinning 28 near-identical
     // strings here would obscure which shapes are actually distinct.
-    ["an unenumerated imperative", "What did Reuters publish about Alpha. Summarize Gamma."],
-    ["a bare noun", "What did Reuters publish about Alpha. Revenue."],
-    ["a proper-name-shaped tail", "What did Reuters publish about Alpha. Gamma Corp."],
-    ["a coined token", "What did Reuters publish about Alpha. Zorbulate Gamma."],
-    ["digits", "What did Reuters publish about Alpha. Q3 Gamma."],
-    ["bare hangul after a period", "What did Reuters publish about Alpha. 감마."],
     // The regression guard for a mistake this repair actually made. The first version REPLACED the
     // tail evidence instead of joining it, and `!` never being a sentence end then opened 1,032 new
     // swallows across the corpus before it was caught. `Yahoo!` needs `!` to stay provisional; this
@@ -1040,20 +1103,44 @@ describe("a second question may not hide inside an open-class region", () => {
     expect(authorize(query).status, query).not.toBe("AUTHORIZED");
   });
 
+  /**
+   * OPEN AND PINNED, not closed. ESC-015 item 2 removed delimiter-local classification as the
+   * authority mechanism, and these nine are what that cost.
+   *
+   * They were closed by terminator SHAPE -- a period after an ordinary word ends a sentence, after
+   * an abbreviation it does not. That rule refused 10 of 31 ordinary entity abbreviations and no
+   * threshold could fix it, so it is gone and this class came back with it.
+   *
+   * They are NOT closed by the exact-cover work either, and the reason is structural rather than
+   * unfinished: each tail carries no coordinator, no clause-opening token, no Hangul predicate and
+   * no directive, so every closed grammar available here is blind to it. Separating a name
+   * continuation from a new clause needs a POS or name model, which ESC-015 defers.
+   *
+   * What HAS changed for them: none can reach a served field when a directive is present, because
+   * a prohibited request now publishes nothing at all. The residue here is a composite SUBJECT on
+   * an informational request.
+   */
+  it.fails.each([
+    ["a bare name follows a question mark", "What is the current US headline CPI? Korea?"],
+    ["a bare subject follows a question mark", "What did Reuters publish about Alpha? Gamma?"],
+    ["a company name follows a question mark", "What is the current Acme Inc. revenue? Gamma?"],
+    ["an unenumerated imperative", "What did Reuters publish about Alpha. Summarize Gamma."],
+    ["a bare noun", "What did Reuters publish about Alpha. Revenue."],
+    ["a proper-name-shaped tail", "What did Reuters publish about Alpha. Gamma Corp."],
+    ["a coined token", "What did Reuters publish about Alpha. Zorbulate Gamma."],
+    ["digits", "What did Reuters publish about Alpha. Q3 Gamma."],
+    ["bare hangul after a period", "What did Reuters publish about Alpha. 감마."],
+  ])("REOPENED by removing delimiter authority: %s", (_label, query) => {
+    expect(authorize(query).status, query).not.toBe("AUTHORIZED");
+  });
+
   it("keeps a who-question out of the served informational region", () => {
     // The publication shape of the P1 review finding, and the one that matters most: the outer
     // refusal was already correct, so only the informational payload showed the defect. It carried
     // subject ` alpha who published gamma ` -- a composite of two questions, offered as the thing
     // the system would answer.
-    const a = authorize(
-      "Should I buy stock? What did Reuters publish about Alpha? Who published Gamma?",
-    );
-    expect(a.status).toBe("PROHIBITED");
-    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
-    expect(informational?.sourceRegion).toBe("reuters");
-    expect(informational?.subjectRegion).toContain("alpha");
-    expect(informational?.subjectRegion).not.toContain("gamma");
-    expect(informational?.subjectRegion).not.toContain("who");
+    // This one reproduced a polluted source region. There is no source region to pollute now.
+    servesNothing("Should I buy stock? What did Reuters publish about Alpha? Who published Gamma?");
   });
 
   it("does not bury a prepositionally-fronted second question in the subject region", () => {
@@ -1071,14 +1158,9 @@ describe("a second question may not hide inside an open-class region", () => {
     // three-fragment span parsed as ONE attribution whose source slot had absorbed the advice
     // directive, so a redirect would have published under source "should i buy stock what did
     // reuters". The constituent must be the clean question or nothing.
-    const a = authorize(
+    servesNothing(
       "Should I buy stock? What did Reuters publish about Alpha? What about the Gamma level?",
     );
-    expect(a.status).toBe("PROHIBITED");
-    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
-    expect(informational?.sourceRegion).toBe("reuters");
-    expect(informational?.subjectRegion).toContain("alpha");
-    expect(informational?.subjectRegion).not.toContain("gamma");
   });
 
   /**
@@ -1193,9 +1275,14 @@ describe("a second question may not hide inside an open-class region", () => {
    * vocabulary of exactly the kind that rejected the previous approach. Returned to ESC-015 with
    * the numbers instead.
    */
-  it.fails("authorizes a four-letter issuer suffix", () => {
+  it("authorizes a four-letter issuer suffix", () => {
+    // WAS `it.fails`. ESC-015 item 2 removed the delimiter-shape rule that refused this, along with
+    // `GmbH.`, `Dept.`, `Prof.`, `Assn.`, `Bros.`, `Univ.`, `Corpn.`, `Assoc.` and `Sched.` -- 10 of
+    // 31 ordinary entity and title abbreviations. No threshold could have kept them: `Inc` must
+    // join at three letters and `CPI` must split at three.
     const a = authorize("What is the current Acme Corp. revenue?");
     expect(a.status).toBe("AUTHORIZED");
+    expect(a.status === "AUTHORIZED" && a.subjectRegion).toContain("acme corp revenue");
   });
 
   /**
@@ -1212,10 +1299,14 @@ describe("a second question may not hide inside an open-class region", () => {
    * names, so neither may confirm on its own, and nothing else separates `Yahoo! Finance` from
    * `Alpha! What is the CPI?` except reading the continuation.
    */
-  it.fails("keeps the directive out of a source region at an exclamation boundary", () => {
-    const a = authorize("Should I buy stock! Reuters published about Alpha?");
-    expect(a.status).toBe("PROHIBITED");
-    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
-    expect(informational?.sourceRegion ?? "").not.toContain("should i buy");
+  it("keeps the directive out of a source region at an exclamation boundary", () => {
+    // WAS `it.fails`, and it is now an ordinary passing control. ESC-015 item 4 closed this by
+    // removing the payload entirely rather than by bounding it better: there is no source region
+    // to pollute when a directive is present. The `!` boundary is still undecidable and the tail
+    // still cannot be separated from a name -- that limitation is real and recorded -- but it can
+    // no longer reach anything published.
+    servesNothing("Should I buy stock! Reuters published about Alpha?");
+    servesNothing("Should I buy stock; Reuters published about Alpha?");
+    servesNothing("Should I buy stock. Reuters published about Alpha?");
   });
 });

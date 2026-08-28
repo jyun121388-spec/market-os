@@ -54,7 +54,14 @@ POST-RC UNIT — redirect / informational authority (branch `claude/ask-guardrai
 The frozen RC is untouched and PR #1 is not involved. This branch carries one reproduced P1 and the
 assurance apparatus that measures it.
 
-    P1_REDIRECT_INFORMATIONAL_AUTHORITY   thirteen known instances closed and pinned
+    P1_REDIRECT_INFORMATIONAL_AUTHORITY   CLOSED STRUCTURALLY. ESC-015 item 4 removed the
+                                          informational payload entirely, so a prohibited
+                                          request publishes nothing and the class cannot
+                                          recur through that path. Cost: the "refusing to
+                                          advise is not refusing to inform" capability is
+                                          withdrawn by decision.
+    ESC015_UNKNOWN_SECOND_OBJECT          CLOSED. A relation role naming two things refuses,
+                                          decided on request text with no repository lookup.
     P1_UNBOUNDED_CLAUSE_OPENING_CLASS     ESC-015 Option B applied, REWORK_REQUIRED from both
                                           reviews. The 38-tail matrix measures the `.`
                                           boundary ONLY: 0 of 38 swallowed there, 28 of 38 at
@@ -813,8 +820,11 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2214 / 2214 PASS across 127 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-26 on the ask-guardrail architecture branch (2192, 2188, 2184, 2182, 2178, 2176 and 2169 earlier that day, 2165 on 2026-08-25, 2048 on 2026-08-24,
+2297 / 2297 PASS across 128 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment), measured 2026-08-28 on the ask-guardrail architecture branch during the ESC-015
+exact-cover redesign -- 2285 passing plus 12 pinned `it.fails`, which are reproduced defects this
+unit is deliberately NOT closing and which the count must not quietly absorb; earlier that day
+2214 across 127 on 2026-08-26 (2192, 2188, 2184, 2182, 2178, 2176 and 2169 earlier that day, 2165 on 2026-08-25, 2048 on 2026-08-24,
 1894, 1888 and 1878 earlier that day, 1847 on 2026-08-23, 1838 on 2026-08-21; the hundred and
 eighty-five since are IR-100 publication-authority, IR-101 output-authority, IR-102
 publication-class, IR-103 candidate-relevance, IR-104 subject/operation-authority, IR-105

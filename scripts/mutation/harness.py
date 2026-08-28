@@ -509,8 +509,22 @@ def run_tests(tests, timeout_ms=20000, wall_seconds=900, command=None, needs_db=
     files, tests_m = FILES_LINE.search(out), TESTS_LINE.search(out)
     if not files or not tests_m:
         return RunResult(0, 0, 0, 0, False)
+    # `expected fail` counts toward PASSED, and leaving it out made a whole run INVALID.
+    #
+    # Vitest reports three buckets, not two: `N passed | M failed | K expected fail`. This read the
+    # first two and pinned the denominator on their sum, so a mutation that moved a test between
+    # `expected fail` and either other bucket changed the total and the run scored
+    # INVALID_ENVIRONMENT rather than being scored at all. That is not hypothetical -- B-M9 hit it
+    # reproducibly once this repository started pinning open defects as `it.fails`, which it does
+    # deliberately and increasingly.
+    #
+    # An `it.fails` that starts passing is a real signal and must not be silently absorbed: it still
+    # lands in `failed` ("expected to fail but passed"), so it still turns a mutant red. What this
+    # fixes is only the DENOMINATOR, so the three buckets sum to a stable total.
+    tests = tests_m.group(1)
     return RunResult(_count(files.group(1), "failed"), _count(files.group(1), "passed"),
-                     _count(tests_m.group(1), "failed"), _count(tests_m.group(1), "passed"), True)
+                     _count(tests, "failed"),
+                     _count(tests, "passed") + _count(tests, "expected fail"), True)
 
 
 def preflight_tree(originals, mutations):

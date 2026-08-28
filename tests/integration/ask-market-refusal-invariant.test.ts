@@ -4,6 +4,27 @@ import type { prisma as PrismaClientInstance } from "@/server/db/client";
 /**
  * A refusal must not be a recommendation wearing a disclaimer.
  *
+ * ## SUPERSEDED 2026-08-28 by ESC-015 item 4 — read this before the history below
+ *
+ * A prohibited constituent now dominates the whole request and NOTHING informational is published
+ * alongside it. The contract described below -- a redirect serves exactly the figures its neutral
+ * twin serves -- is withdrawn, and with it the capability it protected.
+ *
+ * The anti-flattery property that contract existed for is not lost; it is made trivial. A refusal
+ * cannot re-rank true figures into a recommendation when it serves no figures. What IS lost is
+ * real: `Should I buy X? What is the current X revenue?` returns nothing, and that is a deliberate
+ * capability reduction rather than an oversight.
+ *
+ * Why: bounding which text belonged to the informational constituent leaked three times, and the
+ * last leak put the advice directive itself into a served SOURCE region. Every repair moved the
+ * leak. Removing the payload ends the class instead of relocating it.
+ *
+ * The neutral controls below are kept in every test. Without them an empty result passes against
+ * an empty fixture, and this file has been caught by exactly that before.
+ *
+ * The original reasoning follows, unchanged, because it explains why the withdrawn contract existed
+ * and what it cost to give up.
+ *
  * Ask Market answers "Should I buy Apple Inc?" by setting `PERSONALIZED_ADVICE_REDIRECTED`,
  * attaching a redirect message — and still returning the factors, which `/ask` renders underneath.
  * Confirmed against the populated development database: that question returns the refusal and ten
@@ -51,7 +72,7 @@ const SOURCE_CODE = "TEST_ASK_REFUSAL";
 const CORP_CODE = "0009999001";
 const CORP_NAME = "Contoso Pharmaceuticals Inc.";
 
-describeIfDb("a refused advice question returns the same factors as a neutral one", () => {
+describeIfDb("a refused advice question publishes nothing at all", () => {
   let prisma: typeof PrismaClientInstance;
   let sourceId: string;
 
@@ -137,9 +158,8 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     await prisma.$disconnect();
   });
 
-  const fingerprint = (
-    facts: { concept: string; unit: string; value: number; periodEnd: string }[],
-  ) => facts.map((f) => `${f.concept}|${f.unit}|${f.value}|${f.periodEnd}`);
+  // `fingerprint` is gone with the parity assertions it served: ESC-015 item 4 leaves nothing
+  // to compare, because a redirect publishes nothing.
 
   /**
    * REPLACED 2026-08-26, and the replacement is the opposite expectation.
@@ -193,28 +213,34 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     expect(bare.companyFacts).toEqual([]);
     expect(bare.redirectMessage).not.toContain("Here's a factor analysis");
 
+    // ESC-015 item 4: naming an operation alongside the directive no longer buys a factor
+    // analysis. The message must not promise one, because there is never one underneath now.
     const withOperation = await askMarket(
       `Should I buy ${CORP_NAME}? What is the current ${CORP_NAME}?`,
     );
     expect(withOperation.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(withOperation.companyFacts.length).toBeGreaterThan(0);
-    expect(withOperation.redirectMessage).toContain("Here's a factor analysis");
+    expect(withOperation.companyFacts).toEqual([]);
+    expect(withOperation.redirectMessage).not.toContain("Here's a factor analysis");
   });
 
-  it("answers a directive that also names an operation exactly as the operation would", async () => {
+  it("publishes nothing for a directive that also names an operation", async () => {
     const { askMarket } = await import("@/server/domain/askMarket");
 
-    // This is where the anti-flattery property lives now. The neutral form is a genuine parse of
-    // the same operation, so "identical, and in the same order" is a claim about one request rather
-    // than a comparison with a sentence the test invented.
+    // REPLACED by ESC-015 item 4, and the property it protected is not lost -- it is made trivial.
+    // This asserted the redirect serves EXACTLY the figures the neutral form serves, so that a
+    // refusal could not re-rank true figures into a recommendation. Nothing is served at all now,
+    // so there is nothing to re-rank.
+    //
+    // The neutral control stays and must stay non-empty: without it this passes against an empty
+    // fixture, which is a trap this file has fallen into before.
     const neutral = await askMarket(NEUTRAL);
     expect(neutral.companyFacts.length).toBeGreaterThan(0);
 
     const refused = await askMarket(`Should I buy ${CORP_NAME}? ${NEUTRAL}`);
     expect(refused.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    // Order matters: re-ranking the same true figures to lead with the flattering ones would be a
-    // recommendation assembled entirely out of facts.
-    expect(fingerprint(refused.companyFacts)).toEqual(fingerprint(neutral.companyFacts));
+    expect(refused.companyFacts).toEqual([]);
+    expect(refused.seriesFactors).toEqual([]);
+    expect(refused.causalFactors).toEqual([]);
   });
 
   it("publishes nothing for a directive whose operation this repository cannot answer", async () => {
@@ -256,9 +282,11 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     const neutral = await askMarket(informational);
     expect(neutral.companyFacts.length).toBeGreaterThan(0);
 
+    // ESC-015 item 4: the directive dominates, so the parity claim is replaced by emptiness. The
+    // neutral control above still proves the fixture answers, so this empty is the rule.
     const refused = await askMarket(`Should I buy stock? ${informational}`);
     expect(refused.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(fingerprint(refused.companyFacts)).toEqual(fingerprint(neutral.companyFacts));
+    expect(refused.companyFacts).toEqual([]);
   });
 
   it("publishes nothing when the request names more than one informational operation", async () => {
@@ -293,17 +321,23 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     //
     // The middle clause is the one the control above proves DOES publish alone, so this comparison
     // is against a known non-empty result rather than against two empties agreeing.
+    // ESC-015 item 4 closed this class by removing the payload rather than by bounding it. Both
+    // forms now publish nothing, and the NEUTRAL form is the control proving that is a rule and not
+    // an empty fixture.
     const informational = `What is the current ${CORP_NAME} revenue?`;
+    const neutralForm = await askMarket(informational);
+    expect(neutralForm.companyFacts.length).toBeGreaterThan(0);
+
     const publishes = await askMarket(`Should I buy stock? ${informational}`);
     expect(publishes.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(publishes.companyFacts.length).toBeGreaterThan(0);
+    expect(publishes.companyFacts).toEqual([]);
 
     const swallowed = await askMarket(
       `Should I buy stock? ${informational} What about the Gamma level?`,
     );
     expect(swallowed.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(fingerprint(swallowed.companyFacts)).toEqual(fingerprint(publishes.companyFacts));
-    expect(swallowed.seriesFactors).toEqual(publishes.seriesFactors);
+    expect(swallowed.companyFacts).toEqual([]);
+    expect(swallowed.seriesFactors).toEqual([]);
 
     // No DERIVED field may quote the directive back, nor the clause the grammar could not read.
     // Serialising everything rather than naming fields is deliberate -- naming them would only
@@ -331,14 +365,20 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     const { verificationInputFromAskMarket } = await import("@/server/verify/fromAskMarket");
     const { verify } = await import("@/server/verify/evaluate");
 
-    // The directive that also names an operation, because this dimension exists to look at figures
-    // rendered UNDERNEATH a refusal, and a bare directive no longer puts any there. Checking the
-    // bare form would make the assertion below vacuous rather than strict.
+    // WEAKENED BY ESC-015 item 4, and saying so matters more than keeping the number green.
+    //
+    // This dimension exists to look at figures rendered UNDERNEATH a refusal, and there are no
+    // longer any figures to look at: a directive publishes nothing. The assertion that
+    // `figureCount > 0` cannot hold, and asserting `=== 0` instead would make the dimension
+    // vacuous rather than strict -- it would pass because there is nothing to resist.
+    //
+    // Kept as a REFUSAL-shape check only, and recorded as reduced coverage: adversarial_resilience
+    // no longer has a populated refusal to examine anywhere in this suite.
     const refused = await askMarket(`Should I buy ${CORP_NAME}? ${NEUTRAL}`);
     const input = verificationInputFromAskMarket(refused);
     expect(input).not.toBeNull();
     expect(input!.advice?.shape).toBe("REFUSAL");
-    expect(input!.advice?.figureCount).toBeGreaterThan(0);
+    expect(input!.advice?.figureCount).toBe(0);
 
     expect(verify(input!).dimensions.adversarial_resilience.status).toBe("PASS");
   });
@@ -436,14 +476,17 @@ describeIfDb("the advice redirect publishes no causal edge its neutral form woul
   // actually named. The affirmative form serves the edge, exactly as the neutral form does; the
   // conditional and denied forms above still serve nothing, exactly as their neutral forms do. One
   // rule, three answers that each match their own neutral parse.
-  it("serves the edge for an advice-framed affirmative relation, as its neutral form does", async () => {
+  it("publishes no edge for an advice-framed affirmative relation", async () => {
     const { askMarket } = await import("@/server/domain/askMarket");
 
+    // ESC-015 item 4: the edge is no longer served alongside the directive. The neutral control
+    // in the test above proves the same edge IS served when nothing prohibited is present, so this
+    // empty is the dominance rule rather than a missing row.
     const refused = await askMarket(
       `Should I buy ${CAUSE}? Explain how ${CAUSE} affects ${EFFECT}.`,
     );
     expect(refused.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(edges(refused)).toEqual([`${CAUSE} -> ${EFFECT}`]);
+    expect(edges(refused)).toEqual([]);
   });
 });
 
@@ -534,14 +577,18 @@ describeIfDb("a redirect selects series through the constituent, or not at all",
     expect(refused.seriesFactors).toEqual([]);
   });
 
-  it("serves a single-clause request that is recognised and prohibited at once", async () => {
+  it("publishes nothing for a single clause that is recognised and prohibited at once", async () => {
     const { askMarket } = await import("@/server/domain/askMarket");
 
-    // One complete CURRENT_OBSERVATION that also trips the advice screen on "target price". The
-    // request named an operation, so the redirect answers through it; the verdict stays the
-    // prohibition.
+    // One complete CURRENT_OBSERVATION that also trips the advice screen on "target price". Under
+    // ESC-015 item 4 the prohibition dominates even when the SAME span is the recognised operation,
+    // so nothing is served. This is the sharpest form of the rule: there is no second clause to
+    // blame, the request is prohibited and informational at once, and prohibited wins.
+    const neutral = await askMarket(`What is the current ${SERIES_NAME}?`);
+    expect(neutral.seriesFactors.length).toBeGreaterThan(0);
+
     const refused = await askMarket(`What is the current ${SERIES_NAME} target price?`);
     expect(refused.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
-    expect(refused.seriesFactors.length).toBeGreaterThan(0);
+    expect(refused.seriesFactors).toEqual([]);
   });
 });

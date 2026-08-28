@@ -61,54 +61,11 @@ UNRELATED_TESTS = [
 ]
 
 MUTATIONS = [
-    # ESC-015 Option B: the terminator's SHAPE. One mutant per decision the helper makes, because
-    # each of the four was forced by a different measured counterexample and each fails differently.
-    (
-        "B-M14 terminator shape is no longer evidence at all",
-        RA,
-        "    if (terminatorEndsASentence(query, fragment.start)) return true;\n",
-        "",
-    ),
-    (
-        "B-M15 every terminator ends a sentence, abbreviation or not",
-        RA,
-        '  if (terminator === "!" || terminator === ";") return false;\n'
-        '  if (terminator === "?") return true;\n'
-        '  const previous = before.slice(0, -1).trim().split(/\\s+/).pop() ?? "";\n'
-        '  const letters = previous.replace(/[^0-9A-Za-z]/gu, "");\n'
-        "  return !(letters.length <= 3 || previous.includes(\".\"));",
-        "  return true;",
-    ),
-    (
-        "B-M16 an exclamation ends a sentence, so `Yahoo! Finance` splits",
-        RA,
-        '  if (terminator === "!" || terminator === ";") return false;',
-        '  if (terminator === ";") return false;',
-    ),
-    (
-        "B-M17 a semicolon ends a sentence, so `Smith; Jones` splits",
-        RA,
-        '  if (terminator === "!" || terminator === ";") return false;',
-        '  if (terminator === "!") return false;',
-    ),
-    (
-        "B-M18 a question mark is no longer evidence on its own",
-        RA,
-        '  if (terminator === "?") return true;',
-        "",
-    ),
-    (
-        "B-M19 the abbreviation length test is dropped, so `Inc.` splits",
-        RA,
-        '  return !(letters.length <= 3 || previous.includes("."));',
-        '  return !previous.includes(".");',
-    ),
-    (
-        "B-M20 the internal-period test is dropped, so `U.S.` splits",
-        RA,
-        '  return !(letters.length <= 3 || previous.includes("."));',
-        "  return !(letters.length <= 3);",
-    ),
+    # B-M14 to B-M20 REMOVED, not lost. They mutated `terminatorEndsASentence`, and ESC-015 item 2
+    # deleted that rule: delimiter-local classification is no longer the authority mechanism. A
+    # mutant whose target does not exist is not evidence of anything, and the harness refuses the
+    # whole run on anchor drift rather than skipping it -- correctly. What those seven proved is
+    # recorded in docs/REVIEW_DEBT.md; the class they closed is reopened and pinned as it.fails.
     # The Hangul rule is two conjuncts now -- the fragment must be Hangul AND must carry a Korean
     # predicate -- so it takes two mutants, one per conjunct, failing in opposite directions.
     (
@@ -215,6 +172,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 20 mutants. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 13 mutants. Not a substitute for the full set.")
 
 sys.exit(harness([RA], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1200))

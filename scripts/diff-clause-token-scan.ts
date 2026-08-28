@@ -93,18 +93,8 @@ function fingerprint(query: string): string {
       a.subjectIdentity,
     ].join("|");
   }
-  if (a.status === "PROHIBITED") {
-    const i = a.informational;
-    return [
-      "PROHIBITED",
-      i ? i.operation : "-",
-      i ? i.subjectRegion : "-",
-      i?.sourceRegion ?? "-",
-      i?.interval ?? "-",
-      i?.causeRegion ?? "-",
-      i?.effectRegion ?? "-",
-    ].join("|");
-  }
+  // ESC-015 item 4: a PROHIBITED request carries no informational payload, so there is nothing
+  // left to fingerprint beyond the status itself.
   return a.status;
 }
 

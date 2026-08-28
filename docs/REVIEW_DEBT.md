@@ -1111,8 +1111,10 @@ vocabulary. None of those was done.
 
 #### What shipped instead: the terminator's SHAPE
 
-All six false refusals share one property: the period follows an ABBREVIATION — `Inc.`, `U.S.`,
-`No.`, `Co.` — while all 28 swallows follow an ordinary word (`Alpha.`, `Gamma.`). An abbreviation
+FIVE of the six share one property: the period follows an ABBREVIATION — `Inc.`, `U.S.`, `No.`,
+`Co.` — while all 28 swallows follow an ordinary word (`Alpha.`, `Gamma.`). **CORRECTED: this said
+all six.** `Yahoo! Finance` is the sixth and its terminator is `!`, not an abbreviation period; it
+is handled by `!` never confirming, which is a different rule. Review caught the overreach. An abbreviation
 is either short or already carries internal periods, and that is a test on token SHAPE, not
 membership of any list. It does not grow a word at a time and cannot be defeated by a verb nobody
 thought of, which is the whole objection to the previous approach.
@@ -1127,7 +1129,13 @@ Tail evidence is still consulted; the two rules are a UNION.
     pinned corpus (80 cases)    65 of 65 refusals closed, 0 false refusals, 14 of 14 controls green
     wide corpus (99,072)        174 swallows closed, 0 newly authorized
 
-The implemented tree reproduces the measured mutant BYTE FOR BYTE — the same probe output, diffed.
+The implemented tree reproduces the measured mutant byte for byte — the same probe output, diffed.
+
+**CORRECTED once, because the first version of this claim was stale.** The diff was run BEFORE `;`
+was moved to provisional, and the differential case still sent `;` through the abbreviation test
+afterwards, so the measured mutant and the shipped tree disagreed on `Smith; Jones` while the claim
+stood. Structural review caught it. The differential case is fixed and the diff re-run against the
+shipped tree; it now holds.
 
 #### Two errors the measurements caught, and neither was caught by reading
 

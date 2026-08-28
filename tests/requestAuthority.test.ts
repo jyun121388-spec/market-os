@@ -1171,4 +1171,51 @@ describe("a second question may not hide inside an open-class region", () => {
     );
     expect(a.status).toBe("AUTHORIZED");
   });
+
+  /**
+   * KNOWN AND OPEN, and the reason ESC-015's step 5 condition has triggered.
+   *
+   * The abbreviation-shape test asks whether the token before a period is 3 or fewer alphanumerics,
+   * or already contains a period. Structural review called the threshold fitted rather than
+   * principled, and measuring the suffix population agreed: 10 of 31 ordinary legal-entity and
+   * title abbreviations are refused, `Corp.` among them
+   * (`scripts/probe-abbreviation-length.ts`).
+   *
+   *     refused at 4+ letters   Corp  GmbH  Dept  Prof  Assn  Bros  Univ  Corpn  Assoc  Sched
+   *     joined at <= 3          Inc  Ltd  LLC  PLC  Co  LP  SA  AG  and the rest
+   *
+   * Raising the threshold does not fix it, which is the part that matters. Ordinary THREE-letter
+   * subjects are already treated as abbreviations and swallowed -- `What did Reuters publish about
+   * Oil. Summarize Gamma.` serves ` oil summarize gamma `, likewise `CPI.`. So `Inc` must join at
+   * three and `CPI` must split at three, and length cannot separate them at any threshold.
+   *
+   * Not patched with a suffix list: ESC-015 forbids patching entity names, and a suffix list is a
+   * vocabulary of exactly the kind that rejected the previous approach. Returned to ESC-015 with
+   * the numbers instead.
+   */
+  it.fails("authorizes a four-letter issuer suffix", () => {
+    const a = authorize("What is the current Acme Corp. revenue?");
+    expect(a.status).toBe("AUTHORIZED");
+  });
+
+  /**
+   * KNOWN AND OPEN. The residual at `!` and `;`, and it is worse than I told the reviewer.
+   *
+   * I claimed to the publication-authority review that the residual publishes a composite SUBJECT
+   * and never a polluted SOURCE. The reviewer refuted it by construction, and this is that input:
+   * the request stays PROHIBITED, but the informational payload carries the advice directive
+   * itself as the SOURCE label -- `should i buy stock reuters`. That is the original P1 shape, not
+   * a milder relative of it.
+   *
+   * The same request with a PERIOD is clean (`src=reuters`), because terminator shape decides
+   * there. `!` and `;` have no shape evidence available: `Yahoo!` and `Smith; Jones` are real
+   * names, so neither may confirm on its own, and nothing else separates `Yahoo! Finance` from
+   * `Alpha! What is the CPI?` except reading the continuation.
+   */
+  it.fails("keeps the directive out of a source region at an exclamation boundary", () => {
+    const a = authorize("Should I buy stock! Reuters published about Alpha?");
+    expect(a.status).toBe("PROHIBITED");
+    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
+    expect(informational?.sourceRegion ?? "").not.toContain("should i buy");
+  });
 });

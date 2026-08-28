@@ -1472,8 +1472,18 @@ function completeInterpretations(fragmentCount: number, readings: SpanReading[])
  *
  * Plain Option B -- block on ANY candidate boundary whose head reads -- closes all 28 but refuses
  * 6 of 14 ordinary name controls, including three the decision named. It was NOT implemented. This
- * narrowing closes the same 28 with 0 false refusals, and over 99,072 generated requests changes
- * 288 outputs in ONE direction, all of them swallows.
+ * narrowing closes the same 28 with 0 false refusals on that corpus, and over 99,072 generated
+ * requests changes 174 outputs in ONE direction, all of them swallows.
+ *
+ * CORRECTED: this said 288, which was measured BEFORE `;` was moved to provisional and was left
+ * standing afterwards. Review caught it against the 174 in the review record. The number that
+ * describes the shipped rule is 174.
+ *
+ * KNOWN OPEN, and the reason this unit does not close: the length half of the abbreviation test is
+ * fitted rather than principled. 10 of 31 ordinary entity suffixes are refused -- `Corp.`, `GmbH.`,
+ * `Dept.` among them -- and no threshold fixes it, because ordinary three-letter subjects (`Oil.`,
+ * `CPI.`) are already swallowed at the same length `Inc.` must join at. Pinned as `it.fails` and
+ * returned to ESC-015.
  */
 function terminatorEndsASentence(query: string, fragmentStart: number): boolean {
   const before = query.slice(0, fragmentStart).trimEnd();

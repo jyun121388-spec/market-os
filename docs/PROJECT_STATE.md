@@ -55,13 +55,21 @@ The frozen RC is untouched and PR #1 is not involved. This branch carries one re
 assurance apparatus that measures it.
 
     P1_REDIRECT_INFORMATIONAL_AUTHORITY   thirteen known instances closed and pinned
-    P1_UNBOUNDED_CLAUSE_OPENING_CLASS     ESC-015 Option B applied. CLOSED at `.` and `?`
-                                          boundaries (0 of 38 swallowed); OPEN at `!` and `;`
-                                          (28 of 38), which must stay provisional because
-                                          `Yahoo!` and `Smith; Jones` are real names.
-                                          STILL BLOCKS CLOSURE: the acceptance criterion is
-                                          that no generated counterexample can publish, and
-                                          generated counterexamples remain at those two.
+    P1_UNBOUNDED_CLAUSE_OPENING_CLASS     ESC-015 Option B applied, REWORK_REQUIRED from both
+                                          reviews. The 38-tail matrix measures the `.`
+                                          boundary ONLY: 0 of 38 swallowed there, 28 of 38 at
+                                          `!` and again at `;`, which stay provisional
+                                          because `Yahoo!` and `Smith; Jones` are real names.
+                                          `?` is not in that table and carries its own pinned
+                                          issuer exception.
+                                          THREE THINGS BLOCK CLOSURE. A directive still
+                                          reaches a served SOURCE region at `!` and `;` --
+                                          `Should I buy stock! Reuters published about
+                                          Alpha?` serves source `should i buy stock reuters`.
+                                          10 of 31 ordinary entity suffixes are refused,
+                                          `Corp.` among them. And no threshold fixes the
+                                          second, because `Inc` must join at three letters
+                                          while `CPI` must split at three.
     WAITING_DECISION                      ESC-015, issue #2 comment 5447598201, posted and
                                           read back 2026-08-28. Accept-as-known-risk vs
                                           redesign is not an engineering question, so it is

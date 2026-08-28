@@ -181,7 +181,7 @@ CASES = {
             "          ((): boolean => {\n"
             "            const pre = query.slice(0, fragments[last].start).trimEnd();\n"
             "            const term = pre.slice(-1);\n"
-            '            if (term === "!") return false;\n'
+            '            if (term === "!" || term === ";") return false;\n'
             '            if (term === "?") return true;\n'
             '            const prev = pre.slice(0, -1).trim().split(/\\s+/).pop() ?? "";\n'
             '            const bare = prev.replace(/[^0-9A-Za-z]/g, "");\n'
@@ -204,7 +204,7 @@ CASES = {
             "          ((): boolean => {\n"
             "            const pre = query.slice(0, fragments[last].start).trimEnd();\n"
             "            const term = pre.slice(-1);\n"
-            '            if (term === "!") return false;\n'
+            '            if (term === "!" || term === ";") return false;\n'
             '            if (term === "?") return true;\n'
             '            const prev = pre.slice(0, -1).trim().split(/\\s+/).pop() ?? "";\n'
             '            const bare = prev.replace(/[^0-9A-Za-z]/g, "");\n'

@@ -43,6 +43,10 @@ from harness import harness
 
 COVER = "src/server/domain/canonicalRoleCover.ts"
 ASK = "src/server/domain/askMarket.ts"
+# The whole-role test itself lives here now, shared with the mechanism path. A mutation to it
+# must fail relation tests and observation tests together -- that is the property that says
+# there is one implementation and not two.
+SUBJECT = "src/server/domain/subjectAuthority.ts"
 
 BINDING_TESTS = [
     "tests/canonicalRoleCover.test.ts",
@@ -69,7 +73,9 @@ MUTATIONS = [
     (
         "M-ROLE-COVER exact cover degrades to occurrence matching",
         COVER,
-        "      : discovered.filter((row) => identityIsTheTail(trimmed, nameOf(row), framingIsRecognised));",
+        "      : discovered.filter((row) =>\n"
+        "          regionIsExactlyFramingAndIdentity(trimmed, nameOf(row), framingIsRecognised),\n"
+        "        );",
         "      : discovered;",
     ),
     # The tail requirement alone. `Alpha` occurring anywhere would satisfy cover, but the framing
@@ -77,7 +83,7 @@ MUTATIONS = [
     # must sit from WHAT may surround it.
     (
         "M-ROLE-COVER-TAIL the identity no longer has to be the tail of the role",
-        COVER,
+        SUBJECT,
         "  const tail = tokens.slice(tokens.length - nameTokens.length);\n"
         '  if (tail.join(" ") !== nameTokens.join(" ")) return false;',
         "",
@@ -86,8 +92,8 @@ MUTATIONS = [
     # precede it. `Purchase Gamma shares Alpha` is the shape this admits.
     (
         "M-ROLE-COVER-FRAMING anything may precede the identity",
-        COVER,
-        '  return framingIsRecognised(tokens.slice(0, tokens.length - nameTokens.length).join(" "));',
+        SUBJECT,
+        '  return framing(tokens.slice(0, tokens.length - nameTokens.length).join(" "));',
         "  return true;",
     ),
     # Residue must refuse. Removing it lets a role that named a series and then said more fall
@@ -131,4 +137,4 @@ if SELECTED:
         sys.exit(3)
     print(f"PARTIAL RUN: {len(MUTATIONS)} of 5. Not a substitute for the full set.")
 
-sys.exit(harness([COVER, ASK], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1800))
+sys.exit(harness([COVER, ASK, SUBJECT], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1800))

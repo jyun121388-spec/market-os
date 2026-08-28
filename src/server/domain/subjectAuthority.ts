@@ -335,8 +335,22 @@ export function framingIsRecognised(region: string): boolean {
  *
  * So both clauses stay and both are exercised directly, because through the production path only
  * their conjunction is observable.
+ *
+ * ## One algorithm, two vocabularies
+ *
+ * `framing` is a parameter because ESC-015 §11 forbids a second identity algorithm, and the
+ * full-role cover in `canonicalRoleCover` briefly was one -- a byte-for-byte copy of this function
+ * whose only difference was which words count as accounted for. That difference is real: a relation
+ * clause is framed by `explain how the`, an observation subject by `how much has`, and `much` and
+ * `has` are not in the set below. Reusing this set for observation subjects refused
+ * `How much has <series> changed this year?`, which is how the difference was found. So the
+ * vocabulary varies by role and the rule does not.
  */
-export function regionIsExactlyFramingAndIdentity(region: string, identityName: string): boolean {
+export function regionIsExactlyFramingAndIdentity(
+  region: string,
+  identityName: string,
+  framing: (region: string) => boolean = framingIsRecognised,
+): boolean {
   const tokens = normalizeSubject(region).trim().split(" ").filter(Boolean);
   const nameTokens = normalizeSubject(identityName).trim().split(" ").filter(Boolean);
   if (nameTokens.length === 0 || tokens.length < nameTokens.length) return false;
@@ -344,7 +358,7 @@ export function regionIsExactlyFramingAndIdentity(region: string, identityName: 
   const tail = tokens.slice(tokens.length - nameTokens.length);
   if (tail.join(" ") !== nameTokens.join(" ")) return false;
 
-  return framingIsRecognised(tokens.slice(0, tokens.length - nameTokens.length).join(" "));
+  return framing(tokens.slice(0, tokens.length - nameTokens.length).join(" "));
 }
 
 const containsNegationMarker = (region: string) =>

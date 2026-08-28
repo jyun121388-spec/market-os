@@ -1,4 +1,8 @@
-import { normalizeSubject, resolveStoredSubject } from "./subjectAuthority";
+import {
+  normalizeSubject,
+  regionIsExactlyFramingAndIdentity,
+  resolveStoredSubject,
+} from "./subjectAuthority";
 
 /**
  * Can the ENTIRE authority-bearing role be explained by one canonical stored identity?
@@ -32,6 +36,16 @@ import { normalizeSubject, resolveStoredSubject } from "./subjectAuthority";
  * `resolveStoredSubject` stays exactly where it is for DISCOVERY -- finding which rows are worth
  * considering at all. What changes is that its answer no longer authorizes materialization on its
  * own. A candidate must additionally cover the whole role.
+ *
+ * ## Cover is not a second algorithm
+ *
+ * The whole-role test is `subjectAuthority.regionIsExactlyFramingAndIdentity`, which the mechanism
+ * path already used on both relation endpoints. This module briefly carried its own copy, differing
+ * only in which words count as framing, and ESC-015 §11 is explicit that the answer to a second
+ * caller is to factor the authority rather than to write it again. The vocabulary is now the
+ * parameter and the rule is shared, so a change to what "exactly covered" means reaches every role
+ * at once -- and a mutation to it fails the mechanism tests and the observation tests together,
+ * which is the property a single implementation is supposed to have.
  */
 
 export type RoleCover<T> =
@@ -73,7 +87,9 @@ export function exactRoleCover<T>(
   const covering =
     identity === "WHOLE_REGION"
       ? discovered
-      : discovered.filter((row) => identityIsTheTail(trimmed, nameOf(row), framingIsRecognised));
+      : discovered.filter((row) =>
+          regionIsExactlyFramingAndIdentity(trimmed, nameOf(row), framingIsRecognised),
+        );
 
   if (covering.length === 0) return { status: "UNRESOLVED", reason: "RESIDUE" };
 
@@ -82,25 +98,4 @@ export function exactRoleCover<T>(
     return { status: "AMBIGUOUS", names: [...new Set(covering.map(nameOf))].sort() };
   }
   return { status: "AUTHORIZED", rows: covering, name: nameOf(covering[0]) };
-}
-
-/**
- * The identity must be the TAIL of the role, and everything before it must be framing.
- *
- * Tail rather than "occurs anywhere", which is the whole point: `alpha purchase gamma shares` ends
- * in `shares`, so `Alpha` cannot be the identity that explains it. `subjectAuthority` has the same
- * shape for relation roles; this is that logic with the framing vocabulary supplied by the caller
- * instead of fixed to the relation one.
- */
-function identityIsTheTail(
-  region: string,
-  identityName: string,
-  framingIsRecognised: (region: string) => boolean,
-): boolean {
-  const tokens = normalizeSubject(region).trim().split(" ").filter(Boolean);
-  const nameTokens = normalizeSubject(identityName).trim().split(" ").filter(Boolean);
-  if (nameTokens.length === 0 || tokens.length < nameTokens.length) return false;
-  const tail = tokens.slice(tokens.length - nameTokens.length);
-  if (tail.join(" ") !== nameTokens.join(" ")) return false;
-  return framingIsRecognised(tokens.slice(0, tokens.length - nameTokens.length).join(" "));
 }

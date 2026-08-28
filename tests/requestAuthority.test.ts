@@ -1105,7 +1105,7 @@ describe("a second question may not hide inside an open-class region", () => {
 
   /**
    * OPEN AND PINNED, not closed. ESC-015 item 2 removed delimiter-local classification as the
-   * authority mechanism, and these nine are what that cost.
+   * authority mechanism, and these ten are what that cost.
    *
    * They were closed by terminator SHAPE -- a period after an ordinary word ends a sentence, after
    * an abbreviation it does not. That rule refused 10 of 31 ordinary entity abbreviations and no
@@ -1116,15 +1116,24 @@ describe("a second question may not hide inside an open-class region", () => {
    * no directive, so every closed grammar available here is blind to it. Separating a name
    * continuation from a new clause needs a POS or name model, which ESC-015 defers.
    *
-   * What HAS changed for them: none can reach a served field when a directive is present, because
-   * a prohibited request now publishes nothing at all. The residue here is a composite SUBJECT on
-   * an informational request.
+   * What HAS changed is what they can DO, and it is now the same for all ten: nothing is published
+   * for any of them. A prohibited request publishes no payload at all, and for the rest the
+   * full-role cover refuses to materialize a stored record whose name merely occurs inside a role
+   * it cannot explain. `Purchase Gamma shares.` is in this list rather than in a pin of its own for
+   * exactly that reason -- it used to serve Alpha's figures under a subject carrying a trading
+   * instruction, and `tests/integration/full-role-cover.test.ts` now holds, against a real
+   * repository, that it serves nothing and answers REQUEST_NOT_SUPPORTED.
+   *
+   * So what remains open here is over-authorization at the GRAMMAR, with publication authority
+   * closed underneath it. That is a smaller defect than the one first recorded, and it is still a
+   * defect: a request the parser cannot account for should not reach a lookup at all.
    */
   it.fails.each([
     ["a bare name follows a question mark", "What is the current US headline CPI? Korea?"],
     ["a bare subject follows a question mark", "What did Reuters publish about Alpha? Gamma?"],
     ["a company name follows a question mark", "What is the current Acme Inc. revenue? Gamma?"],
     ["an unenumerated imperative", "What did Reuters publish about Alpha. Summarize Gamma."],
+    ["a trading imperative", "What is the current Alpha. Purchase Gamma shares."],
     ["a bare noun", "What did Reuters publish about Alpha. Revenue."],
     ["a proper-name-shaped tail", "What did Reuters publish about Alpha. Gamma Corp."],
     ["a coined token", "What did Reuters publish about Alpha. Zorbulate Gamma."],
@@ -1247,31 +1256,6 @@ describe("a second question may not hide inside an open-class region", () => {
    * starts failing and forces the exception to be revisited instead of quietly outliving its
    * justification.
    */
-  /**
-   * OPEN, found by publication-authority review, and it makes the residual class WORSE than I
-   * documented it.
-   *
-   * I wrote that the residual multi-intent class "publishes a composite SUBJECT on an
-   * informational request" and could not carry a directive. Review refuted that by construction
-   * and this is the input: `purchase` is in no clause-opening set, and bare `Purchase <security>`
-   * is missed by the advice screen too, so the request is not even classified as prohibited. The
-   * subject becomes ` alpha purchase gamma shares `, occurrence matching finds the stored `Alpha`,
-   * and its figures are served under a subject containing a trading instruction.
-   *
-   * Two independent gaps compose here, and neither is patched:
-   *   - the advice screen does not recognise a bare imperative trading instruction. Adding verbs
-   *     is the unfinishable denylist this unit exists to stop doing, and ESC-015 forbids closing
-   *     by vocabulary.
-   *   - the boundary is not confirmed, which is the residual class item 7 defers.
-   *
-   * Standalone `Purchase Gamma shares.` is UNSUPPORTED and publishes nothing, so the harm needs
-   * the swallow. That is a mitigation, not a defence.
-   */
-  it.fails("keeps an undetected trading directive out of a served subject", () => {
-    const a = authorize("What is the current Alpha. Purchase Gamma shares.");
-    expect(a.status).not.toBe("AUTHORIZED");
-  });
-
   /**
    * OPEN, found by structural review. The cost of reading the comma from the RAW query.
    *

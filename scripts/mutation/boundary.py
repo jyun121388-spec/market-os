@@ -61,21 +61,53 @@ UNRELATED_TESTS = [
 ]
 
 MUTATIONS = [
-    # The terminator rule. `?` never occurs name-internally in this domain and `.`/`!`/`;` do, so
-    # only `?` is evidence on its own. B-M14 removes it. B-M15 extends it to every terminator,
-    # which is the failure it exists to prevent: that mutant should refuse `Yahoo! Finance` and
-    # every other name carrying internal punctuation.
+    # ESC-015 Option B: the terminator's SHAPE. One mutant per decision the helper makes, because
+    # each of the four was forced by a different measured counterexample and each fails differently.
     (
-        "B-M14 a question mark is no longer evidence on its own",
+        "B-M14 terminator shape is no longer evidence at all",
         RA,
-        '    if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;\n',
+        "    if (terminatorEndsASentence(query, fragment.start)) return true;\n",
         "",
     ),
     (
-        "B-M15 every terminator confirms, not only the question mark",
+        "B-M15 every terminator ends a sentence, abbreviation or not",
         RA,
-        '    if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;',
-        "    if (/[.?!;]$/.test(query.slice(0, fragment.start).trimEnd())) return true;",
+        '  if (terminator === "!" || terminator === ";") return false;\n'
+        '  if (terminator === "?") return true;\n'
+        '  const previous = before.slice(0, -1).trim().split(/\\s+/).pop() ?? "";\n'
+        '  const letters = previous.replace(/[^0-9A-Za-z]/gu, "");\n'
+        "  return !(letters.length <= 3 || previous.includes(\".\"));",
+        "  return true;",
+    ),
+    (
+        "B-M16 an exclamation ends a sentence, so `Yahoo! Finance` splits",
+        RA,
+        '  if (terminator === "!" || terminator === ";") return false;',
+        '  if (terminator === ";") return false;',
+    ),
+    (
+        "B-M17 a semicolon ends a sentence, so `Smith; Jones` splits",
+        RA,
+        '  if (terminator === "!" || terminator === ";") return false;',
+        '  if (terminator === "!") return false;',
+    ),
+    (
+        "B-M18 a question mark is no longer evidence on its own",
+        RA,
+        '  if (terminator === "?") return true;',
+        "",
+    ),
+    (
+        "B-M19 the abbreviation length test is dropped, so `Inc.` splits",
+        RA,
+        '  return !(letters.length <= 3 || previous.includes("."));',
+        '  return !previous.includes(".");',
+    ),
+    (
+        "B-M20 the internal-period test is dropped, so `U.S.` splits",
+        RA,
+        '  return !(letters.length <= 3 || previous.includes("."));',
+        "  return !(letters.length <= 3);",
     ),
     # The Hangul rule is two conjuncts now -- the fragment must be Hangul AND must carry a Korean
     # predicate -- so it takes two mutants, one per conjunct, failing in opposite directions.
@@ -183,6 +215,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 15 mutants. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 20 mutants. Not a substitute for the full set.")
 
 sys.exit(harness([RA], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1200))

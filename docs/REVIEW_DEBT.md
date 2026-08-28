@@ -1090,3 +1090,92 @@ Two further measurements the architect named are NOT yet run, and are named here
 quietly skipped: a continuation false-refusal corpus of real issuer names stratified by tail shape,
 and the head-alone matrix extended to every candidate boundary within each query rather than the
 first.
+
+### ESC-015 applied — Option B, narrowed by terminator shape (2026-08-28)
+
+Decision `[CHATGPT_DECISION][ESC-015]`, issue #2 comment 5448101400: **OPTION B, measure before
+implementing.** A rejected (do not ship the class as known risk), C deferred (no POS/name lexicon),
+and adding more clause-opening words explicitly forbidden as a closure strategy.
+
+#### Plain Option B was measured and NOT implemented
+
+Block a run whose head reads at ANY candidate boundary, dropping the tail-evidence conjunct:
+
+    SWALLOWS_CLOSED             28 of 28
+    FALSE_REFUSALS_INTRODUCED    6 of 14 controls
+
+The six were `Yahoo! Finance`, `Acme Inc. revenue`, `Samsung Electronics Co. 삼성전자` (definition
+form), `U.S. rate of inflation`, `Acme Inc. rate` and `No. 10 index level` — three of them named in
+the decision itself. Step 5 says do not implement, do not patch entity names, do not extend opener
+vocabulary. None of those was done.
+
+#### What shipped instead: the terminator's SHAPE
+
+All six false refusals share one property: the period follows an ABBREVIATION — `Inc.`, `U.S.`,
+`No.`, `Co.` — while all 28 swallows follow an ordinary word (`Alpha.`, `Gamma.`). An abbreviation
+is either short or already carries internal periods, and that is a test on token SHAPE, not
+membership of any list. It does not grow a word at a time and cannot be defeated by a verb nobody
+thought of, which is the whole objection to the previous approach.
+
+    `?`  a sentence end. The registered-issuer exception is the known cost, pinned as it.fails.
+    `!`  NEVER -- `Yahoo!` is a brand.
+    `;`  NEVER -- `Smith; Jones` is a partnership.
+    `.`  a sentence end UNLESS the preceding token is abbreviation-shaped.
+
+Tail evidence is still consulted; the two rules are a UNION.
+
+    pinned corpus (80 cases)    65 of 65 refusals closed, 0 false refusals, 14 of 14 controls green
+    wide corpus (99,072)        174 swallows closed, 0 newly authorized
+
+The implemented tree reproduces the measured mutant BYTE FOR BYTE — the same probe output, diffed.
+
+#### Two errors the measurements caught, and neither was caught by reading
+
+**The first narrowing REPLACED the tail evidence instead of joining it.** With `!` never a sentence
+end and nothing else consulted, 1,032 NEW swallows opened at `!` boundaries. The 80-case denominator
+showed a clean zero; only the 99,072-request corpus saw it. There is now a regression test for
+exactly that shape.
+
+**`Smith; Jones` — a semicolon inside a partnership name.** My corpus had no semicolon-in-a-name
+case at all; the suite already held one, and it failed, serving the subject ` smith ` instead of
+`smith jones revenue`. A shorter subject that authorizes is the dangerous failure, not one a reader
+would notice. `;` moved to provisional alongside `!`.
+
+#### The residual, quantified rather than described
+
+Sweeping the 38-tail matrix across all three terminators:
+
+| boundary | swallowed | refused |
+| -------- | --------- | ------- |
+| `.` | **0 of 38** | 38 |
+| `!` | 28 of 38 | 10 |
+| `;` | 28 of 38 | 10 |
+
+**The class is closed at `.` and `?` and remains OPEN at `!` and `;`**, precisely because those two
+must stay provisional for the names above. This is pre-existing rather than a regression — before
+Option B those boundaries had lexical evidence only, and they still do — but it was not quantified
+before and it is now.
+
+So the ESC-015 acceptance criterion "no known or generated swallowing counterexample can publish"
+is **NOT met**, and this unit does not close. Terminator shape cannot resolve `!` and `;`: nothing
+distinguishes `Yahoo! Finance` from `Alpha! What is the CPI?` except the tail, which is the lexical
+problem the decision rejected. That is the sharpened question for the follow-up.
+
+#### The mutation score fell again, and again the tests were why
+
+Adding the terminator rule dropped the boundary score from 15/15 to **12 of 20**. Eight mutants went
+ISOLATED to MISSED: the Korean rule, both determiner mutants, all three token groups, accumulation,
+and the internal-period test. One cause — every discriminator sat at a `.` boundary, and `.` is now
+decided by shape before any lexical rule is consulted.
+
+**Fifth occurrence of this shape in this unit.** The rules were not dead; they are load-bearing
+exactly where the terminator stays provisional. Eleven discriminators were added at `!` and `;`
+boundaries, each measured to refuse before being asserted
+(`scripts/probe-provisional-boundary.ts`), plus an accumulation case pairing a confirmed `?` with a
+provisional `!`, plus `N.Y.S.E.` — four letters and internal periods, a name from this product's own
+domain, and the only control that separates the two halves of the abbreviation test.
+
+#### Recorded, not fixed, and not caused by this repair
+
+`What did S.E.C. publish about Alpha?` serves source `e c`: the leading `S` is dropped. Same class
+as the `Can I Use A Question Mark...` truncation — a framing-token interaction, not a boundary one.

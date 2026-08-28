@@ -1438,6 +1438,53 @@ function completeInterpretations(fragmentCount: number, readings: SpanReading[])
   return covers;
 }
 
+/**
+ * Does the terminator before `fragmentStart` look like the end of a SENTENCE, or the inside of a
+ * name? ESC-015 Option B: narrow the surface, structurally, instead of enumerating vocabulary.
+ *
+ * ## Why this shape and not a longer word list
+ *
+ * The clause-opening set enumerates ways a clause may OPEN, which cannot be finished. It was
+ * measured: 28 of 38 unknown tails were swallowed into a served subject region, after six absent
+ * tokens had already been found sitting behind a 9-of-9 mutation score. Token accumulation was
+ * rejected outright.
+ *
+ * What IS closed is the shape of an abbreviation. Name-internal periods in this domain occur after
+ * abbreviations and essentially nowhere else -- `Inc.`, `U.S.`, `Mr.`, `No.`, `Co.`, `L.P.` -- and
+ * an abbreviation is either short or already carries internal periods. That test is structural: it
+ * asks about token shape, not membership of any list, so it does not grow a word at a time and
+ * cannot be defeated by a verb nobody thought of.
+ *
+ *     `?`  a sentence end. The registered-issuer exception below is the known cost.
+ *     `!`  NEVER, and this is load-bearing rather than cautious. `Yahoo!` is a brand, and treating
+ *          `!` as a sentence end refuses it. `Alpha! What is the CPI?` is still refused, by the
+ *          tail evidence below -- the two rules are a UNION, and the first version of this was a
+ *          REPLACEMENT that opened 1,032 new swallows at `!` boundaries before the wide corpus
+ *          caught it.
+ *     `;`  NEVER, for the same reason and found the same way. `Smith; Jones` is an ordinary
+ *          partnership name, and a control the suite already held -- not my corpus, which had no
+ *          semicolon-in-a-name case at all -- refused `What is the current Smith; Jones revenue?`
+ *          down to the subject ` smith `. A shorter subject that authorizes is the dangerous
+ *          failure here, not an error the reader would notice.
+ *     `.`  a sentence end UNLESS the token before it is abbreviation-shaped.
+ *
+ * ## What was measured before this shipped
+ *
+ * Plain Option B -- block on ANY candidate boundary whose head reads -- closes all 28 but refuses
+ * 6 of 14 ordinary name controls, including three the decision named. It was NOT implemented. This
+ * narrowing closes the same 28 with 0 false refusals, and over 99,072 generated requests changes
+ * 288 outputs in ONE direction, all of them swallows.
+ */
+function terminatorEndsASentence(query: string, fragmentStart: number): boolean {
+  const before = query.slice(0, fragmentStart).trimEnd();
+  const terminator = before.slice(-1);
+  if (terminator === "!" || terminator === ";") return false;
+  if (terminator === "?") return true;
+  const previous = before.slice(0, -1).trim().split(/\s+/).pop() ?? "";
+  const letters = previous.replace(/[^0-9A-Za-z]/gu, "");
+  return !(letters.length <= 3 || previous.includes("."));
+}
+
 function recogniseOperation(query: string): RequestAuthority {
   const directiveFramed = classifyRequestFrame(query) === "REQUEST_DIRECTIVE";
   const normalized = normalize(query);
@@ -1486,6 +1533,13 @@ function recogniseOperation(query: string): RequestAuthority {
   // needs no mapping -- and it covers all four recognizers and all four open-class roles at once.
   const confirmedBoundary = fragments.map((fragment, index) => {
     if (index === 0) return false;
+    // ESC-015 Option B. The terminator's SHAPE decides first, and the tail evidence below is now a
+    // fallback rather than the whole rule.
+    //
+    // Enumerating ways a clause may OPEN is the unfinishable direction, and measurement said so:
+    // 28 of 38 unknown tails were swallowed, six absent tokens having already been found behind a
+    // 9-of-9 mutation score. Adding a ninth and tenth word was rejected outright.
+    if (terminatorEndsASentence(query, fragment.start)) return true;
     const text = query.slice(fragment.start, fragment.end);
     // Hangul used to confirm unconditionally, and that refused an ordinary Korean issuer name:
     // `What is the definition of Samsung Electronics Co. 삼성전자?` split at the abbreviation
@@ -1497,32 +1551,6 @@ function recogniseOperation(query: string): RequestAuthority {
     // the difference without any new vocabulary: `analyseCopularInterrogative` is the same
     // predicate analyser the Korean recognizer uses. `현재 기준금리는 얼마인가요?` carries a
     // predicate; `삼성전자?` is a bare nominal and continues the name it follows.
-    // The terminator itself is evidence, and `?` is stronger evidence than the others. `.`, `!`
-    // and `;` occur inside names constantly -- `Inc.`, `U.S.`, `Mr.`, `No.`, `Yahoo!` -- which is
-    // the entire reason candidate boundaries are provisional at all.
-    //
-    // CORRECTED. This comment said `?` never occurs name-internally, and both I and the architect
-    // reviewer failed to find a counterexample. A later review found one by going and looking:
-    // Companies House company 09804638 is registered as `CAN I USE A QUESTION MARK IN A COMPANY
-    // NAME? LTD`. So the claim was false, and it was stated as fact after being warned in writing
-    // that "no counterexample currently known" is a reason to measure rather than a proof. Two
-    // people not thinking of an example is not evidence that none exists.
-    //
-    // What survives the correction is a TRADE-OFF, not an invariant, and it is stated as one.
-    // Measured over 99,072 generated requests: 258 swallows closed, 0 wrongly admitted. Four are
-    // ordinary terse follow-ups rather than generator artifacts --
-    //
-    //     What is the current US headline CPI? Korea?   -> subject " us headline cpi korea "
-    //     What did Reuters publish about Alpha? Gamma?  -> subject " alpha gamma "
-    //
-    // -- two questions answered as one composite subject. Against that, the known cost is a false
-    // refusal of `What is the definition of Can I Use A Question Mark In A Company Name? Ltd?`,
-    // reproduced and recorded in docs/REVIEW_DEBT.md. A novelty registration weighed against a
-    // publication-authority defect class is a judgement, not a measurement, and it is the
-    // architect's to revisit.
-    //
-    // The head condition still applies, so a `?` after an incomplete head confirms nothing.
-    if (query.slice(0, fragment.start).trimEnd().endsWith("?")) return true;
     if (containsHangul(text)) {
       return eojeols(text).some((eojeol) => analyseCopularInterrogative(eojeol) !== null);
     }

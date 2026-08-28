@@ -133,6 +133,88 @@ CASES = {
         "new": "      if (last > first && confirmedBoundary[last]) crossesConfirmed = true;",
         "probe": "npx tsx scripts/probe-period-boundary.ts",
     },
+    # ESC-015 OPTION B, measured before implementation as the decision requires.
+    #
+    # "Refuse a parse when a candidate boundary remains inside an open-class served region, using
+    # the existing bilateral/head evidence rather than adding more clause-opening words." The
+    # surface narrows from CONFIRMED boundaries to ALL candidate boundaries: the tail-evidence
+    # conjunct goes, the head conjunct stays. No vocabulary is added, which is the point -- token
+    # accumulation was explicitly rejected.
+    #
+    # Run-level rather than region-level because fragment offsets are raw-query coordinates while
+    # regions are slices of NORMALIZED text, and no offset map between the two exists. A region can
+    # only cross a boundary if its run does, so the run-level statement is the available proxy and
+    # is the same one the shipped rule already uses.
+    "option-b": {
+        "label": "ESC-015 Option B: any candidate boundary blocks a run whose head reads",
+        "path": RA,
+        "old": "      if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;",
+        "new": "      if (last > first && headReads) crossesConfirmed = true;",
+        "probe": "npx tsx scripts/probe-option-b.ts",
+    },
+    # ESC-015 Option B, NARROWED -- the redesign proposal the decision asks for if plain B breaks
+    # ordinary names, which it does (6 of 14 controls, including three the decision named).
+    #
+    # Plain B blocks on ANY candidate boundary. The six false refusals are all the same shape: the
+    # period follows an ABBREVIATION -- `Inc.`, `U.S.`, `No.`, `Co.`, `Mr.`, `L.P.` -- while all 28
+    # swallows follow an ordinary word (`Alpha.`, `Gamma.`). That difference is structural rather
+    # than lexical, and it is the classic sentence-boundary signal: a period after a short token, or
+    # after a token already containing periods, is an abbreviation period and not a sentence end.
+    #
+    #     `?`  a sentence end (already shipped, with the registered-issuer exception)
+    #     `!`  never confirms -- `Yahoo!` is a brand, and no counterexample of `!` ending a clause
+    #          mid-request has been produced
+    #     `.` `;`  a sentence end UNLESS the preceding token is abbreviation-shaped: 3 or fewer
+    #          alphanumerics, or containing an internal period
+    #
+    # Written as an inline expression because this is a measurement mutant and differential.py
+    # substitutes one string; if it earns implementation it becomes a named helper.
+    "option-b-narrowed": {
+        "label": "ESC-015 Option B narrowed by abbreviation shape",
+        "path": RA,
+        "old": "      if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;",
+        "new": (
+            "      if (\n"
+            "        last > first &&\n"
+            "        headReads &&\n"
+            "        (confirmedBoundary[last] ||\n"
+            "          ((): boolean => {\n"
+            "            const pre = query.slice(0, fragments[last].start).trimEnd();\n"
+            "            const term = pre.slice(-1);\n"
+            '            if (term === "!") return false;\n'
+            '            if (term === "?") return true;\n'
+            '            const prev = pre.slice(0, -1).trim().split(/\\s+/).pop() ?? "";\n'
+            '            const bare = prev.replace(/[^0-9A-Za-z]/g, "");\n'
+            '            return !(bare.length <= 3 || prev.includes("."));\n'
+            "          })())\n"
+            "      )\n"
+            "        crossesConfirmed = true;"
+        ),
+        "probe": "npx tsx scripts/probe-option-b.ts",
+    },
+    "option-b-narrowed-corpus": {
+        "label": "ESC-015 Option B narrowed by abbreviation shape",
+        "path": RA,
+        "old": "      if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;",
+        "new": (
+            "      if (\n"
+            "        last > first &&\n"
+            "        headReads &&\n"
+            "        (confirmedBoundary[last] ||\n"
+            "          ((): boolean => {\n"
+            "            const pre = query.slice(0, fragments[last].start).trimEnd();\n"
+            "            const term = pre.slice(-1);\n"
+            '            if (term === "!") return false;\n'
+            '            if (term === "?") return true;\n'
+            '            const prev = pre.slice(0, -1).trim().split(/\\s+/).pop() ?? "";\n'
+            '            const bare = prev.replace(/[^0-9A-Za-z]/g, "");\n'
+            '            return !(bare.length <= 3 || prev.includes("."));\n'
+            "          })())\n"
+            "      )\n"
+            "        crossesConfirmed = true;"
+        ),
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
     "question-mark-confirms": {
         "label": "CANDIDATE: a ? boundary always confirms, . ! ; stay provisional",
         "path": RA,

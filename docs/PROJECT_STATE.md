@@ -55,7 +55,13 @@ The frozen RC is untouched and PR #1 is not involved. This branch carries one re
 assurance apparatus that measures it.
 
     P1_REDIRECT_INFORMATIONAL_AUTHORITY   thirteen known instances closed and pinned
-    P1_UNBOUNDED_CLAUSE_OPENING_CLASS     OPEN -- BLOCKS CLOSURE of this unit
+    P1_UNBOUNDED_CLAUSE_OPENING_CLASS     ESC-015 Option B applied. CLOSED at `.` and `?`
+                                          boundaries (0 of 38 swallowed); OPEN at `!` and `;`
+                                          (28 of 38), which must stay provisional because
+                                          `Yahoo!` and `Smith; Jones` are real names.
+                                          STILL BLOCKS CLOSURE: the acceptance criterion is
+                                          that no generated counterexample can publish, and
+                                          generated counterexamples remain at those two.
     WAITING_DECISION                      ESC-015, issue #2 comment 5447598201, posted and
                                           read back 2026-08-28. Accept-as-known-risk vs
                                           redesign is not an engineering question, so it is

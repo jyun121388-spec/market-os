@@ -983,6 +983,59 @@ describe("a second question may not hide inside an open-class region", () => {
       "a korean clause follows an attribution and a period",
       "What did Reuters publish about Alpha. 현재 기준금리는 얼마인가요?",
     ],
+    // ESC-015 Option B. These carry NO clause-opening evidence of any kind -- the tails are bare
+    // nouns, coined words, digits and imperatives nobody enumerated -- so no word list can reach
+    // them. What refuses them is the SHAPE of the terminator: a period after an ordinary word ends
+    // a sentence, a period after an abbreviation does not.
+    //
+    // One per tail shape from the 38-case matrix that measured the class. All 28 of its swallows
+    // close; the full set lives in `scripts/probe-option-b.ts` because pinning 28 near-identical
+    // strings here would obscure which shapes are actually distinct.
+    ["an unenumerated imperative", "What did Reuters publish about Alpha. Summarize Gamma."],
+    ["a bare noun", "What did Reuters publish about Alpha. Revenue."],
+    ["a proper-name-shaped tail", "What did Reuters publish about Alpha. Gamma Corp."],
+    ["a coined token", "What did Reuters publish about Alpha. Zorbulate Gamma."],
+    ["digits", "What did Reuters publish about Alpha. Q3 Gamma."],
+    ["bare hangul after a period", "What did Reuters publish about Alpha. 감마."],
+    // The regression guard for a mistake this repair actually made. The first version REPLACED the
+    // tail evidence instead of joining it, and `!` never being a sentence end then opened 1,032 new
+    // swallows across the corpus before it was caught. `Yahoo!` needs `!` to stay provisional; this
+    // needs the tail evidence to still be consulted when it is.
+    ["a clause after an exclamation", "What did Reuters publish about Alpha! What is the CPI?"],
+    // Where the LEXICAL rules still do all the work. Option B decides `.` and `?` by terminator
+    // shape, so eight mutants went ISOLATED -> MISSED the moment it landed: every discriminator
+    // above sits at a `.` and never reaches a word list any more. That is the fifth time in this
+    // unit that the tests have drifted to the half of the space where the mechanism cannot fail.
+    //
+    // `!` and `;` stay provisional -- `Yahoo!` is a brand, `Smith; Jones` is a partnership -- so
+    // they are exactly where the clause-opening set, the determiners and the Korean predicate rule
+    // are load-bearing. Each of these was measured to refuse before it was written down here.
+    ["who after an exclamation", "What did Reuters publish about Alpha! Who published Gamma?"],
+    ["who after a semicolon", "What did Reuters publish about Alpha; Who published Gamma?"],
+    ["compare after an exclamation", "What did Reuters publish about Alpha! Compare it to Gamma."],
+    ["list after a semicolon", "What did Reuters publish about Alpha; List the Gamma figures."],
+    ["the after an exclamation", "What did Reuters publish about Alpha! The Gamma level too?"],
+    ["any after a semicolon", "What did Reuters publish about Alpha; Any Gamma figures?"],
+    ["same after an exclamation", "What did Reuters publish about Alpha! Same for Gamma?"],
+    [
+      "a korean clause after an exclamation",
+      "What did Reuters publish about Alpha! 현재 기준금리는 얼마인가요?",
+    ],
+    [
+      "a korean clause after a semicolon",
+      "What did Reuters publish about Alpha; 현재 기준금리는 얼마인가요?",
+    ],
+    [
+      "an opener behind a preposition, after an exclamation",
+      "What did Reuters publish about Alpha! In 2024 what was the CPI?",
+    ],
+    // Accumulation, at the only boundary pair that can still test it: a CONFIRMED `?` followed by
+    // a PROVISIONAL `!` whose tail is a measure noun. If confirmation reset instead of
+    // accumulating, the second boundary would launder the first and the whole span would tile.
+    [
+      "a provisional boundary launders a confirmed one",
+      "What did Reuters publish about Alpha? What about the Gamma! level?",
+    ],
   ])("refuses when %s", (_label, query) => {
     expect(authorize(query).status, query).not.toBe("AUTHORIZED");
   });
@@ -1071,6 +1124,20 @@ describe("a second question may not hide inside an open-class region", () => {
       "mixed-script issuer name as the subject of a definition",
       "What is the definition of Samsung Electronics Co. 삼성전자?",
       "samsung electronics co 삼성전자",
+    ],
+    // A dotted abbreviation LONGER than the length test allows. `N.Y.S.E` is four letters, so only
+    // the internal-period half of the abbreviation shape saves it -- and this is a name from the
+    // product's own domain rather than a constructed one. Without that half the exchange splits at
+    // its own last period.
+    ["a long dotted abbreviation", "What is the current N.Y.S.E. volume?", "n y s e volume"],
+    // `;` and `!` inside names, which is why neither terminator may decide anything on shape alone.
+    ["a partnership name with a semicolon", "What is the current Smith; Jones revenue?", "jones"],
+    // A bare Korean NAME after a provisional boundary still joins: the Korean rule confirms a
+    // CLAUSE, and a nominal is not one.
+    [
+      "a bare korean name after an exclamation",
+      "What did Reuters publish about Alpha! 삼성전자?",
+      "삼성전자",
     ],
   ])("still authorizes %s", (_label, query, expected) => {
     const a = authorize(query);

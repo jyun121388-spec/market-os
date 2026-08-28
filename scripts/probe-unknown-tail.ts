@@ -1,22 +1,29 @@
 /**
- * How wide is the swallowing class actually? The unknown-tail safety matrix.
+ * How wide is the swallowing class, per BOUNDARY CHARACTER?
  *
- * Architect review graded the unbounded clause-opening set a P1 that blocks closure, and named this
- * measurement: a candidate boundary after a head that READS, followed by tails of every shape the
- * lexical set does not enumerate. The required outcome under a fail-closed policy is refusal for
- * every unknown tail. What this measures is the CURRENT behaviour, so the size of the live defect
- * is a number rather than an impression.
+ * The original version of this probe used `.` throughout and measured 28 of 38 tails swallowed.
+ * That number is what graded the class a P1. ESC-015 Option B then closed it -- but only for the
+ * terminators whose SHAPE can be trusted, and this probe now sweeps all three so the residual is a
+ * number rather than an impression.
  *
- * The head is held constant and is known to read alone, so any difference is the tail's doing.
+ *     `.`  decided by abbreviation shape, so the class should be closed here
+ *     `!`  provisional, because `Yahoo!` is a brand -- lexical evidence only
+ *     `;`  provisional, because `Smith; Jones` is a partnership name -- lexical evidence only
+ *
+ * The head is held constant and reads alone, so any difference is the tail's doing.
  *
  *   npx tsx scripts/probe-unknown-tail.ts
  */
 
 import { resolveRequestAuthority } from "../src/server/domain/requestAuthority";
 
-const HEAD = "What did Reuters publish about Alpha.";
+const HEADS: [string, string][] = [
+  [".", "What did Reuters publish about Alpha."],
+  ["!", "What did Reuters publish about Alpha!"],
+  [";", "What did Reuters publish about Alpha;"],
+];
 
-/** Tails, by shape. `.` boundary throughout: `?` is confirmed by the terminator rule already. */
+/** Tails, by shape. */
 const TAILS: [string, string[]][] = [
   [
     "imperative, not in the set",
@@ -50,27 +57,36 @@ const TAILS: [string, string[]][] = [
   ["digits", ["2024.", "10 Gamma.", "Q3 Gamma."]],
 ];
 
-let swallowed = 0;
-let refused = 0;
+const totals = new Map<string, { swallowed: number; refused: number }>();
 
-for (const [shape, tails] of TAILS) {
-  for (const tail of tails) {
-    const query = `${HEAD} ${tail}`;
-    const a = resolveRequestAuthority(query);
-    let verdict = a.status as string;
-    let served = "-";
-    if (a.status === "AUTHORIZED") {
-      served = `${a.operation}|${a.subjectRegion}|${a.sourceRegion ?? "-"}`;
-      // The head alone would serve subject " alpha ". Anything longer means the tail was absorbed.
-      if (a.subjectRegion.trim() !== "alpha") {
-        verdict = "SWALLOWED";
-        swallowed += 1;
+for (const [boundary, head] of HEADS) {
+  totals.set(boundary, { swallowed: 0, refused: 0 });
+  for (const [shape, tails] of TAILS) {
+    for (const tail of tails) {
+      const query = `${head} ${tail}`;
+      const a = resolveRequestAuthority(query);
+      let verdict: string = a.status;
+      let served = "-";
+      if (a.status === "AUTHORIZED") {
+        served = `${a.operation}|${a.subjectRegion}|${a.sourceRegion ?? "-"}`;
+        // The head alone serves subject " alpha ". Anything longer means the tail was absorbed.
+        if (a.subjectRegion.trim() !== "alpha") {
+          verdict = "SWALLOWED";
+          totals.get(boundary)!.swallowed += 1;
+        }
+      } else {
+        totals.get(boundary)!.refused += 1;
       }
-    } else {
-      refused += 1;
+      process.stdout.write(
+        `${boundary}\t${shape}\t${verdict}\t${served}\t${JSON.stringify(tail)}\n`,
+      );
     }
-    process.stdout.write(`${shape}\t${verdict}\t${served}\t${JSON.stringify(tail)}\n`);
   }
 }
 
-process.stdout.write(`\nSWALLOWED ${swallowed}\tREFUSED ${refused}\n`);
+process.stdout.write("\n");
+for (const [boundary, { swallowed, refused }] of totals) {
+  process.stdout.write(
+    `boundary ${boundary}   SWALLOWED ${swallowed}   REFUSED ${refused}   of ${swallowed + refused}\n`,
+  );
+}

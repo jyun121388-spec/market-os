@@ -43,6 +43,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -60,7 +61,9 @@ _GIT_DIR = subprocess.run(
 # Durable, untracked, and correct for a linked worktree. Never `.git/` by assumption.
 RECOVERY_DIR = os.path.join(_GIT_DIR, "mutation-recovery")
 MANIFEST = os.path.join(RECOVERY_DIR, "manifest.json")
-LOCK = os.path.join(RECOVERY_DIR, "lock")
+# A DIRECTORY, not a file: `os.mkdir` is the only creation primitive here with no
+# half-created state for a second process to misread. See `acquire_lock`.
+LOCK = os.path.join(RECOVERY_DIR, "lock.d")
 
 PG_BIN = r"C:\AI-Projects\market-os\.local\pgsql\bin"
 PG_PORT = "55432"
@@ -128,59 +131,167 @@ def _pid_alive(pid):
     return f'"{int(pid)}"' in probe.stdout.decode("utf-8", "replace")
 
 
-def acquire_lock(token):
+def _owner_of(lock_dir):
+    """Who holds `lock_dir`, or None if the owner file is not there yet.
+
+    None is NOT "nobody". It is "the winner of the mkdir has not finished writing its name", which
+    is a live holder mid-startup and must be treated as contention, never as wreckage.
+    """
+    try:
+        text = io.open(os.path.join(lock_dir, "owner"), encoding="utf-8").read().strip()
+    except OSError:
+        return None
+    return text or None
+
+
+def acquire_lock(token, attempts=8, settle_seconds=0.2):
     """One active mutation transaction per worktree, or fail closed.
 
     Two harnesses in one worktree is not a slow run, it is a corrupt one: B would snapshot A's
     MUTANT as its own before-image and then "restore" the tree to a mutated state that nothing
     records as wrong. That is a worse outcome than either run failing.
 
-    A lock held by a DEAD process is wreckage rather than contention, so it is reclaimed -- but the
-    reclaim is where the race lives. Read-pid-then-overwrite is TOCTOU: two processes can both see
-    the same dead pid, both write, and both proceed believing they own the worktree. So the reclaim
-    writes a UNIQUE TOKEN through an atomic replace and then READS IT BACK. Exactly one writer can
-    see its own token afterwards; everyone else lost and says so.
+    ## Why the lock is a DIRECTORY and not a file
+
+    It was a file, created with O_CREAT|O_EXCL and then written. Review found three races in that
+    shape and all three are real:
+
+      EMPTY-FILE THEFT   create and write are two operations. A reader between them sees an empty
+                         file, fails to parse a pid, concludes "unreadable" and falls through to
+                         the dead-owner path -- stealing the lock of a LIVE holder that had simply
+                         not finished starting.
+      DUAL RECLAIM       two processes that both see a dead pid each `os.replace` and each read
+                         back. A can replace and read its own token BEFORE B replaces. Both then
+                         believe they own the worktree.
+      RELEASE THEFT      release read the token and then removed the file as two steps, so a lock
+                         legitimately reclaimed in between was deleted by its predecessor.
+
+    `os.mkdir` has no such window: it either creates the directory or raises, and there is no state
+    in which it half-exists. Ownership is therefore the mkdir, not the file content. The `owner`
+    file inside is only a NAME for diagnostics and for release -- its absence means "starting up",
+    which is why `_owner_of` returning None is contention rather than an invitation.
+
+    Reclaiming a dead owner is a RENAME of the whole directory, which is likewise atomic and
+    likewise cannot succeed twice: the loser gets an error because the thing it tried to move is no
+    longer there. The winner then deletes the wreckage and competes for `os.mkdir` again on equal
+    terms, so a reclaim never grants ownership directly -- it only clears the ground.
     """
     os.makedirs(RECOVERY_DIR, exist_ok=True)
-    try:
-        fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, token.encode())
-        os.close(fd)
-        return True
-    except FileExistsError:
-        pass
+    for attempt in range(attempts):
+        try:
+            os.mkdir(LOCK)
+        except FileExistsError:
+            pass
+        else:
+            # Won it. The name is written after, and nothing depends on it being there yet.
+            io.open(os.path.join(LOCK, "owner"), "w", encoding="utf-8",
+                    newline="\n").write(token)
+            return True
 
-    try:
-        holder = io.open(LOCK, encoding="utf-8").read().strip()
-        holder_pid = int(holder.split("-")[0])
-    except (ValueError, IndexError, OSError):
-        holder, holder_pid = "(unreadable)", None
-    if holder_pid is not None and _pid_alive(holder_pid):
-        emit(f"HARNESS_BUSY: {holder} already owns this worktree's mutation transaction")
-        return False
+        holder = _owner_of(LOCK)
+        if holder is None:
+            # Mid-startup, not wreckage. Never reclaim on a missing name.
+            time.sleep(settle_seconds)
+            continue
+        try:
+            holder_pid = int(holder.split("-")[0])
+        except (ValueError, IndexError):
+            holder_pid = None
+        if holder_pid is None or _pid_alive(holder_pid):
+            emit(f"HARNESS_BUSY: {holder} already owns this worktree's mutation transaction")
+            return False
 
-    emit(f"   lock held by dead owner {holder}; attempting atomic reclaim")
-    staging = f"{LOCK}.{token}.claim"
-    io.open(staging, "w", encoding="utf-8", newline="\n").write(token)
-    os.replace(staging, LOCK)
-    # Whoever's token survives the last replace owns it. Reading back is what turns a racy
-    # overwrite into a decision.
-    winner = io.open(LOCK, encoding="utf-8").read().strip()
-    if winner != token:
-        emit(f"HARNESS_BUSY: lost the reclaim race to {winner}")
-        return False
-    return True
+        # Reclaiming a dead owner needs its own exclusion, and it may not be built out of renames.
+        #
+        # Two rename-based reclaims were tried and BOTH let more than one process through, measured
+        # over 30 rounds of four concurrent reclaimers rather than argued: renaming the whole lock
+        # directory won twice in 6 of 30 rounds, and renaming the `owner` record inside it won two
+        # or three times in 3 of 30. `os.rename` does refuse an existing destination on this build
+        # -- that was checked on its own -- so the surviving explanation is that the destination is
+        # not reliably present at the moment each racer looks, and a protocol whose safety depends
+        # on when a file happens to exist is not a protocol. Adding one `os.path.exists` probe to
+        # the tracer made all 30 rounds pass, which is the signature of a timing-dependent
+        # exclusion and the reason none of this was settled by reading it.
+        #
+        # So exclusion uses exactly one primitive throughout, the same one that makes the mkdir
+        # safe: EXCLUSIVE CREATE. Only one process can create `reclaim`, and only that process may
+        # delete the dead lock. Nothing else can change the owner meanwhile -- `mkdir` fails while
+        # the directory exists, and reclaiming requires the claim we are holding -- so the owner we
+        # verified under the claim is still the owner when we delete it.
+        #
+        # Deleting the wreckage is NOT acquisition. The reclaimer then competes for `os.mkdir` on
+        # equal terms with everyone else, so winning the reclaim can never mean two holders.
+        claim = os.path.join(LOCK, "reclaim")
+        try:
+            claim_fd = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except OSError:
+            # Already being reclaimed, or the lock vanished under us because someone else finished
+            # reclaiming it. Both are fine and neither is ours to resolve. A stale claim is
+            # deliberately NOT cleared here: "delete the other process's claim if you think it is
+            # stale" is the same racy shape this whole protocol is replacing.
+            time.sleep(settle_seconds)
+            continue
+        os.write(claim_fd, token.encode())
+        os.close(claim_fd)
+
+        confirmed = _owner_of(LOCK)
+        if confirmed != holder:
+            # Unreachable by the argument above; if it ever fires, the argument is wrong and the
+            # right response is to refuse rather than to delete something on a stale reading.
+            emit(f"HARNESS_INVALID: owner changed under the reclaim claim, {holder} -> {confirmed}")
+            return False
+
+        # MOVE the wreckage aside in one step, then delete it under its new name.
+        #
+        # Deleting in place was tried and measured: `shutil.rmtree(LOCK)` is a walk, so a racer
+        # creating `reclaim` part-way through leaves the directory non-empty, the removal fails,
+        # and with `ignore_errors=True` it fails SILENTLY -- leaving a lock directory holding a
+        # claim and no owner, which every later run must read as a live startup and refuse. That
+        # stranded the worktree in 1 of 60 rounds. Failing closed is the right direction to fail,
+        # but not on an ordinary race.
+        #
+        # A rename cannot half-happen. Whatever is left over afterwards is under a name no
+        # `acquire_lock` looks at, so a partial delete is litter rather than a phantom holder.
+        emit(f"   lock held by dead owner {holder}; removing the wreckage")
+        wreckage = f"{LOCK}.dead.{token}"
+        try:
+            os.rename(LOCK, wreckage)
+        except OSError:
+            # Windows refuses to move a directory while a file inside it is open, which is exactly
+            # a racer part-way through its own claim attempt. Retrying is correct; forcing is not.
+            time.sleep(settle_seconds)
+            continue
+        shutil.rmtree(wreckage, ignore_errors=True)
+
+    # Fail closed, and say exactly what to look at. Two states reach here and cannot clear
+    # themselves: a holder that died between `mkdir` and naming itself, and a reclaimer that died
+    # holding the claim. Both look exactly like a run that is starting up, which is why neither may
+    # be guessed at. It is a refusal, never a silent proceed, and clearing it is a human's decision
+    # about a directory that lives outside the worktree.
+    emit(f"HARNESS_BUSY: could not acquire the lock in {attempts} attempts")
+    emit(f"   lock: {LOCK}")
+    emit(f"   owner: {_owner_of(LOCK) or '(none written yet)'}")
+    if os.path.exists(os.path.join(LOCK, "reclaim")):
+        emit("   a reclaim claim is present: a previous run died while clearing a dead owner")
+    return False
 
 
 def release_lock(token):
-    """Release ONLY if we still hold it. Deleting unconditionally would remove a lock another run
-    legitimately reclaimed after we were declared dead, handing the worktree to a third process."""
+    """Release ONLY if we still hold it, and prove it by MOVING the directory before deleting it.
+
+    Read-then-delete was a race of its own: a lock legitimately reclaimed between the read and the
+    delete was removed by its predecessor. Renaming to a token-unique name can succeed for at most
+    one process, and if a reclaimer moved the directory first this simply fails and we do nothing --
+    which is correct, because then it was not ours to release.
+    """
+    if _owner_of(LOCK) != token:
+        return
+    spent = f"{LOCK}.released.{token}"
     try:
-        if io.open(LOCK, encoding="utf-8").read().strip() != token:
-            return
-        os.remove(LOCK)
+        os.rename(LOCK, spent)
     except OSError:
-        pass
+        return
+    shutil.rmtree(spent, ignore_errors=True)
 
 
 def owned_worktree_dirt(paths):

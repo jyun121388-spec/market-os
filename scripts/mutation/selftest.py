@@ -17,10 +17,12 @@ read correctly. These controls make a child genuinely hang and genuinely kill th
     python scripts/mutation/selftest.py
 """
 
+import glob
 import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -61,10 +63,17 @@ def clear_recovery():
 
 def force_release():
     """Drop whatever lock is on disk. Only the self-test may do this: `release_lock` deliberately
-    refuses to remove a lock it does not own, which is the property control G depends on, so the
-    controls have to read the holder's token back before releasing between sections."""
-    if os.path.exists(H.LOCK):
-        H.release_lock(io.open(H.LOCK, encoding="utf-8").read().strip())
+    refuses to remove a lock it does not own, which is the property controls G and H depend on, so
+    the controls have to read the holder's name back before releasing between sections."""
+    holder = H._owner_of(H.LOCK)
+    if holder:
+        H.release_lock(holder)
+    # A lock directory with no owner file is a holder that died between mkdir and naming itself.
+    # `release_lock` correctly declines to touch it; the self-test, which knows no other harness is
+    # running between its own sections, clears it so the next control starts from nothing.
+    shutil.rmtree(H.LOCK, ignore_errors=True)
+    for stale in glob.glob(f"{H.LOCK}.*"):
+        shutil.rmtree(stale, ignore_errors=True)
 
 
 def fast_child(tests, timeout_ms):
@@ -258,6 +267,97 @@ holder.kill()
 holder.wait()
 write_fixture(ORIGINAL)
 clear_recovery()
+force_release()
+
+# ---------------------------------------------------------------- H. the lock protocol itself
+print("\n=== CONTROL H: the three races the FILE lock had, exercised directly ===")
+# G proves a live holder is respected. Review pointed out that it says nothing about the reclaim
+# path, the startup window, or release racing a reclaim -- and all three were real defects in the
+# file-based lock. These drive `acquire_lock`/`release_lock` directly, because the races live in
+# the protocol rather than in the mutation transaction that uses it.
+write_fixture(ORIGINAL)
+clear_recovery()
+force_release()
+
+# H1 EMPTY-FILE THEFT. The old lock was created empty and named afterwards, so a reader in that
+# window saw an unparseable holder and took the "dead owner" branch -- stealing a LIVE holder's
+# lock. Reproduce the window exactly: a lock that exists with no owner name in it.
+os.makedirs(H.LOCK, exist_ok=True)
+check("H0 the window is real: a lock with no owner name exists", os.path.isdir(H.LOCK)
+      and H._owner_of(H.LOCK) is None)
+stolen = H.acquire_lock("thief-1", attempts=2, settle_seconds=0.05)
+check("H1 an unnamed lock is treated as a live holder, not as wreckage", not stolen,
+      "the startup window let a second harness take the lock")
+check("H2 the unnamed lock was left alone", os.path.isdir(H.LOCK) and H._owner_of(H.LOCK) is None)
+force_release()
+
+# H3 DUAL RECLAIM. Two processes both see the same DEAD owner. Under the old protocol each wrote
+# its token and each read back, and A could read its own token before B ever wrote -- so both
+# proceeded. Exactly one must win now.
+#
+# The dead pid is obtained by RUNNING a process and letting it exit, not by picking a number.
+# `0-1` was tried first and H3 caught it: on Windows `tasklist /FI "PID eq 0"` lists the System
+# Idle Process, so pid 0 reads as alive and the control would have measured the live-holder branch
+# while claiming to measure the reclaim branch.
+_corpse = subprocess.Popen([sys.executable, "-c", "pass"])
+_corpse.wait()
+DEAD = f"{_corpse.pid}-1"
+check("H3 the dead owner is genuinely dead", not H._pid_alive(_corpse.pid),
+      f"pid {_corpse.pid} still lists as running")
+
+# Repeated, because one green round of a race is not evidence that the race is gone -- it is one
+# sample of a schedule. Two rejected designs are the reason for the count: renaming the whole lock
+# directory admitted two winners in 6 of 30 rounds, and renaming the `owner` record inside it in 3
+# of 30. At those rates a single round would have certified either of them roughly four times in
+# five. Twelve rounds is not proof of exclusion -- nothing here is -- but it is enough that the two
+# designs this one replaced would not have survived it.
+ROUNDS, holder_name = 12, None
+outcomes = []
+for round_index in range(ROUNDS):
+    force_release()
+    os.makedirs(H.LOCK, exist_ok=True)
+    io.open(os.path.join(H.LOCK, "owner"), "w", encoding="utf-8", newline="\n").write(DEAD)
+    reclaimers = [
+        subprocess.Popen(
+            [sys.executable, "-c",
+             f"import sys; sys.path.insert(0, r'{os.path.dirname(os.path.abspath(__file__))}');\n"
+             "import harness as H;\n"
+             f"sys.exit(0 if H.acquire_lock('reclaimer-{round_index}-{i}') else 9)"],
+            cwd=H.WORKTREE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        for i in range(4)
+    ]
+    outcomes.append(sum(1 for r in reclaimers if r.wait() == 0))
+    holder_name = H._owner_of(H.LOCK)
+check(f"H4 exactly one of four concurrent reclaimers won, in each of {ROUNDS} rounds",
+      outcomes == [1] * ROUNDS, f"winners per round: {outcomes}")
+check("H5 the surviving lock names a winner, not the dead owner",
+      holder_name is not None and holder_name != DEAD, str(holder_name))
+
+# H6 RELEASE THEFT. The winner above has exited without releasing (it only acquired). A DIFFERENT
+# token must not be able to delete its lock -- that was the old read-then-remove race, where a
+# process whose ownership had been reclaimed deleted its successor's lock.
+H.release_lock("some-other-token")
+check("H6 release by a non-owner did not remove the lock", os.path.isdir(H.LOCK)
+      and H._owner_of(H.LOCK) == holder_name)
+H.release_lock(holder_name)
+check("H7 release by the real owner did remove it", not os.path.isdir(H.LOCK))
+check("H8 no wreckage or released-lock directories left behind",
+      not glob.glob(f"{H.LOCK}.*"), str(glob.glob(f"{H.LOCK}.*")))
+force_release()
+
+# H9 the one state the protocol cannot clear itself: a reclaimer that won the rename and died
+# before naming itself. Every later run must read that as a holder mid-startup, because it cannot
+# tell the two apart -- so it must REFUSE, and say which directory a human has to look at. This is
+# documented as a fail-closed limitation rather than claimed away.
+os.makedirs(H.LOCK, exist_ok=True)
+io.open(os.path.join(H.LOCK, "owner.dead.99999-1"), "w", encoding="utf-8",
+        newline="\n").write("99999-1")
+check("H9 the orphaned-reclaim state is set up", H._owner_of(H.LOCK) is None
+      and os.path.isdir(H.LOCK))
+orphan = H.acquire_lock("after-orphan", attempts=2, settle_seconds=0.05)
+check("H10 an orphaned reclaim refuses rather than proceeding", not orphan)
+check("H11 it did not delete the state a human needs to see", os.path.isdir(H.LOCK))
 force_release()
 
 if os.path.exists(FIXTURE_ABS):

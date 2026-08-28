@@ -56,8 +56,11 @@ assurance apparatus that measures it.
 
     P1_REDIRECT_INFORMATIONAL_AUTHORITY   thirteen known instances closed and pinned
     P1_UNBOUNDED_CLAUSE_OPENING_CLASS     OPEN -- BLOCKS CLOSURE of this unit
-    ESCALATED                             accept-as-known-risk vs redesign: not an
-                                          engineering question, so not decided here
+    WAITING_DECISION                      ESC-015, issue #2 comment 5447598201, posted and
+                                          read back 2026-08-28. Accept-as-known-risk vs
+                                          redesign is not an engineering question, so it is
+                                          not decided here. This blocks THIS unit's closure
+                                          and nothing else.
     CODEX_AVAILABLE                       YES, verified by invocation per model id 2026-08-28
     HUMAN_GATE                            NONE for this unit
 

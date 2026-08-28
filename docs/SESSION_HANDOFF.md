@@ -1,3 +1,88 @@
+# Session handoff — 2026-08-28, redirect/informational authority unit
+
+Branch `claude/ask-guardrail-architecture-20260823`, HEAD pushed, local == remote. The frozen RC and
+PR #1 are untouched. The 2026-08-18 handoff below is kept and is about a different branch.
+
+## Read this first
+
+`P1_UNBOUNDED_CLAUSE_OPENING_CLASS` is **OPEN and blocks this unit's closure**, and the decision it
+waits on is **not an engineering one**. Escalated as `ESC-015` (issue #2 comment 5447598201, posted
+and read back). Do not close the unit by adding a ninth, tenth and eleventh word to
+`CLAUSE_OPENING_TOKENS` — that is the mistake the whole record below is about.
+
+Everything independent may continue. The escalation blocks one task, not the project.
+
+## What this session did
+
+| commit    | what                                                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| `71511a1` | harness: recovery-before-lock, TOCTOU reclaim, and a vacuous verdict filter deleted rather than tested |
+| `0a2a61b` | harness lock: three designs, only the third excludes; 180 clean rounds of a four-way reclaim race      |
+| `38d8581` | self-test: say what 12 rounds actually detects (~18% at the 1/60 mode), split the two failure modes    |
+| `009341d` | the P1 repair — confirmed clause boundary, bilateral rule, Korean predicate                            |
+| `82dd516` | six missing clause-opening tokens, the `?` terminator rule, nine `.`-boundary discriminators           |
+| `05b94ba` | the blocker: 28 of 38 unknown tails swallowed, and why words cannot fix it                             |
+
+## The three things worth carrying forward
+
+**A surviving mutant means the tests do not separate two rules. It never means the rules agree.**
+B-M3 survived the whole suite; a 42,840-request differential then found 1,204 requests where the
+weaker rule buries a second question in the subject region. Hand analysis of that same question had
+already been wrong in both directions earlier in the unit.
+
+**The tests keep picking the half of the space where the mechanism cannot fail.** Three times now:
+every swallowing test picked a tail that authorizes alone, which is the precondition for cover
+competition to work; every B-M3 tail opened with a determiner or had its clause-opening word first;
+every discriminator used `?` as its boundary, so the terminator rule reached them all and the
+lexical rules went untested. Adding that rule dropped the score 13/13 → 10/15 and the product was
+not what changed.
+
+**Reviewers are worth reproducing, and worth checking.** Reproducing three separate findings each
+turned up MORE instances than the reviewer named — `who`/`why` became seven, `Summarize` became
+seven more, the matrix then found 28 of 38. And one architect claim was checked and REFUTED:
+`headReads` IS in the executed condition, contrary to the fifth round, proven three ways — the
+source line, mutant B-M7 being ISOLATED, and a disable-and-measure run flipping `Mr. Show`.
+
+## Corrections made to my own earlier writing
+
+- "`?` never occurs name-internally" — false. Companies House 09804638 is registered
+  `CAN I USE A QUESTION MARK IN A COMPANY NAME? LTD`. I asserted it as fact after being warned in
+  writing that "no counterexample currently known" is not a proof. Corrected in the source comment
+  and two documents; the rule is KEPT on the architect's ruling, as a weighing rather than an
+  invariant, with the exception pinned as an `it.fails` test so it cannot outlive its justification.
+- "the P1 is REPAIRED" and "one per separable clause" — both overstated, both corrected in place.
+- `CURRENT_TASK.md` said the P1 was "repaired, reviewed and committed" while the same document
+  listed the closure review as still open.
+
+## Measured state at HEAD
+
+    full suite          127 files, 2257 passed, 3 expected fail
+    boundary mutants    15 of 15 ISOLATED, baseline 134 binding / 49 unrelated, pinned
+    harness self-test   54 controls, plus 150 soak rounds of the reclaim race
+    gates               typecheck, eslint, prettier on touched files, production build clean
+
+`docs/HUMAN_GATE_QUEUE.md` is not prettier-clean and was not before this session either, verified
+against `0a2a61b`. Reformatting it would re-indent a decision packet, which is a content change and
+does not belong in a P1 commit.
+
+## Named and NOT done
+
+Two measurements the architect asked for: a continuation false-refusal corpus over real issuer
+names stratified by tail shape, and the head-alone matrix extended to every candidate boundary
+within a query rather than the first.
+
+Next independent work, in order: framing positionality (`scripts/reproduce-framing-position.ts` is
+written and untracked), then B2-C — where `src/server/domain/sourceAuthority.ts` is written,
+referenced by nothing, and must be wired or deleted rather than left as it is — then B2-D.
+
+## Protocol observation
+
+Inbound comment kind `CHATGPT_GUIDANCE` is a SIXTH kind. `ProtocolKind` parses only
+`CHATGPT_DECISION`, and the five kinds CLAUDE.md records do not include this one. Today's guidance
+reached me only because I read the issue by hand; the durable inbox would have dropped it.
+
+---
+
 LAST COMPLETED
 
 **Seventh round — provider capability matrix and its independent review, 2026-08-18.** v1 frozen

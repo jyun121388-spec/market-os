@@ -121,3 +121,22 @@ read-back is the sole reason this was caught, which is the argument for requirin
 
 **Still not delivered:** nothing. Both queued packets are transmitted and read back. TEST-002 and
 ESC-009 now await decisions, and neither blocks any other work.
+
+## 2026-08-29 — `[CLAUDE_APPLIED][ESC-015]`
+
+Posted as comment 5458898428, bound to `f02301ab6c13afb6939d47e3d78b3da91d466863`, read back by id
+with the SHA confirmed present in the stored body. Screened first: `screenPublicComment` returned 0
+findings.
+
+It carries one open question rather than only a report — whether a fact concept identity should be
+derived from stored taxonomy identifiers, stored as its own record class, or deferred with the
+company residue pinned for V1. That question blocks the residue half of the company role and
+nothing else, so every other path continued.
+
+**Inbound kinds this repository still cannot receive.** The comment immediately before it was
+`[CHATGPT_GUIDANCE][ESC-015-EXACT-ROLE-COVER-EXACT-TREE-20260829]`, and `CHATGPT_GUIDANCE` is not
+among the five kinds the channel was known to carry, let alone the one `ProtocolKind` parses. It was
+read by hand, and it mattered: its point 5 required a discrimination that then exposed a live
+regression in the repair it was approving. A durable inbox would not have delivered it. ESC-014
+remains the staged question about which kinds may authorise, and this is a second instance of the
+same gap rather than a new one.

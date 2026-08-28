@@ -1141,6 +1141,7 @@ async function findChangeFactors(
 type SourceResolution =
   | { status: "RESOLVED"; sourceId: string; code: string }
   | { status: "AMBIGUOUS"; codes: string[] }
+  | { status: "RESIDUE" }
   | { status: "UNRESOLVED" };
 
 async function resolveSourceIdentity(sourceRegion: string): Promise<SourceResolution> {
@@ -1178,8 +1179,36 @@ async function resolveSourceIdentity(sourceRegion: string): Promise<SourceResolu
   // `explicitlyNamed` does not decide again, since a name with no occurrence has no occurrence.
   const byName = explicitlyNamed(sources, (src) => src.name, region);
   const hits = [...new Map([...byName, ...byCode].map((src) => [src.id, src])).values()];
-  if (hits.length === 1) return { status: "RESOLVED", sourceId: hits[0].id, code: hits[0].code };
-  if (hits.length > 1) return { status: "AMBIGUOUS", codes: hits.map((h) => h.code) };
+
+  // FULL-ROLE COVER on the source role. ESC-015 §8.
+  //
+  // Occurrence found which providers are worth considering. It does not settle whether the role
+  // said anything else, and until this ran, it did not have to: measured against a real repository,
+  // `What did <provider> Purchase Gamma shares publish about <series>?` returned FACTORS_FOUND and
+  // published the reading under that provider's attribution. The parser hands this function
+  // `<provider> purchase gamma shares` as the source region and considers the request authorized --
+  // `scripts/probe-source-role-residue.ts` prints five such regions.
+  //
+  // Attribution is a stronger claim than a figure. A reading published as "what <provider>
+  // reported" says a named organisation said something, so the role that names it has to be
+  // explainable by that name and framing, with nothing left over.
+  //
+  // Either the name or the code may be the identity that explains the role, because both are ways
+  // a request can name a provider and `byCode` above matches on the second. The rule itself is the
+  // one the subject and relation roles use; only the vocabulary is chosen here.
+  const covering = hits.filter(
+    (src) =>
+      regionIsExactlyFramingAndIdentity(region, src.name, requestFramingIsRecognised) ||
+      regionIsExactlyFramingAndIdentity(region, src.code, requestFramingIsRecognised),
+  );
+  if (covering.length === 1) {
+    return { status: "RESOLVED", sourceId: covering[0].id, code: covering[0].code };
+  }
+  if (covering.length > 1) return { status: "AMBIGUOUS", codes: covering.map((h) => h.code) };
+  // A provider was named and the role said more. That is not the same as naming no provider this
+  // repository holds, and the caller reports them differently -- one is a role this grammar could
+  // not account for, the other is a genuine gap in inventory.
+  if (hits.length > 0) return { status: "RESIDUE" };
   return { status: "UNRESOLVED" };
 }
 
@@ -1540,6 +1569,22 @@ async function selectAuthorizedOperation(
           redirectMessage:
             `The request names a source that matches more than one provider this repository ` +
             `holds (${resolution.codes.join(", ")}). Choosing one would be inventing the question.`,
+          seriesFactors: [],
+          causalFactors: [],
+          companyFacts: [],
+        };
+      }
+      if (resolution.status === "RESIDUE") {
+        // NOT `NOT_FOUND`, and the difference is the whole point of the status existing. This
+        // repository does hold readings from the provider that was named; what it cannot do is
+        // attribute one to a source role carrying words the provider's name does not explain.
+        return {
+          status: "REQUEST_NOT_SUPPORTED",
+          query: trimmed,
+          redirectMessage:
+            "The source role cannot be completely covered by one stored provider identity. A " +
+            "provider name occurring inside a longer role is not authority to attribute a reading " +
+            "to that provider.",
           seriesFactors: [],
           causalFactors: [],
           companyFacts: [],

@@ -1247,6 +1247,50 @@ describe("a second question may not hide inside an open-class region", () => {
    * starts failing and forces the exception to be revisited instead of quietly outliving its
    * justification.
    */
+  /**
+   * OPEN, found by publication-authority review, and it makes the residual class WORSE than I
+   * documented it.
+   *
+   * I wrote that the residual multi-intent class "publishes a composite SUBJECT on an
+   * informational request" and could not carry a directive. Review refuted that by construction
+   * and this is the input: `purchase` is in no clause-opening set, and bare `Purchase <security>`
+   * is missed by the advice screen too, so the request is not even classified as prohibited. The
+   * subject becomes ` alpha purchase gamma shares `, occurrence matching finds the stored `Alpha`,
+   * and its figures are served under a subject containing a trading instruction.
+   *
+   * Two independent gaps compose here, and neither is patched:
+   *   - the advice screen does not recognise a bare imperative trading instruction. Adding verbs
+   *     is the unfinishable denylist this unit exists to stop doing, and ESC-015 forbids closing
+   *     by vocabulary.
+   *   - the boundary is not confirmed, which is the residual class item 7 defers.
+   *
+   * Standalone `Purchase Gamma shares.` is UNSUPPORTED and publishes nothing, so the harm needs
+   * the swallow. That is a mitigation, not a defence.
+   */
+  it.fails("keeps an undetected trading directive out of a served subject", () => {
+    const a = authorize("What is the current Alpha. Purchase Gamma shares.");
+    expect(a.status).not.toBe("AUTHORIZED");
+  });
+
+  /**
+   * OPEN, found by structural review. The cost of reading the comma from the RAW query.
+   *
+   * `Alpha, Inc.` is ordinary US style, and the comma refuses the whole relation before the
+   * relation is even recognised. The comma cannot be read from the role span instead: regions are
+   * slices of NORMALIZED text and normalization deletes punctuation, so by the time a region
+   * exists the comma is gone.
+   *
+   * Kept rather than reverted, and the trade is explicit. Dropping the comma test restores this
+   * name and re-opens `Explain how Alpha affects Beta, Gamma.` publishing `A -> B` while
+   * discarding `C` -- a publication-authority defect that ESC-015 refuses to accept as V1 debt,
+   * against an availability defect that fails closed. Reported to ESC-015 rather than decided
+   * here.
+   */
+  it.fails("authorizes a relation whose endpoint name contains a comma", () => {
+    const a = authorize("Explain how Alpha, Inc. affects Beta.");
+    expect(a.status).toBe("AUTHORIZED");
+  });
+
   it.fails("authorizes an issuer name that itself contains a question mark", () => {
     const a = authorize(
       "What is the definition of Can I Use A Question Mark In A Company Name? Ltd?",

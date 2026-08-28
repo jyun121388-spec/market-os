@@ -36,11 +36,18 @@ from harness import harness
 CE = "src/server/domain/candidateEnvelope.ts"
 
 BINDING_TESTS = [
-    # The end-to-end file is FIRST because it is the one that reaches the resolver. The unit file
-    # deliberately does not: it constructs envelopes by hand to reach predicates the resolver never
-    # emits, which is useful and is not production-path coverage. Running this set with only the
-    # unit file scored 0 of 3, and that is what "no test calls this function" looks like.
+    # The end-to-end files are FIRST because they are the ones that reach the resolver. The unit
+    # file deliberately does not: it constructs envelopes by hand to reach predicates the resolver
+    # never emits, which is useful and is not production-path coverage. Running this set with only
+    # the unit file scored 0 of 3 -- not because nothing in the repository called the resolver, but
+    # because nothing IN THIS SET did.
     "tests/integration/candidate-envelope-mechanism.test.ts",
+    # CORRECTION. An earlier version of this comment, and the commit message with it, said NOTHING
+    # called `deriveCanonicalCandidateEnvelope`. That was false and review caught it:
+    # `canonical-candidate.test.ts` has called it directly for far longer than this unit has
+    # existed. What was true is narrower and is the only thing that should have been claimed -- it
+    # was not in THIS runner's binding set, so the candidate mutants had no discriminator.
+    "tests/integration/canonical-candidate.test.ts",
     "tests/candidateEnvelope.test.ts",
     "tests/inferenceAuthorization.test.ts",
 ]

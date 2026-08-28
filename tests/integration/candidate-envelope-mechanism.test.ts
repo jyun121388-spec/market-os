@@ -48,9 +48,16 @@ describeIfDb("the candidate envelope resolves a mechanism, or refuses it", () =>
     // The edge under test, plus an authentic UNRELATED record. The brief asks for the second
     // explicitly: without it, a refusal could come from an empty table rather than from the guard,
     // and "nothing was found" would be indistinguishable from "the request was refused".
+    // The third pair exists for ONE guard. Structural review showed my subsumption argument for
+    // the cardinality check was unsound and named the construction that refutes it: a stored
+    // identity that is ALSO accepted framing. `variablesNamedIn` counts both `the` and the real
+    // name, so cardinality is two, while the framing check inspects only `causes[0]` and would
+    // accept `explain how the` + that identity. Storing a variable literally named `the` is
+    // grotesque and is the point -- it isolates a guard nothing else could reach.
     for (const [from, to] of [
       [CAUSE, EFFECT],
       [UNRELATED_FROM, UNRELATED_TO],
+      ["the", EFFECT],
     ]) {
       const edge = await prisma.causalEdge.create({
         data: {
@@ -70,6 +77,7 @@ describeIfDb("the candidate envelope resolves a mechanism, or refuses it", () =>
 
   afterAll(async () => {
     await prisma.causalEdge.deleteMany({ where: { id: { in: created } } });
+    await prisma.causalEdge.deleteMany({ where: { fromVariable: "the" } });
     await prisma.$disconnect();
   });
 
@@ -99,21 +107,22 @@ describeIfDb("the candidate envelope resolves a mechanism, or refuses it", () =>
   it("refuses a conditional the parser cannot see", async () => {
     // `only if C` is residue with no coordinator, so it reaches this layer. Resolving `A -> B` here
     // would answer an UNCONDITIONAL question when a conditional one was asked.
-    const r = await resolve(`Explain how ${CAUSE} affects ${EFFECT} only if ${UNRELATED_TO}.`);
-    if (r.parserRefused) {
-      expect(r.authority.status).not.toBe("AUTHORIZED");
-      return;
-    }
+    // The trailing token is deliberately NOT a stored endpoint. Review pointed out that using
+    // `UNRELATED_TO` here would let the multiple-effects guard refuse first, so the test would not
+    // discriminate the exactness guard it names.
+    const r = await resolve(
+      `Explain how ${CAUSE} affects ${EFFECT} only if TESTENV Unstored Thing.`,
+    );
+    expect(r.parserRefused, "must reach the envelope, not be refused upstream").toBe(false);
+    if (r.parserRefused) return;
     expect(r.envelope.status).not.toBe("AUTHORIZED");
     expect(r.envelope.causalEdgeIds).toEqual([]);
   });
 
   it("refuses a denial the relation grammar reads as affirmed", async () => {
     const r = await resolve(`Explain how it is false that ${CAUSE} affects ${EFFECT}.`);
-    if (r.parserRefused) {
-      expect(r.authority.status).not.toBe("AUTHORIZED");
-      return;
-    }
+    expect(r.parserRefused, "must reach the envelope, not be refused upstream").toBe(false);
+    if (r.parserRefused) return;
     expect(r.envelope.status).not.toBe("AUTHORIZED");
     expect(r.envelope.causalEdgeIds).toEqual([]);
   });
@@ -122,10 +131,22 @@ describeIfDb("the candidate envelope resolves a mechanism, or refuses it", () =>
     // The unrelated row exists and must not be reached for. Repository absence of the named effect
     // is a fact about the repository; it may refuse, and it may not resolve something else.
     const r = await resolve(`Explain how ${CAUSE} affects TESTENV Nothing Stored.`);
-    if (r.parserRefused) {
-      expect(r.authority.status).not.toBe("AUTHORIZED");
-      return;
-    }
+    expect(r.parserRefused, "must reach the envelope, not be refused upstream").toBe(false);
+    if (r.parserRefused) return;
+    expect(r.envelope.status).not.toBe("AUTHORIZED");
+    expect(r.envelope.causalEdgeIds).toEqual([]);
+  });
+
+  it("refuses when a role names a real identity AND a stored identity that is also framing", async () => {
+    // The cardinality guard, isolated. Review refuted the argument that the exactness check
+    // subsumes it: with `the` stored as a cause, `Explain how the <CAUSE> affects <EFFECT>.` names
+    // two causes, so cardinality refuses -- and if it did not, the exactness check would inspect
+    // only the first identity and could accept `explain how the` as framing around it.
+    //
+    // This is the measurement the review asked for, not a restatement of the argument it rejected.
+    const r = await resolve(`Explain how the ${CAUSE} affects ${EFFECT}.`);
+    expect(r.parserRefused, "must reach the envelope, not be refused upstream").toBe(false);
+    if (r.parserRefused) return;
     expect(r.envelope.status).not.toBe("AUTHORIZED");
     expect(r.envelope.causalEdgeIds).toEqual([]);
   });
@@ -134,10 +155,8 @@ describeIfDb("the candidate envelope resolves a mechanism, or refuses it", () =>
     // Both `EFFECT` and `UNRELATED_TO` are stored effects. Letting inventory pick one would be
     // inventory deciding what was asked.
     const r = await resolve(`Explain how ${CAUSE} affects ${EFFECT} ${UNRELATED_TO}.`);
-    if (r.parserRefused) {
-      expect(r.authority.status).not.toBe("AUTHORIZED");
-      return;
-    }
+    expect(r.parserRefused, "must reach the envelope, not be refused upstream").toBe(false);
+    if (r.parserRefused) return;
     expect(r.envelope.status).not.toBe("AUTHORIZED");
     expect(r.envelope.causalEdgeIds).toEqual([]);
   });

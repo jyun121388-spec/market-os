@@ -1246,8 +1246,9 @@ stored mechanism with effect ` beta versus gamma `.
 `CLAUSE_CONNECTIVES` already is in this module. The comma is checked on the RAW query because
 `normalize` deletes punctuation before any region exists.
 
-Keyed to relation roles only, and that is principled rather than fitted: STORED_MECHANISM is the
-only operation whose contract declares `subjectCardinality: 2`, so a coordinator inside an endpoint
+Keyed to relation roles only. CORRECTED: this said "principled rather than fitted"; the helper
+reads no contract and is invoked only from `mechanismMatch`, so a future cardinality-2 operation is
+not protected by it. STORED_MECHANISM being the only `subjectCardinality: 2` contract, so a coordinator inside an endpoint
 contradicts a claim the contract makes. Cardinality-1 subjects keep their commas --
 `What is the current Smith, Jones revenue?` is one issuer and is pinned.
 
@@ -1290,3 +1291,93 @@ absent.
 What has changed for this class: none of it can reach a served field when a directive is present,
 because a prohibited request now publishes nothing at all. What remains is a composite SUBJECT on a
 purely informational request.
+
+### Fresh exact-tree review of `efd18e2` — both REWORK_REQUIRED, and both were right
+
+Reviewers: `gpt-5.6-terra` (structural) and `gpt-5.6-sol` (publication authority), READ-ONLY, on the
+exact pushed tree. No evidence inherited from `cfcacad`, `05b94ba` or `8baf368`. GitHub reports zero
+statuses and zero check-runs for `efd18e2`: **REMOTE_CI = NONE.**
+
+#### A claim of mine that was simply false
+
+I wrote, in the commit message and in a new test's docblock, that **NOTHING** called
+`deriveCanonicalCandidateEnvelope`. `tests/integration/canonical-candidate.test.ts` has called it
+directly, ten times, since long before this unit existed. Review found it in the repository I had
+just searched.
+
+What was true is much narrower and is all that should have been said: the resolver was not in the
+MUTATION RUNNER's binding set, so the candidate mutants had no discriminator. "No test calls this"
+and "this run could not see it" are different statements and I made the wrong one. Corrected in
+place; `canonical-candidate.test.ts` is now in the binding set.
+
+#### P1 — the residual class is worse than I characterised it
+
+I wrote that the residual multi-intent class "publishes a composite SUBJECT on an informational
+request" and could not carry a directive. Refuted by construction, reproduced:
+
+    What is the current Alpha. Purchase Gamma shares.
+      -> AUTHORIZED, subject " alpha purchase gamma shares ", and Alpha's figures are served
+
+Two independent gaps compose. `purchase` is in no clause-opening set, so the boundary stays
+provisional; and bare `Purchase <security>` is missed by the advice screen entirely, so the request
+is never classified as prohibited. `Sell Gamma now` IS caught; `Buy Gamma shares` is not.
+
+Neither is patched. Adding trading verbs to the advice screen is the unfinishable denylist this
+whole unit exists to stop building, and ESC-015 forbids closing by vocabulary. Standalone
+`Purchase Gamma shares.` is UNSUPPORTED and publishes nothing, so the harm needs the swallow --
+a mitigation, not a defence. Pinned as `it.fails`.
+
+**This is the third time I have described a residual too narrowly and been refuted by
+construction.** The pattern is worth more than the instance: each time I characterised the harm
+from the examples I had rather than from the mechanism, and each time the mechanism reached further.
+
+#### REAL_DEFECT — the raw comma refuses an ordinary issuer name
+
+    Explain how Alpha, Inc. affects Beta.   -> UNSUPPORTED
+
+The comma is read from the RAW query because normalization deletes punctuation before any region
+exists, so a comma anywhere refuses the relation. `Alpha, Inc.` is ordinary US style.
+
+Kept rather than reverted, and the trade is stated instead of buried: dropping the comma test
+restores this name and re-opens `Explain how Alpha affects Beta, Gamma.` publishing `A -> B` while
+discarding `C`. ESC-015 refuses to accept a publication-authority defect as V1 debt and prefers
+fail-closed refusal, so the availability defect is the one left standing. Pinned as `it.fails` and
+returned to ESC-015 rather than decided here.
+
+#### My subsumption argument was unsound, and the measurement settled it
+
+I argued M-CANDIDATE-CARDINALITY was unreachable because a region that is "exactly framing plus one
+identity" cannot also name two identities. Review refuted it: `variablesNamedIn` admits separately
+occurring identities, and with the cardinality guard removed the exactness check inspects only
+`causes[0]`. It named the construction -- a stored identity that is ALSO accepted framing.
+
+Implemented as a test with `the` seeded as a stored cause. Grotesque, and that is the point: it
+isolates a guard nothing else could reach. **M-CANDIDATE is now 3 of 3 ISOLATED**, up from 0 of 3
+before the layer had any production-path coverage at all.
+
+#### Two more overstatements, corrected in place
+
+`OBJECT_COORDINATORS` was called "the same closed grammatical class as `CLAUSE_CONNECTIVES`". True
+of `and`/`or`; false of the comparison forms -- `relative to`, `as opposed to`, `rather than` and
+`in comparison with` are productive multiword constructions the list cannot enumerate. The honest
+statement is that the coordination half is closed and the comparison half is a partial list.
+
+The residue guard's placement was called "principled rather than fitted" because STORED_MECHANISM
+is the only `subjectCardinality: 2` contract. The helper reads no contract at all -- it is invoked
+only from `mechanismMatch`. Currently correct, not contract-driven.
+
+`docs/PROJECT_STATE.md` claimed "2297 / 2297" and, two clauses later, "2285 passing plus 12". Both
+reviews caught it. One fresh run on the exact tree settles it: **2301 total, 2287 passing, 14 pinned
+`it.fails`, 128 files.**
+
+#### Accepted as accurate by review
+
+Prohibited dominance has no bypass: `askMarket` returns three empty collections, `/ask` renders only
+those, and the inference path stops before candidate derivation. The P1 above is a directive
+MISCLASSIFIED as informational, not a prohibited request that published.
+
+The five envelope tests do reach the canonical resolver, and they now ASSERT reachability rather
+than accepting an upstream refusal -- review was right that accepting one proves nothing.
+
+`adversarial_resilience` losing its populated refusal is disclosed accurately and is a coverage
+reduction rather than a wrong output.

@@ -523,9 +523,16 @@ const CLAUSE_CONNECTIVES = ["and", "then", "but", "also", "plus", "while", "so",
 /**
  * Coordination and comparison of OBJECTS, as opposed to of clauses.
  *
- * The same closed grammatical class as `CLAUSE_CONNECTIVES` above and legitimate for the same
- * reason: these are function words, not an open set of ways to phrase something. `versus` cannot
- * be paraphrased into existence by a verb nobody enumerated.
+ * CORRECTED after structural review. This claimed to be "the same closed grammatical class as
+ * `CLAUSE_CONNECTIVES`", and that is true of `and`/`or` and NOT true of the comparison forms.
+ * `relative to`, `as opposed to`, `rather than` and `in comparison with` are productive multiword
+ * constructions; this list cannot enumerate them and does not.
+ *
+ * So the honest statement is narrower: the coordination half is closed, the comparison half is a
+ * partial list that catches the common forms and is not claimed to be complete. What limits the
+ * damage is that it is not the only guard -- candidate-region validation refuses most of the rest
+ * downstream -- and that failing to match here fails CLOSED at the next layer rather than
+ * publishing.
  *
  * ESC-015's acceptance case is what forced this. `Explain how Alpha affects Beta and Gamma.`
  * already refused, because `and` is a clause connective. `Beta, Gamma`, `Beta versus Gamma` and
@@ -1002,6 +1009,12 @@ function canonicalSubjectKey(operation: RequestOperation, subjectRegion: string)
  * The comma is checked on the RAW query, not on the regions: `normalize` deletes punctuation, so by
  * the time a region exists `Beta, Gamma` and `Beta Gamma` are the same string. The cost is that a
  * relation naming a comma-bearing entity refuses. That is a capability loss and it fails closed.
+ *
+ * CORRECTED: an earlier version of this called the placement "principled rather than fitted"
+ * because STORED_MECHANISM is the only `subjectCardinality: 2` contract. Review pointed out that
+ * the helper is invoked only from `mechanismMatch` and reads no contract, so a future
+ * cardinality-2 operation gets no protection unless its author remembers this function. The
+ * placement is currently correct and is NOT contract-driven.
  *
  * Cardinality-1 operations are deliberately NOT covered. Their subject is one region and a comma
  * inside it belongs to the name -- `What is the current Smith, Jones revenue?` is one issuer, and

@@ -2,6 +2,7 @@ import { prisma } from "@/server/db/client";
 import { computeChange } from "./seriesReadings";
 import {
   resolveRequestAuthority,
+  requestFramingIsRecognised,
   type AuthorizedRequest,
   type SubjectIdentityMode,
 } from "./requestAuthority";
@@ -11,6 +12,7 @@ import {
   normalizeSubject,
   regionIsExactlyFramingAndIdentity,
 } from "./subjectAuthority";
+import { exactRoleCover } from "./canonicalRoleCover";
 import { computeCalendarEntry } from "./economicCalendar";
 import { resolveObservationPeriod, type ResolvedPeriod } from "./observationPeriod";
 import { getObservationsOneRowPerDate } from "./seriesReadings";
@@ -1444,18 +1446,52 @@ async function selectAuthorizedOperation(
   // choose. Two providers publishing under the SAME name is one subject, not two, which is why
   // this counts distinct names rather than rows.
   if (authority.contract.subjectCardinality === 1) {
-    const named = new Set(
-      (await matchingSeries(subject, undefined, authority.subjectIdentity)).map(
-        (series) => series.name,
-      ),
+    // FULL-ROLE COVER, not occurrence. ESC-015 `EXACT-CANDIDATE-COVER`.
+    //
+    // This counted distinct stored names OCCURRING in the region and refused only when there were
+    // two of them. One was enough to publish, whatever else the region said, and that is how
+    // `What is the current Alpha. Purchase Gamma shares.` served Alpha's observation against a
+    // real repository -- reproduced before this changed.
+    //
+    // The question is now whether the WHOLE role is explained by one stored identity. A role with
+    // a name in it and anything else left over is not authority to render that name's rows; it is
+    // a request this grammar did not finish reading.
+    const candidates = await matchingSeries(subject, undefined, authority.subjectIdentity);
+    const cover = exactRoleCover(
+      subject,
+      authority.subjectIdentity,
+      candidates,
+      (series) => series.name,
+      requestFramingIsRecognised,
     );
-    if (named.size > 1) {
+    // NO_CANDIDATE is NOT a refusal here, and getting that wrong broke 20 tests in one run.
+    //
+    // An OBSERVATION request can be answered by a series OR by a company's filings, and the series
+    // lookup is only the first of those. A role naming no stored series has not failed authority;
+    // it has failed THIS lookup, and the company path below is entitled to try. Refusing on
+    // absence turned every company question into REQUEST_NOT_SUPPORTED.
+    //
+    // What DOES refuse is a role that named a series and then said more: discovery found the name,
+    // cover could not explain the rest. That is the P1, and it is RESIDUE rather than absence.
+    if (
+      cover.status === "AMBIGUOUS" ||
+      (cover.status === "UNRESOLVED" && cover.reason === "RESIDUE")
+    ) {
+      // NOT `NOT_FOUND`. The repository was not empty and may well hold the row; it is the ROLE
+      // that failed authority. Conflating the two would report a data gap for a request the
+      // grammar could not account for, and would read as "we don't have it" when the truth is
+      // "we could not tell what was asked".
+      const detail =
+        cover.status === "AMBIGUOUS"
+          ? `The subject role names ${cover.names.length} stored subjects ` +
+            `(${cover.names.join(", ")}), and this operation answers about one. Choosing between ` +
+            "them would answer a different question."
+          : "The authorized subject role cannot be completely covered by one canonical stored " +
+            "subject identity; partial occurrence matching is not publication authority.";
       return {
         status: "REQUEST_NOT_SUPPORTED",
         query: trimmed,
-        redirectMessage:
-          `The request names ${named.size} stored subjects (${[...named].join(", ")}), and this ` +
-          "operation answers about one. Choosing between them would answer a different question.",
+        redirectMessage: detail,
         seriesFactors: [],
         causalFactors: [],
         companyFacts: [],

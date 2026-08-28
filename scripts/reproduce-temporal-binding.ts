@@ -110,7 +110,10 @@ async function main(): Promise<void> {
       "\n   reporting the latest pair under someone else's label.",
   );
 
-  await probe("T1  a full year, which spans four steps", `How much has ${DENSE} changed this year?`);
+  await probe(
+    "T1  a full year, which spans four steps",
+    `How much has ${DENSE} changed this year?`,
+  );
   await probe("T2  a quarter", `How much has ${DENSE} changed last quarter?`);
   await probe("T3  the year before", `How much has ${DENSE} changed last year?`);
   await probe(

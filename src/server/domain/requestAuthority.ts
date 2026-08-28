@@ -466,6 +466,21 @@ const FRAMING_TOKENS = new Set([
   "print",
 ]);
 
+/**
+ * Is every token of `region` a word this grammar already treats as framing?
+ *
+ * Exported for `canonicalRoleCover`, which has to ask whether the part of a role that is NOT the
+ * stored identity is accounted for. There is a second framing vocabulary in `subjectAuthority`,
+ * and the two are deliberately different rather than duplicated: that one describes what may
+ * precede a RELATION clause (`explain how the`), this one what may precede an OBSERVATION subject
+ * (`how much has`). Using the relation set for a subject role refused
+ * `How much has <series> changed this year?`, which is how the difference was found.
+ */
+export function requestFramingIsRecognised(region: string): boolean {
+  const tokens = normalizedTokens(normalize(region));
+  return tokens.every((token) => FRAMING_TOKENS.has(token));
+}
+
 interface Construction {
   operation: RequestOperation;
   /** Ordered literal markers. The subject lies between the first and second, or after the first. */

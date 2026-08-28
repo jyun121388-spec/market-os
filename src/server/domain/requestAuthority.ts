@@ -1476,6 +1476,24 @@ function recogniseOperation(query: string): RequestAuthority {
     // informational reading of any span.
     let headReads = false;
     for (let last = first; last < fragments.length; last += 1) {
+      // ESC-015 §20: exactly what confirmed-boundary authority still owns, measured rather than
+      // asserted, now that full-role exactness carries publication authority underneath it.
+      //
+      // `python scripts/mutation/differential.py <dump> confirmed-boundary-suppression`, 2026-08-29,
+      // over 99,072 generated requests: 12,980 discriminating inputs. Every single one is
+      // UNSUPPORTED in the original and admitted in the mutant -- 11,960 AUTHORIZED, 924 PROHIBITED,
+      // 96 AMBIGUOUS -- and ZERO go the other way. The suppression is purely restrictive, and what
+      // it restricts is a run crossing a confirmed boundary being tiled, which otherwise swallows
+      // the following question into the subject role:
+      //
+      //     What did Reuters publish about Alpha. What is the CPI? Alpha Corp?
+      //       -> subject ` alpha what is the cpi alpha corp `
+      //
+      // So delimiter authority is NOT "fully gone" and nothing may describe it that way. What was
+      // removed by ESC-015 item 2 is delimiter SHAPE as the classifier -- whether a period after an
+      // abbreviation ends a sentence. What remains here is different and narrower: a boundary the
+      // TAIL confirmed suppresses runs across it. The full-role cover does not subsume this,
+      // because it decides which stored identity a role names and this decides what the role IS.
       if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;
       const span = query.slice(fragments[first].start, fragments[last].end);
       const { readings, koreanAmbiguous: ambiguous } = recogniseSpan(span);

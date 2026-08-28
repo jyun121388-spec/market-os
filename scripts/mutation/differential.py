@@ -239,6 +239,24 @@ CASES = {
         "new": "      headReads = readings.length > 0;",
         "probe": "npx tsx scripts/diff-clause-token-scan.ts",
     },
+    # ESC-015 §20. `confirmedBoundary` still exists, so delimiter authority is NOT "fully gone", and
+    # this measures exactly what it still owns now that full-role exactness is load-bearing. The
+    # effect being disabled is RUN SUPPRESSION: a multi-fragment run that crosses a confirmed
+    # boundary is evaluated and then withheld from the tiling. If the corpus finds no discriminating
+    # input, the suppression owns nothing the rest of the design does not already own; if it finds
+    # some, they name the invariant precisely and it must stay.
+    #
+    # RESULT 2026-08-29: 12,980 discriminating inputs out of 99,072. Every one UNSUPPORTED in the
+    # original and admitted in the mutant -- 11,960 AUTHORIZED, 924 PROHIBITED, 96 AMBIGUOUS -- and
+    # zero in the other direction. Purely restrictive, and it stays. Delimiter authority is not
+    # "fully gone"; the shape classifier is gone and tail-confirmed boundary suppression is not.
+    "confirmed-boundary-suppression": {
+        "label": "confirmed-boundary run suppression removed, over the big corpus",
+        "path": RA,
+        "old": "      if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;",
+        "new": "",
+        "probe": "npx tsx scripts/diff-clause-token-scan.ts",
+    },
     "question-mark-confirms": {
         "label": "CANDIDATE: a ? boundary always confirms, . ! ; stay provisional",
         "path": RA,

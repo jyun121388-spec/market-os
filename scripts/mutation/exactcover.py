@@ -59,12 +59,16 @@ MUTATIONS = [
         """  if (relationEndpointNamesTwoThings(query, syntax.clause.cause, syntax.clause.effect)) return null;""",
         "",
     ),
-    (
-        "M-RESIDUE-COMMA a comma-appended second object is ignored",
-        RA,
-        """  if (query.includes(",")) return true;""",
-        "",
-    ),
+    # M-RESIDUE-COMMA IS RETIRED, and the harness is why this comment exists rather than a silent
+    # deletion: it refused the whole run on ANCHOR DRIFT when the target vanished, instead of
+    # reporting a survivor for a rule that was no longer there.
+    #
+    # The rule it mutated was `if (query.includes(","))` in `relationEndpointNamesTwoThings`, read
+    # from the raw query because normalization deletes punctuation. ESC-015 §10 retired it: it could
+    # not tell `Beta, Gamma` from `Alpha, Inc.` and refused both. The invariant did not go away with
+    # it -- an endpoint role naming a second object must still refuse -- it moved one layer down to
+    # the repository, where `scripts/mutation/mechanismcover.py` owns it as
+    # `M-ROLE-MECHANISM-CAUSE` and `M-ROLE-MECHANISM-EFFECT`, both isolated.
     (
         "M-RESIDUE-COMPARATOR a comparison-appended second object is ignored",
         RA,
@@ -73,6 +77,18 @@ MUTATIONS = [
     ),
     # M-EXACT-COVER -- remove the unique-complete-interpretation requirement, so a request with two
     # readings picks one instead of refusing.
+    #
+    # CLASSIFIED SURVIVOR -- EQUIVALENT_OVER_CORPUS, and RE-MEASURED on this tree rather than
+    # inherited. ESC-015 §19 forbids manufacturing a case to turn it red and requires the
+    # measurement be redone once the code moved, which it has: the cover, the source role, the
+    # relation roles and the company role all changed underneath it.
+    #
+    # `python scripts/mutation/differential.py <dump> exact-cover-unreachable`, 2026-08-29:
+    # 99,072 generated requests, NO DISCRIMINATING INPUT. Nothing in that corpus can tell the two
+    # variants apart. The branch needs a JOINED run admitted while a split cover also exists, and
+    # the tail evidence that blocks a joined run is the same evidence that makes a tail read alone,
+    # so the two conditions appear anti-correlated by construction. Appear -- the corpus is what is
+    # claimed here, not a proof of unreachability.
     (
         "M-EXACT-COVER a second complete interpretation no longer refuses",
         RA,

@@ -597,14 +597,34 @@ wrong answer comfortable to live with.
 `docs/escalation/PENDING_COMMENTS.md` remains the staging path for the case where the credential
 genuinely is absent. It is a fallback now, not the normal route.
 
-## HG-CODEX-QUOTA — Codex unavailable until 2026-09-01 (recorded 2026-08-26)
+## SUPERSEDED 2026-08-27 — HG-CODEX-QUOTA was never a Human Gate
 
-`codex exec` now exits non-zero with TWO independent blocks:
+Reclassified: **CODEX_UNAVAILABLE_EXTERNAL, reason USAGE_LIMIT, HUMAN_GATE = NONE.**
 
-    401 Unauthorized: Provided authentication token is expired   (code: token_expired)
+A Human Gate is something a human must decide or authorise. Nothing here is: authentication
+recovered on its own, the quota resets 2026-09-01 without anyone doing anything, and the only human
+action this entry ever implied -- re-authenticate, or buy credits -- is respectively unnecessary and
+refused by policy. Filing it as a gate put a decision in front of a person who has none to make.
+
+CODEX_DEFERRED_REVIEW_DEBT = YES remains, and is tracked in docs/REVIEW_DEBT.md rather than here.
+The original entry is kept below for its history.
+
+## (superseded) HG-CODEX-QUOTA — Codex unavailable until 2026-09-01 (recorded 2026-08-26)
+
+`codex exec` exits non-zero. NARROWED 2026-08-27 by re-probing rather than re-reading this entry:
+
     ERROR: You've hit your usage limit ... try again at Sep 1st, 2026 11:15 PM
 
-Both are HUMAN GATES and neither may be worked around by this session:
+The QUOTA is the only remaining block. This entry originally also recorded
+
+    401 Unauthorized: Provided authentication token is expired   (code: token_expired)
+
+and that error NO LONGER APPEARS -- the token refreshed on its own. Recorded as a correction rather
+than edited away, because "two independent blocks" overstated what a human would need to do: option
+(a) below is not required, and acting on the stale entry would have sent someone to re-authenticate
+a login that is already working.
+
+The remaining gate may not be worked around by this session:
 
   * Re-authenticating requires real credentials. Never extracted, never generated, never prompted
     for during unattended operation.
@@ -613,10 +633,10 @@ Both are HUMAN GATES and neither may be worked around by this session:
 
 DECISION PACKET
   Decision needed : re-authenticate the existing Codex login, or wait for the 2026-09-01 reset.
-  Options         : (a) human re-auths locally at no cost -- reviews resume immediately;
-                    (b) wait until 2026-09-01 -- costs nothing, delays every exact-tree review;
-                    (c) purchase credits -- REFUSED by policy, listed only for completeness.
-  Recommended     : (a) if the login is simply stale, otherwise (b).
+  Options         : (a) wait until 2026-09-01 -- costs nothing, delays every exact-tree review;
+                    (b) purchase credits -- REFUSED by policy, listed only for completeness.
+  Recommended     : (a). Re-authentication is NOT needed; the token error cleared on its own and a
+                    2026-08-27 probe reached the service and was refused on quota alone.
   Continues meanwhile: everything that does not need an architect verdict. Implementation,
                     reproduction, mutation, gates, commits and pushes are unaffected.
 

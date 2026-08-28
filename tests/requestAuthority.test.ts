@@ -482,12 +482,34 @@ describe("each refusing layer decides something no other layer decides", () => {
     expect(authorize("Buy gold now. What is the current gold price?").status).toBe("PROHIBITED");
   });
 
+  /**
+   * AMENDED 2026-08-27, input only -- the property is unchanged and still proven.
+   *
+   * This used `Rebalance the portfolio. What is the current gold price?`, which the PERIOD makes two
+   * fragments. Once a confirmed clause boundary blocks the joined run, no complete tiling exists and
+   * the request is refused by the tiling layer before the unread-residue layer is ever consulted:
+   * still UNSUPPORTED, but with the generic message instead of one naming the unread words.
+   *
+   * The residue layer is NOT dead, and that was measured before touching this test: the comma form
+   * below is one fragment, reaches the residue check, and names `rebalance`, `portfolio`. So the
+   * input moves and the assertion stays exactly as strong. The two-fragment form is kept
+   * immediately after, asserting refusal, so the behaviour is pinned in both layers.
+   */
   it("refuses a directive standing in front of a valid operation, without detecting the directive", () => {
     // Unread residue alone, with no coordinator in the subject and no advice vocabulary matched.
     // This is the property IR-107 was built for: what stops the request is that nothing read it.
-    const a = authorize("Rebalance the portfolio. What is the current gold price?");
+    const a = authorize("Rebalance the portfolio, what is the current gold price?");
     expect(a.status).toBe("UNSUPPORTED");
     expect(a.status === "UNSUPPORTED" && a.detail).toContain("beyond the operation");
+  });
+
+  it("also refuses that directive when punctuation splits it into two fragments", () => {
+    // Same request, refused by a different layer. Only the status is asserted: which layer owns a
+    // refusal is an implementation fact, and pinning the message here would make the test fail for
+    // a reason that is not about safety.
+    expect(authorize("Rebalance the portfolio. What is the current gold price?").status).not.toBe(
+      "AUTHORIZED",
+    );
   });
 
   it("refuses an unread modifier that is not a directive at all", () => {
@@ -841,5 +863,155 @@ describe("a recognizer union describes a two-reading request as ambiguous", () =
     ]) {
       expect(authorize(query).status, query).not.toBe("AUTHORIZED");
     }
+  });
+});
+
+/**
+ * A candidate boundary is confirmed as a clause boundary by WHAT FOLLOWS IT.
+ *
+ * The cover model refuses a swallowing reading only by producing a rival tiling, and a rival needs
+ * the swallowed tail to authorize ALONE. When the tail is not a complete request, no rival exists,
+ * the joined run is the sole interpretation, and it authorized with the second question buried in an
+ * open-class region -- subject, source, cause or effect -- where no residue check can see it.
+ *
+ * Every swallowing test written before this one chose a tail that authorizes alone. That is exactly
+ * the precondition for the defense to work, so the suite only ever exercised the half of the space
+ * where the mechanism cannot fail. These are the other half.
+ *
+ * Two rules were tried and refuted by measurement before this one. Bounding role spans at the
+ * boundary outright refuses `Yahoo! Finance` and `Acme Inc. revenue` -- the whole class provisional
+ * punctuation exists to reunite. Scanning the tail for ANY framing token refuses
+ * `the U.S. Bureau of Labor Statistics` (`of` is framing) AND misses a Hangul tail entirely.
+ */
+describe("a second question may not hide inside an open-class region", () => {
+  it.each([
+    [
+      "attribution subject eats an unreadable tail",
+      "What did Reuters publish about Alpha? What about the Gamma level?",
+    ],
+    [
+      "source slot eats the first question",
+      "What did Reuters publish about Alpha? What did they say about Gamma?",
+    ],
+    [
+      "mechanism effect eats the tail",
+      "Explain how Alpha affects Beta. What about the Gamma level?",
+    ],
+    [
+      "english subject eats a korean question",
+      "What is the current Gamma? 현재 기준금리는 얼마인가요?",
+    ],
+    [
+      "determiner opens the swallowed clause",
+      "What did Reuters publish about Alpha? The Gamma level too?",
+    ],
+    [
+      "clause opener sits mid-fragment",
+      "What did Reuters publish about Alpha? The Gamma level, did it rise?",
+    ],
+    [
+      "a clean third fragment launders the boundary",
+      "What did Reuters publish about Alpha? What about the Gamma. level?",
+    ],
+    // The next three come from a generated differential, not from reading the code. Mutant B-M3
+    // -- scan only the tail's FIRST token instead of all of them -- survived the entire binding
+    // suite, and every case above explains why: each swallowed tail either opens with a
+    // determiner, or already has its clause-opening word in first position, so first-token
+    // scanning catches it too. What no test carried was a tail whose clause opener sits behind a
+    // PREPOSITION. `scripts/mutation/differential.py` ran 42,840 generated requests through both
+    // rules under the same write/restore transaction: 2,532 differ, 1,204 of them are requests the
+    // mutant AUTHORIZES with the second question buried in the subject region -- subject
+    // ` alpha in 2024 what was the cpi `, source `reuters` -- and 0 are requests the current rule
+    // refuses wrongly. That is the P1 itself, so scanning all tokens is load-bearing.
+    [
+      "the clause opener sits behind a preposition",
+      "What did Reuters publish about Alpha. In 2024 what was the CPI?",
+    ],
+    [
+      "the clause opener sits behind a prepositional phrase",
+      "What did Reuters publish about Alpha. As of March did Reuters publish anything?",
+    ],
+    [
+      "the clause opener sits behind a fronted adjunct",
+      "What did Reuters publish about Alpha. For Korea what is the policy rate?",
+    ],
+  ])("refuses when %s", (_label, query) => {
+    expect(authorize(query).status, query).not.toBe("AUTHORIZED");
+  });
+
+  it("does not bury a prepositionally-fronted second question in the subject region", () => {
+    // The status assertion above kills the mutant; this says what went wrong when it fails. Under
+    // first-token-only scanning the request came back AUTHORIZED with the entire second question
+    // absorbed into the subject slot, which is the exact shape of the P1 rather than a near miss.
+    const a = authorize("What did Reuters publish about Alpha. In 2024 what was the CPI?");
+    expect(a.status).not.toBe("AUTHORIZED");
+    const served = a.status === "AUTHORIZED" ? `${a.subjectRegion} ${a.sourceRegion ?? ""}` : "";
+    expect(served).not.toContain("cpi");
+  });
+
+  it("keeps the directive out of a served source region", () => {
+    // The worst instance, and the reason this is a P1 rather than a tidiness defect: the whole
+    // three-fragment span parsed as ONE attribution whose source slot had absorbed the advice
+    // directive, so a redirect would have published under source "should i buy stock what did
+    // reuters". The constituent must be the clean question or nothing.
+    const a = authorize(
+      "Should I buy stock? What did Reuters publish about Alpha? What about the Gamma level?",
+    );
+    expect(a.status).toBe("PROHIBITED");
+    const informational = a.status === "PROHIBITED" ? a.informational : undefined;
+    expect(informational?.sourceRegion).toBe("reuters");
+    expect(informational?.subjectRegion).toContain("alpha");
+    expect(informational?.subjectRegion).not.toContain("gamma");
+  });
+
+  /**
+   * The other side of the rule, and the reason the tested class is narrow.
+   *
+   * These names carry internal terminator punctuation, so their tails sit after a candidate
+   * boundary. Prepositions, determiners and measure nouns continue a noun phrase; only words that
+   * can stand clause-initially are evidence that a sentence ended. Refusing these would trade a
+   * swallowing bug for a refusal bug.
+   */
+  it.each([
+    [
+      "institutional name with of",
+      "What did the U.S. Bureau of Labor Statistics publish about nonfarm payrolls?",
+      "bureau",
+    ],
+    ["abbreviation then measure noun", "What is the current U.S. rate of inflation?", "inflation"],
+    ["company suffix then measure noun", "What is the current Acme Inc. rate?", "acme inc rate"],
+    ["numbered name then measure noun", "What is the current No. 10 index level?", "index level"],
+    ["exclamation inside a name", "What is the definition of Yahoo! Finance?", "yahoo finance"],
+    ["company suffix then noun", "What is the current Acme Inc. revenue?", "acme inc revenue"],
+    // Both of these were REFUSED by the one-sided rule and are the reason for the head condition.
+    // A Hangul tail confirms a boundary unconditionally, and `<English legal name> Co. <Hangul
+    // name>` is an ordinary way to write a Korean issuer, so the repair was refusing the product's
+    // own market. `Mr. Show` is the same shape in English: `Show` is a clause-opening token and
+    // also half a name. Neither was constructed -- architect review named the second and the
+    // measurement found the first.
+    [
+      "mixed-script issuer name after an abbreviation",
+      "What did Samsung Electronics Co. 삼성전자 report about revenue?",
+      "samsung electronics co 삼성전자",
+    ],
+    [
+      "title abbreviation whose name is a clause-opening token",
+      "What did Mr. Show report about Alpha?",
+      "mr show",
+    ],
+    // The head condition did not reach this one: `What is the definition of Samsung Electronics
+    // Co` genuinely does read alone, as a definition request for the shorter name, so both halves
+    // of the bilateral rule held and the name was still split. Script change was never clause
+    // evidence -- a Korean CLAUSE is -- and the grammar could already tell them apart.
+    [
+      "mixed-script issuer name as the subject of a definition",
+      "What is the definition of Samsung Electronics Co. 삼성전자?",
+      "samsung electronics co 삼성전자",
+    ],
+  ])("still authorizes %s", (_label, query, expected) => {
+    const a = authorize(query);
+    expect(a.status, query).toBe("AUTHORIZED");
+    const served = a.status === "AUTHORIZED" ? `${a.subjectRegion} ${a.sourceRegion ?? ""}` : "";
+    expect(served, query).toContain(expected);
   });
 });

@@ -351,6 +351,55 @@ function normalize(text: string): string {
  * cannot be finished, and an allowlist of function words can. Anything outside it is content this
  * grammar has not read, and unread content refuses the request rather than being ignored.
  */
+/**
+ * The subset of framing that can stand CLAUSE-INITIALLY in an English question or instruction.
+ *
+ * A grammatical partition of a class this module already trusts, not new vocabulary. Membership
+ * answers exactly one question: could this word begin a fresh clause? That is what makes it
+ * evidence that a candidate boundary really ended a sentence.
+ *
+ * The exclusions are the whole point, and each was forced by a measured counterexample rather than
+ * chosen for tidiness. Prepositions and determiners (`of`, `for`, `in`, `to`, `s`) continue a noun
+ * phrase -- `the U.S. Bureau of Labor Statistics` is one source, and treating `of` as evidence of a
+ * new clause refuses it. The measure nouns (`value`, `level`, `reading`, `figure`, `number`, `rate`,
+ * `print`) are name TAILS -- `Acme Inc. rate`, `No. 10 index level` -- and only collide here at all
+ * because abbreviation-bearing names carry internal terminator punctuation. Non-finite `be`, `been`,
+ * `being` cannot open a clause; object pronouns `me`, `us` and quantifiers `much`, `many` cannot
+ * either.
+ *
+ * Scanning ALL of `FRAMING_TOKENS` instead was tried and refuted in both directions: it refuses the
+ * institutional names above, and it misses a Hangul tail entirely, which carries no English token.
+ */
+const CLAUSE_OPENING_TOKENS = new Set([
+  "what",
+  "which",
+  "how",
+  "is",
+  "are",
+  "was",
+  "were",
+  "did",
+  "do",
+  "does",
+  "has",
+  "have",
+  "had",
+  "will",
+  "would",
+  "can",
+  "could",
+  "may",
+  "might",
+  "must",
+  "there",
+  "please",
+  "tell",
+  "show",
+  "give",
+  "explain",
+  "describe",
+]);
+
 const FRAMING_TOKENS = new Set([
   "what",
   "which",
@@ -1380,20 +1429,96 @@ function recogniseOperation(query: string): RequestAuthority {
     };
   }
 
+  // Which candidate boundaries are CONFIRMED as clause boundaries by what follows them.
+  //
+  // Cover competition alone does not stop a swallowing reading. It refuses one only by producing a
+  // rival tiling, and a rival needs the swallowed tail to authorize ALONE. When the tail is not a
+  // complete request -- `What about the Gamma level?`, `현재 기준금리는 얼마인가요?`, `What did they
+  // say about Gamma?` -- no rival exists, the joined run is the sole interpretation, and it
+  // authorized with the second question buried in an open-class region where no residue check can
+  // see it. Reproduced, including a redirect that served `source "should i buy stock what did
+  // reuters"` -- the directive itself inside published source text.
+  //
+  // At the cover level the bad case and the good one are the SAME OBJECT: fragment 0 reads,
+  // fragment 1 does not, the join reads. That is true of `Yahoo! Finance` as much as of R1, so no
+  // arithmetic over covers can separate them. The evidence is in the tail's TEXT.
+  //
+  // The tested class is deliberately narrow, and a wider one was tried and refuted by measurement:
+  // scanning the tail for ANY framing token kills `What did the U.S. Bureau of Labor Statistics
+  // publish about nonfarm payrolls?` (`of` is framing) and misses the Korean case entirely (no
+  // English tokens at all). Only tokens that can stand CLAUSE-INITIALLY confirm a boundary, plus
+  // Hangul, plus a determiner in the boundary-adjacent position -- a determiner there opens a noun
+  // phrase rather than continuing one.
+  //
+  // Fragments, not regions, because fragment offsets are RAW-query coordinates while regions are
+  // slices of NORMALIZED text; `normalize` changes character counts, so "does this region cross
+  // that boundary" would need an offset map between two coordinate systems that does not exist. A
+  // region can only cross a boundary if its run does, so the run-level statement is equivalent and
+  // needs no mapping -- and it covers all four recognizers and all four open-class roles at once.
+  const confirmedBoundary = fragments.map((fragment, index) => {
+    if (index === 0) return false;
+    const text = query.slice(fragment.start, fragment.end);
+    // Hangul used to confirm unconditionally, and that refused an ordinary Korean issuer name:
+    // `What is the definition of Samsung Electronics Co. 삼성전자?` split at the abbreviation
+    // because its tail happened to be in another script. Architect review graded that P1 -- the
+    // product's own market -- and the head condition below did not reach it, because the head
+    // `What is the definition of Samsung Electronics Co` genuinely does read alone.
+    //
+    // Script change is not clause evidence. A Korean CLAUSE is, and this grammar can already tell
+    // the difference without any new vocabulary: `analyseCopularInterrogative` is the same
+    // predicate analyser the Korean recognizer uses. `현재 기준금리는 얼마인가요?` carries a
+    // predicate; `삼성전자?` is a bare nominal and continues the name it follows.
+    if (containsHangul(text)) {
+      return eojeols(text).some((eojeol) => analyseCopularInterrogative(eojeol) !== null);
+    }
+    const tokens = normalizedTokens(normalize(text));
+    if (tokens.length > 0 && ["the", "a", "an"].includes(tokens[0])) return true;
+    return tokens.some((token) => CLAUSE_OPENING_TOKENS.has(token));
+  });
+
   const spanReadings: SpanReading[] = [];
   let koreanAmbiguous: string[] | null = null;
   let wholeSpanReadings: Recognised[] = [];
   for (let first = 0; first < fragments.length; first += 1) {
+    // Accumulated across the run, not tested per boundary: a clean third fragment must not launder
+    // a confirmed boundary sitting between the first two.
+    let crossesConfirmed = false;
+    // The run's HEAD, `[first .. last - 1]`, as the previous iteration read it. Evidence AFTER a
+    // candidate boundary is only half the question; the other half is whether anything ended.
+    //
+    // Measured, not supposed: the one-sided rule refused `What is the definition of Samsung
+    // Electronics Co. 삼성전자?` and `What did Samsung Electronics Co. 삼성전자 report about
+    // revenue?`. A Hangul tail confirms unconditionally, and `<English legal name> Co. <Hangul
+    // name>` is an ordinary way to write a Korean issuer -- the product's own market, refused.
+    // Architect review called that P1 rather than recorded debt. `Mr. Show` is the same shape in
+    // English and is P2.
+    //
+    // A period ends a sentence only if a sentence preceded it. `What is the definition of Samsung
+    // Electronics Co` is not a request; `What is the current Gamma` is. So the head must stand
+    // alone too -- and standing alone has to include a standalone PROHIBITED request, or the P1
+    // case loses its protection: `Should I buy stock` is refused by the outer screen and is not an
+    // informational reading of any span.
+    let headReads = false;
     for (let last = first; last < fragments.length; last += 1) {
+      if (last > first && confirmedBoundary[last] && headReads) crossesConfirmed = true;
       const span = query.slice(fragments[first].start, fragments[last].end);
       const { readings, koreanAmbiguous: ambiguous } = recogniseSpan(span);
+      // What this span will be as the NEXT iteration's head. `recogniseSpan` is cached on span
+      // text, so re-reading it costs no evaluation and leaves the n(n+1)/2 contract alone.
+      headReads = readings.length > 0 || detectPersonalizedAdviceRequest(span);
       if (first === 0 && last === fragments.length - 1) {
         wholeSpanReadings = readings;
         if (ambiguous) koreanAmbiguous = ambiguous;
       }
       // A span carrying more than one distinct reading is not a reading; it is a span that has to
       // be read some other way, or not at all.
-      if (readings.length === 1) spanReadings.push({ first, last, reading: readings[0] });
+      //
+      // A blocked run is still EVALUATED above and only withheld from the tiling. That keeps the
+      // whole-span two-reading diagnostics honest and keeps the span-evaluation count at exactly
+      // n(n+1)/2 -- "optimising" by skipping the call would break the count test, correctly.
+      if (readings.length === 1 && !crossesConfirmed) {
+        spanReadings.push({ first, last, reading: readings[0] });
+      }
     }
   }
 

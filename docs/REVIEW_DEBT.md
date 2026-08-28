@@ -425,3 +425,362 @@ verified PROHIBITED / informational=NONE on the production path. Mutation set no
 STILL OPEN: M-CON-14, and the mechanism/attribution swallowing defects above. Review has architected
 one repair for all three — union the recognition parsers, structured reading identity, one residue
 rule, delete the composite guard as TARGET_REMOVED — and that unit is next.
+
+## OPEN BLOCKER P1 — a non-authorizing tail is still swallowed (2026-08-27, 007e6c8)
+
+Found by a Claude Fable adversarial reviewer standing in for the gated Codex review, and reproduced
+independently before anything moved. NOT discharged by that review: Codex debt survives.
+
+    "What did Reuters publish about Alpha? What about the Gamma level?"
+      -> AUTHORIZED  subject " alpha what about the gamma level "   source "reuters"
+    "What did Reuters publish about Alpha? What did they say about Gamma?"
+      -> AUTHORIZED  source "reuters publish about alpha what did they"
+    "Explain how Alpha affects Beta. What about the Gamma level?"
+      -> AUTHORIZED  effectRegion " beta what about the gamma level "
+    "What is the current Gamma? 현재 기준금리는 얼마인가요?"
+      -> AUTHORIZED  subject " gamma 현재 기준금리는 얼마인가요 "
+    "Should I buy stock? What did Reuters publish about Alpha? What about the Gamma level?"
+      -> PROHIBITED, informational source "should i buy stock what did reuters"
+
+The last one puts the DIRECTIVE inside a served source region on the redirect path.
+
+ROOT CAUSE, and it is the unit's central claim being narrower than stated. 007e6c8 says a swallowing
+reading "loses by not being unique". That holds ONLY when the swallowed material authorizes ALONE --
+then a second cover exists and neither is unique. When the tail does not authorize alone, no
+competing cover exists, the swallowing reading is unique, and unique authorizes.
+
+WHY THE SUITE MISSED IT, which is the part worth keeping. Every swallowing regression test in the
+tree picks a tail that authorizes alone (`What is the current Gamma?`, a 2-eojeol Korean question).
+That is precisely the precondition for the defense to work. The tests exercise the half of the space
+where the mechanism cannot fail. `"What is the current CPI? 기준금리는 얼마인가요?"` passes only
+because its Korean tail is 2-eojeol; the 3-eojeol variant above is the counterexample the suite
+never poses.
+
+REPAIR IS NOT OBVIOUS AND IS NOT BEING IMPROVISED. The reviewer's proposal -- an open-class region
+crossing a candidate boundary is admissible only if the material after the boundary carries no
+FRAMING_TOKENS -- kills all five reproductions and preserves `Yahoo! Finance` / `Acme Inc. revenue`.
+But FRAMING_TOKENS contains `level`, `rate`, `figure`, which are legitimate TAIL tokens of stored
+names, so the rule as stated may refuse real subjects. That edge needs an architecture decision, and
+the architect (Codex TERRA) is gated.
+
+ALSO FOUND, P2, PRE-EXISTING at bc9c6b5: `SOURCE_DISQUALIFIERS` omits first and second person, so
+`"What did I publish about Alpha?"` authorizes with source `"i"` (likewise `we`, `you`). Fails safe
+downstream -- source `"i"` resolves to nothing -- but it contradicts the module's own pronoun
+principle. Reproduced. Should ride along with the rework rather than being fixed separately.
+
+STATUS 2026-08-28: **the P1 is REPAIRED and all five reproductions are pinned as tests.** The
+confirmed-clause-boundary rule closes it; see "Architect review of the P1 repair (Terra)" below for
+the design, the two rules that were tried and refuted by measurement first, and the two
+over-refusals the repair itself introduced and then had to close.
+
+The reviewer's FRAMING_TOKENS proposal was NOT adopted, and the concern recorded above about
+`level`/`rate`/`figure` was right: running it refused `the U.S. Bureau of Labor Statistics` (`of` is
+framing) and missed the Korean case entirely, since a Hangul tail carries no English token. What
+shipped instead is narrower and two-sided -- only tokens that can stand CLAUSE-INITIALLY confirm a
+boundary, plus a boundary-adjacent determiner, plus a Korean CLAUSE (not merely Hangul), and the
+run's HEAD must itself be a complete request.
+
+Nine mutants, 9 of 9 ISOLATED, one per separable clause of the rule. The `Should I buy stock?`
+reproduction is pinned at both levels: on the authority object, and on the publication path where a
+redirect could actually show it.
+
+The P2 pronoun finding below is NOT closed by this and does not ride along after all -- it is
+`SOURCE_DISQUALIFIERS`, a different mechanism in a different function, and bundling it would have
+put an unreviewed change into a P1 commit.
+
+
+## Dispositions recorded 2026-08-27 (007e6c8 review round)
+
+CHATGPT_EXACT_TREE_REVIEW = APPROVE for 007e6c8.
+FABLE_EXACT_TREE_REVIEW   = REWORK_REQUIRED for 007e6c8, one reproduced P1 (see the OPEN BLOCKER
+                            above). The two independent reviews DISAGREE, and the disagreement is
+                            settled by reproduction rather than by seniority: the five inputs were
+                            re-run here and they authorize with an unread second question inside a
+                            served region. An APPROVE does not survive a counterexample.
+CODEX_DEFERRED_REVIEW_DEBT = YES. Neither of the above is a Codex verdict. Historical anchor for
+                            recovery: 007e6c827064dab6b1b5e05041852d5cb7503f74.
+
+**ASSURANCE_WORDING_P2, non-blocking, and it corrects a claim I made.** The span-evaluation commit
+says "every interval evaluated exactly once, none twice, none skipped". Too strong. The cache keys
+on exact span TEXT, so two intervals carrying identical text share one entry -- measured, `A? A? A?`
+costs 3 evaluations, not 6. The honest statement is:
+
+    each DISTINCT span text is evaluated at most once per top-level request
+    evaluations <= n(n+1)/2
+    equality holds only when all interval texts are distinct
+
+Safe, because recognition is a pure function of span text. Production behaviour is NOT changed to
+rescue the old wording; the wording is changed to match the production behaviour.
+
+**KOREAN_CONSTITUENT_CAPABILITY = ACCEPTED_SAFE_CAPABILITY** for this bounded unit. Outer PROHIBITED
+authority stays absolute, no morphology or vocabulary was widened, and the behaviour comes only from
+the existing complete Korean grammar becoming visible to the generic constituent engine. No further
+Korean expansion in this unit.
+
+**COORDINATOR_GUARDS = KEEP.** Generated evidence shows the multiplicity rule and the
+unread/coordinator rules produce DIFFERENT refusal classifications on the same inputs, so they are
+not duplicates. No cleanup here.
+
+**REPEATED_IDENTICAL_RULE_OWNER = SPAN_AMBIGUITY, accepted.** The outcome is pinned and correct; the
+owning layer is not refactored for tidiness.
+
+**M-CON-14 = TARGET_REMOVED, replacement DISTRIBUTED_CURRENTLY_OVERLAPPING.** Historical killer kept
+as regression evidence. No synthetic single replacement mutant manufactured. Revisit only if a later
+change removes one of the rejecting authorities.
+
+**COVER_ENUMERATION_COST = OPTIONAL_FUTURE_DEBT, not a blocker.** Bounded by
+MAX_CANDIDATE_FRAGMENTS = 12. Possible later optimisation: stop enumerating after the second
+distinct complete interpretation, since the authority only needs 0 / 1 / >1. This unit is not
+reopened for it.
+
+## Assurance-harness review round (Luna, 2026-08-27/28) — three defects, one vacuous control
+
+Reviewer: `gpt-5.6-luna`, READ-ONLY, exact tree at commit `5818ee2`. Verdict **REWORK_REQUIRED**.
+Every finding was REPRODUCED before being touched; repair is commit `71511a1`.
+
+| # | Finding | Reproduction | Disposition |
+| - | ------- | ------------ | ----------- |
+| 1 | `startup_recovery()` ran BEFORE the lock. A second harness could read a live run's incomplete manifest, restore its active mutant, delete the manifest, and only then fail to acquire the lock — leaving the first harness measuring a tree that had been put back underneath it | instrumented call order: recovery at offset 215, lock at 1510 | **REPAIRED.** `acquire_lock(token)` is now the first statement of `harness()`; the body moved into `_run_locked()` so recovery, snapshot and the mutation transaction are all inside the lock. Re-measured: lock precedes recovery |
+| 6 | Dead-owner reclaim was TOCTOU-racy: two processes could each read the same dead pid and each conclude the lock was theirs, after which either `release_lock()` would delete the other's | read of the pid-only lock format, no atomic claim step | **REPAIRED.** Locks carry a unique token (`pid-time_ns`); reclaim writes a staging file and `os.replace()`s it, then reads the lock back and proceeds only if it still holds our own token; `release_lock(token)` removes the file only while it contains that token |
+| — | Control G was weakly discriminating: its holder took the lock and nothing else, so a second harness had no manifest to wrongly recover — G could not have caught finding 1 | inspection, confirmed by construction | **STRENGTHENED.** The holder now writes an incomplete manifest AND an active mutant. G0 asserts the holder is genuinely mid-mutation; G2/G3 assert the live run's bytes and manifest survive untouched |
+| — | Control D was weakly discriminating: it never fed a stale verdict into any aggregation path | the filter it nominally covered (`foreign = [v for v in verdicts if v["run_id"] != run_id]`) reads a local list appended to in exactly one place with a literal `run_id` — no value could fail it | **CHECK DELETED, CONTROL REBUILT.** The vacuous filter was removed rather than tested. Aggregation does not happen in-process; it happens when a log is read afterwards, which is how the 59-minute stall nearly passed for a measurement. Verdict lines now carry their run id; `verify_report()` admits a verdict only when its run also emitted `RUN_COMPLETED`; D drives two REAL harness logs through it — one complete, one killed after a verdict had already printed |
+
+D's own non-vacuity is now asserted in both directions, because a control that cannot fail is the
+thing this round was about. **D3** proves the interrupted log actually contains a verdict line to be
+tempted by (without it every later assertion would pass for the wrong reason), and **D8** proves the
+exclusion is CAUSED by the missing `RUN_COMPLETED` — append that one line and the same verdict is
+admitted — rather than by the parser failing to see the line at all.
+
+Self-test: **40/40 controls pass** (A 4, B 5, C 6, D 10, E 3, F 7, G 5). Status **VERIFIED** for the
+modelled failures only. Explicitly NOT claimed: `POWER_LOSS_SAFE`, `FILESYSTEM_CRASH_SAFE`,
+`ARBITRARY_CONCURRENT_WRITER_SAFE`. What was tested is a hung child, a parent killed via `os._exit`
+between mutant write and restore, a third-party edit during recovery, and a second harness started
+against a live one in the same worktree.
+
+Luna re-review of `71511a1` is **PENDING** (prompt staged; the review must read a stable tree, so it
+runs between mutation runs, never during one).
+
+### Boundary mutants (2026-08-28, run `ea637b364ad1`, harness self-certified first)
+
+Baseline green: binding 106 tests / 2 files, unrelated 49 / 2. Denominators pinned. **5 of 6
+ISOLATED.**
+
+| Mutant | Verdict |
+| ------ | ------- |
+| B-M1 Hangul no longer confirms a boundary | ISOLATED |
+| B-M2 clause-opening tokens no longer confirm | ISOLATED (5 tests) |
+| B-M3 only the FIRST token is scanned, not the whole fragment | **MISSED** |
+| B-M4 a boundary-adjacent determiner no longer confirms | ISOLATED |
+| B-M5 confirmation stops accumulating, so a clean later fragment launders it | ISOLATED |
+| B-M6 blocked runs skipped rather than withheld (cost invariant only) | ISOLATED (3 tests) |
+
+B-M6 mattered: it is behaviourally identical to the original, so only the span-evaluation COUNT test
+could see it, and that test did.
+
+B-M3's disposition is decided by measurement, not by argument — `scripts/mutation/differential.py`
+runs a generated corpus through both rules under the same write/restore transaction and reports
+every discriminating request. See the entry below.
+
+### B-M3 — RESOLVED as REPRODUCED, by a generated differential (2026-08-28)
+
+B-M3 replaces `tokens.some((token) => CLAUSE_OPENING_TOKENS.has(token))` with a scan of the FIRST
+token only. It survived all 106 binding tests, and the reason is visible once the existing cases are
+read as a set: every swallowed tail they carry either opens with a determiner (caught by the
+determiner rule) or already has its clause-opening word in first position (caught by the mutant
+too). No test carried a tail whose clause opener sits behind a **preposition**.
+
+A survivor means the tests do not separate two rules. It does not mean the rules agree, and hand
+analysis of exactly this question has been wrong in both directions in this unit, so it was measured
+rather than argued. `scripts/mutation/differential.py` (case `bm3`) applies the mutant under the same
+lock/before-image/verified-restore transaction as the harness and runs
+`scripts/diff-clause-token-scan.ts` — 42,840 generated requests — against both versions:
+
+| | |
+| - | - |
+| corpus | 42,840 requests |
+| differing | 2,532 |
+| current REFUSES / mutant AUTHORIZES | **1,204** |
+| current AUTHORIZES / mutant refuses | **0** |
+| PROHIBITED payloads differing | 0 |
+
+The 1,204 are the P1 itself. `What did Reuters publish about Alpha. In 2024 what was the CPI?`
+authorizes under the mutant with subject region ` alpha in 2024 what was the cpi ` and source
+`reuters` — the second question buried in an open-class region, which is the exact defect the repair
+exists to close. Scanning all tokens is load-bearing.
+
+Three discriminators were added to `tests/requestAuthority.test.ts` (preposition, prepositional
+phrase, fronted adjunct) plus one that asserts the swallowed text does not reach a served region.
+Re-measured: **B-M3 ISOLATED**, 4 tests fail under it, baseline 110 binding / 49 unrelated.
+
+**Superseded by the re-run below.** The set grew to eight when the head condition was added, and
+the measured result is 8 of 8 ISOLATED (run `a0a9195efcd2`, baseline 112 binding / 49 unrelated).
+The 5/6 figure above is the state before the B-M3 discriminators existed.
+
+### A regression that was not one — recorded because it was nearly written down as one
+
+The corpus contained no NAME whose tail carries a clause-opening verb, so its "0 over-refusals" was
+a statement about the corpus. A direct probe (`scripts/probe-name-tail-openers.ts`) found three
+ordinary questions being refused:
+
+    UNSUPPORTED  What did Bloomberg L.P. show about Alpha?
+    UNSUPPORTED  What did Acme Inc. tell investors about revenue?
+    UNSUPPORTED  What did Alpha Corp. give as guidance?
+    AUTHORIZED   What did Bloomberg L.P. publish about Alpha?
+    AUTHORIZED   What did Acme Inc. report about revenue?
+
+`show`/`tell`/`give` are in `CLAUSE_OPENING_TOKENS`; `publish`/`report` are not. The obvious reading
+is that the repair splits the name at its internal period, and this was one edit away from being
+filed as a regression the repair introduced.
+
+It measures false. Two further differential cases — `nametail` (the clause-opening rule disabled
+outright) and `prerepair` (the repair disabled at its single point of effect, blocked runs admitted
+to the tiling again) — leave all three **still UNSUPPORTED**. The refusal is upstream of the boundary
+rule and predates the repair: `show`, `tell` and `give` are not read as attribution verbs at all.
+
+Over that probe the repair changes exactly three outputs. One is the P1 fix. The other two are
+strings invented to force a clause-opening auxiliary into a name tail (`Acme Inc. will-they-report
+status`, `Acme Inc. has-reported figure`) and are not English anyone would type — which is not the
+same as proof that no natural instance exists, and is why the question was put to the architect
+rather than closed here.
+
+Open, as its own finding and NOT part of this repair: whether the attribution verb set being closed
+to `publish`/`report` while refusing `show`/`tell`/`give` is a defect. Not fixed here; recorded so it
+is not rediscovered as a boundary bug.
+
+### Architect review of the P1 repair (Terra, 2026-08-28) — APPROVE, then REFINE_IN_THIS_UNIT
+
+Reviewer: `gpt-5.6-terra`, READ-ONLY, exact worktree including the uncommitted P1 diff.
+
+**Round 1 — VERDICT: APPROVE.** No P1 architectural defect. Findings worth keeping:
+
+- **Q1** `CLAUSE_OPENING_TOKENS` is a lexical heuristic but not the prohibited kind of word list: it
+  classifies text after already-detected punctuation, and neither authorizes an operation nor
+  detects prohibited intent. A structural replacement needs POS analysis plus a name/abbreviation
+  model, which shifts the failure modes rather than removing them. **CONCERN, no P1 follows.**
+- **Q4** Monotone accumulation of `crossesConfirmed` is correct: a longer run contains every
+  boundary the shorter one did.
+- **Q5** The `n(n+1)/2` invariant should be **restated** as a diagnostic/completeness invariant
+  rather than a cost one. A future optimisation that skips blocked non-whole subspans is
+  behaviourally safe and currently fails only by instrumentation. **P2 design debt.**
+- **Q6** The predicate is a **tiling admissibility** rule, not a recognizer property. Its placement
+  inside `recogniseOperation` is acceptable while fragments and tiling are both local there; a
+  separate segmentation layer is warranted only once another consumer needs confirmed boundaries.
+- **Q8** `CLAUSE_OPENING_TOKENS` overlaps `FRAMING_TOKENS` without being derived from it, so future
+  edits can drift. **P2 debt**, mitigated by comments and discriminators, not enforced.
+- **Q10** `show`/`tell`/`give` being refused as attribution verbs while `publish`/`report` are
+  accepted is `REPORTING_ACTS` being a deliberately closed record-capability lexicon — a **product
+  capability question**, not a parser inconsistency and not caused by this repair.
+
+**Q7 and Q9 were returned UNDETERMINED with a named measurement.** Both were run, and both came
+back against the repair:
+
+| request | repaired | pre-repair |
+| ------- | -------- | ---------- |
+| `What is the definition of Mr. Show?` | UNSUPPORTED | AUTHORIZED, DEFINITION ` mr show ` |
+| `What did Mr. Show report about Alpha?` | UNSUPPORTED | AUTHORIZED, source `mr show` |
+| `What is the definition of Samsung Electronics Co. 삼성전자?` | UNSUPPORTED | AUTHORIZED, DEFINITION |
+| `What did Samsung Electronics Co. 삼성전자 report about revenue?` | UNSUPPORTED | AUTHORIZED, source `samsung electronics co 삼성전자` |
+
+"pre-repair" is `scripts/mutation/differential.py` case `prerepair`: the repair disabled at its one
+point of effect, under the same lock / before-image / verified-restore transaction. So these are
+regressions the repair introduced, measured rather than reasoned.
+
+**Round 2 — DECISION: REFINE_IN_THIS_UNIT.** Terra withdrew the unqualified APPROVE: `Mr. Show` is
+P2, but the mixed-script issuer form is **P1**, because `<English legal name> Co. <Hangul name>` is
+an ordinary way to write a Korean issuer and this is a product with Korean coverage. Fail-closed,
+but a core-query regression rather than acceptable release debt.
+
+### The bilateral rule
+
+A candidate boundary is confirmed only when the text AFTER it shows clause-opening evidence **and**
+the run's HEAD is itself a complete request. A period ends a sentence only if a sentence preceded
+it: `What is the definition of Samsung Electronics Co` is not a request, `What is the current
+Gamma` is.
+
+Placed in the run loop rather than in `confirmedBoundary`, as Terra directed: completeness depends
+on where the run STARTS, while `confirmedBoundary` is deliberately boundary-local. The head's
+readings are the previous iteration's, and `recogniseSpan` is cached on span text, so the rule adds
+no span evaluation and leaves the `n(n+1)/2` contract intact.
+
+"Complete" **includes a standalone prohibited request**, which Terra flagged before it could become
+a defect: `Should I buy stock` is refused by the outer screen and is not an informational reading of
+any span, so a readings-only test would have unblocked the P1 case itself. Mutant B-M8 exists for
+exactly that half.
+
+**Measured after the refinement.** Two of the four regressions are repaired, two are not:
+
+    What did Samsung Electronics Co. 삼성전자 report about revenue?   AUTHORIZED   (was refused)
+    What did Mr. Show report about Alpha?                            AUTHORIZED   (was refused)
+    What is the definition of Samsung Electronics Co. 삼성전자?       UNSUPPORTED  (unchanged)
+    What is the definition of Mr. Show?                              UNSUPPORTED  (unchanged)
+
+The two that remain share a shape the bilateral rule cannot separate: the head reads alone
+(`What is the definition of Samsung Electronics Co` is a valid DEFINITION request for the subject
+`samsung electronics co`) AND the tail confirms, yet the two halves are one name. The attribution
+form — the one Terra called P1 — is fixed; the DEFINITION form is not. Referred back rather than
+patched on my own judgement.
+
+All 112 binding tests pass, including the seven pinned refusals and the redirect P1 control. Two
+discriminators were added for the newly authorized forms, and two mutants (B-M7, B-M8) for the two
+halves of the head condition.
+
+### Round 3 — DECISION: REFINE_FURTHER, and the residual is closed by the grammar already present
+
+Terra graded the residual DEFINITION-form refusal **P1**, not P2: the subject-versus-source role of
+the name does not make refusing a valid issuer-name request acceptable, and DEFINITION is a
+supported deterministic operation. It also rejected both separators I had offered, with reasons
+worth keeping because each would have re-opened the P1:
+
+- **(i) prefer the longer reading when no complete tiling exists** — the swallowed-tail cases
+  deliberately have no alternate tiling, because the tail does not authorize alone. Preferring the
+  joined reading on tiling failure re-admits the buried question exactly.
+- **(ii) require the tail to read alone too** — the pinned swallowed tails were *chosen* because
+  they do not read alone (`What about the Gamma level?`, `현재 기준금리는 얼마인가요?`, `What did
+  they say about Gamma?`). Making the rule symmetric would unblock every one of them. Terra
+  confirmed the reading I had asked it to refute rather than letting a measurement be spent on it.
+
+Terra prescribed no third rule and said so — "no third discriminator has been evidenced, so I will
+not prescribe one" — and asked that any proposal be measured against both the residual names and
+the pinned unreadable-tail controls, with isolated mutants per conjunct.
+
+**The signal was already in the codebase.** `containsHangul` confirming a boundary unconditionally
+was the defect: script change is not clause evidence, and a Korean CLAUSE is. `analyseCopularInterrogative`
+— the same predicate analyser the Korean recognizer uses, from `koreanMorphology.ts` — separates
+them with no new vocabulary:
+
+    현재 기준금리는 얼마인가요?     carries a predicate   -> a clause, confirms the boundary
+    삼성전자?                        bare nominal          -> continues the name it follows
+
+Measured after the change:
+
+    What is the definition of Samsung Electronics Co. 삼성전자?   AUTHORIZED, DEFINITION,
+                                                                 subject " samsung electronics co 삼성전자 "
+    What did Samsung Electronics Co. 삼성전자 report about revenue?  AUTHORIZED
+    What is the current Gamma? 현재 기준금리는 얼마인가요?           still refused (the pinned swallow)
+
+`What is the definition of Mr. Show?` remains UNSUPPORTED. That is the English DEFINITION form,
+graded **P2** by the same review, and it is recorded here rather than repaired: the head reads, the
+tail confirms, and no evidenced signal separates a one-token name from a one-token clause. The
+attribution form (`What did Mr. Show report about Alpha?`) authorizes.
+
+**Nine boundary mutants, 9 of 9 ISOLATED** (run `155cb1fdc2a8`, baseline 113 binding / 49
+unrelated), including one per conjunct of the Hangul rule as Terra required: B-M1 removes the
+Korean confirmation entirely, B-M9 restores the unconditional version.
+
+### Assurance-harness lock, second review round (Luna, 2026-08-28) — VERDICT: APPROVE
+
+Luna's remaining Q2 defect from the first round is closed. Its accepted coverage concerns, and what
+was done with each:
+
+| Concern | Response |
+| ------- | -------- |
+| H4's twelve rounds detect ~93% of a 6/30 mode and ~72% of a 3/30 mode, but only **~18%** of the 1/60 stranding mode; ~137 rounds gives 90% | The arithmetic is now written into the control's own comment instead of being implied, and `--soak` runs 150 rounds. **Recorded evidence: 54/54 controls pass at 150 rounds**, plus 180 rounds from the standalone race harness |
+| H4 could not distinguish two winners (broken exclusion) from zero winners (stranding) | Split into **H4a** (no round produced TWO) and **H4b** (no round produced ZERO); the two failures mean opposite things |
+| H6 checks non-owner release sequentially, not against a concurrent release/replacement schedule | **NOT CLOSED.** Recorded as coverage debt. Luna classed it a concern, not a demonstrated wrong result |
+| A reclaimer that dies holding the claim leaves a permanent fail-closed lock | Intended and documented, with a diagnostic naming the directory. Luna confirmed the scoping is correct |
+
+Luna verified explicitly that nothing in the reviewed files claims `POWER_LOSS_SAFE`,
+`FILESYSTEM_CRASH_SAFE`, or `ARBITRARY_CONCURRENT_WRITER_SAFE`. What is established is: a hung
+child, a parent killed between mutant write and restore, a third-party edit during recovery, a
+second harness against a live one, the lock startup window, four-way dead-owner reclaim, and
+non-owner release.

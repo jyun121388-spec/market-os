@@ -275,6 +275,51 @@ describeIfDb("a refused advice question returns the same factors as a neutral on
     expect(refused.seriesFactors).toEqual([]);
   });
 
+  it("serves the clean clause when a tail is swallowed, and never the directive itself", async () => {
+    const { askMarket } = await import("@/server/domain/askMarket");
+
+    // The publication half of the P1. The authority-level assertions live in
+    // `requestAuthority.test.ts`; this one follows the same request all the way to what a reader
+    // would be shown, because a clean authority object is only worth something if the serving path
+    // uses it. The defect it guards published under a source region that had absorbed the advice
+    // directive -- literally `source "should i buy stock what did reuters"`.
+    //
+    // What the contract actually is, and I asserted the wrong thing first: appending an
+    // unreadable tail must publish EXACTLY what the two-clause form publishes. The repair was
+    // never about suppressing the clean clause -- the authority-level control pins
+    // `subjectRegion` as containing `alpha` and NOT `gamma` for the same shape -- it was about the
+    // tail not being absorbed into the region that gets served. Asserting emptiness here would
+    // have contradicted that and locked in a different, wrong behaviour; the run said so.
+    //
+    // The middle clause is the one the control above proves DOES publish alone, so this comparison
+    // is against a known non-empty result rather than against two empties agreeing.
+    const informational = `What is the current ${CORP_NAME} revenue?`;
+    const publishes = await askMarket(`Should I buy stock? ${informational}`);
+    expect(publishes.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(publishes.companyFacts.length).toBeGreaterThan(0);
+
+    const swallowed = await askMarket(
+      `Should I buy stock? ${informational} What about the Gamma level?`,
+    );
+    expect(swallowed.status).toBe("PERSONALIZED_ADVICE_REDIRECTED");
+    expect(fingerprint(swallowed.companyFacts)).toEqual(fingerprint(publishes.companyFacts));
+    expect(swallowed.seriesFactors).toEqual(publishes.seriesFactors);
+
+    // No DERIVED field may quote the directive back, nor the clause the grammar could not read.
+    // Serialising everything rather than naming fields is deliberate -- naming them would only
+    // cover the ones I thought of, and the defect was a directive surfacing in a field nobody was
+    // looking at, `source "should i buy stock what did reuters"`.
+    //
+    // `query` is excluded, and only `query`. It is the request echoed back verbatim, so it
+    // necessarily contains the directive; the first version of this assertion caught that and it
+    // was the assertion that was wrong, not the output. Everything else here is something the
+    // system CHOSE to say.
+    const derived = { ...swallowed, query: undefined };
+    const published = JSON.stringify(derived).toLowerCase();
+    expect(published).not.toContain("should i buy");
+    expect(published).not.toContain("gamma");
+  });
+
   it("Verify agrees the rendered answer recommends nothing", async () => {
     const { askMarket } = await import("@/server/domain/askMarket");
     const { verificationInputFromAskMarket } = await import("@/server/verify/fromAskMarket");

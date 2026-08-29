@@ -114,7 +114,11 @@ describeIfDb("output authority (integration)", () => {
     });
 
     const source = await prisma.source.create({
-      data: { code: SOURCE_CODE, name: "Test Output Authority Source", tier: "TIER_S" },
+      // Named as the requests in this file name it. IR-107 B2-C binds an attributed observation to
+      // exactly one stored provider, so `What did analysts publish about ...?` asserts that this
+      // repository holds a provider called `analysts` -- which it now does, rather than the
+      // question being answered from whichever provider happened to hold the subject.
+      data: { code: SOURCE_CODE, name: "analysts", tier: "TIER_S" },
     });
 
     // Four observations a week apart, the newest today: median interval 7 days, 0 days elapsed,
@@ -1218,16 +1222,31 @@ describeIfDb("output authority (integration)", () => {
       // only inside them, so it never becomes explicit.
       const twice =
         "What did analysts publish about the Test Output freight index, and about the Test Output freight index last week?";
+      // THE LEGACY DOOR NOW REFUSES THIS, and the loss is named rather than absorbed. IR-107 B2-C
+      // requires an attributed observation to bind exactly one stored provider, and this door does
+      // not re-derive the source constituent from raw text -- writing a second source parser is the
+      // divergence the unit exists to close. It asks the one parser, and the parser cannot read this
+      // sentence as ATTRIBUTED, so there is no provider to bind and it fails closed.
+      //
+      // The subject-identity property the test is named for is unaffected and still asserted above:
+      // `relationSyntax`/subject authority still see one subject, not two.
       const envelope = await deriveLegacyCandidateEnvelope(twice);
-      expect(envelope.status).toBe("AUTHORIZED");
-      expect(envelope.subjects).toEqual(["Test Output freight index"]);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.seriesIds).toHaveLength(0);
     });
 
     it("KO — incidental containment resolves when the name stands free of particles", async () => {
       const longOnly = `증권사가 발표한 Test Output freight index 수치는 무엇입니까?`;
+      // Refused for the same reason as the English case above: the canonical parser does not read
+      // Korean attributed requests, so this door cannot establish which provider is meant. That is
+      // a measured recognition gap on the Korean side, not a safety refusal, and it is one of the
+      // cases the next canonical-recognition unit is for.
       const longEnvelope = await deriveLegacyCandidateEnvelope(longOnly);
-      expect(longEnvelope.status).toBe("AUTHORIZED");
-      expect(longEnvelope.subjects).toEqual(["Test Output freight index"]);
+      expect(longEnvelope.status).toBe("UNRESOLVED");
+      // No subjects either: the refusal happens at the SOURCE, before the subject is reported, so
+      // the envelope names nothing rather than naming the subject it would have served. The
+      // containment property this test is about is still exercised by the pair below.
+      expect(longEnvelope.subjects).toEqual([]);
     });
 
     it("KO — a Korean particle attached to the name means the subject does not resolve", async () => {

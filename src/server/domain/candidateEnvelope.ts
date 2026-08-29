@@ -36,7 +36,7 @@
  */
 
 import { prisma } from "@/server/db/client";
-import { resolveSourceIdentity, sourceRoleNamesAParty } from "./sourceAuthority";
+import { resolveSourceIdentity } from "./sourceAuthority";
 import { resolveRequestAuthority } from "./requestAuthority";
 import { mentionsEachOther } from "./askMarket";
 import {
@@ -186,15 +186,6 @@ export async function deriveCanonicalCandidateEnvelope(
           "The source role names a stored provider and then says more. A provider name occurring " +
             "inside a longer role is not authority to attribute a reading to that provider.",
         );
-      }
-      if (source.status === "UNRESOLVED" && !sourceRoleNamesAParty(request.sourceRegion ?? "")) {
-        // The request said somebody else reported it and named nobody. There is no attribution to
-        // get wrong, so the subject is looked for across providers exactly as before -- the row
-        // published carries its own provenance either way. Constraining here would not secure the
-        // operation, it would delete it: every frame-eligible attributed shape in this repository's
-        // corpus reads `What did analysts publish about X?`.
-        const anySeries = await prisma.series.findMany({ select: { id: true, name: true } });
-        return attributedSubject(query, request, anySeries, null);
       }
       if (source.status === "UNRESOLVED") {
         // FAIL CLOSED, and this is the throughput cost of the unit, named rather than discovered
@@ -447,20 +438,6 @@ export async function deriveLegacyCandidateEnvelope(query: string): Promise<Cand
         ? (parsed.sourceRegion ?? "")
         : "";
     const source = await resolveSourceIdentity(sourceRegion);
-    // Named nobody, so there is no attribution to get wrong. Same distinction the canonical door
-    // draws, and drawn with the same predicate rather than a second copy of the judgement: `What
-    // did analysts publish about X?` says somebody else reported it and names no party.
-    if (source.status === "UNRESOLVED" && !sourceRoleNamesAParty(sourceRegion)) {
-      return {
-        query: topic,
-        status: authority.status,
-        operation: authority.operation,
-        seriesIds: authority.factSeriesIds,
-        causalEdgeIds: authority.mechanismEdgeIds,
-        subjects: authority.subjects,
-        detail: authority.detail,
-      };
-    }
     if (source.status !== "RESOLVED") {
       return {
         query: topic,

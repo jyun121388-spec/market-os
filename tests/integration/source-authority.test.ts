@@ -234,24 +234,59 @@ describeIfDb("exact source authority", () => {
     });
   });
 
-  describe("the source role names no party at all", () => {
+  describe("a generic third-party term is not a provider", () => {
     beforeAll(async () => {
       await wipe();
-      await seed(X_CODE, X_NAME, [SUBJECT]);
+      await seed(Y_CODE, Y_NAME, [SUBJECT]);
     });
 
-    it("answers a generic third-party question across providers", async () => {
-      // THE OTHER HALF. `analysts` is the vocabulary that proves the third-party frame, not a
-      // party, so there is no attribution to get wrong and nothing to constrain. Requiring it to
-      // resolve to a stored provider removed 54 tests' worth of ordinary behaviour when tried.
+    it("refuses a generic term when no provider answers to it", async () => {
+      // WHAT TWO REVIEWS REFUTED, kept as a test so it cannot come back.
+      //
+      // The first version of this repair let a source role consisting only of generic third-party
+      // vocabulary proceed unbound, on the reasoning that `analysts` names no party and so cannot be
+      // substituted for. Both reviewers broke it, and both cases reproduced: a provider stored as
+      // `The Street` arrives as ` street ` once the parser consumes the article, and a provider
+      // genuinely named `Consensus` is indistinguishable from `consensus` as frame vocabulary after
+      // normalization. Vocabulary cannot tell "names nobody" from "names somebody this repository
+      // does not hold", because after normalization there is nothing left to tell them apart with.
+      //
+      // So an attributed request binds exactly one stored provider or it refuses. Here Yankeefeed
+      // holds the subject and no provider answers to `analysts`, and Yankeefeed's row must not be
+      // published as what `analysts` said.
       const result = await canonical(`What did analysts publish about ${SUBJECT}?`);
+      expect(result.providers, JSON.stringify(result)).toHaveLength(0);
+      expect(result.status).toBe("UNRESOLVED");
+    });
+
+    // NON-VACUITY for the refusal above lives in `output-authority.test.ts`, not here, and
+    // deliberately so. That suite stores a provider named `analysts` and ~50 of its tests depend on
+    // `What did analysts publish about ...?` resolving to it, which proves the positive case far
+    // better than a copy would. A copy also COLLIDES: two providers answering to `analysts` is
+    // genuinely AMBIGUOUS, so the duplicate passed or failed depending on which file had run first
+    // and whether its cleanup had completed. An order-dependent test is worse than no test.
+    it("resolves a provider whose stored name carries a leading article", async () => {
+      // The structural reviewer's case. The source slot consumes everything in front of the provider
+      // as framing, so `What did The Street publish about X?` arrives as ` street ` while the stored
+      // name keeps its article. Before the fix the name failed to match, the region fell through to
+      // a vocabulary check, and ANOTHER provider's series answered.
+      await wipe();
+      await seed(X_CODE, "The Street", [SUBJECT]);
+      await seed(Y_CODE, Y_NAME, [SUBJECT]);
+      const result = await canonical(`What did The Street publish about ${SUBJECT}?`);
       expect(result.status, JSON.stringify(result)).toBe("AUTHORIZED");
       expect(result.providers).toEqual([X_CODE]);
     });
 
-    it("treats a generic term with a determiner the same way", async () => {
-      const result = await canonical(`What did the analysts publish about ${SUBJECT}?`);
-      expect(result.status, JSON.stringify(result)).toBe("AUTHORIZED");
+    it("does not answer from another provider when the articled name holds nothing", async () => {
+      // The same shape with the named provider holding no such series: refuse, rather than reaching
+      // for the provider that does. This is the reviewer's exact reproduction.
+      await wipe();
+      await seed(X_CODE, "The Street", []);
+      await seed(Y_CODE, Y_NAME, [SUBJECT]);
+      const result = await canonical(`What did The Street publish about ${SUBJECT}?`);
+      expect(result.providers, JSON.stringify(result)).toHaveLength(0);
+      expect(result.status).toBe("UNRESOLVED");
     });
   });
 });

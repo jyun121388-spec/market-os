@@ -9,7 +9,7 @@ canonical envelope resolved ATTRIBUTED_REPORTED_OBSERVATION by subject identity 
 only provider Y publishing a subject, a request naming provider X came back AUTHORIZED carrying Y's
 series on both doors, and `answerWithInference` called the planner with it.
 
-Four mutants must turn RED. The fifth must NOT.
+Five mutants must turn RED. The sixth must NOT.
 
   M-SRCAUTH-ORDER is inverted on purpose: it reverses the order stored providers come back in, and
   the REQUIRED result is MISSED. Which provider answers must be decided by the request, never by
@@ -63,9 +63,28 @@ MUTATIONS = [
         "  const covering = hits.filter(\n"
         "    (src) =>\n"
         "      regionIsExactlyFramingAndIdentity(region, src.name, requestFramingIsRecognised) ||\n"
+        "      regionIsExactlyFramingAndIdentity(\n"
+        "        region,\n"
+        '        src.name.replace(/^\\s*(the|a|an)\\s+/i, ""),\n'
+        "        requestFramingIsRecognised,\n"
+        "      ) ||\n"
         "      regionIsExactlyFramingAndIdentity(region, src.code, requestFramingIsRecognised),\n"
         "  );",
         "  const covering = hits;",
+    ),
+    # M-SRCAUTH-ARTICLE -- the determiner-insensitive comparison goes, and with it a provider whose
+    # stored name carries a leading article. Structural review found the case this defends:
+    # `What did The Street publish about X?` reaches the resolver as ` street ` because the source
+    # slot consumes the article, so without this the name never matches, the request looks like it
+    # named nobody, and another provider's series answered it.
+    (
+        "M-SRCAUTH-ARTICLE a provider whose stored name carries an article stops matching",
+        SOURCE,
+        "  const withoutArticle = sources.map((src) => ({\n"
+        "    ...src,\n"
+        '    name: src.name.replace(/^\\s*(the|a|an)\\s+/i, ""),\n'
+        "  }));",
+        "  const withoutArticle = sources;",
     ),
     # M-SRCAUTH-FIRST -- two providers answering to one name are resolved by taking the first.
     # `Source.name` is free text and is not unique, so this is reachable with ordinary data.
@@ -101,6 +120,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 5. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 6. Not a substitute for the full set.")
 
 sys.exit(harness([ENVELOPE, SOURCE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

@@ -36,7 +36,6 @@
 import { prisma } from "@/server/db/client";
 import { explicitlyNamed, regionIsExactlyFramingAndIdentity } from "./subjectAuthority";
 import { requestFramingIsRecognised } from "./requestAuthority";
-import { isGenericThirdPartyReference } from "./requestFrame";
 
 /**
  * A named source resolved to a repository identity, or a refusal.
@@ -84,8 +83,27 @@ export async function resolveSourceIdentity(sourceRegion: string): Promise<Sourc
   // silently picking the longer provider, which is a false attribution with a confident tone.
   // Same deletion as the series path: the whole-name containment pre-filter decided nothing that
   // `explicitlyNamed` does not decide again, since a name with no occurrence has no occurrence.
-  const byName = explicitlyNamed(sources, (src) => src.name, region);
-  const hits = [...new Map([...byName, ...byCode].map((src) => [src.id, src])).values()];
+  // Determiner-insensitive, because the parser and the repository disagree about leading articles
+  // and a provider should not become unreachable over one. The source slot requires everything in
+  // front of the provider to be framing and CONSUMES it, so `What did The Street publish about X?`
+  // arrives here as ` street ` while the stored name is `The Street`. Structural review found that
+  // exact case: the name failed to match, the region fell through to a vocabulary check, and
+  // another provider's series answered a request that named this one.
+  //
+  // `The Street` and `Street` are the same organisation, the same way `The Fed` and `Fed` are. This
+  // strips a leading article from the STORED name only -- the region already lost its own to the
+  // parser -- so nothing else about identity is loosened.
+  const withoutArticle = sources.map((src) => ({
+    ...src,
+    name: src.name.replace(/^\s*(the|a|an)\s+/i, ""),
+  }));
+  const byName = explicitlyNamed(withoutArticle, (src) => src.name, region);
+  const survived = new Set(byName.map((src) => src.id));
+  const hits = [
+    ...new Map(
+      [...sources.filter((src) => survived.has(src.id)), ...byCode].map((src) => [src.id, src]),
+    ).values(),
+  ];
 
   // FULL-ROLE COVER on the source role. ESC-015 §8.
   //
@@ -106,6 +124,11 @@ export async function resolveSourceIdentity(sourceRegion: string): Promise<Sourc
   const covering = hits.filter(
     (src) =>
       regionIsExactlyFramingAndIdentity(region, src.name, requestFramingIsRecognised) ||
+      regionIsExactlyFramingAndIdentity(
+        region,
+        src.name.replace(/^\s*(the|a|an)\s+/i, ""),
+        requestFramingIsRecognised,
+      ) ||
       regionIsExactlyFramingAndIdentity(region, src.code, requestFramingIsRecognised),
   );
   if (covering.length === 1) {
@@ -120,18 +143,25 @@ export async function resolveSourceIdentity(sourceRegion: string): Promise<Sourc
 }
 
 /**
- * Did the source role name a PARTY at all, or only say that somebody else reported it?
+ * REMOVED: `sourceRoleNamesAParty`.
  *
- * The B2-C repair binds an attributed request to exactly one stored provider, and applied without
- * this distinction it removes the operation rather than securing it: every frame-eligible attributed
- * request in this repository's corpus reads `What did analysts publish about X?`, and `analysts` is
- * the vocabulary that PROVES the third-party frame, not a party. Requiring it to resolve to a stored
- * `Source` refused 54 tests' worth of ordinary behaviour.
+ * It asked whether a source role consisted only of generic third-party vocabulary, and let such a
+ * request proceed without binding a provider. Two independent read-only reviews refuted it, and
+ * both cases reproduce:
  *
- * Wrong-source substitution is publishing Y's record for a request that named X. A request naming
- * nobody cannot suffer it. What it must not do is name a provider this repository does not hold and
- * be answered from one it does — which is the other half, and stays refused.
+ *   `What did The Street publish about X?`  the parser consumes the article, the stored name keeps
+ *                                           it, resolution fails, and the leftover `street` reads as
+ *                                           generic. Another provider's series answered.
+ *   `What did Consensus publish about X?`   a provider named `Consensus` is textually identical to
+ *                                           `consensus` as frame vocabulary once normalized.
+ *
+ * The second is the general statement: vocabulary cannot distinguish "names nobody" from "names
+ * somebody this repository does not hold", because after normalization there is nothing left to
+ * distinguish them WITH. An exception that cannot be decided soundly is not an exception, so an
+ * attributed request now requires exactly one stored provider identity on every door, which is what
+ * the governing decision asked for. The throughput cost is real and is reported rather than
+ * absorbed.
+ *
+ * The determiner fix above is what keeps that cost down: it is why `The Street` resolves instead of
+ * being refused along with everything else.
  */
-export function sourceRoleNamesAParty(sourceRegion: string): boolean {
-  return sourceRegion.trim() !== "" && !isGenericThirdPartyReference(sourceRegion);
-}

@@ -30,6 +30,10 @@ describeIfDb("canonical candidate authority (integration)", () => {
   let resolveRequestAuthority: typeof import("@/server/domain/requestAuthority").resolveRequestAuthority;
   let asPlannerRequest: typeof import("@/server/domain/requestAuthority").asPlannerRequest;
 
+  // These requests name `PUBLISHER`, which this fixture stores as a `Source`, because IR-107
+  // B2-C binds an attributed observation to exactly one stored provider. They used to say
+  // `analysts`, and a generic term naming no stored provider now refuses -- the subject-identity
+  // semantics these tests are actually about are unchanged by which provider is named.
   const SUBJECT_A = "TEST Canonical Alpha Index";
   const SUBJECT_B = "TEST Canonical Beta Index";
   /** A Korean-named subject, to exercise the WHOLE_REGION identity mode through this path. */
@@ -143,9 +147,9 @@ describeIfDb("canonical candidate authority (integration)", () => {
     // Both subjects are stored and both are individually resolvable, so a failure here cannot be
     // "the other one was not found". The audit text names B; the carried parse names A.
     {
-      const request = canonicalFrom(`What did analysts publish about ${SUBJECT_A}?`);
+      const request = canonicalFrom(`What did ${PUBLISHER} publish about ${SUBJECT_A}?`);
       const envelope = await deriveCanonicalCandidateEnvelope(
-        `What did analysts publish about ${SUBJECT_B}?`,
+        `What did ${PUBLISHER} publish about ${SUBJECT_B}?`,
         request,
       );
       expect(envelope.status).toBe("AUTHORIZED");
@@ -170,7 +174,7 @@ describeIfDb("canonical candidate authority (integration)", () => {
     //
     // So this overrides ONE field of a real parse — the same shape as the mismatch probes above —
     // rather than hand-building an authority the parser cannot produce.
-    const base = canonicalFrom(`What did analysts publish about ${SUBJECT_A}?`);
+    const base = canonicalFrom(`What did ${PUBLISHER} publish about ${SUBJECT_A}?`);
     expect(base.subjectIdentity).toBe("OCCURRENCE");
 
     // Under OCCURRENCE a stored name found INSIDE a longer region resolves; under WHOLE_REGION it
@@ -251,7 +255,7 @@ describeIfDb("canonical candidate authority (integration)", () => {
   it("refuses rather than choosing when the canonical region names no stored subject", async () => {
     const request = canonicalFrom("What did analysts publish about TEST Canonical Nothing At All?");
     const envelope = await deriveCanonicalCandidateEnvelope(
-      `What did analysts publish about ${SUBJECT_A}?`,
+      `What did ${PUBLISHER} publish about ${SUBJECT_A}?`,
       request,
     );
     // UNRESOLVED because the AUTHORIZED region names nothing — not because the audit text was

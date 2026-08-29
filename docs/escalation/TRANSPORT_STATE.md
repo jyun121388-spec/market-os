@@ -140,3 +140,19 @@ read by hand, and it mattered: its point 5 required a discrimination that then e
 regression in the repair it was approving. A durable inbox would not have delivered it. ESC-014
 remains the staged question about which kinds may authorise, and this is a second instance of the
 same gap rather than a new one.
+
+## 2026-08-29 — `[CLAUDE_APPLIED][ASK-FRAMING-POSITIONAL-AUTHORITY-20260829]`
+
+Posted as comment 5459725571, bound to `9f2da0e83baf2c5366dbf241dcf450efc1ee034a`, screened clean
+(`screenPublicComment` returned 0 findings) and read back by id with the SHA and both review verdicts
+confirmed present in the stored body.
+
+A new escalation id, deliberately not the ESC-015 one. ESC-015 is `APPROVED_WITH_V1_LIMITATION` and
+reusing its id for unrelated work would make a closed decision look reopened.
+
+The packet reports two things that are not progress and are the reason it exists. `LEGACY_BYPASS` is
+measured as NOT removable — over the development corpus it carries 13 requests, all of them ones the
+canonical parser cannot READ rather than ones it refuses on safety grounds, so removing it today
+would close zero exposures and lose thirteen legitimate requests. And the framing repair does not
+reduce authority divergence at all: 7 of 42 before and after, measured by reverting the changed
+files under hash verification rather than by argument.

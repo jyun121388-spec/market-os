@@ -156,3 +156,19 @@ canonical parser cannot READ rather than ones it refuses on safety grounds, so r
 would close zero exposures and lose thirteen legitimate requests. And the framing repair does not
 reduce authority divergence at all: 7 of 42 before and after, measured by reverting the changed
 files under hash verification rather than by argument.
+
+## 2026-08-29 — `[CLAUDE_APPLIED][ASK-B2C-SOURCE-AUTHORITY-20260829]`
+
+Posted as comment 5460973484, bound to `0f727d7db74d58717d2f6c11f17915166b027c95`, screened clean
+and read back by id with the SHA and both review verdicts confirmed in the stored body.
+
+The unit took three review rounds and the packet records all of them, including the two verdicts
+against my own repairs. That is the useful part of the record: the first fix invented a
+generic-vocabulary exception the governing decision had not asked for, and the second fixed the
+resulting symptom by rewriting stored provider names, which aliased `Street` to `The Street` and was
+graded P1. Both reproduced before being repaired, and the second was only closed by moving the fix
+to where the information was actually lost.
+
+Two measurements of mine were wrong before any reviewer saw the work: a planner probe that printed
+`calls=0` while throwing, and a fixture that reported no defect because the door under test was
+never opened. Neither would have been caught by re-reading the code.

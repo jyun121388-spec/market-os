@@ -665,6 +665,9 @@ const REPORTING_ACTS = [
 ];
 
 /** Complement prepositions that introduce what a report was about. A closed functional class. */
+/** Kept with the source name when one directly precedes it -- see the source slot scan. */
+const DETERMINERS = new Set(["the", "a", "an"]);
+
 const REPORT_COMPLEMENTS = ["about", "on", "regarding", "for"];
 
 /**
@@ -753,7 +756,24 @@ function attributionMatch(normalized: string): Recognised | null {
       const sourceTokens = normalizedTokens(normalized.slice(0, actAt + 1));
       const opens = sourceTokens.findIndex((t) => !FRAMING_TOKENS.has(t));
       if (opens < 0) continue;
-      const source = sourceTokens.slice(opens);
+      // A determiner IMMEDIATELY before the name is kept, because it may be part of the name.
+      //
+      // `the` is framing, so the scan used to drop it and hand the identity layer ` street ` for
+      // both `What did The Street publish about X?` and `What did Street publish about X?`. Those
+      // are different requests and after this point nothing could tell them apart -- which was
+      // found the hard way: the repair for it stripped articles off STORED names instead, and that
+      // made `Street` resolve to a stored `The Street`, and `Post` resolve to `An Post` where the
+      // article is part of the name. Publication review called it a P1 and was right; the loss has
+      // to be prevented here rather than guessed at downstream.
+      //
+      // Keeping it costs nothing when the article is NOT part of the name: `What did the analysts
+      // publish about X?` yields ` the analysts `, and the source cover already tolerates recognised
+      // framing in front of the identity, so a provider stored as `analysts` still resolves. The
+      // tolerance runs one way only, which is the asymmetry that makes this safe -- an article the
+      // request supplied can be ignored against a name that lacks it, and an article the request
+      // never said cannot be invented against a name that has one.
+      const article = opens > 0 && DETERMINERS.has(sourceTokens[opens - 1]) ? opens - 1 : opens;
+      const source = sourceTokens.slice(article);
       // Internal function words belong to the name: "the Bank of Korea" is one source, and a rule
       // that stopped at "of" bound only "korea" and refused the rest as unread. What may NOT be
       // inside a source is a clause boundary or a second reporting act — that is not a long name,

@@ -83,27 +83,14 @@ export async function resolveSourceIdentity(sourceRegion: string): Promise<Sourc
   // silently picking the longer provider, which is a false attribution with a confident tone.
   // Same deletion as the series path: the whole-name containment pre-filter decided nothing that
   // `explicitlyNamed` does not decide again, since a name with no occurrence has no occurrence.
-  // Determiner-insensitive, because the parser and the repository disagree about leading articles
-  // and a provider should not become unreachable over one. The source slot requires everything in
-  // front of the provider to be framing and CONSUMES it, so `What did The Street publish about X?`
-  // arrives here as ` street ` while the stored name is `The Street`. Structural review found that
-  // exact case: the name failed to match, the region fell through to a vocabulary check, and
-  // another provider's series answered a request that named this one.
-  //
-  // `The Street` and `Street` are the same organisation, the same way `The Fed` and `Fed` are. This
-  // strips a leading article from the STORED name only -- the region already lost its own to the
-  // parser -- so nothing else about identity is loosened.
-  const withoutArticle = sources.map((src) => ({
-    ...src,
-    name: src.name.replace(/^\s*(the|a|an)\s+/i, ""),
-  }));
-  const byName = explicitlyNamed(withoutArticle, (src) => src.name, region);
-  const survived = new Set(byName.map((src) => src.id));
-  const hits = [
-    ...new Map(
-      [...sources.filter((src) => survived.has(src.id)), ...byCode].map((src) => [src.id, src]),
-    ).values(),
-  ];
+  // Stored names are compared AS STORED. An earlier version of this stripped a leading article off
+  // them so that a region the parser had already stripped would match, and publication review
+  // showed what that costs: `Street` resolved to a stored `The Street`, and `Post` to `An Post`
+  // where the article is part of the name. Reproduced. Treating two names as one identity needs
+  // repository-backed alias evidence, and there is none; the region keeps its own article now, so
+  // no rewriting is needed here.
+  const byName = explicitlyNamed(sources, (src) => src.name, region);
+  const hits = [...new Map([...byName, ...byCode].map((src) => [src.id, src])).values()];
 
   // FULL-ROLE COVER on the source role. ESC-015 §8.
   //
@@ -124,11 +111,6 @@ export async function resolveSourceIdentity(sourceRegion: string): Promise<Sourc
   const covering = hits.filter(
     (src) =>
       regionIsExactlyFramingAndIdentity(region, src.name, requestFramingIsRecognised) ||
-      regionIsExactlyFramingAndIdentity(
-        region,
-        src.name.replace(/^\s*(the|a|an)\s+/i, ""),
-        requestFramingIsRecognised,
-      ) ||
       regionIsExactlyFramingAndIdentity(region, src.code, requestFramingIsRecognised),
   );
   if (covering.length === 1) {

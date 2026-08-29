@@ -28,6 +28,7 @@ from harness import harness
 
 ENVELOPE = "src/server/domain/candidateEnvelope.ts"
 SOURCE = "src/server/domain/sourceAuthority.ts"
+REQUEST = "src/server/domain/requestAuthority.ts"
 
 BINDING_TESTS = [
     "tests/integration/source-authority.test.ts",
@@ -63,28 +64,24 @@ MUTATIONS = [
         "  const covering = hits.filter(\n"
         "    (src) =>\n"
         "      regionIsExactlyFramingAndIdentity(region, src.name, requestFramingIsRecognised) ||\n"
-        "      regionIsExactlyFramingAndIdentity(\n"
-        "        region,\n"
-        '        src.name.replace(/^\\s*(the|a|an)\\s+/i, ""),\n'
-        "        requestFramingIsRecognised,\n"
-        "      ) ||\n"
         "      regionIsExactlyFramingAndIdentity(region, src.code, requestFramingIsRecognised),\n"
         "  );",
         "  const covering = hits;",
     ),
-    # M-SRCAUTH-ARTICLE -- the determiner-insensitive comparison goes, and with it a provider whose
-    # stored name carries a leading article. Structural review found the case this defends:
-    # `What did The Street publish about X?` reaches the resolver as ` street ` because the source
-    # slot consumes the article, so without this the name never matches, the request looks like it
-    # named nobody, and another provider's series answered it.
+    # M-SRCAUTH-ARTICLE -- the PARSER goes back to dropping the article in front of a provider name.
+    #
+    # Two reviews and two reproductions produced this guard. Without it, `What did The Street publish
+    # about X?` and `What did Street publish about X?` both arrive as ` street `, so the identity
+    # layer cannot tell them apart whatever it does. The first repair tried to compensate downstream
+    # by stripping articles off STORED names, and that made `Street` resolve to a stored `The Street`
+    # and `Post` to `An Post` -- graded P1. The loss is prevented where it happens instead, which is
+    # why this mutant lives in the parser and not in the resolver.
     (
-        "M-SRCAUTH-ARTICLE a provider whose stored name carries an article stops matching",
-        SOURCE,
-        "  const withoutArticle = sources.map((src) => ({\n"
-        "    ...src,\n"
-        '    name: src.name.replace(/^\\s*(the|a|an)\\s+/i, ""),\n'
-        "  }));",
-        "  const withoutArticle = sources;",
+        "M-SRCAUTH-ARTICLE the parser drops the article in front of a provider name",
+        REQUEST,
+        "      const article = opens > 0 && DETERMINERS.has(sourceTokens[opens - 1]) ? opens - 1 : opens;\n"
+        "      const source = sourceTokens.slice(article);",
+        "      const source = sourceTokens.slice(opens);",
     ),
     # M-SRCAUTH-FIRST -- two providers answering to one name are resolved by taking the first.
     # `Source.name` is free text and is not unique, so this is reachable with ordinary data.
@@ -122,4 +119,4 @@ if SELECTED:
         sys.exit(3)
     print(f"PARTIAL RUN: {len(MUTATIONS)} of 6. Not a substitute for the full set.")
 
-sys.exit(harness([ENVELOPE, SOURCE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))
+sys.exit(harness([ENVELOPE, SOURCE, REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

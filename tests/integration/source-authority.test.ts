@@ -265,6 +265,40 @@ describeIfDb("exact source authority", () => {
     // better than a copy would. A copy also COLLIDES: two providers answering to `analysts` is
     // genuinely AMBIGUOUS, so the duplicate passed or failed depending on which file had run first
     // and whether its cleanup had completed. An order-dependent test is worse than no test.
+    it("does not resolve an articled provider from a request that omitted the article", async () => {
+      // PUBLICATION REVIEW, P1, and the repair it forced. The first fix for the articled-name case
+      // stripped the article off STORED names, which made `Street` and `The Street` one identity on
+      // no evidence at all -- so a request saying `Street` resolved to a stored `The Street`, and
+      // `Post` to `An Post`, where the article is part of the name. Both reproduced.
+      //
+      // The loss was upstream: the source slot treated `the` as framing and dropped it, so both
+      // requests reached the resolver as ` street ` and nothing downstream could tell them apart.
+      // The parser keeps the article now, and the tolerance runs ONE WAY -- an article the request
+      // supplied may be ignored against a name that lacks it; an article the request never said is
+      // never invented against a name that has one.
+      await wipe();
+      await seed(X_CODE, "The Street", [SUBJECT]);
+      const result = await canonical(`What did Street publish about ${SUBJECT}?`);
+      expect(result.providers, JSON.stringify(result)).toHaveLength(0);
+      expect(result.status).toBe("UNRESOLVED");
+    });
+
+    it("resolves a provider stored WITHOUT an article from a request that supplied one", async () => {
+      // The direction that must keep working, and the reason the whole corpus still passes: the
+      // request reaches the resolver with its article, and a provider stored without one is still
+      // covered because recognised framing may precede an identity.
+      //
+      // Deliberately NOT the bare word `analysts`, even though that is the shape the corpus uses.
+      // `output-authority.test.ts` stores a provider of exactly that name, two providers answering
+      // to it is genuinely AMBIGUOUS, and a test that passes or fails depending on which file ran
+      // first is worse than no test. This asserts the same property on a name only this file owns.
+      await wipe();
+      await seed(X_CODE, X_NAME, [SUBJECT]);
+      const result = await canonical(`What did the ${X_NAME} publish about ${SUBJECT}?`);
+      expect(result.status, JSON.stringify(result)).toBe("AUTHORIZED");
+      expect(result.providers).toEqual([X_CODE]);
+    });
+
     it("resolves a provider whose stored name carries a leading article", async () => {
       // The structural reviewer's case. The source slot consumes everything in front of the provider
       // as framing, so `What did The Street publish about X?` arrives as ` street ` while the stored

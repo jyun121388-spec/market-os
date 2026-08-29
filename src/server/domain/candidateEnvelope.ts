@@ -204,7 +204,39 @@ export async function deriveCanonicalCandidateEnvelope(
         where: { sourceId: source.sourceId },
         select: { id: true, name: true },
       });
-      return attributedSubject(query, request, owned, source.code);
+      const resolved = resolveStoredSubject(
+        request.subjectRegion,
+        request.subjectIdentity,
+        owned,
+        (series) => series.name,
+      );
+      if (resolved.length === 0) {
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          `No series published by ${source.code} is named by the authorized subject region ` +
+            `"${request.subjectRegion.trim()}". Another provider may publish it; that would be a ` +
+            "different question.",
+        );
+      }
+      if (resolved.length > 1) {
+        return refuse(
+          "AMBIGUOUS",
+          operation,
+          `The authorized subject region names ${resolved.length} materially distinct stored ` +
+            "subjects, and this operation answers about one.",
+          resolved.map((series) => series.name),
+        );
+      }
+      return {
+        query,
+        status: "AUTHORIZED",
+        operation,
+        seriesIds: [resolved[0].id],
+        causalEdgeIds: [],
+        subjects: [resolved[0].name],
+        detail: `Resolved to the stored series "${resolved[0].name}" from the canonical parse.`,
+      };
     }
 
     case "STORED_MECHANISM": {
@@ -320,74 +352,6 @@ export async function deriveCanonicalCandidateEnvelope(
       };
     }
   }
-}
-
-/**
- * The subject half of an attributed observation, over whichever series the source half allowed.
- *
- * One tail, two callers, because they differ in exactly one thing: whether the candidate series were
- * narrowed to a named provider first. Writing it twice would let the narrowed path and the generic
- * path drift on cardinality or on what counts as a match, which is the shape of divergence this
- * whole unit exists to close.
- *
- * `provider` is the resolved code, or null when the request named no party. It only changes what the
- * refusal SAYS -- "no series published by X is named by this region" is a different fact from "no
- * series is named by this region", and telling a reader the first when the second is true would
- * misdescribe the repository.
- */
-async function attributedSubject(
-  query: string,
-  request: CanonicalPlannerRequest,
-  candidates: { id: string; name: string }[],
-  provider: string | null,
-): Promise<CandidateEnvelope> {
-  const operation = "REPORTED_OBSERVATION" as const;
-  const refuse = (
-    status: SubjectAuthorityStatus,
-    detail: string,
-    subjects: readonly string[] = [],
-  ): CandidateEnvelope => ({
-    query,
-    status,
-    operation,
-    seriesIds: [],
-    causalEdgeIds: [],
-    subjects,
-    detail,
-  });
-  const resolved = resolveStoredSubject(
-    request.subjectRegion,
-    request.subjectIdentity,
-    candidates,
-    (series) => series.name,
-  );
-  if (resolved.length === 0) {
-    return refuse(
-      "UNRESOLVED",
-      provider === null
-        ? `No stored series is named by the authorized subject region "${request.subjectRegion.trim()}".`
-        : `No series published by ${provider} is named by the authorized subject region ` +
-            `"${request.subjectRegion.trim()}". Another provider may publish it; that would be a ` +
-            "different question.",
-    );
-  }
-  if (resolved.length > 1) {
-    return refuse(
-      "AMBIGUOUS",
-      `The authorized subject region names ${resolved.length} materially distinct stored ` +
-        "subjects, and this operation answers about one.",
-      resolved.map((series) => series.name),
-    );
-  }
-  return {
-    query,
-    status: "AUTHORIZED",
-    operation,
-    seriesIds: [resolved[0].id],
-    causalEdgeIds: [],
-    subjects: [resolved[0].name],
-    detail: `Resolved to the stored series "${resolved[0].name}" from the canonical parse.`,
-  };
 }
 
 export async function deriveLegacyCandidateEnvelope(query: string): Promise<CandidateEnvelope> {

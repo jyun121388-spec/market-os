@@ -1558,11 +1558,23 @@ describeIfDb("output authority (integration)", () => {
       const one = relationSyntax(`Explain how the impact of ${FREIGHT} on ${SHIPPING} works.`);
       expect(one.status).toBe("ONE");
 
+      // The envelope now REFUSES, and the change is a divergence closing rather than a capability
+      // going. The effect region here is ` shipping works `, and the trailing `works` is not the
+      // identity -- the `impact of … on` construction has no closing marker to cut it off. The
+      // deterministic and canonical doors have always refused that; this door checked only the
+      // CAUSE region, so it alone authorized, and a structural review of the framing-positionality
+      // repair found the gap.
+      //
+      // A head-anchored effect rule would have kept this sentence and was measured, then discarded:
+      // requiring only that the identity OPEN the region also admits
+      // `affects B then tell me what to buy`. Fail-closed on the three doors together beats a
+      // capability held by one of them alone.
       const envelope = await deriveLegacyCandidateEnvelope(
         `Explain how the impact of ${FREIGHT} on ${SHIPPING} works.`,
       );
-      expect(envelope.status).toBe("AUTHORIZED");
-      expect(envelope.causalEdgeIds).toEqual([explanationId]);
+      expect(envelope.status).toBe("UNRESOLVED");
+      expect(envelope.detail).toContain("recognised framing followed by the subject");
+      expect(envelope.causalEdgeIds).toHaveLength(0);
     });
 
     it("a negated construction shadows the affirmative one inside it", async () => {

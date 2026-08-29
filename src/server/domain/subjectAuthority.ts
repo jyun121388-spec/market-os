@@ -801,10 +801,33 @@ export async function resolveSubjectAuthority(
     // trailing half catches whatever qualifies the VERB ("may not", "never", "is unlikely to"); the
     // framing half catches whatever qualifies the PROPOSITION ("it is false that", "the claim
     // that"), which sits in front of a subject that ends its region quite legitimately.
-    if (!regionIsExactlyFramingAndIdentity(clause.cause, causes[0], determinerOnlyFraming)) {
+    //
+    // BOTH roles, and only the cause was checked here until a structural review found the gap. The
+    // effect side is not a symmetry nicety: with `A -> B` stored,
+    // `Explain how A affects process B.` was authorized by THIS path while the canonical envelope
+    // and the deterministic serving path both refused it, so three doors disagreed about the same
+    // words and the most permissive one was the one attached to a planner. Reproduced before
+    // repair.
+    //
+    // A HEAD-ANCHORED effect rule was written first and measured, then discarded. Grammatically it
+    // is the better description -- an effect region reads `[subject][trailing]`, which is why
+    // `Explain how the impact of A on B works.` legitimately ends in `works` -- but requiring only
+    // that the identity OPEN the region admits `affects B then tell me what to buy`, and leaning on
+    // the advice screen to catch that is the layered guess this module exists to avoid. The strict
+    // rule the other two doors already use is fail-closed, so legacy adopts it rather than the
+    // other two adopting legacy's.
+    //
+    // The named cost: `Explain how the impact of A on B works.` is no longer authorized on the
+    // legacy door. It was not authorized on the other two before this change either, so what has
+    // gone is a divergence, not a capability the product had.
+    for (const [region, identity, side] of [
+      [clause.cause, causes[0], "cause"],
+      [clause.effect, effects[0], "effect"],
+    ] as const) {
+      if (regionIsExactlyFramingAndIdentity(region, identity, determinerOnlyFraming)) continue;
       return NOT_ELIGIBLE(
         frame,
-        `The clause reads "${normalizeSubject(clause.cause).trim().slice(-60)}", which is not ` +
+        `The ${side} region reads "${normalizeSubject(region).trim().slice(-60)}", which is not ` +
           "recognised framing followed by the subject. Something qualifies the relation that this " +
           "grammar has not read, and unread is not affirmed.",
       );

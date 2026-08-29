@@ -155,6 +155,31 @@ describeIfDb("framing is a position, not a bag", () => {
     expect(await deterministicCause(`What process connects ${A} to ${B}?`)).toBe(A);
   });
 
+  it("refuses a kind noun in the EFFECT role, on all three doors", async () => {
+    // Found by structural review of this very repair and reproduced before fixing: only the CAUSE
+    // role was covered in the legacy mechanism authority, so with `A -> B` stored,
+    // `Explain how A affects process B.` was AUTHORIZED there while the canonical envelope and the
+    // deterministic path both refused it. Three doors disagreeing about the same words, and the
+    // most permissive of them is the one a planner is attached to.
+    const query = `Explain how ${A} affects process ${B}.`;
+    await seed(A);
+    const { deriveLegacyCandidateEnvelope } = await import("@/server/domain/candidateEnvelope");
+    expect(await deterministicCause(query)).toBeNull();
+    expect(await canonicalCause(query)).toBeNull();
+    expect((await deriveLegacyCandidateEnvelope(query)).causalEdgeIds).toHaveLength(0);
+  });
+
+  it("still publishes when neither role carries a kind noun", async () => {
+    // NON-VACUITY for the test above on all three doors at once: the agreement must be agreement to
+    // publish when the roles are clean, not three paths that refuse everything.
+    const plain = `Explain how ${A} affects ${B}.`;
+    await seed(A);
+    const { deriveLegacyCandidateEnvelope } = await import("@/server/domain/candidateEnvelope");
+    expect(await deterministicCause(plain)).toBe(A);
+    expect(await canonicalCause(plain)).toBe(A);
+    expect((await deriveLegacyCandidateEnvelope(plain)).causalEdgeIds.length).toBeGreaterThan(0);
+  });
+
   it.each([
     ["a modal", `Explain how ${A} may affect ${B}.`],
     ["a denial", `Explain how ${A} does not affect ${B}.`],

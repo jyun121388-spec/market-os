@@ -36,6 +36,8 @@
  */
 
 import { prisma } from "@/server/db/client";
+import { resolveSourceIdentity, sourceRoleNamesAParty } from "./sourceAuthority";
+import { resolveRequestAuthority } from "./requestAuthority";
 import { mentionsEachOther } from "./askMarket";
 import {
   determinerOnlyFraming,
@@ -153,38 +155,65 @@ export async function deriveCanonicalCandidateEnvelope(
       // raw query. Discovery narrowing is a performance stage and this path has no query to narrow
       // with; if the row count ever justifies one, it must be a repository-safe predicate over the
       // canonical region, never fuzzy matching over the request.
-      const allSeries = await prisma.series.findMany({ select: { id: true, name: true } });
-      const resolved = resolveStoredSubject(
-        request.subjectRegion,
-        request.subjectIdentity,
-        allSeries,
-        (series) => series.name,
-      );
-      if (resolved.length === 0) {
-        return refuse(
-          "UNRESOLVED",
-          operation,
-          `No stored series is named by the authorized subject region "${request.subjectRegion.trim()}".`,
-        );
-      }
-      if (resolved.length > 1) {
+      //
+      // SOURCE IDENTITY BEFORE SUBJECT. IR-107 B2-C, and the ordering is the repair.
+      //
+      // This branch resolved by subject alone and never read `request.sourceRegion`, which the
+      // planner request has carried all along. Measured against real PostgreSQL: with only provider
+      // Y publishing the subject, `What did <X> analysts publish about <subject>?` returned
+      // AUTHORIZED carrying Y's series, and `answerWithInference` then called the planner with it.
+      // The number was real, the subject was right, and the attribution was false.
+      //
+      // Attribution is therefore a candidate-authority dimension, not a label applied afterwards:
+      // the requested provider is resolved to exactly one stored `Source` FIRST, and the subject is
+      // then looked for only among that provider's series. A row belonging to anyone else cannot be
+      // reached, rather than being reached and then filtered.
+      const source = await resolveSourceIdentity(request.sourceRegion ?? "");
+      if (source.status === "AMBIGUOUS") {
         return refuse(
           "AMBIGUOUS",
           operation,
-          `The authorized subject region names ${resolved.length} materially distinct stored ` +
-            "subjects, and this operation answers about one.",
-          resolved.map((series) => series.name),
+          `The request names ${source.codes.length} stored providers ` +
+            `(${source.codes.join(", ")}), and an attributed observation reports what ONE of them ` +
+            "said. Choosing between them would invent the attribution.",
+          source.codes,
         );
       }
-      return {
-        query,
-        status: "AUTHORIZED",
-        operation,
-        seriesIds: [resolved[0].id],
-        causalEdgeIds: [],
-        subjects: [resolved[0].name],
-        detail: `Resolved to the stored series "${resolved[0].name}" from the canonical parse.`,
-      };
+      if (source.status === "RESIDUE") {
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          "The source role names a stored provider and then says more. A provider name occurring " +
+            "inside a longer role is not authority to attribute a reading to that provider.",
+        );
+      }
+      if (source.status === "UNRESOLVED" && !sourceRoleNamesAParty(request.sourceRegion ?? "")) {
+        // The request said somebody else reported it and named nobody. There is no attribution to
+        // get wrong, so the subject is looked for across providers exactly as before -- the row
+        // published carries its own provenance either way. Constraining here would not secure the
+        // operation, it would delete it: every frame-eligible attributed shape in this repository's
+        // corpus reads `What did analysts publish about X?`.
+        const anySeries = await prisma.series.findMany({ select: { id: true, name: true } });
+        return attributedSubject(query, request, anySeries, null);
+      }
+      if (source.status === "UNRESOLVED") {
+        // FAIL CLOSED, and this is the throughput cost of the unit, named rather than discovered
+        // later. `What did analysts publish about X?` names no stored provider, so there is no
+        // attribution to make and nothing may be published as though there were. Quantified in
+        // `scripts/legacy-bypass-readiness.ts` and the packet.
+        return refuse(
+          "UNRESOLVED",
+          operation,
+          `No stored provider is named by the authorized source region ` +
+            `"${(request.sourceRegion ?? "").trim()}", so there is no attribution this repository ` +
+            "can make.",
+        );
+      }
+      const owned = await prisma.series.findMany({
+        where: { sourceId: source.sourceId },
+        select: { id: true, name: true },
+      });
+      return attributedSubject(query, request, owned, source.code);
     }
 
     case "STORED_MECHANISM": {
@@ -302,6 +331,74 @@ export async function deriveCanonicalCandidateEnvelope(
   }
 }
 
+/**
+ * The subject half of an attributed observation, over whichever series the source half allowed.
+ *
+ * One tail, two callers, because they differ in exactly one thing: whether the candidate series were
+ * narrowed to a named provider first. Writing it twice would let the narrowed path and the generic
+ * path drift on cardinality or on what counts as a match, which is the shape of divergence this
+ * whole unit exists to close.
+ *
+ * `provider` is the resolved code, or null when the request named no party. It only changes what the
+ * refusal SAYS -- "no series published by X is named by this region" is a different fact from "no
+ * series is named by this region", and telling a reader the first when the second is true would
+ * misdescribe the repository.
+ */
+async function attributedSubject(
+  query: string,
+  request: CanonicalPlannerRequest,
+  candidates: { id: string; name: string }[],
+  provider: string | null,
+): Promise<CandidateEnvelope> {
+  const operation = "REPORTED_OBSERVATION" as const;
+  const refuse = (
+    status: SubjectAuthorityStatus,
+    detail: string,
+    subjects: readonly string[] = [],
+  ): CandidateEnvelope => ({
+    query,
+    status,
+    operation,
+    seriesIds: [],
+    causalEdgeIds: [],
+    subjects,
+    detail,
+  });
+  const resolved = resolveStoredSubject(
+    request.subjectRegion,
+    request.subjectIdentity,
+    candidates,
+    (series) => series.name,
+  );
+  if (resolved.length === 0) {
+    return refuse(
+      "UNRESOLVED",
+      provider === null
+        ? `No stored series is named by the authorized subject region "${request.subjectRegion.trim()}".`
+        : `No series published by ${provider} is named by the authorized subject region ` +
+            `"${request.subjectRegion.trim()}". Another provider may publish it; that would be a ` +
+            "different question.",
+    );
+  }
+  if (resolved.length > 1) {
+    return refuse(
+      "AMBIGUOUS",
+      `The authorized subject region names ${resolved.length} materially distinct stored ` +
+        "subjects, and this operation answers about one.",
+      resolved.map((series) => series.name),
+    );
+  }
+  return {
+    query,
+    status: "AUTHORIZED",
+    operation,
+    seriesIds: [resolved[0].id],
+    causalEdgeIds: [],
+    subjects: [resolved[0].name],
+    detail: `Resolved to the stored series "${resolved[0].name}" from the canonical parse.`,
+  };
+}
+
 export async function deriveLegacyCandidateEnvelope(query: string): Promise<CandidateEnvelope> {
   const topic = query.trim();
   if (!topic) {
@@ -330,6 +427,81 @@ export async function deriveLegacyCandidateEnvelope(query: string): Promise<Cand
   };
 
   const authority = await resolveSubjectAuthority(topic, discovered);
+
+  // ATTRIBUTED FACTS FAIL CLOSED ON THIS DOOR. IR-107 B2-C §4.
+  //
+  // Frame eligibility is not proof of a source. This path reached REPORTED_OBSERVATION through
+  // subject authority alone and published whichever provider happened to hold the subject, which
+  // reproduced as the same wrong-source substitution the canonical path had: with only Y stored, a
+  // request naming X came back AUTHORIZED carrying Y's series.
+  //
+  // The source constituent is NOT re-derived here. Writing a second raw-query source parser is the
+  // divergence this whole line of work exists to close, so the one parser is asked, and if it
+  // cannot establish the constituent then this door has no structural basis for an attribution and
+  // refuses. That is a throughput loss on the legacy door specifically, quantified in the packet
+  // rather than absorbed quietly.
+  if (authority.status === "AUTHORIZED" && authority.operation === "REPORTED_OBSERVATION") {
+    const parsed = resolveRequestAuthority(topic);
+    const sourceRegion =
+      parsed.status === "AUTHORIZED" && parsed.operation === "ATTRIBUTED_REPORTED_OBSERVATION"
+        ? (parsed.sourceRegion ?? "")
+        : "";
+    const source = await resolveSourceIdentity(sourceRegion);
+    // Named nobody, so there is no attribution to get wrong. Same distinction the canonical door
+    // draws, and drawn with the same predicate rather than a second copy of the judgement: `What
+    // did analysts publish about X?` says somebody else reported it and names no party.
+    if (source.status === "UNRESOLVED" && !sourceRoleNamesAParty(sourceRegion)) {
+      return {
+        query: topic,
+        status: authority.status,
+        operation: authority.operation,
+        seriesIds: authority.factSeriesIds,
+        causalEdgeIds: authority.mechanismEdgeIds,
+        subjects: authority.subjects,
+        detail: authority.detail,
+      };
+    }
+    if (source.status !== "RESOLVED") {
+      return {
+        query: topic,
+        status: source.status === "AMBIGUOUS" ? "AMBIGUOUS" : "UNRESOLVED",
+        operation: authority.operation,
+        seriesIds: [],
+        causalEdgeIds: [],
+        subjects: source.status === "AMBIGUOUS" ? source.codes : [],
+        detail:
+          "An attributed reported observation names a provider, and this path cannot establish " +
+          "which stored provider that is without re-deriving the source constituent from the raw " +
+          "query. It refuses rather than attributing a reading to a provider it has not identified.",
+      };
+    }
+    const owned = await prisma.series.findMany({
+      where: { id: { in: [...authority.factSeriesIds] }, sourceId: source.sourceId },
+      select: { id: true },
+    });
+    if (owned.length === 0) {
+      return {
+        query: topic,
+        status: "UNRESOLVED",
+        operation: authority.operation,
+        seriesIds: [],
+        causalEdgeIds: [],
+        subjects: [],
+        detail:
+          `No series published by ${source.code} is named by this request. Another provider may ` +
+          "publish it; that would be a different question.",
+      };
+    }
+    return {
+      query: topic,
+      status: authority.status,
+      operation: authority.operation,
+      seriesIds: owned.map((s) => s.id),
+      causalEdgeIds: authority.mechanismEdgeIds,
+      subjects: authority.subjects,
+      detail: authority.detail,
+    };
+  }
 
   return {
     query: topic,

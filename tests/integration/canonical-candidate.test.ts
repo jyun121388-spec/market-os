@@ -90,7 +90,12 @@ describeIfDb("canonical candidate authority (integration)", () => {
     });
 
     const source = await prisma.source.create({
-      data: { code: SOURCE_CODE, name: "Test Canonical Candidate Source", tier: "TIER_S" },
+      // Named to carry third-party vocabulary on purpose. IR-107 B2-C binds an attributed request
+      // to exactly one stored `Source`, and `authorizeInference` only admits the third-party frame
+      // when the request carries that vocabulary -- so a provider a frame-eligible request can name
+      // must read like a research house. `TEST Canonical Consensus` is both: the name of this
+      // provider AND, separately, a stored series, which is what the routing test below needs.
+      data: { code: SOURCE_CODE, name: PUBLISHER, tier: "TIER_S" },
     });
     const made: string[] = [];
     for (const [index, name] of [SUBJECT_A, SUBJECT_B, SUBJECT_KO, PUBLISHER].entries()) {
@@ -345,6 +350,10 @@ describeIfDb("canonical candidate authority (integration)", () => {
     // supplies one: a stored subject named in the SOURCE slot rather than the subject slot. The
     // legacy door searches the whole sentence and resolves nothing; the canonical door reads only
     // the authorized subject region and resolves exactly one subject.
+    // `PUBLISHER` names BOTH a stored provider and a stored series here, which is what makes the
+    // two doors disagree. IR-107 B2-C added the provider row: before it, this slot named nothing the
+    // repository held as a `Source`, and an attributed request naming a party this repository cannot
+    // identify now refuses rather than being answered from whatever series matched the subject.
     const query = `What did ${PUBLISHER} publish about ${SUBJECT_A}?`;
 
     // The legacy door searches the whole sentence, finds BOTH stored names — the one in the source

@@ -111,11 +111,38 @@ const MECHANISM_SIGNALS: RegExp[] = [
  * appears in plenty of requests for our own view, and "published" appears in plenty of sentences
  * about us.
  */
+const REPORTING_SOURCE_KO = /(증권사|애널리스트|리서치|기관|컨센서스|시장\s*전망)/;
 const REPORTING_SOURCE =
   /\b(analysts?|brokers?|brokerages?|sell[-\s]?side|research (house|firm|desk)s?|consensus|street)\b/i;
+
+/**
+ * Does this text consist of nothing but generic third-party vocabulary?
+ *
+ * Exported for `sourceAuthority`, which needs the distinction the whole B2-C repair turns on: a
+ * request "explicitly attributed to source X" is a different thing from one that merely says
+ * somebody else reported it. `What did analysts publish about X?` names NO provider -- `analysts`
+ * is the vocabulary that proves the frame, not a party -- while `What did Xraywire analysts publish
+ * about X?` purports to name one.
+ *
+ * The same regexes, not a second copy of them. A separate list of "generic words" would be a
+ * denylist maintained in two places, and the two would drift; here, a term that proves the frame is
+ * by construction the same term that cannot be an attribution on its own.
+ */
+export function isGenericThirdPartyReference(text: string): boolean {
+  const stripped = text
+    .replace(new RegExp(REPORTING_SOURCE.source, "gi"), " ")
+    .replace(new RegExp(REPORTING_SOURCE_KO.source, "g"), " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  if (stripped === "") return true;
+  // Determiners and possessives may survive the strip and still name nobody.
+  return stripped.split(/\s+/).every((token) => FUNCTION_ONLY.has(token.toLowerCase()));
+}
+
+/** Words that can sit beside a generic third-party term without naming a party. */
+const FUNCTION_ONLY = new Set(["the", "a", "an", "s", "of", "some", "any", "most", "other"]);
 const REPORTING_VERB =
   /\b(publish|published|issue|issued|set|reported|report|say|said|estimate|estimated|forecast|forecasts|forecasted|rate|rated|have|has)\b/i;
-const REPORTING_SOURCE_KO = /(증권사|애널리스트|리서치|기관|컨센서스|시장\s*전망)/;
 const REPORTING_VERB_KO = /(발표|제시|전망|추정|보고|공시|집계)/;
 
 /** Asks what happened or what a figure was. Recognised, and never used to exempt anything. */

@@ -299,6 +299,32 @@ describeIfDb("exact source authority", () => {
       expect(result.providers).toEqual([X_CODE]);
     });
 
+    it.fails(
+      "PENDING: a provider whose stored name begins with a non-determiner framing word",
+      async () => {
+        // OPEN, PRE-EXISTING, AND FAIL-CLOSED. Not introduced by this unit and not closed by it.
+        //
+        // The source slot begins the name at the first non-framing token, so a provider called
+        // `Value Line analysts` arrives as ` line analysts ` and cannot be matched. `Value Line` is
+        // a real equity research publisher, and `value`, `rate`, `level`, `number`, `figure`,
+        // `print` and `reading` are all framing tokens, so the class is not hypothetical.
+        //
+        // The determiner repair in this unit deliberately covers determiners ONLY. Keeping every
+        // framing token would swallow question words into the provider name, which is the
+        // "bound the entire first question as the name of a source" failure the source slot's own
+        // comment records. Determiners are safe to keep because they cannot head a clause.
+        //
+        // Availability, not safety: the request refuses rather than resolving to somebody else, and
+        // the region will not match a different provider unless one is genuinely named that. Pinned
+        // executable so it surfaces the day the source slot learns to bound a name properly, rather
+        // than living as a sentence in a document.
+        await wipe();
+        await seed(X_CODE, "Value Line analysts", [SUBJECT]);
+        const result = await canonical(`What did Value Line analysts publish about ${SUBJECT}?`);
+        expect(result.status, JSON.stringify(result)).toBe("AUTHORIZED");
+      },
+    );
+
     it("resolves a provider whose stored name carries a leading article", async () => {
       // The structural reviewer's case. The source slot consumes everything in front of the provider
       // as framing, so `What did The Street publish about X?` arrives as ` street ` while the stored

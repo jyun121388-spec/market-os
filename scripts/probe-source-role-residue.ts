@@ -34,7 +34,8 @@ const QUERIES = [
 for (const query of QUERIES) {
   const a = resolveRequestAuthority(query);
   const region = "sourceRegion" in a ? (a as { sourceRegion?: string }).sourceRegion : undefined;
-  const subject = "subjectRegion" in a ? (a as { subjectRegion?: string }).subjectRegion : undefined;
+  const subject =
+    "subjectRegion" in a ? (a as { subjectRegion?: string }).subjectRegion : undefined;
   console.log(JSON.stringify(query));
   console.log(
     `   status=${a.status} op=${"operation" in a ? a.operation : "-"} ` +

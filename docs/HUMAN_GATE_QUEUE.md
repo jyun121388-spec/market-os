@@ -643,19 +643,19 @@ a login that is already working.
 
 The remaining gate may not be worked around by this session:
 
-  * Re-authenticating requires real credentials. Never extracted, never generated, never prompted
-    for during unattended operation.
-  * "Upgrade to Pro" / "purchase more credits" is metered billing. The zero-extra-cost rule is
-    absolute and does not bend because a review is inconvenient.
+- Re-authenticating requires real credentials. Never extracted, never generated, never prompted
+  for during unattended operation.
+- "Upgrade to Pro" / "purchase more credits" is metered billing. The zero-extra-cost rule is
+  absolute and does not bend because a review is inconvenient.
 
 DECISION PACKET
-  Decision needed : re-authenticate the existing Codex login, or wait for the 2026-09-01 reset.
-  Options         : (a) wait until 2026-09-01 -- costs nothing, delays every exact-tree review;
-                    (b) purchase credits -- REFUSED by policy, listed only for completeness.
-  Recommended     : (a). Re-authentication is NOT needed; the token error cleared on its own and a
-                    2026-08-27 probe reached the service and was refused on quota alone.
-  Continues meanwhile: everything that does not need an architect verdict. Implementation,
-                    reproduction, mutation, gates, commits and pushes are unaffected.
+Decision needed : re-authenticate the existing Codex login, or wait for the 2026-09-01 reset.
+Options : (a) wait until 2026-09-01 -- costs nothing, delays every exact-tree review;
+(b) purchase credits -- REFUSED by policy, listed only for completeness.
+Recommended : (a). Re-authentication is NOT needed; the token error cleared on its own and a
+2026-08-27 probe reached the service and was refused on quota alone.
+Continues meanwhile: everything that does not need an architect verdict. Implementation,
+reproduction, mutation, gates, commits and pushes are unaffected.
 
 CONSEQUENCE FOR THE CURRENT UNIT: the recognizer-unification cost repair proceeds against the
 STRUCTURAL DIRECTION GIVEN IN THE USER BRIEF (shared `RequestFragmentAnalysis`, memoized intervals,

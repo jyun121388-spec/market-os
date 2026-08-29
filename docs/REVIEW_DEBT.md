@@ -348,7 +348,8 @@ second question whole. Same defect, same severity, one line further down.
 Found by attempting to construct the overlapping-maximal-run case for M-CON-2 rather than by a test.
 
 **Why the obvious repair is not obviously right.** Finding every occurrence instead of the first
-would refuse a legitimate request: ` current ` occurs twice in
+would refuse a legitimate request: the space-delimited token `current` (written `current` in a
+normalized region) occurs twice in
 `What is the current current account balance?`, where the second is part of the stored name. All-
 occurrences turns that into AMBIGUOUS. Distinguishing "a name containing the marker word" from "a
 second question" is a grammar question -- the second has a full construction with its own framing --
@@ -392,7 +393,6 @@ STATUS: OPEN. The redirect/constituent/parser authority unit does not close. Two
 and one uncertifiable mutant (M-CON-2), all three rooted in the same fact: three recognition paths
 with three different notions of "nothing left over".
 
-
 ## RESOLVED — M-CON-2 was REPRODUCED, not merely untested (2026-08-26)
 
 Recorded here because the wrong disposition was written down twice before the right one.
@@ -404,20 +404,20 @@ absence of a hand-built counterexample is not evidence. It required a generated 
 `scripts/search-overlapping-runs.ts` enumerates every ordered fragment combination from a pool and
 reports the three conditions that must hold together for the count to decide anything:
 
-  1. the whole query does NOT authorize — otherwise recognition returns it before runs are reached
-  2. two maximal runs partially overlap — [0..1] and [1..2], neither containing the other
-  3. the outside-construction check would not catch the survivor
+1. the whole query does NOT authorize — otherwise recognition returns it before runs are reached
+2. two maximal runs partially overlap — [0..1] and [1..2], neither containing the other
+3. the outside-construction check would not catch the survivor
 
 90,432 combinations examined, 2,464 overlapping pairs, **120 where the guard is load-bearing**.
 
 Both earlier arguments were wrong in their details, and only running the search showed it:
 
-  * The first overlap found could not have killed the mutant. Production decides it at the early
-    return, because the attribution parser claims the entire string — condition 1, which hand
-    analysis kept missing.
-  * The blindness is not "the marker sits in the overlap". The case that kills the mutant is two
-    MECHANISM runs, and relations are recognised by `relationSyntax` rather than by a CONSTRUCTIONS
-    marker, so a marker scan finds nothing anywhere.
+- The first overlap found could not have killed the mutant. Production decides it at the early
+  return, because the attribution parser claims the entire string — condition 1, which hand
+  analysis kept missing.
+- The blindness is not "the marker sits in the overlap". The case that kills the mutant is two
+  MECHANISM runs, and relations are recognised by `relationSyntax` rather than by a CONSTRUCTIONS
+  marker, so a marker scan finds nothing anywhere.
 
 Pinned: `Should I buy stock? Explain how Alpha affects Beta? Zeta? Explain how Alpha affects Beta?`
 verified PROHIBITED / informational=NONE on the production path. Mutation set now 17 of 18.
@@ -498,17 +498,16 @@ The P2 pronoun finding below is NOT closed by this and does not ride along after
 `SOURCE_DISQUALIFIERS`, a different mechanism in a different function, and bundling it would have
 put an unreviewed change into a P1 commit.
 
-
 ## Dispositions recorded 2026-08-27 (007e6c8 review round)
 
 CHATGPT_EXACT_TREE_REVIEW = APPROVE for 007e6c8.
-FABLE_EXACT_TREE_REVIEW   = REWORK_REQUIRED for 007e6c8, one reproduced P1 (see the OPEN BLOCKER
-                            above). The two independent reviews DISAGREE, and the disagreement is
-                            settled by reproduction rather than by seniority: the five inputs were
-                            re-run here and they authorize with an unread second question inside a
-                            served region. An APPROVE does not survive a counterexample.
+FABLE_EXACT_TREE_REVIEW = REWORK_REQUIRED for 007e6c8, one reproduced P1 (see the OPEN BLOCKER
+above). The two independent reviews DISAGREE, and the disagreement is
+settled by reproduction rather than by seniority: the five inputs were
+re-run here and they authorize with an unread second question inside a
+served region. An APPROVE does not survive a counterexample.
 CODEX_DEFERRED_REVIEW_DEBT = YES. Neither of the above is a Codex verdict. Historical anchor for
-                            recovery: 007e6c827064dab6b1b5e05041852d5cb7503f74.
+recovery: 007e6c827064dab6b1b5e05041852d5cb7503f74.
 
 **ASSURANCE_WORDING_P2, non-blocking, and it corrects a claim I made.** The span-evaluation commit
 says "every interval evaluated exactly once, none twice, none skipped". Too strong. The cache keys
@@ -548,12 +547,12 @@ reopened for it.
 Reviewer: `gpt-5.6-luna`, READ-ONLY, exact tree at commit `5818ee2`. Verdict **REWORK_REQUIRED**.
 Every finding was REPRODUCED before being touched; repair is commit `71511a1`.
 
-| # | Finding | Reproduction | Disposition |
-| - | ------- | ------------ | ----------- |
-| 1 | `startup_recovery()` ran BEFORE the lock. A second harness could read a live run's incomplete manifest, restore its active mutant, delete the manifest, and only then fail to acquire the lock — leaving the first harness measuring a tree that had been put back underneath it | instrumented call order: recovery at offset 215, lock at 1510 | **REPAIRED.** `acquire_lock(token)` is now the first statement of `harness()`; the body moved into `_run_locked()` so recovery, snapshot and the mutation transaction are all inside the lock. Re-measured: lock precedes recovery |
-| 6 | Dead-owner reclaim was TOCTOU-racy: two processes could each read the same dead pid and each conclude the lock was theirs, after which either `release_lock()` would delete the other's | read of the pid-only lock format, no atomic claim step | **REPAIRED.** Locks carry a unique token (`pid-time_ns`); reclaim writes a staging file and `os.replace()`s it, then reads the lock back and proceeds only if it still holds our own token; `release_lock(token)` removes the file only while it contains that token |
-| — | Control G was weakly discriminating: its holder took the lock and nothing else, so a second harness had no manifest to wrongly recover — G could not have caught finding 1 | inspection, confirmed by construction | **STRENGTHENED.** The holder now writes an incomplete manifest AND an active mutant. G0 asserts the holder is genuinely mid-mutation; G2/G3 assert the live run's bytes and manifest survive untouched |
-| — | Control D was weakly discriminating: it never fed a stale verdict into any aggregation path | the filter it nominally covered (`foreign = [v for v in verdicts if v["run_id"] != run_id]`) reads a local list appended to in exactly one place with a literal `run_id` — no value could fail it | **CHECK DELETED, CONTROL REBUILT.** The vacuous filter was removed rather than tested. Aggregation does not happen in-process; it happens when a log is read afterwards, which is how the 59-minute stall nearly passed for a measurement. Verdict lines now carry their run id; `verify_report()` admits a verdict only when its run also emitted `RUN_COMPLETED`; D drives two REAL harness logs through it — one complete, one killed after a verdict had already printed |
+| #   | Finding                                                                                                                                                                                                                                                                          | Reproduction                                                                                                                                                                                      | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `startup_recovery()` ran BEFORE the lock. A second harness could read a live run's incomplete manifest, restore its active mutant, delete the manifest, and only then fail to acquire the lock — leaving the first harness measuring a tree that had been put back underneath it | instrumented call order: recovery at offset 215, lock at 1510                                                                                                                                     | **REPAIRED.** `acquire_lock(token)` is now the first statement of `harness()`; the body moved into `_run_locked()` so recovery, snapshot and the mutation transaction are all inside the lock. Re-measured: lock precedes recovery                                                                                                                                                                                                                                           |
+| 6   | Dead-owner reclaim was TOCTOU-racy: two processes could each read the same dead pid and each conclude the lock was theirs, after which either `release_lock()` would delete the other's                                                                                          | read of the pid-only lock format, no atomic claim step                                                                                                                                            | **REPAIRED.** Locks carry a unique token (`pid-time_ns`); reclaim writes a staging file and `os.replace()`s it, then reads the lock back and proceeds only if it still holds our own token; `release_lock(token)` removes the file only while it contains that token                                                                                                                                                                                                         |
+| —   | Control G was weakly discriminating: its holder took the lock and nothing else, so a second harness had no manifest to wrongly recover — G could not have caught finding 1                                                                                                       | inspection, confirmed by construction                                                                                                                                                             | **STRENGTHENED.** The holder now writes an incomplete manifest AND an active mutant. G0 asserts the holder is genuinely mid-mutation; G2/G3 assert the live run's bytes and manifest survive untouched                                                                                                                                                                                                                                                                       |
+| —   | Control D was weakly discriminating: it never fed a stale verdict into any aggregation path                                                                                                                                                                                      | the filter it nominally covered (`foreign = [v for v in verdicts if v["run_id"] != run_id]`) reads a local list appended to in exactly one place with a literal `run_id` — no value could fail it | **CHECK DELETED, CONTROL REBUILT.** The vacuous filter was removed rather than tested. Aggregation does not happen in-process; it happens when a log is read afterwards, which is how the 59-minute stall nearly passed for a measurement. Verdict lines now carry their run id; `verify_report()` admits a verdict only when its run also emitted `RUN_COMPLETED`; D drives two REAL harness logs through it — one complete, one killed after a verdict had already printed |
 
 D's own non-vacuity is now asserted in both directions, because a control that cannot fail is the
 thing this round was about. **D3** proves the interrupted log actually contains a verdict line to be
@@ -575,14 +574,14 @@ runs between mutation runs, never during one).
 Baseline green: binding 106 tests / 2 files, unrelated 49 / 2. Denominators pinned. **5 of 6
 ISOLATED.**
 
-| Mutant | Verdict |
-| ------ | ------- |
-| B-M1 Hangul no longer confirms a boundary | ISOLATED |
-| B-M2 clause-opening tokens no longer confirm | ISOLATED (5 tests) |
-| B-M3 only the FIRST token is scanned, not the whole fragment | **MISSED** |
-| B-M4 a boundary-adjacent determiner no longer confirms | ISOLATED |
-| B-M5 confirmation stops accumulating, so a clean later fragment launders it | ISOLATED |
-| B-M6 blocked runs skipped rather than withheld (cost invariant only) | ISOLATED (3 tests) |
+| Mutant                                                                      | Verdict            |
+| --------------------------------------------------------------------------- | ------------------ |
+| B-M1 Hangul no longer confirms a boundary                                   | ISOLATED           |
+| B-M2 clause-opening tokens no longer confirm                                | ISOLATED (5 tests) |
+| B-M3 only the FIRST token is scanned, not the whole fragment                | **MISSED**         |
+| B-M4 a boundary-adjacent determiner no longer confirms                      | ISOLATED           |
+| B-M5 confirmation stops accumulating, so a clean later fragment launders it | ISOLATED           |
+| B-M6 blocked runs skipped rather than withheld (cost invariant only)        | ISOLATED (3 tests) |
 
 B-M6 mattered: it is behaviourally identical to the original, so only the span-evaluation COUNT test
 could see it, and that test did.
@@ -605,16 +604,17 @@ rather than argued. `scripts/mutation/differential.py` (case `bm3`) applies the 
 lock/before-image/verified-restore transaction as the harness and runs
 `scripts/diff-clause-token-scan.ts` — 42,840 generated requests — against both versions:
 
-| | |
-| - | - |
-| corpus | 42,840 requests |
-| differing | 2,532 |
-| current REFUSES / mutant AUTHORIZES | **1,204** |
-| current AUTHORIZES / mutant refuses | **0** |
-| PROHIBITED payloads differing | 0 |
+|                                     |                 |
+| ----------------------------------- | --------------- |
+| corpus                              | 42,840 requests |
+| differing                           | 2,532           |
+| current REFUSES / mutant AUTHORIZES | **1,204**       |
+| current AUTHORIZES / mutant refuses | **0**           |
+| PROHIBITED payloads differing       | 0               |
 
 The 1,204 are the P1 itself. `What did Reuters publish about Alpha. In 2024 what was the CPI?`
-authorizes under the mutant with subject region ` alpha in 2024 what was the cpi ` and source
+authorizes under the mutant with subject region `alpha in 2024 what was the cpi` -- carrying its
+delimiting spaces, as every normalized region does -- and source
 `reuters` — the second question buried in an open-class region, which is the exact defect the repair
 exists to close. Scanning all tokens is load-bearing.
 
@@ -684,11 +684,11 @@ Reviewer: `gpt-5.6-terra`, READ-ONLY, exact worktree including the uncommitted P
 **Q7 and Q9 were returned UNDETERMINED with a named measurement.** Both were run, and both came
 back against the repair:
 
-| request | repaired | pre-repair |
-| ------- | -------- | ---------- |
-| `What is the definition of Mr. Show?` | UNSUPPORTED | AUTHORIZED, DEFINITION ` mr show ` |
-| `What did Mr. Show report about Alpha?` | UNSUPPORTED | AUTHORIZED, source `mr show` |
-| `What is the definition of Samsung Electronics Co. 삼성전자?` | UNSUPPORTED | AUTHORIZED, DEFINITION |
+| request                                                           | repaired    | pre-repair                                           |
+| ----------------------------------------------------------------- | ----------- | ---------------------------------------------------- |
+| `What is the definition of Mr. Show?`                             | UNSUPPORTED | AUTHORIZED, DEFINITION `mr show`                     |
+| `What did Mr. Show report about Alpha?`                           | UNSUPPORTED | AUTHORIZED, source `mr show`                         |
+| `What is the definition of Samsung Electronics Co. 삼성전자?`     | UNSUPPORTED | AUTHORIZED, DEFINITION                               |
 | `What did Samsung Electronics Co. 삼성전자 report about revenue?` | UNSUPPORTED | AUTHORIZED, source `samsung electronics co 삼성전자` |
 
 "pre-repair" is `scripts/mutation/differential.py` case `prerepair`: the repair disabled at its one
@@ -744,9 +744,9 @@ worth keeping because each would have re-opened the P1:
 - **(i) prefer the longer reading when no complete tiling exists** — the swallowed-tail cases
   deliberately have no alternate tiling, because the tail does not authorize alone. Preferring the
   joined reading on tiling failure re-admits the buried question exactly.
-- **(ii) require the tail to read alone too** — the pinned swallowed tails were *chosen* because
+- **(ii) require the tail to read alone too** — the pinned swallowed tails were _chosen_ because
   they do not read alone (`What about the Gamma level?`, `현재 기준금리는 얼마인가요?`, `What did
-  they say about Gamma?`). Making the rule symmetric would unblock every one of them. Terra
+they say about Gamma?`). Making the rule symmetric would unblock every one of them. Terra
   confirmed the reading I had asked it to refute rather than letting a measurement be spent on it.
 
 Terra prescribed no third rule and said so — "no third discriminator has been evidenced, so I will
@@ -782,12 +782,12 @@ Korean confirmation entirely, B-M9 restores the unconditional version.
 Luna's remaining Q2 defect from the first round is closed. Its accepted coverage concerns, and what
 was done with each:
 
-| Concern | Response |
-| ------- | -------- |
+| Concern                                                                                                                                    | Response                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | H4's twelve rounds detect ~93% of a 6/30 mode and ~72% of a 3/30 mode, but only **~18%** of the 1/60 stranding mode; ~137 rounds gives 90% | The arithmetic is now written into the control's own comment instead of being implied, and `--soak` runs 150 rounds. **Recorded evidence: 54/54 controls pass at 150 rounds**, plus 180 rounds from the standalone race harness |
-| H4 could not distinguish two winners (broken exclusion) from zero winners (stranding) | Split into **H4a** (no round produced TWO) and **H4b** (no round produced ZERO); the two failures mean opposite things |
-| H6 checks non-owner release sequentially, not against a concurrent release/replacement schedule | **NOT CLOSED.** Recorded as coverage debt. Luna classed it a concern, not a demonstrated wrong result |
-| A reclaimer that dies holding the claim leaves a permanent fail-closed lock | Intended and documented, with a diagnostic naming the directory. Luna confirmed the scoping is correct |
+| H4 could not distinguish two winners (broken exclusion) from zero winners (stranding)                                                      | Split into **H4a** (no round produced TWO) and **H4b** (no round produced ZERO); the two failures mean opposite things                                                                                                          |
+| H6 checks non-owner release sequentially, not against a concurrent release/replacement schedule                                            | **NOT CLOSED.** Recorded as coverage debt. Luna classed it a concern, not a demonstrated wrong result                                                                                                                           |
+| A reclaimer that dies holding the claim leaves a permanent fail-closed lock                                                                | Intended and documented, with a diagnostic naming the directory. Luna confirmed the scoping is correct                                                                                                                          |
 
 Luna verified explicitly that nothing in the reviewed files claims `POWER_LOSS_SAFE`,
 `FILESYSTEM_CRASH_SAFE`, or `ARBITRARY_CONCURRENT_WRITER_SAFE`. What is established is: a hung
@@ -820,11 +820,11 @@ by luck, so they are now named explicitly rather than left to it.
 name-tail forms that the additions put at risk (`list`, `any Gamma`, `same period revenue`,
 `Compare Inc`, `List Ltd revenue`):
 
-| group added | swallows closed | requests wrongly refused |
-| ----------- | --------------- | ------------------------ |
-| interrogatives `who whom whose why when where` | 456 | **0** |
-| imperatives `compare list` | 1,380 | **0** |
-| determiners `any same` | 1,040 | **0** |
+| group added                                    | swallows closed | requests wrongly refused |
+| ---------------------------------------------- | --------------- | ------------------------ |
+| interrogatives `who whom whose why when where` | 456             | **0**                    |
+| imperatives `compare list`                     | 1,380           | **0**                    |
+| determiners `any same`                         | 1,040           | **0**                    |
 
 99,072 generated requests, one direction only. Three new mutants (B-M11 to B-M13) pin the groups.
 
@@ -927,11 +927,11 @@ the product was wrong; the tests had stopped being able to see it.
 This is the third time this exact shape has appeared in this unit, which is why it is written down
 rather than just fixed:
 
-| when | the half the tests could not fail on |
-| ---- | ------------------------------------ |
+| when       | the half the tests could not fail on                                                                       |
+| ---------- | ---------------------------------------------------------------------------------------------------------- |
 | pre-repair | every swallowing test picked a tail that authorizes ALONE — the precondition for cover competition to work |
-| B-M3 | every swallowed tail either opened with a determiner or had its clause-opening word first |
-| here | every internal boundary was `?`, which the terminator rule now catches without consulting anything lexical |
+| B-M3       | every swallowed tail either opened with a determiner or had its clause-opening word first                  |
+| here       | every internal boundary was `?`, which the terminator rule now catches without consulting anything lexical |
 
 The repair is the same each time: pose the case on the other side. Nine discriminators added with
 the boundary changed from `?` to `.` — `What did Reuters publish about Alpha. Who published Gamma?`
@@ -1026,20 +1026,20 @@ The measurement it asked for (`scripts/probe-unknown-tail.ts`): one head that re
 (`What did Reuters publish about Alpha.`), thirty-eight tails of every shape the lexical set does
 not enumerate, `.` boundary throughout.
 
-| tail shape | swallowed |
-| ---------- | --------- |
-| imperative not in the set (`Summarize`, `Break down`, `Chart`, `Plot`, `Find`, `Check`, `Look up`, `Graph`, `Pull the ... series`) | 11 of 12 |
-| imperative IN the set (control) | 0 of 5 |
-| interrogative fragment (control) | 0 of 4 |
-| bare noun (`Gamma.`, `Revenue.`, `Inflation.`) | 4 of 4 |
-| proper-name-shaped (`Gamma Corp.`, `Alpha Holdings.`) | 4 of 4 |
-| coined token (`Zorbulate Gamma.`) | 4 of 4 |
-| Hangul after a period | 2 of 2 |
-| digits (`2024.`, `Q3 Gamma.`) | 3 of 3 |
-| | **28 of 38** |
+| tail shape                                                                                                                         | swallowed    |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| imperative not in the set (`Summarize`, `Break down`, `Chart`, `Plot`, `Find`, `Check`, `Look up`, `Graph`, `Pull the ... series`) | 11 of 12     |
+| imperative IN the set (control)                                                                                                    | 0 of 5       |
+| interrogative fragment (control)                                                                                                   | 0 of 4       |
+| bare noun (`Gamma.`, `Revenue.`, `Inflation.`)                                                                                     | 4 of 4       |
+| proper-name-shaped (`Gamma Corp.`, `Alpha Holdings.`)                                                                              | 4 of 4       |
+| coined token (`Zorbulate Gamma.`)                                                                                                  | 4 of 4       |
+| Hangul after a period                                                                                                              | 2 of 2       |
+| digits (`2024.`, `Q3 Gamma.`)                                                                                                      | 3 of 3       |
+|                                                                                                                                    | **28 of 38** |
 
-Every swallow serves a composite subject — ` alpha summarize gamma `, ` alpha 2024 `,
-` alpha zorbulate gamma ` — with source `reuters`. Factual records represented as answering a
+Every swallow serves a composite subject — `alpha summarize gamma`, `alpha 2024`,
+`alpha zorbulate gamma` — with source `reuters`. Factual records represented as answering a
 question nobody asked. Not advice, and no LEGAL_GUARDRAILS breach, but a publication-authority
 breach.
 
@@ -1145,7 +1145,7 @@ showed a clean zero; only the 99,072-request corpus saw it. There is now a regre
 exactly that shape.
 
 **`Smith; Jones` — a semicolon inside a partnership name.** My corpus had no semicolon-in-a-name
-case at all; the suite already held one, and it failed, serving the subject ` smith ` instead of
+case at all; the suite already held one, and it failed, serving the subject `smith` instead of
 `smith jones revenue`. A shorter subject that authorizes is the dangerous failure, not one a reader
 would notice. `;` moved to provisional alongside `!`.
 
@@ -1153,11 +1153,11 @@ would notice. `;` moved to provisional alongside `!`.
 
 Sweeping the 38-tail matrix across all three terminators:
 
-| boundary | swallowed | refused |
-| -------- | --------- | ------- |
-| `.` | **0 of 38** | 38 |
-| `!` | 28 of 38 | 10 |
-| `;` | 28 of 38 | 10 |
+| boundary | swallowed   | refused |
+| -------- | ----------- | ------- |
+| `.`      | **0 of 38** | 38      |
+| `!`      | 28 of 38    | 10      |
+| `;`      | 28 of 38    | 10      |
 
 **The class is closed at `.` and `?` and remains OPEN at `!` and `;`**, precisely because those two
 must stay provisional for the names above. This is pre-existing rather than a regression — before
@@ -1240,7 +1240,7 @@ weaker thing to check than what it replaced.
 
 A relation role that names more than one thing refuses. `and` and `or` were already refused by the
 existing `CLAUSE_CONNECTIVES`; the comma, `versus` and `compared with` were not, and authorized a
-stored mechanism with effect ` beta versus gamma `.
+stored mechanism with effect `beta versus gamma`.
 
 `OBJECT_COORDINATORS` is a sibling closed function-word class, justified the same way
 `CLAUSE_CONNECTIVES` already is in this module. The comma is checked on the RAW query because

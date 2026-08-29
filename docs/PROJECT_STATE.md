@@ -820,9 +820,9 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2333 / 2333 PASS across 133 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+2359 / 2359 PASS across 135 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment), measured 2026-08-28 on the ask-guardrail architecture branch after the ESC-015
-exact-cover redesign -- 2317 passing plus 16 pinned `it.fails`, which are reproduced defects this
+exact-cover redesign -- 2343 passing plus 16 pinned `it.fails`, which are reproduced defects this
 unit is deliberately NOT closing and which the total must not quietly absorb.
 
 CORRECTED: an earlier version of this line said 2297 / 2297 and then, two clauses later, 2285

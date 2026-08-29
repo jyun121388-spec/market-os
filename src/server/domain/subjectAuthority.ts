@@ -238,6 +238,90 @@ const CONSTRUCTIONS: readonly Construction[] = [
  * "explain how A affects B, not C", which denies nothing about the relation. Apostrophes normalize
  * to spaces, so "doesn't" arrives as "doesn t".
  */
+/**
+ * Request headers that may stand in front of an infix relation clause, longest match first.
+ *
+ * ORDERED CONSTRUCTIONS, not a bag of words, and the difference is the whole repair. `FRAMING_TOKENS`
+ * is position-insensitive, so `regionIsExactlyFramingAndIdentity` accepted ANY all-framing prefix --
+ * an existential over splits. `Explain how process A affects B.` therefore had two readings the
+ * grammar could not choose between, `process` as framing and `process` as part of the identity, and
+ * whichever one the repository happened to hold is the one that got published. Measured, at
+ * 57d242c: with only `A -> B` stored the sentence answered about `A`; with only `Process A -> B`
+ * stored, the same sentence answered about `Process A`.
+ *
+ * A header is matched at the START of a clause region and consumed, so the role that survives
+ * contains the identity and whatever genuinely qualifies it. There is no split left to choose, and
+ * nothing downstream has to guess where framing ended.
+ *
+ * The entries are MEASURED, not invented. `scripts/probe-relation-headers.ts` reads the development
+ * corpus and the test corpus, finds every infix relation clause, and reports the leading framing
+ * span of each: `explain how`, `explain how the`, `how do`, `how does`, `how does the`,
+ * `explain the`, `what`. Determiners are deliberately NOT folded in -- see `DETERMINERS`.
+ *
+ * `what` is measured but deliberately EXCLUDED, and the reason is the refutation that produced this
+ * design. In `What process affects B?` the noun is the interrogative subject -- the thing being
+ * asked about -- so consuming `what` leaves a bare ` process ` role that reads as an identity this
+ * repository does not hold, when what the request actually contains is an open question. Leaving
+ * the whole ` what process ` in the role refuses for the right reason. Its single corpus instance,
+ * `What impact do natural gas prices have on X?`, resolves under neither treatment.
+ *
+ * A header this table does not know stays in the role, where it will fail to be covered by any
+ * stored identity. That is the safe direction: an unrecognised opener refuses rather than being
+ * silently discarded.
+ */
+const REQUEST_HEADERS: readonly string[] = [
+  "explain how",
+  "describe how",
+  "tell me how",
+  "show me how",
+  "how does",
+  "how do",
+  "how did",
+  "explain",
+  "describe",
+];
+
+/**
+ * The only words a role may carry in front of its identity once the header is gone.
+ *
+ * A genuinely closed function class, and semantically empty: `the`, `a`, `an` cannot be the head of
+ * anything. That is exactly what separates them from `process`, `mechanism` and `procedure`, which
+ * sit in `FRAMING_TOKENS` and CAN head an identity -- `Process A` is a different subject from `A`,
+ * while `the Fed` and `Fed` are the same one.
+ *
+ * They are not folded into the headers above because a stored name may legitimately begin with one.
+ * With `the` consumed by the header, a repository holding `The Fed` would stop matching a request
+ * that named it. Left in the role, both `The Fed` and `Fed` are covered -- the first exactly, the
+ * second behind a determiner -- and maximality picks the longer, which is the same entity either
+ * way.
+ */
+const DETERMINERS = new Set(["the", "a", "an"]);
+
+/** True when nothing but determiners precedes the identity. */
+export function determinerOnlyFraming(region: string): boolean {
+  const tokens = normalizeSubject(region).trim().split(" ").filter(Boolean);
+  return tokens.every((token) => DETERMINERS.has(token));
+}
+
+/**
+ * The request header this clause region opens with, and the region with it removed.
+ *
+ * Longest match wins, so `explain how` is preferred over `explain`. Only the START of the region is
+ * considered: a header word appearing later is not a header, which is the positional half of the
+ * repair.
+ */
+export function consumeRequestHeader(region: string): { header: string; rest: string } {
+  const trimmed = normalizeSubject(region).trim();
+  let best = "";
+  for (const header of REQUEST_HEADERS) {
+    if (trimmed === header || trimmed.startsWith(`${header} `)) {
+      if (header.length > best.length) best = header;
+    }
+  }
+  if (!best) return { header: "", rest: region };
+  return { header: best, rest: ` ${trimmed.slice(best.length).trim()} ` };
+}
+
 const CLAUSE_NEGATORS = [
   "does not",
   "do not",
@@ -365,8 +449,17 @@ const containsNegationMarker = (region: string) =>
   NEGATION_MARKERS.some((marker) => normalizeSubject(region).includes(` ${marker} `));
 
 export interface RelationClause {
-  /** Normalized text in which the cause must be named. Bounded by this clause, not the query. */
+  /**
+   * Normalized text in which the cause must be named, with the request header already consumed.
+   *
+   * Header-free is the contract, and it is what makes the role an assertion by the GRAMMAR rather
+   * than a span for a downstream allowlist to whittle. `Explain how process A affects B.` yields
+   * ` process a `, not ` explain how process a `, so there is no longer a choice of split for the
+   * repository to make on the grammar's behalf.
+   */
   cause: string;
+  /** The header the parser consumed off the front of the cause, or "" when there was none. */
+  requestHeader: string;
   /** Normalized text in which the effect must be named. */
   effect: string;
   construction: string;
@@ -455,7 +548,11 @@ export function relationSyntax(query: string): RelationSyntax {
     // its contents both carry meaning.
     const regionStart = accepted[i - 1]?.end ?? 0;
     const causeStart = before ? m.start + before.length + 1 : regionStart;
-    const cause = normalized.slice(causeStart, m.splitStart + 1);
+    const rawCause = normalized.slice(causeStart, m.splitStart + 1);
+    // Consumed here, at the parser, and retained rather than discarded: the negation and governance
+    // checks below read the cause region, and an anchor that silently lost evidence would be a
+    // second defect traded for the first.
+    const { header: requestHeader, rest: cause } = consumeRequestHeader(rawCause);
     const effectEnd = after ? m.end : (accepted[i + 1]?.start ?? normalized.length);
     const effect = normalized.slice(m.splitEnd - 1, effectEnd);
     const trimmed = cause.trim();
@@ -485,6 +582,7 @@ export function relationSyntax(query: string): RelationSyntax {
         containsNegationMarker(effect));
     return {
       cause,
+      requestHeader,
       effect,
       construction: [before, split.trim(), after].filter(Boolean).join(" … "),
       polarity: denied ? "NEGATED" : m.construction.polarity,
@@ -703,7 +801,7 @@ export async function resolveSubjectAuthority(
     // trailing half catches whatever qualifies the VERB ("may not", "never", "is unlikely to"); the
     // framing half catches whatever qualifies the PROPOSITION ("it is false that", "the claim
     // that"), which sits in front of a subject that ends its region quite legitimately.
-    if (!regionIsExactlyFramingAndIdentity(clause.cause, causes[0])) {
+    if (!regionIsExactlyFramingAndIdentity(clause.cause, causes[0], determinerOnlyFraming)) {
       return NOT_ELIGIBLE(
         frame,
         `The clause reads "${normalizeSubject(clause.cause).trim().slice(-60)}", which is not ` +

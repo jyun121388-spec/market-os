@@ -8,8 +8,8 @@ import {
 } from "./requestAuthority";
 import {
   explicitlyNamed,
-  nameOccursIn,
   normalizeSubject,
+  determinerOnlyFraming,
   regionIsExactlyFramingAndIdentity,
 } from "./subjectAuthority";
 import { exactRoleCover } from "./canonicalRoleCover";
@@ -1285,7 +1285,9 @@ async function mechanismRoleResidue(cause: string, effect: string): Promise<stri
   const uncovered = (region: string, nameOf: (e: (typeof edges)[number]) => string) => {
     const discovered = explicitlyNamed(edges, nameOf, region);
     if (discovered.length === 0) return false;
-    return !discovered.some((e) => regionIsExactlyFramingAndIdentity(region, nameOf(e)));
+    return !discovered.some((e) =>
+      regionIsExactlyFramingAndIdentity(region, nameOf(e), determinerOnlyFraming),
+    );
   };
   if (uncovered(cause, (e) => e.fromVariable)) {
     return (
@@ -1334,8 +1336,8 @@ async function findMechanismEdges(cause: string, effect: string): Promise<Causal
   return oriented
     .filter(
       (e) =>
-        regionIsExactlyFramingAndIdentity(cause, e.fromVariable) &&
-        regionIsExactlyFramingAndIdentity(effect, e.toVariable),
+        regionIsExactlyFramingAndIdentity(cause, e.fromVariable, determinerOnlyFraming) &&
+        regionIsExactlyFramingAndIdentity(effect, e.toVariable, determinerOnlyFraming),
     )
     .slice(0, 10)
     .map((e) => ({

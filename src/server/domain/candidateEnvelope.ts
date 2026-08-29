@@ -38,6 +38,7 @@
 import { prisma } from "@/server/db/client";
 import { mentionsEachOther } from "./askMarket";
 import {
+  determinerOnlyFraming,
   regionIsExactlyFramingAndIdentity,
   resolveStoredSubject,
   resolveSubjectAuthority,
@@ -255,7 +256,7 @@ export async function deriveCanonicalCandidateEnvelope(
         [cause, causes[0], "cause"],
         [effect, effects[0], "effect"],
       ] as const) {
-        if (regionIsExactlyFramingAndIdentity(region, identity)) continue;
+        if (regionIsExactlyFramingAndIdentity(region, identity, determinerOnlyFraming)) continue;
         return refuse(
           "UNRESOLVED",
           operation,

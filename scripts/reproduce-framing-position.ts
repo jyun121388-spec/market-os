@@ -91,7 +91,11 @@ async function canonicalDoor(query: string): Promise<string> {
   return `${envelope.status} ${await edgeNames(envelope.causalEdgeIds)}`;
 }
 
-async function measure(stateLabel: string) {
+async function measure(
+  stateLabel: string,
+  selected: Record<string, string>,
+  roles: Record<string, string>,
+) {
   console.log(`\n=== ${stateLabel}`);
   console.log(
     `  id   ${"cause region".padEnd(30)} ${"parse".padEnd(22)} ${"deterministic".padEnd(30)} ` +
@@ -118,6 +122,10 @@ async function measure(stateLabel: string) {
     const canonical = await canonicalDoor(query);
 
     parses[id] = `${parse}|${cause}`;
+    // The cause-side stored identity this state actually selected. `-` when nothing was served,
+    // which is a legitimate availability outcome rather than a grammar difference.
+    selected[id] = edges.length > 0 ? edges[0].split(" -> ")[0] : "-";
+    roles[id] = cause;
     console.log(
       `  ${id.padEnd(4)} ${cause.padEnd(30)} ${parse.padEnd(22)} ${deterministic.padEnd(30)} ` +
         `${legacy.padEnd(24)} ${canonical}`,
@@ -129,35 +137,112 @@ async function measure(stateLabel: string) {
 async function main() {
   await clean();
 
+  const sel: Record<string, Record<string, string>> = {};
+  const roles: Record<string, Record<string, string>> = {};
+  for (const k of ["S1", "S2", "S3"]) {
+    sel[k] = {};
+    roles[k] = {};
+  }
+
   await seed(A);
-  const s1 = await measure(`S1  only "${A} -> ${B}" stored`);
+  const s1 = await measure(`S1  only "${A} -> ${B}" stored`, sel.S1, roles.S1);
 
   await clean();
   await seed(PA);
-  const s2 = await measure(`S2  only "${PA} -> ${B}" stored`);
+  const s2 = await measure(`S2  only "${PA} -> ${B}" stored`, sel.S2, roles.S2);
 
   await clean();
   await seed(A);
   await seed(PA);
-  const s3 = await measure(`S3  BOTH stored`);
+  const s3 = await measure(`S3  BOTH stored`, sel.S3, roles.S3);
 
   await clean();
   await prisma.$disconnect();
 
-  // The parse -- operation plus cause region -- is a claim about GRAMMAR. It must be identical in
-  // all three states, because the same sentence has the same structure whatever the repository
-  // happens to hold. Any id listed here is inventory deciding grammar.
-  console.log(`\n--- parse stability across inventory states`);
+  // ---------------------------------------------------------------------------------------------
+  // THREE SEPARATE QUESTIONS, because the first one alone reported a clean tree over a live defect.
+  //
+  // The original summary compared only `operation|causeRegion` and printed "0/5 inventory-dependent"
+  // while F1 was demonstrably answering about `A` in one state and `Process A` in another. Of course
+  // it did: the parser never reads the repository, so its output is stable by construction and
+  // comparing it can only ever confirm that. Stability of the parse is necessary and nowhere near
+  // sufficient.
+  //
+  //   GRAMMAR ROLE            what span the parser assigned to the cause. Must be constant.
+  //   REPOSITORY AVAILABILITY whether an exact identity for that span exists. May differ freely.
+  //   SELECTED IDENTITY       which stored name was actually published. Must COVER the role.
+  //
+  // The last one is the real test, and it needs no hard-coded expectation: if a state publishes an
+  // identity that does not account for the whole grammatical role, then something other than grammar
+  // decided where the role ended -- and the only other thing in the loop is inventory.
+  // ---------------------------------------------------------------------------------------------
+  console.log(`
+--- 1. GRAMMAR ROLE stability (necessary, not sufficient)`);
   const unstable = PROBES.filter(({ id }) => !(s1[id] === s2[id] && s2[id] === s3[id])).map(
     ({ id }) => id,
   );
   for (const { id } of PROBES) {
-    const mark = unstable.includes(id) ? "INVENTORY-DEPENDENT" : "stable            ";
-    console.log(`  ${id.padEnd(4)} ${mark}  S1 ${s1[id]}   S2 ${s2[id]}   S3 ${s3[id]}`);
+    console.log(`  ${id.padEnd(4)} ${unstable.includes(id) ? "UNSTABLE" : "stable  "}  ${s1[id]}`);
   }
+
+  console.log(`
+--- 2. REPOSITORY AVAILABILITY (differences here are legitimate)`);
+  for (const { id } of PROBES) {
+    console.log(
+      `  ${id.padEnd(4)} S1 ${(sel.S1[id] ?? "-").padEnd(28)} S2 ${(sel.S2[id] ?? "-").padEnd(28)} ` +
+        `S3 ${sel.S3[id] ?? "-"}`,
+    );
+  }
+
+  console.log(`
+--- 3. SELECTED IDENTITY vs GRAMMAR ROLE  (a mismatch is the defect)`);
+  const violations: string[] = [];
+  for (const { id } of PROBES) {
+    for (const state of ["S1", "S2", "S3"] as const) {
+      const identity = sel[state][id];
+      const role = roles[state][id];
+      if (!identity || identity === "-") continue;
+      // Does the published identity account for the WHOLE role? Compared on normalized tokens, and
+      // allowing only the request header the parser is supposed to have consumed. Deliberately not
+      // reusing `regionIsExactlyFramingAndIdentity` -- that function is the thing under test, and a
+      // harness that asks the accused to certify itself measures nothing.
+      const roleTokens = role.trim().split(/\s+/).filter(Boolean);
+      const idTokens = identity
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const tail = roleTokens.slice(roleTokens.length - idTokens.length).join(" ");
+      const residue = roleTokens.slice(0, roleTokens.length - idTokens.length);
+      const covers = tail === idTokens.join(" ");
+      // Everything the identity did not explain. A KIND NOUN here is the defect: the repository
+      // decided a semantically loaded word was framing.
+      const KIND_NOUNS = ["process", "mechanism", "procedure", "rate", "value", "level", "figure"];
+      const loaded = residue.filter((w) => KIND_NOUNS.includes(w));
+      const verdict = !covers
+        ? "IDENTITY DOES NOT COVER ROLE"
+        : loaded.length > 0
+          ? `INVENTORY DECIDED GRAMMAR: discarded ${JSON.stringify(loaded.join(" "))}`
+          : "ok";
+      if (verdict !== "ok") violations.push(`${id}/${state} ${verdict}`);
+      console.log(
+        `  ${id.padEnd(4)} ${state}  role=${JSON.stringify(role).padEnd(42)} ` +
+          `published=${JSON.stringify(identity).padEnd(30)} ${verdict}`,
+      );
+    }
+  }
+
   console.log(
-    `\nREPRODUCED if any probe is INVENTORY-DEPENDENT. Inventory-dependent parses: ` +
-      `${unstable.length}/${PROBES.length}`,
+    `
+GRAMMAR ROLE unstable: ${unstable.length}/${PROBES.length}` +
+      `   SELECTION VIOLATIONS: ${violations.length}`,
+  );
+  for (const v of violations) console.log(`  ${v}`);
+  console.log(
+    violations.length > 0
+      ? "REPRODUCED. A published identity failed to account for its grammatical role."
+      : "No selection violation over these probes and states.",
   );
 }
 

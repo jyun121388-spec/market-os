@@ -3,6 +3,7 @@ import {
   classify,
   countCallsDespiteFailure,
   evidenceSufficient,
+  withDerivableCadence,
 } from "../scripts/legacy-bypass-readiness";
 import { REQUEST_DEVELOPMENT_CORPUS } from "./fixtures/requestDevelopmentCorpus";
 
@@ -312,5 +313,28 @@ describe("evidence sufficiency inspects answer-bearing records", () => {
         occurs,
       ),
     ).toBe(false);
+  });
+});
+
+describe("a cadence needs two distinct dates, not two rows", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const t0 = Date.UTC(2026, 0, 31);
+
+  it("does not count two revisions of one period as a cadence", () => {
+    // SIXTH REVIEW ROUND, and the seventh version of one mistake in this file: a proxy that counts
+    // something ADJACENT to the thing that matters. Observations carry revisions, so two rows can
+    // share an `observationDate`; `getObservationsOneRowPerDate` collapses them in production
+    // before any cadence is derived. A raw row count would let one period masquerade as two.
+    expect(withDerivableCadence([{ name: "CPI", dates: [t0, t0] }])).toEqual([]);
+    expect(withDerivableCadence([{ name: "CPI", dates: [t0, t0, t0] }])).toEqual([]);
+  });
+
+  it("counts two genuinely distinct periods", () => {
+    expect(withDerivableCadence([{ name: "CPI", dates: [t0, t0 - 31 * day] }])).toEqual(["CPI"]);
+  });
+
+  it("does not count a single reading, revised or not", () => {
+    expect(withDerivableCadence([{ name: "CPI", dates: [t0] }])).toEqual([]);
+    expect(withDerivableCadence([{ name: "CPI", dates: [] }])).toEqual([]);
   });
 });

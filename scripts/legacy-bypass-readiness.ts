@@ -269,11 +269,31 @@ interface Shelf {
    * This product decides currentness from the interval between period ends, so a series that has
    * reported once cannot be shown to be current -- unknown is not fresh. Sufficiency for a
    * current-observation request therefore needs two, not one.
+   *
+   * TWO DISTINCT DATES, not two rows. Observations carry revisions, so two rows can be the same
+   * `observationDate`, and `getObservationsOneRowPerDate` resolves exactly that before any cadence
+   * is derived. Counting rows would let two revisions of one period masquerade as a cadence --
+   * review's counterexample, and the seventh version of the same mistake in this file: a proxy that
+   * counts something adjacent to the thing that matters.
    */
   currentableSeries: string[];
   /** Provider-owned series, as pairs, so attribution needs the connection and not two coincidences. */
   attributed: { provider: string; series: string }[];
   edges: { from: string; to: string }[];
+}
+
+/**
+ * Series with at least two DISTINCT observation dates, i.e. a cadence can be derived.
+ *
+ * Pure, and exported, so the revision counterexample can be tested without a database: two rows
+ * sharing one `observationDate` are two revisions of a single period and establish no interval.
+ * `getObservationsOneRowPerDate` collapses them in production before cadence is computed, and this
+ * mirrors that rule rather than approximating it with a row count.
+ */
+export function withDerivableCadence(
+  series: readonly { name: string; dates: readonly number[] }[],
+): string[] {
+  return series.filter((s) => new Set(s.dates).size > 1).map((s) => s.name);
 }
 
 async function loadShelf(): Promise<Shelf> {
@@ -283,15 +303,20 @@ async function loadShelf(): Promise<Shelf> {
       select: {
         name: true,
         source: { select: { name: true } },
-        _count: { select: { observations: true } },
+        observations: { select: { observationDate: true } },
       },
     }),
     prisma.causalEdge.findMany({ select: { fromVariable: true, toVariable: true } }),
   ]);
-  const answerBearing = series.filter((s) => s._count.observations > 0);
+  const answerBearing = series.filter((s) => s.observations.length > 0);
   return {
     observedSeries: answerBearing.map((s) => s.name),
-    currentableSeries: series.filter((s) => s._count.observations > 1).map((s) => s.name),
+    currentableSeries: withDerivableCadence(
+      series.map((s) => ({
+        name: s.name,
+        dates: s.observations.map((o) => o.observationDate.getTime()),
+      })),
+    ),
     attributed: answerBearing.map((s) => ({ provider: s.source.name, series: s.name })),
     edges: edges.map((e) => ({ from: e.fromVariable, to: e.toVariable })),
   };

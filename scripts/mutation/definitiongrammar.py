@@ -34,6 +34,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-EN-BOUNDARY           the intransitive predicate is matched by substring
   M-DEFGRAM-KO-AGENTIVE           an agentive head verb counts as metalinguistic
   M-DEFGRAM-EN-BEHIND             a non-citing complement counts as citing
+  M-DEFGRAM-EN-QUOTED             the metalinguistic complement need not be quoted
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -248,6 +249,14 @@ MUTATIONS = [
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||",
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w, true)) ||",
     ),
+    # M-DEFGRAM-EN-QUOTED -- the complement no longer has to be QUOTED, so `meaning of` governs an
+    # event clause and `What is the meaning of the Fed raising rates?` becomes a definition of it.
+    (
+        "M-DEFGRAM-EN-QUOTED the metalinguistic complement need not be quoted",
+        REQUEST,
+        "    if (!quotedIn(raw, stripped)) continue;",
+        "",
+    ),
     # M-DEFGRAM-EN-BEHIND -- `behind` rejoins the citing complements, so `the meaning BEHIND x` asks
     # for the rationale of an event and is read as a definition of it.
     (
@@ -318,6 +327,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 24. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 25. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

@@ -240,7 +240,24 @@ which passed the term test only because that test has no proof of noun-shape. Tw
 prepositions carried the justification and the third was there by association. Removed; no corpus
 row used it.
 
-24 definition mutants, 24 of 24 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
+**TWENTY-THREE rounds, and the last real finding closed a class I had patched an instance of.**
+Removing `behind` did not help: `What is the meaning OF the Fed raising rates?` is the same request
+with a preposition that survived, because `meaning of` governs event clauses as readily as terms
+and `isSingleTermRegion` proves only the absence of other operations' operands, never that a region
+is a noun phrase. Patching one instance of an open class is exactly what this unit spent five
+rounds learning not to do, and I did it again.
+
+QUOTATION is the proof, and the only lexicon-free one there is: mentioning a term rather than using
+it is marked by quoting it. Both corpus rows are quoted — they are the only two the corpus has — so
+the measured cost is zero, and the named unmeasured cost is that an unquoted
+`What is the meaning of carry trade?` is refused.
+
+Rounds 21 and 22 were documentation: two comment blocks left arguing for designs the code had
+already abandoned. A comment that argues for a decision is evidence about that decision, and
+reversing the decision without retiring the argument leaves the file asserting two incompatible
+things.
+
+25 definition mutants, 25 of 25 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

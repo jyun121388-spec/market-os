@@ -1636,16 +1636,29 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
     // required, which costs nothing measurable: the two corpus rows this shape recognises are
     // `What is meant BY 'basis risk'?` and `What is the meaning OF 'carry trade'?`.
     //
-    // `behind` WAS in this set and is removed. Review asked for the rule rather than one more
-    // string and named it: `the meaning OF x` and `meant BY x` cite x as a term, while
-    // `the meaning BEHIND x` asks for the rationale of an event -- and
-    // `What is the meaning behind the Fed raising rates?` was authorized, with `the Fed raising
-    // rates` passing the term test because that test has no proof of noun-shape. Two of the three
-    // prepositions carried the justification and the third was there by association. No corpus row
-    // used it.
+    // `behind` WAS in this set and is removed: `the meaning OF x` and `meant BY x` cite x as a
+    // term, while `the meaning BEHIND x` asks the rationale of an event and cites nothing.
+    //
+    // AND THAT REMOVAL DID NOT CLOSE THE CLASS, which the next round said plainly.
+    // `What is the meaning OF the Fed raising rates?` is the same request with a preposition that
+    // survived, because `meaning of` governs event clauses as readily as terms and
+    // `isSingleTermRegion` proves only the absence of other operations' operands -- never that a
+    // region is a noun phrase. Deleting `behind` had patched one instance of an open class, which
+    // is the exact mistake this unit spent five rounds learning not to make.
+    //
+    // QUOTATION IS THE PROOF, and it is the only one available here. Mentioning a term rather than
+    // using it is marked in writing by quoting it, so a speaker who writes `the meaning of 'carry
+    // trade'` has SAID that the complement is a term, where `the meaning of the Fed raising rates`
+    // has not. No lexicon, no part-of-speech guess, and no list.
+    //
+    // Both corpus rows this shape recognises are quoted, and they are the only two the corpus has,
+    // so the measured cost is zero. The unmeasured cost is real and named: an unquoted
+    // `What is the meaning of carry trade?` is refused. That is the safe direction, and closing it
+    // needs the noun-phrase proof this grammar does not have.
     const complement = /^\s(of|by)\s+/.exec(term);
     if (complement === null) continue;
     const stripped = ` ${term.slice(complement[0].length)}`;
+    if (!quotedIn(raw, stripped)) continue;
     if (!isSingleTermRegion(` ${stripped.trim()} `, raw)) continue;
     return {
       operation: "DEFINITION",
@@ -1716,6 +1729,43 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
  * An intransitive predicate with one named subject is a request to explain that subject.
  */
 const INTRANSITIVE_PREDICATES = ["work", "works", "operate", "operates", "function", "functions"];
+
+/**
+ * Was this region QUOTED in the request as written?
+ *
+ * The mention/use distinction, which is the only lexicon-free evidence that a complement is a term
+ * rather than a clause. `the meaning of 'carry trade'` cites; `the meaning of the Fed raising
+ * rates` describes an event.
+ *
+ * Read from the RAW span, because normalization deletes the quotes. Every quotation form the
+ * product is likely to see is accepted -- straight, curly, and the Korean corner brackets -- and a
+ * form missing from here REFUSES, which is the safe direction.
+ */
+function quotedIn(raw: string, region: string): boolean {
+  const wanted = normalizedTokens(region).join(" ");
+  if (wanted.length === 0) return false;
+  for (const [open, close] of QUOTATION_PAIRS) {
+    let from = 0;
+    for (;;) {
+      const start = raw.indexOf(open, from);
+      if (start === -1) break;
+      const end = raw.indexOf(close, start + open.length);
+      if (end === -1) break;
+      if (normalizedTokens(raw.slice(start + open.length, end)).join(" ") === wanted) return true;
+      from = end + close.length;
+    }
+  }
+  return false;
+}
+
+const QUOTATION_PAIRS: readonly (readonly [string, string])[] = [
+  ["'", "'"],
+  ['"', '"'],
+  ["‘", "’"],
+  ["“", "”"],
+  ["「", "」"],
+  ["『", "』"],
+];
 
 /**
  * A word, delimited, so a substring test finds the WORD and not the letters.

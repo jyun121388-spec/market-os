@@ -86,6 +86,27 @@ describe("what must NOT become a definition", () => {
     // association with the other two, carried none of their justification, and no corpus row used
     // it -- `the Fed raising rates` passed the term test because that test has no noun-shape proof.
     expect(operationOf("What is the meaning behind the Fed raising rates?")).not.toBe("DEFINITION");
+    // AND REMOVING `behind` DID NOT CLOSE THE CLASS, which the next round said plainly:
+    // `meaning OF` governs event clauses as readily as terms, so the same request survived with a
+    // preposition that stayed. Patching one instance of an open class is the exact mistake this
+    // unit spent five rounds learning not to make, and I made it again here.
+    //
+    // QUOTATION is the proof, and the only lexicon-free one available. Mentioning a term rather
+    // than using it is marked by quoting it: a speaker who writes `the meaning of 'carry trade'`
+    // has SAID the complement is a term. Both corpus rows are quoted, so the measured cost is
+    // zero; the unmeasured cost is that an unquoted `What is the meaning of carry trade?` is
+    // refused, which is the safe direction.
+    expect(operationOf("What is the meaning of the Fed raising rates?")).not.toBe("DEFINITION");
+    expect(operationOf("What is the meaning of the ECB cutting rates?")).not.toBe("DEFINITION");
+    expect(operationOf('What is the meaning of "carry trade"?')).toBe("DEFINITION");
+    // Both of the older guards went MISSED once quotation was required -- for the third time in
+    // this unit a stricter rule covered the only strings the tests held, and for the third time
+    // neither guard was actually redundant. `behind` still cites nothing even when the term IS
+    // quoted, and the wh-copular frame still keeps `how does ... change` out of a shape that is
+    // about what a term IS.
+    expect(operationOf("What is the meaning behind 'carry trade'?")).not.toBe("DEFINITION");
+    expect(operationOf("How does the meaning of 'inflation' change?")).not.toBe("DEFINITION");
+    expect(operationOf("How does he explain the meaning of 'inflation'?")).not.toBe("DEFINITION");
   });
 
   it("refuses a Korean predicate that merely BEGINS with a metalinguistic noun", () => {

@@ -1003,26 +1003,37 @@ const KOREAN_INTERROGATIVE_DETERMINERS = ["어떤", "어떠한", "무슨"];
  * with a framing word, and that admits rather than refuses.
  */
 const KOREAN_REQUEST_FRAME = [
-  "설명",
-  "설명해",
   "설명해줘",
   "설명해주세요",
   "설명해주십시오",
-  "알려",
   "알려줘",
   "알려주세요",
   "알려주십시오",
   "주세요",
   "주십시오",
-  "궁금",
   "궁금해",
   "궁금해요",
   "궁금합니다",
-  "알고",
   "싶어",
   "싶어요",
   "싶습니다",
 ];
+
+/**
+ * Framing forms that may only be stripped when something has ALREADY been stripped after them.
+ *
+ * `설명해` is framing in `설명해 주세요` and a PREDICATE in `주가가 무엇을 설명해?` -- "what does the
+ * share price explain". Exact whole-eojeol matching fixed the earlier prefix overmatch and did not
+ * touch this: the form is genuinely ambiguous, and review found the request authorized because the
+ * predicate was consumed as politeness and a bare interrogative was left behind with nothing to
+ * validate.
+ *
+ * Position resolves it without vocabulary. An auxiliary that was itself stripped stands after
+ * framing; nothing stands after a predicate that ends the request. So these strip only in the
+ * second and later passes of the loop, and a request ENDING in one keeps it -- where it must then
+ * survive the copular-predicate check, which 설명해 does not.
+ */
+const KOREAN_REQUEST_FRAME_NONFINAL = ["설명", "설명해", "알려", "알고", "궁금"];
 /**
  * Markers that give the term a complement, an adjunct or a second constituent.
  *
@@ -1247,7 +1258,12 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // The request frame is stripped from the END only. A leading `설명해 주세요` is not a thing, and
   // consuming these anywhere would let one hide between the term and its marker.
   let body = all;
-  while (body.length > 0 && KOREAN_REQUEST_FRAME.includes(body[body.length - 1])) {
+  for (let stripped = 0; body.length > 0; stripped += 1) {
+    const last = body[body.length - 1];
+    const framing =
+      KOREAN_REQUEST_FRAME.includes(last) ||
+      (stripped > 0 && KOREAN_REQUEST_FRAME_NONFINAL.includes(last));
+    if (!framing) break;
     body = body.slice(0, -1);
   }
   if (body.length === 0) return null;

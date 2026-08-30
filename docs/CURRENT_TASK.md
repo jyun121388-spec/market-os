@@ -273,7 +273,17 @@ head morpheme — so the code now generates the cross product and the subclass i
 construction rather than by recall. That is the general lesson of this unit stated one more way: a
 class you can DERIVE should never be typed out.
 
-27 definition mutants, 27 of 27 ISOLATED full suite 138 files / 2422 pass / 19 expected fail
+**TWENTY-EIGHT rounds. SOL returned APPROVE; TERRA, on the same SHA, found two more.** One did not
+reproduce (`내 포트폴리오가 무슨 뜻인가요?` returns PROHIBITED — the advice detector has absolute
+precedence — though its structural observation about the possessive guard was right, and the
+outcome is now pinned). The other did: `주가가 무엇을 설명해?` — "what does the share price
+explain" — had its PREDICATE consumed as politeness, because `설명해` is framing in `설명해 주세요`
+and a predicate here. Exact matching had fixed prefix overmatch and could not fix ambiguity;
+POSITION does. An auxiliary that was itself stripped stands after framing, and nothing stands
+after a predicate that ends the request, so those forms strip only after something else already
+has.
+
+28 definition mutants, 28 of 28 ISOLATED full suite 138 files / 2422 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

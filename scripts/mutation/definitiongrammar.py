@@ -36,6 +36,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-EN-BEHIND             a non-citing complement counts as citing
   M-DEFGRAM-EN-QUOTED             the metalinguistic complement need not be quoted
   M-DEFGRAM-EN-PRONOUN            a pronoun counts as a term
+  M-DEFGRAM-KO-FRAME-FINAL        ambiguous framing strips even when it ends the request
   M-DEFGRAM-EN-INDEFINITE         the indefinite pronouns are enumerated by hand, not generated
 
     python scripts/mutation/definitiongrammar.py [ID ...]
@@ -223,8 +224,8 @@ MUTATIONS = [
     (
         "M-DEFGRAM-KO-FRAME-PREFIX the request frame is stripped by prefix",
         REQUEST,
-        "  while (body.length > 0 && KOREAN_REQUEST_FRAME.includes(body[body.length - 1])) {",
-        "  while (body.length > 0 && KOREAN_REQUEST_FRAME.some((f) => body[body.length - 1].startsWith(f))) {",
+        "      KOREAN_REQUEST_FRAME.includes(last) ||",
+        "      KOREAN_REQUEST_FRAME.some((f) => last.startsWith(f)) ||",
     ),
     # M-DEFGRAM-KO-CITATION-BARE -- bare 라는 counts as a citation again, so the adnominal form of a
     # quoted imperative is a cited term and `팔라는 뜻인가요?` becomes a definition of 팔.
@@ -250,6 +251,15 @@ MUTATIONS = [
         REQUEST,
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||",
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w, true)) ||",
+    ),
+    # M-DEFGRAM-KO-FRAME-FINAL -- ambiguous framing forms may be stripped in the FIRST pass again,
+    # so a predicate ending the request is consumed as politeness and `주가가 무엇을 설명해?`
+    # authorizes with a bare interrogative and nothing left to validate.
+    (
+        "M-DEFGRAM-KO-FRAME-FINAL ambiguous framing strips even when it ends the request",
+        REQUEST,
+        "      (stripped > 0 && KOREAN_REQUEST_FRAME_NONFINAL.includes(last));",
+        "      KOREAN_REQUEST_FRAME_NONFINAL.includes(last);",
     ),
     # M-DEFGRAM-EN-PRONOUN -- a pronoun counts as a term again, so `How does he work?` becomes a
     # definition of `he`.
@@ -345,6 +355,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 27. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 28. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

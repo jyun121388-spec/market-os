@@ -321,6 +321,21 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("주가가 무엇을 설명하나요?")).not.toBe("DEFINITION");
     expect(operationOf("주가가 무엇을 알려주나요?")).not.toBe("DEFINITION");
     expect(operationOf("스태그플레이션이 뭔지 설명해줘")).toBe("DEFINITION");
+    // AND EXACT MATCHING WAS NOT THE WHOLE FIX. `설명해` is framing in `설명해 주세요` and a
+    // PREDICATE in `주가가 무엇을 설명해?` -- "what does the share price explain" -- which the frame
+    // stripper consumed as politeness, leaving a bare interrogative with nothing left to validate.
+    // The form is genuinely ambiguous, so POSITION resolves it: an auxiliary that was itself
+    // stripped stands after framing, and nothing stands after a predicate that ends the request.
+    // These strip only after something else already has.
+    expect(operationOf("주가가 무엇을 설명해?")).not.toBe("DEFINITION");
+    expect(operationOf("주가가 무엇을 알려?")).not.toBe("DEFINITION");
+    // Exact matching is still load-bearing for the TERMINAL forms, and splitting the list moved
+    // where that shows: `궁금해하나요` opens with the terminal entry `궁금해`, so a prefix test
+    // would eat "what are you curious about" and leave a bare interrogative behind.
+    expect(operationOf("주가가 무엇을 궁금해하나요?")).not.toBe("DEFINITION");
+    expect(operationOf("주가가 무엇을 알려주나요?")).not.toBe("DEFINITION");
+    expect(operationOf("신용스프레드가 어떤 개념인지 설명해 주십시오")).toBe("DEFINITION");
+    expect(operationOf("환헤지가 무슨 의미인지 알고 싶어요")).toBe("DEFINITION");
   });
 
   it("refuses a standalone coordinating conjunction", () => {

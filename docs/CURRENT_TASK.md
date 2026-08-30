@@ -257,7 +257,16 @@ already abandoned. A comment that argues for a decision is evidence about that d
 reversing the decision without retiring the argument leaves the file asserting two incompatible
 things.
 
-25 definition mutants, 25 of 25 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
+**TWENTY-FIVE rounds.** `How does he work?` was a definition of `he` — shape 2 accepted any single
+token before the predicate and nothing established that the subject was a NAMED thing. A term is a
+name. Pronouns are a closed function-word class with no financial vocabulary shading into it, so
+the whole class is refused without any judgement about members.
+
+Rounds 21, 22 and 24 were all documentation: comments left arguing for designs the code had
+abandoned. After the third I swept both files myself and found two more. When a rule changes, the
+comment that argued for the old rule is part of what changed.
+
+26 definition mutants, 26 of 26 ISOLATED full suite 138 files / 2422 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

@@ -1800,6 +1800,14 @@ function isSingleTermRegion(region: string, raw?: string): boolean {
   if (tokens.length === 0) return false;
   if (tokens.some((token) => CLAUSE_CONNECTIVES.includes(token))) return false;
   if (tokens.some((token) => OBJECT_COORDINATORS.includes(token))) return false;
+  // A PRONOUN IS NOT A TERM. `How does he work?` asks how a person performs their work, and it was
+  // authorized as a definition of `he` because shape 2 accepted any single token before the
+  // predicate and nothing established the subject was a NAMED thing.
+  //
+  // Pronouns are a closed function-word class in the same sense the prepositions are, and unlike
+  // that list this one has no financial vocabulary shading into it -- there is no term that is a
+  // pronoun, so refusing the whole class costs nothing and needs no judgement about members.
+  if (tokens.some((token) => PRONOUNS.has(token))) return false;
   // A CALCULATION IS NOT A TERM, and this has to be checked on the RAW text as well as the tokens.
   //
   // Review found `What is EBITDA minus capex?` becoming a definition, I added a five-word list, and
@@ -1876,6 +1884,67 @@ function isSingleTermRegion(region: string, raw?: string): boolean {
  * never that something else is admitted.
  */
 const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense", "concept"]);
+
+/**
+ * Pronouns, which stand in for a thing instead of naming one.
+ *
+ * A term is a NAME. `How does he work?` is a question about a person, `What is meant by 'it'?`
+ * cites nothing, and neither is a definitional request -- review found the first authorized as a
+ * definition of `he`.
+ *
+ * Closed, like the prepositions, and unlike them nothing in financial vocabulary shades into it,
+ * so the whole class can be refused without any judgement about individual members.
+ */
+const PRONOUNS = new Set([
+  "i",
+  "me",
+  "my",
+  "mine",
+  "myself",
+  "we",
+  "us",
+  "our",
+  "ours",
+  "ourselves",
+  "you",
+  "your",
+  "yours",
+  "yourself",
+  "yourselves",
+  "he",
+  "him",
+  "his",
+  "himself",
+  "she",
+  "her",
+  "hers",
+  "herself",
+  "it",
+  "its",
+  "itself",
+  "they",
+  "them",
+  "their",
+  "theirs",
+  "themselves",
+  "this",
+  "that",
+  "these",
+  "those",
+  "who",
+  "whom",
+  "whose",
+  "which",
+  "what",
+  "someone",
+  "anyone",
+  "everyone",
+  "nobody",
+  "something",
+  "anything",
+  "everything",
+  "nothing",
+]);
 
 /**
  * Prepositions that give a head noun its own complement.

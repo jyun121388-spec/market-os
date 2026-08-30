@@ -151,6 +151,22 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("How does a derivative qua collateral work?")).not.toBe("DEFINITION");
   });
 
+  it("refuses a pronoun as the term", () => {
+    // `How does he work?` asks how a person performs their work, and was authorized as a definition
+    // of `he`: shape 2 accepted any single token before the predicate and nothing established that
+    // the subject was a NAMED thing. A term is a name. Pronouns are a closed function-word class
+    // with no financial vocabulary shading into it, so the whole class is refused.
+    for (const query of [
+      "How does he work?",
+      "How does she work?",
+      "How does it work?",
+      "How do they work?",
+    ]) {
+      expect(operationOf(query), query).not.toBe("DEFINITION");
+    }
+    expect(operationOf("How does a repurchase agreement work?")).toBe("DEFINITION");
+  });
+
   it("refuses `how is X work`, where work is a noun", () => {
     // `How is remote work?` was a definition of `remote`: the rule found `work` in final position
     // and read it as the intransitive predicate, where it is the head NOUN of the subject and the

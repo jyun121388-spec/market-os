@@ -1271,7 +1271,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     const next = body[index + 1];
     if (next === undefined) return false;
     if (KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(next, w))) return true;
-    if (!KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(next, h))) return false;
+    if (!KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(next, h, true))) return false;
     return analyseNoun(next).some(
       (a) => a.role === "TOPIC" || a.role === "NOMINATIVE" || a.role === "GENITIVE",
     );
@@ -1285,7 +1285,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // 정의가, 무엇을, 뭔지 -- but everything following it has to be grammatical, not lexical. 있게
   // opens with 있, which is a verb stem and not a particle, so the eojeol is a predicate about
   // something rather than a citation of a term.
-  const isMarkedBy = (eojeol: string, head: string): boolean => {
+  const isMarkedBy = (eojeol: string, head: string, verbalisable = false): boolean => {
     if (!eojeol.startsWith(head)) return false;
     // The head may also be VERBALISED. 의미하는 is 의미 plus the light verb 하-, "that means", and
     // `PER이 뭘 의미하는 지표인가요` is a corpus row that needs it -- tightening this test to
@@ -1293,12 +1293,19 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     // with the formal ending, which `GDP디플레이터란 무엇을 말합니까` needs. It is the one
     // derivation permitted, because it makes a verb of the SAME noun rather than a different word:
     // 의미있게 opens with 있, a separate stem, and stays out.
-    const tail = eojeol.slice(head.length).replace(/^[하합]/, "");
+    // ONLY A METALINGUISTIC HEAD MAY BE VERBALISED, and letting an interrogative do it was a defect.
+    // 뭐하다 is "to do what", so `주가가 뭐하나요?` -- "what is the share price DOING" -- read 뭐하나요
+    // as the interrogative 뭐 plus a light verb and became a definition of 주가. 의미하다 and
+    // 말하다 make a verb OF the noun; 뭐하다 does not, because 뭐 is a pronoun and there is nothing
+    // to verbalise.
+    const tail = verbalisable
+      ? eojeol.slice(head.length).replace(/^[하합]/, "")
+      : eojeol.slice(head.length);
     return [...tail].every((syllable) => KOREAN_GRAMMATICAL_SYLLABLES.includes(syllable));
   };
   const isMarker = (eojeol: string): boolean =>
     KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||
-    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(eojeol, h));
+    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(eojeol, h, true));
 
   // The LEFTMOST marker, so that everything before it is the term and everything after it is
   // predicate. Taking the rightmost would let `X는 무슨 뜻` split at 뜻 and swallow 무슨 into the
@@ -1362,7 +1369,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // `채권 듀레이션 개념 알려주세요` is refused, because its term is two eojeol.
   const metalinguisticMarker =
     !KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(body[headAt], w)) &&
-    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[headAt], h));
+    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[headAt], h, true));
   if (metalinguisticMarker && term.length > 1) return null;
 
   // A HEAD USED AS THE COPULAR PREDICATE IS NOT CITING ANYTHING. `주가가 개념인가요?` asks whether
@@ -1493,7 +1500,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   const compounded =
     cited === null &&
     !particleShaped &&
-    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[at], h));
+    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[at], h, true));
   // A CITED term carries its own marker. `테이퍼링이라는 표현은 무슨 뜻인가요?` was refused by an
   // earlier version of this line, which required a case marker on 테이퍼링 after the citation
   // suffix had already been stripped off it -- so the frame the comments claimed to support did not

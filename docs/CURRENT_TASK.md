@@ -209,7 +209,12 @@ already made that trade once when the head `말` was removed.
 | corpus DEFINITION rows recognised | 9 / 60 | 26 / 60                |
 | rows changed                      | —      | 17, every one intended |
 
-20 definition mutants, 20 of 20 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
+**SEVENTEEN rounds.** The `하/합` light-verb carveout — added so `의미하는` and `말합니까` count as
+metalinguistic heads verbalised — was applied to the WHAT-interrogatives too, so `주가가 뭐하나요?`
+("what is the share price DOING") read `뭐하나요` as `뭐` plus a light verb. 의미하다 makes a verb
+OF the noun; 뭐 is a pronoun with nothing to verbalise. Restricted to heads, at no corpus cost.
+
+21 definition mutants, 21 of 21 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

@@ -88,6 +88,12 @@ describe("what must NOT become a definition", () => {
     // agglutinates, so a head must be allowed its particles and copular endings; what follows it
     // has to be grammatical, and 있 is a verb stem.
     expect(operationOf("주가가 의미있게 상승하나요?")).not.toBe("DEFINITION");
+    // And the light-verb carveout is for METALINGUISTIC HEADS only. 뭐하다 is "to do what", so
+    // `주가가 뭐하나요?` -- "what is the share price DOING" -- read 뭐하나요 as the interrogative
+    // 뭐 plus a light verb. 의미하다 makes a verb OF the noun; 뭐 is a pronoun with nothing to
+    // verbalise, and letting it through was the same carveout applied where it has no argument.
+    expect(operationOf("주가가 뭐하나요?")).not.toBe("DEFINITION");
+    expect(operationOf("주가가 뭐합니까?")).not.toBe("DEFINITION");
     // The one derivation still allowed is the light verb 하-, which makes a verb of the SAME noun.
     // Tightening the rule lost this corpus row until that was carved out.
     expect(operationOf("PER이 뭘 의미하는 지표인가요")).toBe("DEFINITION");

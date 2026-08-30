@@ -30,6 +30,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-CITATION-BARE      bare 라는 counts as a citation, admitting quoted imperatives
   M-DEFGRAM-EN-HOW-IS             ` how is ` shares the ` how does ` rule, so a noun reads as a verb
   M-DEFGRAM-KO-CITATION-HEAD      a citation need not govern an interrogative or a marked head
+  M-DEFGRAM-KO-VERBALISE          the light-verb carveout reaches interrogatives
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -236,6 +237,14 @@ MUTATIONS = [
         "  if (cited !== null && !citationIsGoverned(at)) cited = null;",
         "",
     ),
+    # M-DEFGRAM-KO-VERBALISE -- the light-verb carveout applies to interrogatives again, so 뭐하다
+    # ("to do what") reads as a marker and `주가가 뭐하나요?` becomes a definition of 주가.
+    (
+        "M-DEFGRAM-KO-VERBALISE the light-verb carveout reaches interrogatives",
+        REQUEST,
+        "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||",
+        "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w, true)) ||",
+    ),
     # M-DEFGRAM-EN-HOW-IS -- ` how is ` rejoins the shape-2 openers, so a final noun `work` reads as
     # the intransitive predicate and `How is remote work?` becomes a definition of `remote`.
     (
@@ -282,6 +291,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 20. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 21. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

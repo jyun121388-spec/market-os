@@ -44,6 +44,31 @@ Tracks Codex reviews that are pending, deferred, or resulted in an unresolved di
 | M16       | Filing Diff cannot show an original-vs-restated comparison                                                     | Deliberate, recorded 2026-08-18 so it is not mistaken for the +233% bug returning. A period-over-period change now requires a DIFFERENT period end, which by construction excludes a restatement of the same period (same length, same end, different accession). That exclusion is correct: a restatement is not a period-over-period change and showing it in that section would be the same category error the +233% defect was. But it does mean restatements are currently invisible in the UI even though both rows are stored and provenance is intact. A "this figure was later restated" surface would be a real feature; it is not built, and is not being built speculatively                                                                                                        | PENDING            |
 | M11       | Unit strings are matched exactly and case-sensitively                                                          | `computeChange` branches on `unit === "percent"` to decide whether basis points are meaningful, and a series declared "Percent"/"pct"/"%" would silently return `bpsChange: null` while every other number stayed correct. No such typo exists today. `tests/unitVocabulary.test.ts` pins every tracked series to a known unit vocabulary so the next one fails at test time; a stricter type-level unit would be the fuller fix and is not warranted at five units                                                                                                                                                                                                                                                                                                                             | MITIGATED          |
 
+## IR-110 — a compounded temporal modifier is a definition (found by review 2026-08-31, PRE-EXISTING)
+
+    오늘주가가 뭐야?     -> AUTHORIZED / DEFINITION, subject `오늘주가`
+    현재주가가 뭐야?     -> AUTHORIZED / DEFINITION, subject `현재주가`
+
+"What is today's share price" is a CURRENT_OBSERVATION. `koreanCopularMatch` reads two eojeol,
+takes `오늘주가` as the nominative subject, and `뭐야` as the WHAT copula.
+
+**NOT introduced by MARKET-DEFINITION-GRAMMAR-001, and this was measured rather than argued.** The
+unit's own Korean recogniser was disabled entirely and the string still returned DEFINITION;
+`koreanCopularMatch` is byte-for-byte identical between `24d1f48` and the unit's HEAD. A two-eojeol
+Korean request never reaches `koreanDefinitionalMatch`, because `readings` is not empty by then.
+
+The spaced form `오늘 주가가 뭐야?` IS refused, by the two-eojeol cardinality proof the new
+recogniser borrows. The gap is exactly the compounded form.
+
+**Why it is deferred rather than fixed here.** 오늘주가 and 종합주가 are the same shape: a
+multi-syllable stem carrying a nominative. Separating them needs either a term lexicon, which this
+repository does not have, or a prefix list of temporal adverbs — and `koreanCopularMatch`'s own
+comment refuses that list by name, because 현재, 최근, 지금, 오늘, 현시점 has no end. Prefix-matching
+a stem is also the precise discipline error review exposed in round eleven of this unit: it would
+refuse `현재가` ("current price"), an ordinary term.
+
+Fixing it is a bounded unit of its own against `koreanCopularMatch`, not a widening of this one.
+
 ## IR-028 — Ask Market name matching (raised 2026-08-18, deferred by the freeze)
 
 `Apple revenue`, `Apple net income` and `What did Apple report?` all return `NOT_FOUND` against a

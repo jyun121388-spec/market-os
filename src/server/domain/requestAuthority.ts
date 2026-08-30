@@ -1020,11 +1020,18 @@ const KOREAN_REQUEST_FRAME = [
  * again -- the class has no end, and `koreanCopularMatch`'s own comment says so. They are removed
  * rather than extended.
  *
- * WHAT REPLACES THEM COVERS ONE PATH AND NOT THE OTHER, and an earlier version of this comment said
- * otherwise. The borrowed two-eojeol proof refuses `내일 주가가 뭐야?`, where the marker is a bare
- * final interrogative. It does NOT reach `오늘 주가 하락의 의미가 무엇인가요?`, where a
- * metalinguistic head licenses a multi-eojeol term -- see the residue note in
- * `koreanDefinitionalMatch`.
+ * WHAT REPLACES THEM IS NARROWER THAN THIS COMMENT TWICE CLAIMED, and both corrections came from
+ * review. The borrowed two-eojeol proof refuses `내일 주가가 뭐야?`, where the marker is a bare
+ * final interrogative. It does not reach `오늘 주가 하락의 의미가 무엇인가요?` -- that is refused by
+ * the metalinguistic path's own one-eojeol rule instead.
+ *
+ * And it does not reach `오늘주가가 뭐야?` AT ALL, written without the space. That request never
+ * arrives here: two eojeol is `koreanCopularMatch`'s own construction, it recognises the request
+ * itself, and this recogniser is never consulted. Verified by disabling this function entirely and
+ * re-running the string -- still DEFINITION. `koreanCopularMatch` is byte-identical to the base of
+ * this unit, so the defect is PRE-EXISTING and is logged in `docs/REVIEW_DEBT.md` rather than
+ * repaired here: 오늘주가 and 종합주가 are morphologically the same shape, and separating them needs
+ * a lexicon or the adverb list that function already refused to keep.
  *
  * These, by contrast, are PARTICLES and postpositions -- a closed morphological class, the same
  * kind of inventory as `PARTICLE_SURFACES`. Closed, and NOT claimed finished: review named 처럼

@@ -155,6 +155,17 @@ an unlisted form survives as an unconsumed eojeol and the request is refused. Ev
 safe because its omissions refuse" argument in this unit depended on a matching discipline nobody
 had checked.
 
+**TWELVE rounds. The twelfth found a real defect that this unit did not introduce.**
+`오늘주가가 뭐야?` — "what is TODAY's share price", written without the space — is AUTHORIZED as a
+DEFINITION. It never reaches the new recogniser: two eojeol is `koreanCopularMatch`'s own
+construction, and that function is byte-for-byte identical between `24d1f48` and HEAD. Measured,
+not argued — the unit's Korean recogniser was disabled entirely and the string still returned
+DEFINITION. The spaced form IS refused, by the borrowed two-eojeol proof; the gap is the compounded
+form. Logged as IR-110 in `docs/REVIEW_DEBT.md` and deferred, because 오늘주가 and 종합주가 are the
+same shape and separating them needs a lexicon or the adverb prefix list `koreanCopularMatch`
+refuses by name — which would also refuse `현재가`, an ordinary term, and is the exact discipline
+error round eleven exposed.
+
 17 definition mutants, 17 of 17 ISOLATED full suite 138 files / 2419 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 

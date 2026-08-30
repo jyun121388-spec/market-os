@@ -60,22 +60,7 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("What is the mechanism for the policy rate?")).not.toBe("DEFINITION");
   });
 
-  it("refuses a second term hiding in the predicate's tail", () => {
-    // Corpus negative control, and the reason the tail is tested with the same rule as the head:
-    // taking the subject before `work` and discarding `with inflation` turned a refusal into an
-    // authorized definition of the first term.
-    expect(operationOf("How does the unemployment rate work with inflation?")).not.toBe(
-      "DEFINITION",
-    );
-  });
-
   it("refuses a calculation over two named things, symbolic or written out", () => {
-    // TWO REVIEW ROUNDS. The first found `What is EBITDA minus capex?` becoming a definition and I
-    // added a five-word list; the second found the CLASS still open, because normalization deletes
-    // punctuation so `EBITDA - capex` arrives as two bare nouns, and `less` and `multiplied by`
-    // were simply absent. Patching the instance and leaving the category is the recurring shape of
-    // my errors in this area, so the symbols are now read from the RAW request before they are
-    // destroyed.
     for (const query of [
       "What is EBITDA minus capex?",
       "What is revenue plus other income?",
@@ -83,6 +68,32 @@ describe("what must NOT become a definition", () => {
       "What is EBITDA / revenue?",
       "What is EBITDA less capex?",
       "What is revenue multiplied by margin?",
+      "What is EBITDA mod capex?",
+    ]) {
+      expect(operationOf(query), query).not.toBe("DEFINITION");
+    }
+  });
+
+  it("refuses a complement inside the SUBJECT of a how-it-works question", () => {
+    // The tail rule and the complement rule overlapped once the tail had to be empty, and mutation
+    // reported the complement rule MISSED -- not because it stopped mattering, but because no test
+    // held a request where it was the only thing deciding. `How does the level OF the VIX work?`
+    // has an empty tail and is still not a definitional request: the subject is a property of a
+    // term rather than a term.
+    expect(operationOf("How does the level of the VIX work?")).not.toBe("DEFINITION");
+    expect(operationOf("How does exposure to derivatives work?")).not.toBe("DEFINITION");
+  });
+
+  it("refuses a predicate with anything after it", () => {
+    // FIVE REVIEW ROUNDS on one construction. `How does X work WITH INFLATION?` was first fixed by
+    // testing the tail with the same single-term rule as the head, which reads as thorough and was
+    // not -- it inherited that rule's preposition list, and review answered with
+    // `How does a stop-loss order work AMID a market crash?`, admitted because `amid` was missing.
+    // An empty tail needs no list, and refuses both.
+    for (const query of [
+      "How does the unemployment rate work with inflation?",
+      "How does a stop-loss order work amid a market crash?",
+      "How does yield curve control operate in general terms?",
     ]) {
       expect(operationOf(query), query).not.toBe("DEFINITION");
     }
@@ -145,6 +156,37 @@ describe("what must NOT become a definition", () => {
 });
 
 describe("the same grammar in Korean", () => {
+  it("recognises a term cited with (이)란 or (이)라는", () => {
+    // The citation particle IS the marker: it puts the term in quotation marks. Requiring a case
+    // marker on the stem AFTER stripping the citation asked for the evidence twice, and refused
+    // `테이퍼링이라는 표현은 무슨 뜻인가요?` while the comments claimed to support it -- found by
+    // review, not by this file.
+    expect(operationOf("테이퍼링이라는 표현은 무슨 뜻인가요?")).toBe("DEFINITION");
+    expect(operationOf("GDP디플레이터란 무엇을 말합니까")).toBe("DEFINITION");
+  });
+
+  it("refuses a temporal adjunct without owning a list of adverbs", () => {
+    // `내일 주가가 뭐야?` is "what is TOMORROW's share price", and it authorized as a definition of
+    // `내일 주가`. The repair is NOT adding 내일 to a list -- 현재, 최근, 지금, 오늘, 현시점 has no
+    // end, and no lexicon-free rule tells 내일 주가 from 장단기 금리. Where the request reduces to
+    // `koreanCopularMatch`'s construction it must satisfy that construction's two-eojeol proof,
+    // which refuses this and needs no vocabulary at all. The adverb list was DELETED, so this test
+    // fails if anyone reintroduces one.
+    expect(operationOf("내일 주가가 뭐야?")).not.toBe("DEFINITION");
+    expect(operationOf("어제 환율이 뭐야?")).not.toBe("DEFINITION");
+    // Still recognised, because a metalinguistic head supplies evidence a bare interrogative does
+    // not -- the rule is about where the proof comes from, not about term length.
+    expect(operationOf("장단기 금리 역전이 무슨 뜻이죠?")).toBe("DEFINITION");
+  });
+
+  it("refuses a marker that is ill-formed rather than absent", () => {
+    // `기준금리은` writes 은 after a vowel-final syllable, which is not a topic particle at all.
+    // `analyseNoun` declines the split, and the unmarked-compound exception then took the whole
+    // token -- the second instance in this unit of declined evidence falling through to a weaker
+    // reading. A speaker who wrote a case marker meant one.
+    expect(operationOf("기준금리은 뜻이 뭐야?")).not.toBe("DEFINITION");
+  });
+
   it("recognises a term marked with a definitional interrogative or a metalinguistic head", () => {
     // `koreanCopularMatch` takes 2 of the corpus's 30 Korean definitional requests, because it
     // requires exactly two eojeol. These are the same question in three, four and five.
@@ -170,6 +212,14 @@ describe("the same grammar in Korean", () => {
     // `미국 고용지표가 ... 영향은 무엇인가요` ends in 무엇인가요 and is STORED_MECHANISM: two overtly
     // marked nominals is a clause, not a term. The Korean form of the English complement rule.
     expect(operationOf("미국 고용지표가 연준 통화정책에 미치는 영향은 무엇인가요")).not.toBe(
+      "DEFINITION",
+    );
+    // The same relation asked with a metalinguistic head instead of a bare final interrogative, so
+    // the two-eojeol proof does not apply and cardinality is the only rule left deciding. Mutation
+    // reported the cardinality check MISSED until this line existed: the corpus row above is
+    // refused twice over, and a rule covered by another rule looks unnecessary until the covering
+    // one is narrowed.
+    expect(operationOf("달러 강세가 신흥국 통화에 주는 영향은 무슨 뜻인가요?")).not.toBe(
       "DEFINITION",
     );
   });
@@ -240,6 +290,24 @@ describe("declared limitations of this grammar", () => {
     // previous family was four literals -- so the claim is smaller, not regressed.
     expect(operationOf("What is real GDP?")).not.toBe("DEFINITION");
     expect(operationOf("What is value at risk?")).not.toBe("DEFINITION");
+  });
+
+  it("ADMITS an arithmetic word form inside a positively marked frame, and that is deliberate", () => {
+    // DECLARED RESIDUE, disposed of by argument rather than by a fix, and pinned so the argument
+    // has to be re-made rather than forgotten.
+    //
+    // A list of arithmetic word forms was patched in four successive rounds -- `less`,
+    // `multiplied`, then `modulo`, `subtract`, then `mod` -- and DELETED at the fifth. It has no
+    // last member, and every omission admits.
+    //
+    // What the omission admits is now a different kind from what rounds 1-4 found, and that is the
+    // whole basis for keeping it. `How does EBITDA mod capex work?` is recognised as a definitional
+    // request about a term named "EBITDA mod capex": no other operation owns that request, no
+    // corpus control expects it refused, the operation is deterministic and reaches no planner, and
+    // the repository has no such term so it resolves to nothing. Rounds 1-4 admitted requests that
+    // BELONGED to CURRENT_OBSERVATION and ATTRIBUTED_REPORTED_OBSERVATION and broke four negative
+    // controls. This does neither, and closing it needs a term lexicon.
+    expect(operationOf("How does EBITDA mod capex work?")).toBe("DEFINITION");
   });
 
   it.fails("PENDING: definitional constructions this family does not yet cover", () => {

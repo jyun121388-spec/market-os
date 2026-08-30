@@ -24,7 +24,7 @@ STATUS as of 2026-08-18:
 ## The last thing done
 
 **2026-08-30 — MARKET-DEFINITION-GRAMMAR-001. Structural DEFINITION recognition, EN and KO.
-9/60 → 23/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
+9/60 → 29/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
 
 `CONSTRUCTIONS` recognised DEFINITION through four literals — `definition of`, `what is a`,
 `what is an`, `what does … mean` — so `What is real GDP?` failed on a missing article. The
@@ -33,44 +33,57 @@ consulted only when nothing else recognised the span.
 
 | measure                             | before | after                  |
 | ----------------------------------- | ------ | ---------------------- |
-| corpus DEFINITION rows recognised   | 9 / 60 | 23 / 60                |
-| rows answered through LEGACY_BYPASS | 12     | 8                      |
+| corpus DEFINITION rows recognised   | 9 / 60 | 29 / 60                |
+| rows answered through LEGACY_BYPASS | 12     | 6                      |
 | planner calls, whole 500-row corpus | 0      | 0                      |
-| rows changed                        | —      | 14, every one intended |
+| rows changed                        | —      | 20, every one intended |
 
-**The design was wrong before it was right, and review had to say so four times.** It began as a
-bare wh-copular — `what is X` for unconstrained X — and each round found another member of a class
-I was treating as closed: prepositions `at`, `per`, then `via`, `without`, `within`, `among`;
-arithmetic `less`, `multiplied`, then `modulo`, `subtract`. Every miss ADMITS a non-definition.
-That is the unfinishable denylist this repository has abandoned twice, and no fifth round would
-have ended it.
+**FIVE review rounds, and the fourth changed the design rather than extending it.** It began as a
+bare wh-copular — `what is X` for unconstrained X, made safe by listing what X must not contain —
+and each round named another member of a class I was treating as closed: `at`, `per`, then `via`,
+`without`, `within`, `among`, then `amid`; `less`, `multiplied`, then `modulo`, `subtract`, then
+`mod`. Every miss ADMITS a non-definition. That is the unfinishable denylist this repository has
+abandoned twice, and no sixth round would have ended it.
 
 So the generalisation is deleted. Definitional intent must be POSITIVELY marked — a metalinguistic
 head (`the meaning of X`, `meant by X`) or an intransitive predicate over one named thing (`how
-does X work`) — and an unmarked request is UNSUPPORTED rather than guessed at. **Named cost:**
-`What is real GDP?` and `What is the Herfindahl-Hirschman Index?` are not recognised. Neither was
-recognised before this unit either, so the claim is smaller, not regressed.
+does X work`, with nothing after the predicate) — and an unmarked request is UNSUPPORTED rather
+than guessed at. **Named cost:** `What is real GDP?` and `What is the Herfindahl-Hirschman Index?`
+are not recognised. Neither was recognised before this unit either, so the claim is smaller, not
+regressed.
 
-Korean is the same rule, and the language marks it morphologically rather than by phrasing: a
-closed interrogative that asks what a thing IS (`무엇`/`뭐`, never `얼마`), or a metalinguistic
-noun (`뜻`, `의미`, `정의`, `개념`, `용어`, `표현`). No Korean phrase list. `koreanCopularMatch`
-required exactly two eojeol, which took 2 of 30; constituency replaces length as the proof.
+The two remaining inventories were then sorted by whether they can be finished, which is the real
+lesson and not a detail. English simple prepositions ARE a closed function-word class, fixed by
+the grammar the way `koreanMorphology`'s particle inventory is — so that list was completed once,
+in full. Arithmetic word forms are ordinary vocabulary with no last member — so that list was
+DELETED, and what its absence admits is stated exactly and pinned executable: `How does EBITDA mod
+capex work?` is read as a term no operation owns and the repository cannot resolve. Rounds 1–4
+admitted requests BELONGING to other operations and broke four negative controls; this does
+neither.
 
-Three coercions were caught by the whole-corpus diff and none by a count of the intended gains:
-a relation (`미국 고용지표가 … 영향은 무엇인가요`) read as a term, and two REFUSED negative
-controls whose two operations are joined by `-고` and by `랑`. The full suite then caught a fourth
-that this unit's own tests did not — `제포트폴리오는 무엇인가요?`, "what is MY portfolio". The
-older grammar DROPS that reading, dropping it leaves `readings` empty, and empty is exactly what
-invites a last-resort recogniser in. A last-resort recogniser inherits every guard of the
-recognisers standing before it.
+Korean is the same rule, marked morphologically rather than by phrasing: an interrogative that
+cannot ask a quantity (`무엇`/`뭐`, never `얼마`), a metalinguistic noun (`뜻`, `의미`, `정의`,
+`개념`, `용어`, `표현`), or the citation particles `(이)란`/`(이)라는`. No Korean phrase list.
+`koreanCopularMatch` required exactly two eojeol and took 2 of 30; constituency replaces length as
+the proof — except where the request reduces to that construction, where its two-eojeol proof is
+borrowed rather than an adverb list invented (`내일 주가가 뭐야?`).
 
-8 definition mutants, 8 of 8 ISOLATED full suite 138 files / 2401 pass / 19 expected fail
+**Every defect in this unit was found by measurement or by review, none by reasoning.** Three
+coercions came from the whole-corpus diff (a STORED_MECHANISM relation read as a term; two REFUSED
+two-operation controls joined by `-고` and `랑`). One came from the full suite —
+`제포트폴리오는 무엇인가요?`, "what is MY portfolio", which the older grammar DROPS, and dropping it
+leaves `readings` empty, which is exactly what invites a last-resort recogniser in. Review then
+found the same failure a second time, with an ill-formed case marker (`기준금리은`), and a frame
+the comments claimed to support that did not actually parse.
+
+10 definition mutants, 10 of 10 ISOLATED full suite 138 files / 2406 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on
-equity`, `proof of stake`); unmarked bare terms; constructions outside the two frames (`Could you
-define convexity?`); and 19 of the 30 Korean definitional rows, mostly the `어떤 X인지` frame,
-whose head noun is an open class where `개념` is definitional and `수준` is a current observation.
+equity`, `proof of stake`); unmarked bare terms; constructions outside the frames (`Could you
+define convexity?`); the arithmetic residue above; and 19 of the 30 Korean definitional rows,
+mostly the `어떤 X인지` frame, whose head noun is an open class where `개념` is definitional and
+`수준` is a current observation.
 
 **2026-08-28 — the redirect/informational P1 is UNDER REVIEW and NOT closed.** This line said
 "repaired, reviewed and committed" while the same document listed the closure review as still open,

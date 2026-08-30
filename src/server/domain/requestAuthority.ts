@@ -49,6 +49,7 @@ import {
   containsHangul,
   eojeols,
   KOREAN_POSSESSIVE_DETERMINERS,
+  PARTICLE_SURFACES,
 } from "./koreanMorphology";
 import { classifyRequestFrame } from "./requestFrame";
 import { relationSyntax } from "./subjectAuthority";
@@ -987,9 +988,14 @@ const KOREAN_REQUEST_FRAME = [
  * same reason: `국채 입찰에서 응찰률이란?` restricts the term to a setting, exactly as
  * `What is duration in bond mathematics?` does, so both are refused rather than half-read.
  *
- * The temporal adverbs are here rather than in a framing list because `현재 X는 무엇인가요` is a
- * currentness question wearing a definitional frame, and `koreanCopularMatch` already refuses the
- * whole class for the same reason -- see its "exactly two eojeol" note.
+ * TEMPORAL ADVERBS ARE NOT HERE, and were until review produced `내일 주가가 뭐야?`. 현재, 지금,
+ * 오늘, 최근, 올해, 작년, 내년 were listed and 내일 was not, which is the subset-as-class mistake
+ * again -- the class has no end, and `koreanCopularMatch`'s own comment says so. They are removed
+ * rather than extended; what refuses that request now is the two-eojeol proof borrowed in
+ * `koreanDefinitionalMatch`, which needs no vocabulary at all.
+ *
+ * These, by contrast, are PARTICLES and postpositions -- a closed morphological class, the same
+ * kind of inventory as `PARTICLE_SURFACES`, and finished.
  */
 const KOREAN_COMPLEMENT_MARKERS = [
   "에서",
@@ -1003,13 +1009,6 @@ const KOREAN_COMPLEMENT_MARKERS = [
   "으로",
   "하고",
   "및",
-  "현재",
-  "지금",
-  "오늘",
-  "최근",
-  "올해",
-  "작년",
-  "내년",
 ];
 
 /**
@@ -1112,6 +1111,24 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   );
   if (markedInTerm.length > 1) return null;
 
+  // WHERE THIS REDUCES TO THE TWO-EOJEOL CONSTRUCTION, IT MUST SATISFY THAT CONSTRUCTION'S PROOF.
+  //
+  // Review found `내일 주가가 뭐야?` -- "what is TOMORROW's share price" -- authorized as a
+  // definition of `내일 주가`. The obvious repair is to add 내일 to a list of temporal adverbs, and
+  // it is the wrong one twice over. `koreanCopularMatch` already refused to enumerate that class
+  // because 현재, 최근, 지금, 오늘, 현시점 has no end; and no lexicon-free rule tells 내일 주가 from
+  // 장단기 금리, where an unmarked eojeol before a marked one is a temporal adjunct in the first
+  // and part of a compound in the second, with identical morphology.
+  //
+  // So the proof is borrowed instead of the list extended. When the marker is a BARE copular
+  // interrogative in final position the request IS `koreanCopularMatch`'s construction, and that
+  // grammar demands exactly two eojeol precisely so nothing can hide in front of the subject. A
+  // longer term is admitted only where something FURTHER supplies the evidence: a metalinguistic
+  // head, or a predicate that continues past the interrogative.
+  const finalBareInterrogative =
+    at === body.length - 1 && KOREAN_WHAT_INTERROGATIVES.some((w) => body[at].startsWith(w));
+  if (finalBareInterrogative && term.length > 1) return null;
+
   // AFTER the marker, only predicate. `CPI가 뭔지 설명해주고 최신 미국 CPI 수치도 알려주세요` and
   // `ETF 정의랑 리츠 정의 둘 다 설명해줘` are both corpus rows the grammar must REFUSE as two
   // operations, and both slipped through a rule that only looked for a second case-marked subject:
@@ -1143,9 +1160,26 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
       a.role === "GENITIVE" ||
       a.role === "DEFINIENDUM",
   );
+  // A DECLINED MARKER IS NOT AN ABSENT ONE, and the compound exception was letting one through.
+  //
+  // `기준금리은 뜻이 뭐야?` writes 은 after a vowel-final syllable, which is not a topic particle at
+  // all, so `analyseNoun` refuses that split -- and the exception then admitted the whole unsplit
+  // token as a compound modifier, because 뜻이 follows it. That is the second instance of the same
+  // failure the possessive guard below fixed: evidence that was PRESENT and DECLINED falling
+  // through to a weaker reading. The exception is for a term that carries NO marker, not for one
+  // whose marker is ill-formed, so an ending that even looks like a particle disqualifies it.
+  const particleShaped = PARTICLE_SURFACES.some(
+    (surface) => last.endsWith(surface) && last.length > surface.length,
+  );
   const compounded =
-    cited === null && KOREAN_METALINGUISTIC_HEADS.some((h) => body[at].startsWith(h));
-  if (roled === undefined && !compounded) return null;
+    cited === null &&
+    !particleShaped &&
+    KOREAN_METALINGUISTIC_HEADS.some((h) => body[at].startsWith(h));
+  // A CITED term carries its own marker. `테이퍼링이라는 표현은 무슨 뜻인가요?` was refused by an
+  // earlier version of this line, which required a case marker on 테이퍼링 after the citation
+  // suffix had already been stripped off it -- so the frame the comments claimed to support did not
+  // parse. (이)라는 IS the evidence; asking for a second marker asks twice.
+  if (roled === undefined && !compounded && cited === null) return null;
 
   const stem = roled === undefined ? last : roled.stem;
   if (stem.length === 0) return null;
@@ -1252,17 +1286,23 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
     );
     if (closer === undefined) continue;
     const term = ` ${rest.slice(0, rest.indexOf(`${closer} `)).trim()} `;
-    // THE TAIL COUNTS TOO, and this is what the corpus taught. `How does the unemployment rate work
-    // WITH INFLATION?` is a negative control -- two terms, no construction saying which acts on
-    // which -- and taking the subject before `work` while discarding the rest turned a refusal into
-    // an AUTHORIZED definition of the first one. An oblique argument after the predicate makes it
-    // transitive in effect, so the whole region is tested rather than the head of it.
+    // THE TAIL MUST BE EMPTY, and reaching that took one review round more than it should have.
     //
-    // The cost is named: `How does yield curve control operate IN GENERAL TERMS?` is refused too,
-    // because this grammar cannot tell an adverbial tail from an argument without a lexicon. Losing
-    // a true positive to keep a negative control refused is the right direction for the trade.
+    // `How does the unemployment rate work WITH INFLATION?` is a negative control -- two terms and
+    // no construction saying which acts on which -- and taking the subject before `work` while
+    // discarding the rest turned a refusal into an AUTHORIZED definition of the first one. The
+    // first fix tested the tail with the SAME single-term rule as the head, which reads as thorough
+    // and is not: it inherited that rule's preposition list, and review produced
+    // `How does a stop-loss order work AMID a market crash?`, admitted because `amid` was missing.
+    //
+    // Requiring the tail to be EMPTY needs no list at all. `How does X work?` is the construction;
+    // anything after the predicate restricts the question to a circumstance, and nothing has to
+    // decide which circumstances are harmless. The cost is what it already was --
+    // `How does yield curve control operate IN GENERAL TERMS?` is refused -- and the rule is now
+    // closed instead of sampled.
     const tail = rest.slice(rest.indexOf(`${closer} `) + closer.length);
-    if (!isSingleTermRegion(term, raw) || !isSingleTermRegion(` x ${tail}`, raw)) continue;
+    if (normalizedTokens(tail).length > 0) continue;
+    if (!isSingleTermRegion(term, raw)) continue;
     return {
       operation: "DEFINITION",
       subjectRegion: term,
@@ -1302,12 +1342,19 @@ function isSingleTermRegion(region: string, raw?: string): boolean {
   // `EBITDA / revenue` reach here as two bare nouns indistinguishable from `real GDP`. The symbols
   // have to be read before they are destroyed.
   //
-  // Symbolic operators ARE a closed class and are treated as one. The WORD forms are not -- `less`
-  // and `multiplied by` were both missing from the first attempt -- so that set is a subset whose
-  // failure direction is ADMISSION, which is the unsafe one. It is pinned as a declared limitation
-  // rather than described as complete.
+  // Symbolic operators ARE a closed class and are treated as one. A list of the WORD forms stood
+  // beside them and is DELETED: `less` and `multiplied` were missing from the first attempt,
+  // `modulo` and `subtract` from the second, `mod` from the third, and each round the list was
+  // patched instead of abandoned. Five rounds is enough evidence that it has no last member.
+  //
+  // What is left is stated exactly rather than approximated. `How does EBITDA mod capex work?` is
+  // recognised as a definitional request about a term named "EBITDA mod capex". That is a bounded
+  // residue and not the one earlier rounds had: no other operation owns that request, no corpus
+  // control expects it refused, the operation is deterministic with no planner, and the repository
+  // has no such term, so it resolves to nothing. Rounds 1-4 admitted requests that BELONGED to
+  // CURRENT_OBSERVATION and ATTRIBUTED_REPORTED_OBSERVATION and broke negative controls; this does
+  // neither. Pinned executable in the tests so it stays visible.
   if (raw !== undefined && ARITHMETIC_SYMBOLS.test(raw)) return false;
-  if (tokens.some((token) => ARITHMETIC_WORDS.has(token))) return false;
   // An interval belongs to OBSERVED_CHANGE and a currentness marker to CURRENT_OBSERVATION. Either
   // one means the request was not asking what a term means.
   if (intervalConstituent(region) !== null) return false;
@@ -1361,12 +1408,17 @@ const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense",
  * Their presence says the request is about a relation or property the term participates in, which
  * belongs to another operation.
  *
- * STILL A SUBSET of the prepositions, and after the narrowing that is no longer the dangerous kind.
- * While `what is X` was recognised for unconstrained X, a preposition missing from here ADMITTED a
- * non-definition, and three review rounds each found another one — `at`, `per`, then `via`,
- * `without`, `within`, `among`. What reaches this function now is already positively marked as
- * definitional, so a missing entry can at worst let through something a speaker explicitly asked
- * the meaning of. This list refines a decision; it is no longer the thing making it.
+ * NOW THE WHOLE CLASS, and the distinction from the arithmetic list that was deleted is the point.
+ * Four review rounds each found another missing member — `at`, `per`, then `via`, `without`,
+ * `within`, `among`, then `amid` — and each time it was patched by one word. That looked like the
+ * same unfinishable list, and it is not: the simple prepositions of English are a CLOSED
+ * function-word class, fixed by the grammar and not by usage, in exactly the sense
+ * `koreanMorphology`'s particle inventory is closed. The list was a subset presented as the class;
+ * the repair is to write the class, once.
+ *
+ * Arithmetic word forms are the opposite and were treated the opposite way. `minus`, `less`,
+ * `multiplied`, `modulo`, `subtract`, `mod` are ordinary vocabulary with no last member, and no
+ * amount of patching produces one.
  *
  * Membership cannot tell a complement from a LEXICALIZED TERM. `return on equity`, `proof of
  * stake` and `cash flow from operations` are single financial terms that happen to contain a
@@ -1384,8 +1436,6 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "in",
   "about",
   "with",
-  // Added after review pointed out the set was a SUBSET presented as the class, back when that
-  // omission meant `What is value at risk?` was recognised and `What is proof of stake?` was not.
   "at",
   "by",
   "per",
@@ -1393,6 +1443,50 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "through",
   "against",
   "under",
+  // The rest of the class, written out rather than waiting for review to name them one at a time.
+  "above",
+  "across",
+  "after",
+  "along",
+  "amid",
+  "among",
+  "amongst",
+  "around",
+  "before",
+  "behind",
+  "below",
+  "beneath",
+  "beside",
+  "besides",
+  "between",
+  "beyond",
+  "despite",
+  "down",
+  "during",
+  "except",
+  "inside",
+  "into",
+  "near",
+  "off",
+  "onto",
+  "opposite",
+  "outside",
+  "over",
+  "past",
+  "since",
+  "than",
+  "throughout",
+  "toward",
+  "towards",
+  "underneath",
+  "unlike",
+  "until",
+  "up",
+  "upon",
+  "versus",
+  "via",
+  "within",
+  "without",
 ]);
 
 /**
@@ -1409,27 +1503,11 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
  */
 const ARITHMETIC_SYMBOLS = /(^|\s)[-+*/×÷=](\s|$)/;
 
-/**
- * Word forms of the same thing.
- *
- * A SUBSET, not the class -- `less` and `multiplied` were absent from the first attempt, `modulo`
- * and `subtract` from the second, and there is no reason to think a third pass would end it.
- *
- * That unfinishable list is what killed the bare wh-copular shape. It is kept here because the two
- * surviving shapes are positively marked, so the worst a missing form can now do is treat
- * `How does EBITDA modulo capex work?` as one term -- a strange request answered oddly, not a
- * calculation silently authorized as a definition.
+/*
+ * A list of the WORD forms -- minus, plus, times, over, divided, less, multiplied, versus -- stood
+ * here and is DELETED. See `isSingleTermRegion` for what its absence admits and why that residue is
+ * a different kind from the one rounds 1-4 found.
  */
-const ARITHMETIC_WORDS = new Set([
-  "minus",
-  "plus",
-  "times",
-  "over",
-  "divided",
-  "less",
-  "multiplied",
-  "versus",
-]);
 
 function recogniseAll(normalized: string): Recognised[] {
   const found: Recognised[] = [];

@@ -991,8 +991,13 @@ const KOREAN_REQUEST_FRAME = [
  * TEMPORAL ADVERBS ARE NOT HERE, and were until review produced `내일 주가가 뭐야?`. 현재, 지금,
  * 오늘, 최근, 올해, 작년, 내년 were listed and 내일 was not, which is the subset-as-class mistake
  * again -- the class has no end, and `koreanCopularMatch`'s own comment says so. They are removed
- * rather than extended; what refuses that request now is the two-eojeol proof borrowed in
- * `koreanDefinitionalMatch`, which needs no vocabulary at all.
+ * rather than extended.
+ *
+ * WHAT REPLACES THEM COVERS ONE PATH AND NOT THE OTHER, and an earlier version of this comment said
+ * otherwise. The borrowed two-eojeol proof refuses `내일 주가가 뭐야?`, where the marker is a bare
+ * final interrogative. It does NOT reach `오늘 주가 하락의 의미가 무엇인가요?`, where a
+ * metalinguistic head licenses a multi-eojeol term -- see the residue note in
+ * `koreanDefinitionalMatch`.
  *
  * These, by contrast, are PARTICLES and postpositions -- a closed morphological class, the same
  * kind of inventory as `PARTICLE_SURFACES`, and finished.
@@ -1039,6 +1044,29 @@ const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];
  * So the proof is rebuilt rather than dropped. A definitional marker must be POSITIVELY present, the
  * material before it must be nominal and carry no other operation's operand, and the material after
  * it must introduce no second subject. Length stops being the argument; constituency becomes it.
+ *
+ * ## What this grammar cannot see inside, stated because review asked twice
+ *
+ * `koreanCopularMatch` already says it: `subjectCardinality: 1` is a claim about the CONSTRUCTION,
+ * one marked subject slot, and not about the morphology inside it. Two round-six findings live
+ * inside exactly that gap, and both are declared rather than fixed, because every fix on offer is
+ * an arbitrary threshold or a lexicon.
+ *
+ *   오늘 주가 하락의 의미가 무엇인가요?    a metalinguistic head licenses a multi-eojeol term, and
+ *                                          nothing morphological separates 오늘 주가 하락 from
+ *                                          장단기 금리 역전.
+ *   기준금리은 수준이 무슨 뜻인가요?        an ill-formed 은 sits on a NON-final eojeol, where the
+ *                                          declined-marker check does not reach.
+ *
+ * The second looks trivially fixable -- check every eojeol, not the last -- and it is not.
+ * `물가` is 물 plus a 가 that its own conditioning declines, and so is `소비자물가`; both are
+ * ordinary financial vocabulary and both are recognised today. A check that refuses 기준금리은
+ * refuses those too, and a syllable-count qualifier that spares them is a number with no argument
+ * behind it.
+ *
+ * Both admit a term-shaped subject that no other operation owns, that no corpus control expects
+ * refused, and that the repository has no entry for -- the same residue class as the deleted
+ * arithmetic list, and not the class rounds 1-4 found. Pinned executable in the tests.
  *
  * ## Why the English narrowing applies here too
  *
@@ -1408,13 +1436,17 @@ const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense",
  * Their presence says the request is about a relation or property the term participates in, which
  * belongs to another operation.
  *
- * NOW THE WHOLE CLASS, and the distinction from the arithmetic list that was deleted is the point.
- * Four review rounds each found another missing member — `at`, `per`, then `via`, `without`,
- * `within`, `among`, then `amid` — and each time it was patched by one word. That looked like the
- * same unfinishable list, and it is not: the simple prepositions of English are a CLOSED
- * function-word class, fixed by the grammar and not by usage, in exactly the sense
- * `koreanMorphology`'s particle inventory is closed. The list was a subset presented as the class;
- * the repair is to write the class, once.
+ * THE CLASS, and the distinction from the arithmetic list that was deleted is the point. English
+ * prepositions are a CLOSED function-word class, fixed by the grammar and not by usage, in exactly
+ * the sense `koreanMorphology`'s particle inventory is closed — so unlike `minus`/`modulo`/`mod`,
+ * this one HAS a last member and writing it down is a finite job.
+ *
+ * FIVE ROUNDS OF PATCHING IT ONE WORD AT A TIME, and then a sixth. Rounds 2-5 added `at`, `per`,
+ * `via`, `without`, `within`, `among`, `amid`; round 5 declared the list complete on the strength
+ * of the closed-class argument, wrote out the prepositions that came to mind, and round 6 answered
+ * with `as`. Being a closed class makes the list finishable; it does not finish it, and confusing
+ * those two is what that round cost. The second half below is transcribed from a reference,
+ * participial prepositions included, rather than recalled.
  *
  * Arithmetic word forms are the opposite and were treated the opposite way. `minus`, `less`,
  * `multiplied`, `modulo`, `subtract`, `mod` are ordinary vocabulary with no last member, and no
@@ -1443,7 +1475,32 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "through",
   "against",
   "under",
-  // The rest of the class, written out rather than waiting for review to name them one at a time.
+  // The rest of the class. Round five wrote out what it thought was the whole inventory and round
+  // six answered with `as`, so this half is the standard list from a reference rather than the ones
+  // that came to mind -- including the participial prepositions, which is where the gap was.
+  "as",
+  "like",
+  "till",
+  "unto",
+  "save",
+  "worth",
+  "concerning",
+  "regarding",
+  "respecting",
+  "including",
+  "excluding",
+  "following",
+  "barring",
+  "pending",
+  "notwithstanding",
+  "atop",
+  "alongside",
+  "amidst",
+  "anti",
+  "circa",
+  "minus",
+  "plus",
+  "sans",
   "above",
   "across",
   "after",

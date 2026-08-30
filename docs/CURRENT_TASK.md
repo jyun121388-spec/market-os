@@ -76,7 +76,16 @@ leaves `readings` empty, which is exactly what invites a last-resort recogniser 
 found the same failure a second time, with an ill-formed case marker (`기준금리은`), and a frame
 the comments claimed to support that did not actually parse.
 
-10 definition mutants, 10 of 10 ISOLATED full suite 138 files / 2406 pass / 19 expected fail
+**SIX rounds, and round six was about the comments as much as the code.** It named `as`, missing
+from a preposition list round five had declared complete on the strength of the closed-class
+argument — being closed makes a class finishable, which is not the same as having finished it —
+and two Korean requests admitted inside a limitation `koreanCopularMatch` already states: one
+marked subject SLOT is a claim about the construction, not about the morphology inside it. Those
+two are declared rather than fixed, because `물가` is 물 plus a `가` its own conditioning declines
+and so is `소비자물가`, so any check strict enough to refuse `기준금리은` refuses ordinary
+vocabulary, and a syllable-count qualifier that spares it is a number with no argument behind it.
+
+10 definition mutants, 10 of 10 ISOLATED full suite 138 files / 2407 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

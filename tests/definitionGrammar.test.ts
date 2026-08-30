@@ -82,6 +82,11 @@ describe("what must NOT become a definition", () => {
     // term rather than a term.
     expect(operationOf("How does the level of the VIX work?")).not.toBe("DEFINITION");
     expect(operationOf("How does exposure to derivatives work?")).not.toBe("DEFINITION");
+    // Round six. Round five declared the preposition list complete on the strength of the
+    // closed-class argument and then wrote out the ones that came to mind; `as` was not among
+    // them. Being closed makes a class finishable, which is not the same as having finished it.
+    expect(operationOf("How does a derivative as collateral work?")).not.toBe("DEFINITION");
+    expect(operationOf("How does a swap like a forward work?")).not.toBe("DEFINITION");
   });
 
   it("refuses a predicate with anything after it", () => {
@@ -308,6 +313,22 @@ describe("declared limitations of this grammar", () => {
     // BELONGED to CURRENT_OBSERVATION and ATTRIBUTED_REPORTED_OBSERVATION and broke four negative
     // controls. This does neither, and closing it needs a term lexicon.
     expect(operationOf("How does EBITDA mod capex work?")).toBe("DEFINITION");
+  });
+
+  it("ADMITS what a lexicon-free Korean grammar cannot see inside a nominal", () => {
+    // DECLARED RESIDUE, both found by review round six, both disposed of by argument and pinned so
+    // the argument survives. `koreanCopularMatch` already states the limitation these live in: one
+    // marked subject SLOT is a claim about the construction, not about the morphology inside it.
+    expect(operationOf("오늘 주가 하락의 의미가 무엇인가요?")).toBe("DEFINITION");
+    expect(operationOf("기준금리은 수준이 무슨 뜻인가요?")).toBe("DEFINITION");
+
+    // The second looks trivially fixable -- check every eojeol for a declined marker instead of
+    // only the last -- and these are why it is not. 물가 is 물 plus a 가 its own conditioning
+    // declines, and so is 소비자물가. Both are ordinary financial vocabulary. Any check strict
+    // enough to refuse 기준금리은 refuses these, and a syllable-count qualifier that spares them is
+    // a number with no argument behind it.
+    expect(operationOf("물가 안정의 의미가 무엇인가요?")).toBe("DEFINITION");
+    expect(operationOf("소비자물가 상승의 의미가 무엇인가요?")).toBe("DEFINITION");
   });
 
   it.fails("PENDING: definitional constructions this family does not yet cover", () => {

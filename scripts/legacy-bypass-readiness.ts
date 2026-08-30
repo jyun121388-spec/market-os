@@ -196,8 +196,8 @@ export async function countCallsDespiteFailure(
 
 export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]> {
   const rows: Row[] = [];
-  // Every stored name, loaded once: what the repository could conceivably answer from.
-  const shelf = await storedNames();
+  // Loaded once, kept apart by kind: sufficiency differs by operation.
+  const shelf = await loadShelf();
   for (const c of corpus) {
     const canonical = resolveRequestAuthority(c.query);
     const authorization = authorizeInference(c.query);
@@ -228,7 +228,7 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
       });
       continue;
     }
-    const probed = await probeDoor(c.query, shelf);
+    const probed = await probeDoor(c.query, c.operation, shelf);
     rows.push({
       ...base,
       plannerCalled: probed.called,
@@ -252,19 +252,85 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
  * A thrown sink is reported as thrown rather than as zero calls -- the previous measurement printed
  * `calls=0` from a stub whose method name was wrong, and the zero read as safety.
  */
-/** Every stored series name and causal-edge endpoint -- the shelf a request could be answered from. */
-async function storedNames(): Promise<string[]> {
+/** What the repository holds, kept apart by KIND because sufficiency differs by operation. */
+interface Shelf {
+  seriesNames: string[];
+  edges: { from: string; to: string }[];
+  sourceNames: string[];
+}
+
+async function loadShelf(): Promise<Shelf> {
   const { prisma } = await import("@/server/db/client");
-  const [series, edges] = await Promise.all([
+  const [series, edges, sources] = await Promise.all([
     prisma.series.findMany({ select: { name: true } }),
     prisma.causalEdge.findMany({ select: { fromVariable: true, toVariable: true } }),
+    prisma.source.findMany({ select: { name: true } }),
   ]);
-  return [...series.map((s) => s.name), ...edges.flatMap((e) => [e.fromVariable, e.toVariable])];
+  return {
+    seriesNames: series.map((s) => s.name),
+    edges: edges.map((e) => ({ from: e.fromVariable, to: e.toVariable })),
+    sourceNames: sources.map((s) => s.name),
+  };
+}
+
+/**
+ * Could this row have been answered at all, given what the repository holds?
+ *
+ * OPERATION-AWARE, and fail-closed when the answer cannot be established. The previous version
+ * asked only whether ANY stored name occurred in the query, and review showed that is far too weak:
+ * a mechanism request needs an exact directed edge between the two endpoints it names, and a series
+ * that happens to share one of those names says nothing about whether the row was answerable.
+ *
+ * The proxy mattered because it decides REFUSED_DOWNSTREAM versus PROBE_INCONCLUSIVE — that is, it
+ * decides whether a zero counts as a measured refusal or as nothing proven. Too weak, and an
+ * evidence-starved no-call is promoted to a clean measurement and the headline goes conclusive.
+ *
+ * My own demonstration of the previous fix was exactly that failure: four seeded SERIES and no
+ * edges, and both mechanism-shaped controls were nonetheless called evidence-backed.
+ */
+export function evidenceSufficient(
+  expectedOperation: string,
+  query: string,
+  shelf: Shelf,
+  occurs: (name: string, query: string) => boolean,
+): boolean {
+  const named = (names: string[]) => names.filter((n) => occurs(n, query));
+
+  switch (expectedOperation) {
+    // A relation needs a stored edge whose BOTH endpoints this request names. One endpoint, or an
+    // unrelated edge sharing a name, could never have answered it.
+    case "STORED_MECHANISM":
+    case "AMBIGUOUS_CARDINALITY":
+      return shelf.edges.some((e) => occurs(e.from, query) && occurs(e.to, query));
+
+    // One stored series the request names is what these could be answered from.
+    case "CURRENT_OBSERVATION":
+    case "OBSERVED_CHANGE":
+    case "MISSING_INTERVAL":
+      return named(shelf.seriesNames).length > 0;
+
+    // Attribution needs BOTH a provider and a subject; either alone cannot answer it.
+    case "ATTRIBUTED_REPORTED_OBSERVATION":
+    case "MISSING_ATTRIBUTION":
+      return named(shelf.sourceNames).length > 0 && named(shelf.seriesNames).length > 0;
+
+    // A definition has no record class in this repository at all — GLOSSARY_ENTRY fails closed by
+    // design — so no shelf can make one answerable. Saying "not evidence-backed" here is honest:
+    // the zero is structural, and calling it a measured refusal would overclaim.
+    case "DEFINITION":
+      return false;
+
+    default:
+      // FAIL CLOSED. An operation whose sufficiency this script cannot state is not evidence, and
+      // the row stays PROBE_INCONCLUSIVE rather than being promoted on a guess.
+      return false;
+  }
 }
 
 async function probeDoor(
   query: string,
-  shelf: readonly string[],
+  expectedOperation: string,
+  shelf: Shelf,
 ): Promise<{ called: boolean | null; legacyStatus: string; evidenceBacked: boolean }> {
   const { answerWithInference } = await import("@/server/domain/askMarketInference");
   const { deriveLegacyCandidateEnvelope } = await import("@/server/domain/candidateEnvelope");
@@ -274,7 +340,7 @@ async function probeDoor(
     const legacy = await deriveLegacyCandidateEnvelope(query);
     legacyStatus = legacy.status;
     // PER ROW, and from the SHELF rather than from this envelope -- see the field's own note.
-    evidenceBacked = shelf.some((name) => nameOccursIn(name, query));
+    evidenceBacked = evidenceSufficient(expectedOperation, query, shelf, nameOccursIn);
     await answerWithInference(query, {
       generatePlan: async () => {
         await sink();

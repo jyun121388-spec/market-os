@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classify, countCallsDespiteFailure } from "../scripts/legacy-bypass-readiness";
+import {
+  classify,
+  countCallsDespiteFailure,
+  evidenceSufficient,
+} from "../scripts/legacy-bypass-readiness";
 import { REQUEST_DEVELOPMENT_CORPUS } from "./fixtures/requestDevelopmentCorpus";
 
 /**
@@ -170,5 +174,93 @@ describe("a call that happened is a call, even when the run then failed", () => 
     expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", true, true)).toBe(
       "FALSE_ELIGIBILITY_EXPOSURE",
     );
+  });
+});
+
+describe("evidence sufficiency is operation-aware", () => {
+  // A deliberately naive occurrence test, so these assert the SUFFICIENCY rule and not the matcher.
+  const occurs = (name: string, query: string) => query.toLowerCase().includes(name.toLowerCase());
+  const shelf = (over: Partial<Parameters<typeof evidenceSufficient>[2]> = {}) => ({
+    seriesNames: [],
+    edges: [],
+    sourceNames: [],
+    ...over,
+  });
+
+  it("requires BOTH endpoints of a stored edge for a relation request", () => {
+    // REVIEW FINDING, third round, and my own demonstration was the counterexample: I seeded four
+    // SERIES and no edges, both mechanism-shaped controls were called evidence-backed anyway, and I
+    // reported that flip as proof the metric worked. A series sharing one endpoint name could never
+    // have answered a relation request.
+    const query = "How does the unemployment rate work with inflation?";
+    expect(
+      evidenceSufficient(
+        "STORED_MECHANISM",
+        query,
+        shelf({ seriesNames: ["unemployment rate", "inflation"] }),
+        occurs,
+      ),
+    ).toBe(false);
+    expect(
+      evidenceSufficient(
+        "STORED_MECHANISM",
+        query,
+        shelf({ edges: [{ from: "unemployment rate", to: "inflation" }] }),
+        occurs,
+      ),
+    ).toBe(true);
+    // An edge sharing ONE endpoint is not evidence either.
+    expect(
+      evidenceSufficient(
+        "STORED_MECHANISM",
+        query,
+        shelf({ edges: [{ from: "unemployment rate", to: "wage growth" }] }),
+        occurs,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires a provider AND a subject for an attributed observation", () => {
+    const query = "What did Consensus publish about US nonfarm payrolls?";
+    expect(
+      evidenceSufficient(
+        "ATTRIBUTED_REPORTED_OBSERVATION",
+        query,
+        shelf({ seriesNames: ["US nonfarm payrolls"] }),
+        occurs,
+      ),
+    ).toBe(false);
+    expect(
+      evidenceSufficient(
+        "ATTRIBUTED_REPORTED_OBSERVATION",
+        query,
+        shelf({ seriesNames: ["US nonfarm payrolls"], sourceNames: ["Consensus"] }),
+        occurs,
+      ),
+    ).toBe(true);
+  });
+
+  it("never calls a definition evidence-backed, because no shelf can answer one", () => {
+    // GLOSSARY_ENTRY fails closed by design: this repository stores no definitions. The zero is
+    // structural, and calling it a measured refusal would overclaim.
+    expect(
+      evidenceSufficient(
+        "DEFINITION",
+        "How does a repurchase agreement work?",
+        shelf({ seriesNames: ["repurchase agreement"] }),
+        occurs,
+      ),
+    ).toBe(false);
+  });
+
+  it("fails closed on an operation whose sufficiency it cannot state", () => {
+    expect(
+      evidenceSufficient(
+        "SOMETHING_NEW",
+        "anything at all",
+        shelf({ seriesNames: ["anything"] }),
+        occurs,
+      ),
+    ).toBe(false);
   });
 });

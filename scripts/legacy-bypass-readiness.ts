@@ -61,6 +61,7 @@ import {
   type DevelopmentCase,
 } from "../tests/fixtures/requestDevelopmentCorpus";
 import { authorizeInference } from "@/server/domain/inferenceAuthorization";
+import { nameOccursIn } from "@/server/domain/subjectAuthority";
 import {
   resolveRequestAuthority,
   asPlannerRequest,
@@ -121,7 +122,16 @@ interface Row {
   /** Measured: did a real `answerWithInference` run call the sink? null when not probed. */
   plannerCalled: boolean | null;
   legacyStatus: string | null;
-  /** Did the repository actually hold something this row could be answered from? */
+  /**
+   * Did the repository hold ANY stored name this request mentions?
+   *
+   * Asked of the repository directly, not read off this row's envelope. A refusal BY RULE -- an
+   * ambiguous cardinality, an unproven direction -- returns empty id arrays by contract, so
+   * inferring "no evidence" from an empty envelope marked exactly the safety-relevant rows
+   * permanently inconclusive: seeding could never clear them. Checking the shelf separately means a
+   * no-call over a populated shelf is a real refusal, and seeding moves a row from unmeasured to
+   * measured, which is what a fail-closed default should allow.
+   */
   evidenceBacked: boolean;
   klass: BypassClass | null;
 }
@@ -186,6 +196,8 @@ export async function countCallsDespiteFailure(
 
 export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]> {
   const rows: Row[] = [];
+  // Every stored name, loaded once: what the repository could conceivably answer from.
+  const shelf = await storedNames();
   for (const c of corpus) {
     const canonical = resolveRequestAuthority(c.query);
     const authorization = authorizeInference(c.query);
@@ -216,7 +228,7 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
       });
       continue;
     }
-    const probed = await probeDoor(c.query);
+    const probed = await probeDoor(c.query, shelf);
     rows.push({
       ...base,
       plannerCalled: probed.called,
@@ -240,8 +252,19 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
  * A thrown sink is reported as thrown rather than as zero calls -- the previous measurement printed
  * `calls=0` from a stub whose method name was wrong, and the zero read as safety.
  */
+/** Every stored series name and causal-edge endpoint -- the shelf a request could be answered from. */
+async function storedNames(): Promise<string[]> {
+  const { prisma } = await import("@/server/db/client");
+  const [series, edges] = await Promise.all([
+    prisma.series.findMany({ select: { name: true } }),
+    prisma.causalEdge.findMany({ select: { fromVariable: true, toVariable: true } }),
+  ]);
+  return [...series.map((s) => s.name), ...edges.flatMap((e) => [e.fromVariable, e.toVariable])];
+}
+
 async function probeDoor(
   query: string,
+  shelf: readonly string[],
 ): Promise<{ called: boolean | null; legacyStatus: string; evidenceBacked: boolean }> {
   const { answerWithInference } = await import("@/server/domain/askMarketInference");
   const { deriveLegacyCandidateEnvelope } = await import("@/server/domain/candidateEnvelope");
@@ -250,10 +273,8 @@ async function probeDoor(
   const outcome = await countCallsDespiteFailure(async (sink) => {
     const legacy = await deriveLegacyCandidateEnvelope(query);
     legacyStatus = legacy.status;
-    // PER ROW, not per run. Review found one AUTHORIZED row suppressing the non-vacuity warning for
-    // every other row, so a partly-populated database could exercise one harmless bypass while every
-    // safety row lacked the evidence needed to reach a planner — and still print a reassuring zero.
-    evidenceBacked = legacy.seriesIds.length > 0 || legacy.causalEdgeIds.length > 0;
+    // PER ROW, and from the SHELF rather than from this envelope -- see the field's own note.
+    evidenceBacked = shelf.some((name) => nameOccursIn(name, query));
     await answerWithInference(query, {
       generatePlan: async () => {
         await sink();
@@ -324,8 +345,18 @@ async function main() {
   // into a packet) and too coarse (one AUTHORIZED row silenced it for all of them).
   const unsafe = bypasses.filter((r) => r.klass === "FALSE_ELIGIBILITY_EXPOSURE");
   const inconclusive = bypasses.filter((r) => r.klass === "PROBE_INCONCLUSIVE");
+  // Labelled, never a bare total. Review: "that zero can still be copied as a total, exactly as
+  // earlier numbers were" -- which is how the original 0/13 travelled into three packets. While any
+  // safety-relevant row is unmeasured the number is a floor, and it has to say so in its own name,
+  // because the caveat underneath is the part that gets left behind.
+  const label =
+    inconclusive.length > 0
+      ? "OBSERVED EXPOSURES (LOWER BOUND — rows remain unmeasured)"
+      : "SAFETY EXPOSURES (every bypass row measured)";
+  console.log(`\n${label}: ${unsafe.length}`);
   console.log(
-    `\nSAFETY DIVERGENCES (a refused request that can still reach a planner): ${unsafe.length}`,
+    `UNMEASURED POPULATION (probe threw, or the shelf held nothing so a zero proves nothing): ` +
+      `${inconclusive.length}`,
   );
   console.log(
     `SEMANTIC DEBT (deterministic operation answered through the planner): ` +

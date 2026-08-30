@@ -87,6 +87,24 @@ describe("bypass classification", () => {
     );
   });
 
+  it("lets a populated shelf turn an unmeasured row into a measured refusal", () => {
+    // REVIEW FINDING, second round. `evidenceBacked` was read off the row's own envelope, and a
+    // refusal BY RULE returns empty id arrays by contract — so the safety-relevant rows were marked
+    // inconclusive permanently and no amount of seeding could clear them. Asking the repository
+    // separately restores the property a fail-closed default must have: adding evidence makes the
+    // measurement conclusive rather than leaving it stuck.
+    //
+    // Demonstrated end to end, not only here: with an empty shelf the two AMBIGUOUS_CARDINALITY
+    // controls report PROBE_INCONCLUSIVE, and after seeding their subjects they report
+    // REFUSED_DOWNSTREAM and the headline changes from a lower bound to a measured zero.
+    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", false, false)).toBe(
+      "PROBE_INCONCLUSIVE",
+    );
+    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", false, true)).toBe(
+      "REFUSED_DOWNSTREAM",
+    );
+  });
+
   it("never lets a failed probe pass as a refusal", () => {
     // REVIEW FINDING. `null` was folded into REFUSED_DOWNSTREAM, so a reader of the headline counts
     // could not tell a measured refusal from a measurement failure.

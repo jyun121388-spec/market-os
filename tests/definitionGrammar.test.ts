@@ -225,6 +225,18 @@ describe("what must NOT become a definition", () => {
     // refused with it. Zero corpus rows, and the direction is the safe one.
     expect(operationOf("팔라는 표현은 무슨 뜻인가요?")).not.toBe("DEFINITION");
     expect(operationOf("코스피라는 표현은 무슨 뜻인가요?")).not.toBe("DEFINITION");
+    // ROUND SIXTEEN, third pass at the same class, this time through `(이)란`. That form was called
+    // unaffected because `analyseNoun` checks allomorph conditioning -- and conditioning proves
+    // SUFFIX COMPATIBILITY, never nominality. `가란 뜻이야?` parses as 가 plus 란, and
+    // `지금 사란 뜻이야?` -- "do you mean BUY now?" -- is the same collision in this product's own
+    // subject matter.
+    //
+    // The suffix is not the test in ANY of its forms. A cited term GOVERNS something: a definitional
+    // interrogative, or a case-marked metalinguistic head. `뜻이야` alone is the copular predicate.
+    expect(operationOf("가란 뜻이야?")).not.toBe("DEFINITION");
+    expect(operationOf("지금 사란 뜻이야?")).not.toBe("DEFINITION");
+    expect(operationOf("실질금리란 무엇인지 알려주세요")).toBe("DEFINITION");
+    expect(operationOf("테이퍼링이란 용어의 뜻은?")).toBe("DEFINITION");
     expect(operationOf("기술적 반등이라는 표현은 무슨 뜻이야")).toBe("DEFINITION");
   });
 
@@ -341,6 +353,13 @@ describe("the same grammar in Korean", () => {
     // review, not by this file.
     expect(operationOf("테이퍼링이라는 표현은 무슨 뜻인가요?")).toBe("DEFINITION");
     expect(operationOf("테이퍼링이란 용어의 뜻은?")).toBe("DEFINITION");
+    // NAMED COST, one corpus row. `코스피200이란?` is the elliptical dictionary-headword question
+    // and governs nothing, so the rule below refuses it. Allowing an ungoverned citation would
+    // admit `사란?` -- "buy?" -- and this unit has already made that trade once, when the head 말
+    // was removed for coercing a PROHIBITED_ADVICE row. Coverage does not buy an advice-shaped
+    // admission.
+    expect(operationOf("코스피200이란?")).not.toBe("DEFINITION");
+    expect(operationOf("사란?")).not.toBe("DEFINITION");
   });
 
   it("refuses a temporal adjunct without owning a list of adverbs", () => {

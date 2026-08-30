@@ -29,7 +29,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-FRAME-PREFIX       the request frame is stripped by prefix, eating predicates
   M-DEFGRAM-KO-CITATION-BARE      bare 라는 counts as a citation, admitting quoted imperatives
   M-DEFGRAM-EN-HOW-IS             ` how is ` shares the ` how does ` rule, so a noun reads as a verb
-  M-DEFGRAM-KO-CITATION-HEAD      a raw-suffix citation need not modify an overt head
+  M-DEFGRAM-KO-CITATION-HEAD      a citation need not govern an interrogative or a marked head
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -227,12 +227,13 @@ MUTATIONS = [
         'const KOREAN_CITATION_SUFFIXES = ["이라는"];',
         'const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];',
     ),
-    # M-DEFGRAM-KO-CITATION-HEAD -- a raw-suffix citation no longer has to modify an overt head, so
-    # the quoted imperative of a causative verb is a cited term and `죽이라는 뜻이야?` authorizes.
+    # M-DEFGRAM-KO-CITATION-HEAD -- a citation no longer has to govern an interrogative or a
+    # case-marked head, so quoted imperatives are cited terms: `죽이라는 뜻이야?`, `가란 뜻이야?`
+    # and `지금 사란 뜻이야?` all authorize.
     (
-        "M-DEFGRAM-KO-CITATION-HEAD a raw citation need not modify a head",
+        "M-DEFGRAM-KO-CITATION-HEAD a citation need not govern anything",
         REQUEST,
-        "  if (cited !== null && !viaParticle && !citationModifiesHead(at)) cited = null;",
+        "  if (cited !== null && !citationIsGoverned(at)) cited = null;",
         "",
     ),
     # M-DEFGRAM-EN-HOW-IS -- ` how is ` rejoins the shape-2 openers, so a final noun `work` reads as

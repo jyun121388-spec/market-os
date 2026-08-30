@@ -1243,26 +1243,38 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     }
     return null;
   };
-  // THE RAW CITATION SUFFIX PROVES NOTHING ON ITS OWN, and two rounds were needed to accept that.
+  // A CITATION SUFFIX PROVES NOTHING ON ITS OWN, IN ANY OF ITS FORMS. Three rounds to accept it.
   //
   // Bare `라는` went first: `-(으)라는` is the adnominal form of a quoted imperative, so
   // `떠나라는 뜻이야?` cited a verb stem. `이라는` was kept on the argument that its 이 is the
-  // copula and attaches only to nouns -- and review answered `죽이라는 뜻이야?`, the quoted
-  // imperative of 죽이다, where the 이 is a CAUSATIVE suffix inside the verb stem. 먹이라는,
-  // 보이라는, 높이라는 are all the same shape. The argument was wrong, not the list.
+  // copula and attaches only to nouns -- and 죽이다, 먹이다, 보이다, 높이다 are causatives whose
+  // stems END in 이, so `죽이라는 뜻이야?` cited one too. Then the same for `(이)란`, which was
+  // called unaffected because `analyseNoun` checks allomorph conditioning: `가란 뜻이야?` parses as
+  // 가 plus 란 and conditioning proves SUFFIX COMPATIBILITY, never nominality. `사란 뜻이야?` --
+  // "do you mean BUY?" -- is the same collision in this product's own subject matter.
   //
-  // What actually distinguishes a citation is what it MODIFIES. `테이퍼링이라는 표현은 ...` names
-  // an overt head noun and makes it the subject -- "the expression 'tapering', what does it mean".
-  // `죽이라는 뜻이야?` has no such head; 뜻이야 is the copular predicate itself. So a raw-suffix
-  // citation must be followed by a metalinguistic head carrying a topic or nominative marker.
+  // So the test is not the suffix. A cited term GOVERNS something: it is the definiendum of a
+  // question about it. That question takes one of two forms, and both are already inventories this
+  // grammar owns.
   //
-  // `(이)란` is unaffected and needs none of this: it comes through `analyseNoun`, which checks
-  // allomorph conditioning, and 죽이란 is not the imperative form.
-  const citationModifiesHead = (index: number): boolean => {
+  //     통화스와프란 무슨 제도인지 ...      a definitional interrogative follows
+  //     테이퍼링이란 용어의 뜻은?           a metalinguistic head follows, case-marked
+  //     가란 뜻이야?                        neither -- 뜻이야 is the copular predicate itself
+  //
+  // Applied to EVERY citation now, particle-derived included.
+  //
+  // NAMED COST, one corpus row: `코스피200이란?` is the elliptical dictionary-headword question and
+  // governs nothing, so it is refused. Allowing an ungoverned citation would admit `사란?` -- "buy?"
+  // -- as a definition of 사, and this unit has already made that trade once, when the head 말 was
+  // removed for coercing a PROHIBITED_ADVICE row. Coverage does not buy an advice-shaped admission.
+  const citationIsGoverned = (index: number): boolean => {
     const next = body[index + 1];
     if (next === undefined) return false;
+    if (KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(next, w))) return true;
     if (!KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(next, h))) return false;
-    return analyseNoun(next).some((a) => a.role === "TOPIC" || a.role === "NOMINATIVE");
+    return analyseNoun(next).some(
+      (a) => a.role === "TOPIC" || a.role === "NOMINATIVE" || a.role === "GENITIVE",
+    );
   };
   // A MARKER IS THE HEAD PLUS GRAMMATICAL MATERIAL, AND NOTHING ELSE.
   //
@@ -1306,8 +1318,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // region rather than ending it. Everything after it must still be metalinguistic, which is what
   // separates `테이퍼링이란 용어의 뜻은?` from `양적완화란 어떻게 시작됐나요?`.
   let cited = definiendumStem(body[at]);
-  const viaParticle = analyseNoun(body[at]).some((a) => a.role === "DEFINIENDUM");
-  if (cited !== null && !viaParticle && !citationModifiesHead(at)) cited = null;
+  if (cited !== null && !citationIsGoverned(at)) cited = null;
   // The marker index may already have stepped back over an absorbed determiner, so this asks about
   // the HEAD. Reached when a raw-suffix citation is rejected above and nothing else marked the
   // eojeol -- `findIndex` accepted it on the citation alone.

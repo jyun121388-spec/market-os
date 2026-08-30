@@ -24,7 +24,7 @@ STATUS as of 2026-08-18:
 ## The last thing done
 
 **2026-08-30 — MARKET-DEFINITION-GRAMMAR-001. Structural DEFINITION recognition, EN and KO.
-9/60 → 27/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
+9/60 → 26/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
 
 `CONSTRUCTIONS` recognised DEFINITION through four literals — `definition of`, `what is a`,
 `what is an`, `what does … mean` — so `What is real GDP?` failed on a missing article. The
@@ -33,10 +33,10 @@ consulted only when nothing else recognised the span.
 
 | measure                             | before | after                  |
 | ----------------------------------- | ------ | ---------------------- |
-| corpus DEFINITION rows recognised   | 9 / 60 | 27 / 60                |
+| corpus DEFINITION rows recognised   | 9 / 60 | 26 / 60                |
 | rows answered through LEGACY_BYPASS | 12     | 8                      |
 | planner calls, whole 500-row corpus | 0      | 0                      |
-| rows changed                        | —      | 18, every one intended |
+| rows changed                        | —      | 17, every one intended |
 
 **FIVE review rounds, and the fourth changed the design rather than extending it.** It began as a
 bare wh-copular — `what is X` for unconstrained X, made safe by listing what X must not contain —
@@ -193,6 +193,21 @@ Two mutants went MISSED afterwards and neither guard was redundant — the stric
 covered the only strings the tests held, exactly as in round nine. Measured both by removing them
 one at a time: `주가가 테이퍼링이라는 표현은 무슨 뜻인가요?` needs the subject guard, and
 `팔라는 표현은 무슨 뜻인가요?` — citing the imperative "sell!" as a term — needs bare `라는` gone.
+
+**SIXTEEN rounds, and the same class a third time — now through `(이)란`.** That form was called
+unaffected because `analyseNoun` checks allomorph conditioning, and conditioning proves SUFFIX
+COMPATIBILITY, never nominality: `가란 뜻이야?` parses as 가 plus 란, and `지금 사란 뜻이야?` —
+"do you mean BUY now?" — is the same collision in this product's own subject matter. The suffix is
+not the test in ANY of its forms. A cited term GOVERNS something: a definitional interrogative, or
+a case-marked metalinguistic head. `뜻이야` standing alone is the copular predicate, not a governor.
+Named cost, one corpus row: `코스피200이란?`, the elliptical dictionary-headword question, governs
+nothing and is refused — because allowing an ungoverned citation would admit `사란?`, and this unit
+already made that trade once when the head `말` was removed.
+
+| measure                           | before | after                  |
+| --------------------------------- | ------ | ---------------------- |
+| corpus DEFINITION rows recognised | 9 / 60 | 26 / 60                |
+| rows changed                      | —      | 17, every one intended |
 
 20 definition mutants, 20 of 20 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean

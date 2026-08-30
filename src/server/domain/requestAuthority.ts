@@ -1178,12 +1178,20 @@ const KOREAN_COORDINATOR_WORDS = ["또는", "혹은", "그리고", "및", "아�
  * waives the case-marker requirement, on the argument that the citation particle is itself the
  * evidence of nominality, and for bare `라는` that argument is simply false.
  *
- * `이라는` carries the copula 이, which attaches to nouns and not to verb stems, so the evidence is
- * real there. NAMED COST: a vowel-final noun cited with the contracted form -- `코스피라는 지수`,
- * where 이 legitimately drops -- is refused. That is the safe direction, it costs no corpus row,
- * and closing it needs the nominality test this grammar does not have.
+ * `이라는` WAS KEPT ON AN ARGUMENT THAT DID NOT HOLD EITHER, and the next round said so: its 이 was
+ * called the nominal copula, and 죽이다, 먹이다, 보이다, 높이다 are causatives whose stems END in
+ * 이, so `죽이라는 뜻이야?` cites a verb stem too. The round after that made the same point about
+ * `(이)란`, which had twice been called unaffected because `analyseNoun` checks allomorph
+ * conditioning -- and conditioning proves SUFFIX COMPATIBILITY, never nominality. `가란 뜻이야?`
+ * parses as 가 plus 란.
  *
- * `(이)란` is unaffected: it comes through `analyseNoun`, which checks allomorph conditioning.
+ * So NOTHING in this list is evidence of anything on its own, and the earlier version of this
+ * comment claiming otherwise was itself a review finding. What decides is `citationIsGoverned`: a
+ * cited term must govern a definitional interrogative or a case-marked metalinguistic head. This
+ * list only says which surfaces are STRIPPED once that holds.
+ *
+ * NAMED COST of dropping bare `라는`: a vowel-final noun cited with the contracted form --
+ * `코스피라는 지수`, where 이 legitimately drops -- is refused. Safe direction, no corpus row.
  */
 const KOREAN_CITATION_SUFFIXES = ["이라는"];
 

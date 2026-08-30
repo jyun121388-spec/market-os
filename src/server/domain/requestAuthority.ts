@@ -1243,6 +1243,27 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     }
     return null;
   };
+  // THE RAW CITATION SUFFIX PROVES NOTHING ON ITS OWN, and two rounds were needed to accept that.
+  //
+  // Bare `라는` went first: `-(으)라는` is the adnominal form of a quoted imperative, so
+  // `떠나라는 뜻이야?` cited a verb stem. `이라는` was kept on the argument that its 이 is the
+  // copula and attaches only to nouns -- and review answered `죽이라는 뜻이야?`, the quoted
+  // imperative of 죽이다, where the 이 is a CAUSATIVE suffix inside the verb stem. 먹이라는,
+  // 보이라는, 높이라는 are all the same shape. The argument was wrong, not the list.
+  //
+  // What actually distinguishes a citation is what it MODIFIES. `테이퍼링이라는 표현은 ...` names
+  // an overt head noun and makes it the subject -- "the expression 'tapering', what does it mean".
+  // `죽이라는 뜻이야?` has no such head; 뜻이야 is the copular predicate itself. So a raw-suffix
+  // citation must be followed by a metalinguistic head carrying a topic or nominative marker.
+  //
+  // `(이)란` is unaffected and needs none of this: it comes through `analyseNoun`, which checks
+  // allomorph conditioning, and 죽이란 is not the imperative form.
+  const citationModifiesHead = (index: number): boolean => {
+    const next = body[index + 1];
+    if (next === undefined) return false;
+    if (!KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(next, h))) return false;
+    return analyseNoun(next).some((a) => a.role === "TOPIC" || a.role === "NOMINATIVE");
+  };
   // A MARKER IS THE HEAD PLUS GRAMMATICAL MATERIAL, AND NOTHING ELSE.
   //
   // `startsWith` alone was the whole test, and review broke it with
@@ -1284,7 +1305,13 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // A cited term carries its marker on itself -- `양적완화란`, `X라는` -- so it belongs to the term
   // region rather than ending it. Everything after it must still be metalinguistic, which is what
   // separates `테이퍼링이란 용어의 뜻은?` from `양적완화란 어떻게 시작됐나요?`.
-  const cited = definiendumStem(body[at]);
+  let cited = definiendumStem(body[at]);
+  const viaParticle = analyseNoun(body[at]).some((a) => a.role === "DEFINIENDUM");
+  if (cited !== null && !viaParticle && !citationModifiesHead(at)) cited = null;
+  // The marker index may already have stepped back over an absorbed determiner, so this asks about
+  // the HEAD. Reached when a raw-suffix citation is rejected above and nothing else marked the
+  // eojeol -- `findIndex` accepted it on the citation alone.
+  if (cited === null && !isMarker(body[headAt])) return null;
   // NOTHING MARKED MAY STAND IN FRONT OF A CITED TERM. `주가가 100이라는 의미인가요?` -- "does it
   // mean the share price is 100" -- made a whole proposition the definiendum with a nominative
   // subject sitting in front of it.

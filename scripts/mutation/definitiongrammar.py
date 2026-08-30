@@ -29,6 +29,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-FRAME-PREFIX       the request frame is stripped by prefix, eating predicates
   M-DEFGRAM-KO-CITATION-BARE      bare 라는 counts as a citation, admitting quoted imperatives
   M-DEFGRAM-EN-HOW-IS             ` how is ` shares the ` how does ` rule, so a noun reads as a verb
+  M-DEFGRAM-KO-CITATION-HEAD      a raw-suffix citation need not modify an overt head
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -226,6 +227,14 @@ MUTATIONS = [
         'const KOREAN_CITATION_SUFFIXES = ["이라는"];',
         'const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];',
     ),
+    # M-DEFGRAM-KO-CITATION-HEAD -- a raw-suffix citation no longer has to modify an overt head, so
+    # the quoted imperative of a causative verb is a cited term and `죽이라는 뜻이야?` authorizes.
+    (
+        "M-DEFGRAM-KO-CITATION-HEAD a raw citation need not modify a head",
+        REQUEST,
+        "  if (cited !== null && !viaParticle && !citationModifiesHead(at)) cited = null;",
+        "",
+    ),
     # M-DEFGRAM-EN-HOW-IS -- ` how is ` rejoins the shape-2 openers, so a final noun `work` reads as
     # the intransitive predicate and `How is remote work?` becomes a definition of `remote`.
     (
@@ -272,6 +281,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 19. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 20. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

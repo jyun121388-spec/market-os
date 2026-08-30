@@ -177,6 +177,10 @@ describe("what must NOT become a definition", () => {
     // ordinary adnominal modifier. What is wrong in the first is the CASE, not the position.
     expect(operationOf("주가가 100이라는 의미인가요?")).not.toBe("DEFINITION");
     expect(operationOf("기술적 반등이라는 표현은 무슨 뜻이야")).toBe("DEFINITION");
+    // Round fifteen made the citation rule stricter, and that turned this guard's mutant MISSED --
+    // the stricter rule already refused the string above. It is not redundant; the tests were.
+    // With a proper head after the citation, the subject in front is the only thing wrong.
+    expect(operationOf("주가가 테이퍼링이라는 표현은 무슨 뜻인가요?")).not.toBe("DEFINITION");
   });
 
   it("gives a metalinguistic head the same cardinality proof as the interrogative path", () => {
@@ -206,6 +210,21 @@ describe("what must NOT become a definition", () => {
     // subject matter, which is why the direction of this one matters beyond tidiness.
     expect(operationOf("떠나라는 뜻이야?")).not.toBe("DEFINITION");
     expect(operationOf("팔라는 뜻인가요?")).not.toBe("DEFINITION");
+    // ROUND FIFTEEN, and it refuted the fix above rather than extending it. Keeping `이라는` on the
+    // argument that its 이 is the nominal copula was wrong: 죽이다, 먹이다, 보이다, 높이다 are
+    // causatives whose stems END in 이, so their quoted imperatives are 죽이라는, 먹이라는. A raw
+    // suffix proves nothing about nominality in either form.
+    //
+    // What a citation actually does is MODIFY something. `테이퍼링이라는 표현은` names an overt head
+    // noun and makes it the subject; `죽이라는 뜻이야?` has no head, only a copular predicate.
+    expect(operationOf("죽이라는 뜻이야?")).not.toBe("DEFINITION");
+    expect(operationOf("먹이라는 뜻인가요?")).not.toBe("DEFINITION");
+    // Removing bare 라는 remains load-bearing even with the head rule in place: WITH a proper head,
+    // `팔라는 표현은 무슨 뜻인가요?` cites the imperative "sell!" as a term. And the named cost is
+    // visible in the same breath -- `코스피라는 표현은` is a legitimate vowel-final citation and is
+    // refused with it. Zero corpus rows, and the direction is the safe one.
+    expect(operationOf("팔라는 표현은 무슨 뜻인가요?")).not.toBe("DEFINITION");
+    expect(operationOf("코스피라는 표현은 무슨 뜻인가요?")).not.toBe("DEFINITION");
     expect(operationOf("기술적 반등이라는 표현은 무슨 뜻이야")).toBe("DEFINITION");
   });
 

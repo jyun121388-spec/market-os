@@ -180,7 +180,21 @@ found `work` in final position and read it as the intransitive predicate, where 
 of the subject. `How is X work?` is not English; only `does` and `do` take a bare infinitive there,
 which is exactly what makes `work` a verb in the other two openers. `how is` is removed.
 
-19 definition mutants, 19 of 19 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
+**FIFTEEN rounds, and this one refuted the previous round's fix rather than extending it.** Keeping
+`이라는` on the argument that its 이 is the nominal copula was wrong: 죽이다, 먹이다, 보이다, 높이다
+are causatives whose stems END in 이, so their quoted imperatives are `죽이라는`, `먹이라는`. A raw
+suffix proves nothing about nominality in either form. What a citation actually does is MODIFY
+something — `테이퍼링이라는 표현은` names an overt head noun and makes it the subject, where
+`죽이라는 뜻이야?` has only a copular predicate — so a raw-suffix citation must now be followed by a
+metalinguistic head carrying a topic or nominative marker. `(이)란` is unaffected; it comes through
+`analyseNoun`, which checks allomorph conditioning.
+
+Two mutants went MISSED afterwards and neither guard was redundant — the stricter rule simply
+covered the only strings the tests held, exactly as in round nine. Measured both by removing them
+one at a time: `주가가 테이퍼링이라는 표현은 무슨 뜻인가요?` needs the subject guard, and
+`팔라는 표현은 무슨 뜻인가요?` — citing the imperative "sell!" as a term — needs bare `라는` gone.
+
+20 definition mutants, 20 of 20 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

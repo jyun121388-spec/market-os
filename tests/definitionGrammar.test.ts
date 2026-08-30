@@ -247,7 +247,8 @@ describe("what must NOT become a definition", () => {
     // `떠나라는 뜻이야?` -- "does that mean [we should] LEAVE?" -- was a definition of 떠나, because
     // `-(으)라는` is also the adnominal form of a quoted IMPERATIVE and stripping it leaves a verb
     // stem. The citation path deliberately waives the case-marker requirement, on the argument that
-    // the citation particle IS the evidence of nominality; for bare 라는 that argument is false.
+    // the citation particle is itself the evidence of nominality -- an argument that turned out to
+    // be false for EVERY form, not just this one. See the two blocks below.
     // `이라는` carries the copula 이, which attaches to nouns and not to verb stems.
     //
     // `팔라는 뜻인가요?` -- "does that mean SELL?" -- is the same shape in this product's own
@@ -554,7 +555,7 @@ describe("declared limitations of this grammar", () => {
   it("still cannot see inside a single Korean nominal, and says so", () => {
     // `koreanCopularMatch` states the limitation: one marked subject SLOT is a claim about the
     // CONSTRUCTION, not about the morphology inside it. Two round-six findings lived here and were
-    // declared unfixable; round seven produced a lexicon-free rule for both, and they are now
+    // declared unfixable; round nine produced a lexicon-free rule for both, and they are now
     // refused (see the cardinality test above). What remains is the limitation itself, which these
     // pin from the other side -- 물가 is 물 plus a 가 its own conditioning declines, as is
     // 소비자물가, and both must stay usable as terms.

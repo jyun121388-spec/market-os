@@ -1533,10 +1533,16 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     KOREAN_METALINGUISTIC_HEADS.some((h) =>
       isMarkedBy(body[at], h, KOREAN_MEANING_HEADS.includes(h)),
     );
-  // A CITED term carries its own marker. `테이퍼링이라는 표현은 무슨 뜻인가요?` was refused by an
-  // earlier version of this line, which required a case marker on 테이퍼링 after the citation
-  // suffix had already been stripped off it -- so the frame the comments claimed to support did not
-  // parse. (이)라는 IS the evidence; asking for a second marker asks twice.
+  // A CITED term needs no case marker of its own, and the REASON is not the one this comment used
+  // to give. It said `(이)라는 IS the evidence`, which later rounds refuted: 죽이라는 and 가란 are
+  // quoted imperatives, and no citation suffix proves nominality by itself.
+  //
+  // What licenses the waiver is `citationIsGoverned`, checked far above -- the citation must govern
+  // a definitional interrogative or a case-marked metalinguistic head, and only a citation that
+  // passed THAT reaches this line. So `죽이라는 표현은 무슨 뜻인가요?` is accepted on the strength
+  // of 표현은, not of 라는, and `죽이라는 뜻이야?` never gets here. Requiring a second marker on the
+  // stem as well would refuse `테이퍼링이라는 표현은 무슨 뜻인가요?`, which is how this waiver
+  // arrived in the first place.
   if (roled === undefined && !compounded && cited === null) return null;
 
   const stem = roled === undefined ? last : roled.stem;

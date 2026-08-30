@@ -1,90 +1,266 @@
 /**
- * Could `LEGACY_BYPASS` be removed now, and what would it cost?
+ * What does `LEGACY_BYPASS` actually carry, and is any of it a safety divergence?
  *
- * IR-107 §16. `InferenceAuthorization` admits two provenances: `CANONICAL`, where the operation
- * parser recognised the whole request and its parse travels, and `LEGACY_BYPASS`, where the legacy
- * frame classifier admitted a request the canonical parser refuses. The bypass is labelled rather
- * than hidden precisely so its closure can be a deletion instead of another migration.
+ * IR-107. `InferenceAuthorization` admits two provenances: `CANONICAL`, where the operation parser
+ * recognised the whole request and its parse travels, and `LEGACY_BYPASS`, where the legacy frame
+ * classifier admitted a request the canonical parser refuses. The bypass is labelled rather than
+ * hidden precisely so its closure can be a deletion instead of another migration.
  *
- * It is not removable because it is ugly. Recognition coverage collapsed once before when canonical
- * binding was forced, so the question is measured, not argued:
+ * ## The previous version of this script produced an invalid number, and it was believed
  *
- *   THROUGHPUT   what share of eligible requests the canonical parser already recognises
- *   LOSS         legitimate, planner-eligible requests that would stop being eligible today
- *   EXPOSURE     requests the canonical parser REFUSES that reach a planner through the bypass
+ * It reported `0 safety exposures / 13 legitimate recognition gaps`, and that figure was carried
+ * into three escalation packets as fact. Independent review found it unsound and reproducing the
+ * complaint found it worse than reported:
  *
- * LOSS and EXPOSURE are the same population seen from opposite ends, and separating them is the
- * whole decision: a bypass carrying only cases the parser refuses on SAFETY grounds should be shut
- * immediately, and one carrying cases it merely fails to RECOGNISE should not.
+ *   DENOMINATOR. It regex-scraped the corpus source instead of importing it. The character class
+ *   `[^"'`\n]` excludes any query containing an apostrophe, so `What will Apple's revenue be next
+ *   quarter?` and 46 others were silently dropped — 47 typed cases absent, while the scrape's own
+ *   count of 493 was padded by strings that are not corpus queries at all. The bias was systematic,
+ *   not random: it removed possessives and contractions, which is most of natural English.
  *
- *   npx tsx scripts/legacy-bypass-readiness.ts
+ *   CLASSIFICATION. It never read `expected`, `operation`, `language` or `id` — grep found zero
+ *   references. Every bypass whose canonical status was UNSUPPORTED became `LOSS`, i.e. "legitimate
+ *   recognition gap". But UNSUPPORTED does not mean the corpus wanted the request answered. A
+ *   NEGATIVE CONTROL that the parser refuses and the bypass admits looks identical in that bucket,
+ *   and that is a safety exposure being counted as throughput.
+ *
+ * So the corpus is now imported, the denominator is asserted, and every bypass is classified by
+ * what the corpus SAYS the request is, not by what the parser happened to return.
+ *
+ * ## A class must be measured at the door, not inferred from provenance
+ *
+ * The first corrected draft of this script still assigned `FALSE_ELIGIBILITY_EXPOSURE` from corpus
+ * `expected` plus provenance. Reproducing those rows refuted it. `How does the unemployment rate
+ * work with inflation?` is admitted by the frame classifier, but the legacy envelope then refuses
+ * it -- "the question names both variables but no construction in it establishes which acts on
+ * which" -- and no planner call happens. Eligibility being wrong is real, and it is not the same
+ * thing as a refused request reaching a model.
+ *
+ * So the safety class is now taken from a real `answerWithInference` run with a counting sink, and
+ * a bypass the door refuses downstream is reported as `REFUSED_DOWNSTREAM`: an eligibility
+ * divergence worth closing, but not an exposure.
+ *
+ * A measurement over an EMPTY repository cannot tell refusal from an empty shelf, so the script
+ * says so rather than printing a reassuring zero. The reproduction that established the above used
+ * a seeded fixture whose control query resolved AUTHORIZED with a real stored edge, which is what
+ * makes its zeros mean something.
+ *
+ * ## Planner calls are not the success metric
+ *
+ * A request whose expected operation is deterministic — DEFINITION, CURRENT_OBSERVATION,
+ * OBSERVED_CHANGE — should end with the canonical parser recognising it and `plannerPermitted`
+ * false, i.e. ZERO model calls. Preserving a legacy planner call for such a request is not
+ * capability, it is the deterministic path being bypassed. `DETERMINISTIC_VIA_PLANNER` names that
+ * separately so it can never be counted as recognition throughput again.
+ *
+ *   npx tsx scripts/legacy-bypass-readiness.ts [--rows]
  */
 
-import { readFileSync } from "node:fs";
+import {
+  REQUEST_DEVELOPMENT_CORPUS,
+  type DevelopmentCase,
+} from "../tests/fixtures/requestDevelopmentCorpus";
 import { authorizeInference } from "@/server/domain/inferenceAuthorization";
-import { resolveRequestAuthority } from "@/server/domain/requestAuthority";
+import { resolveRequestAuthority, asPlannerRequest } from "@/server/domain/requestAuthority";
+
+/** The corpus's own declared size. A different number means the fixture changed under this script. */
+const CANONICAL_DENOMINATOR = 500;
+
+/** Operations this product answers deterministically, where a planner call is a defect not a win. */
+const DETERMINISTIC_OPERATIONS = new Set(["DEFINITION", "CURRENT_OBSERVATION", "OBSERVED_CHANGE"]);
+
+type BypassClass =
+  /** Corpus expects ANSWERABLE, canonical cannot read it, and the intended operation is known. */
+  | "TRUE_RECOGNITION_GAP"
+  /** Corpus expects REFUSED and the door really did call a planner. The only safety exposure. */
+  | "FALSE_ELIGIBILITY_EXPOSURE"
+  /** Corpus expects REFUSED, eligibility admitted it, the candidate door refused it anyway. */
+  | "REFUSED_DOWNSTREAM"
+  /** Corpus expects a deterministic operation; a planner call means the wrong door answered. */
+  | "DETERMINISTIC_VIA_PLANNER"
+  /** Canonical says PROHIBITED or AMBIGUOUS and the bypass admits it anyway. */
+  | "CANONICAL_SAFETY_BYPASS";
+
+interface Row {
+  id: string;
+  language: string;
+  query: string;
+  expected: string;
+  expectedOperation: string;
+  canonicalStatus: string;
+  canonicalOperation: string;
+  eligible: boolean;
+  frame: string;
+  provenance: string;
+  plannerPermitted: boolean | null;
+  /** Measured: did a real `answerWithInference` run call the sink? null when not probed. */
+  plannerCalled: boolean | null;
+  legacyStatus: string | null;
+  klass: BypassClass | null;
+}
 
 /**
- * The development corpus. NOT a sealed holdout -- this unit's brief forbids spending holdout
- * evidence on framing work, so the holdout fixtures are deliberately not read.
+ * `plannerCalled` is the measured outcome of a real run, or null when no door probe was possible.
+ * Passing it in rather than reading it here keeps the pure classification testable on its own.
  */
-function devCorpus(): string[] {
-  const text = readFileSync("tests/fixtures/requestDevelopmentCorpus.ts", "utf8");
-  return [...text.matchAll(/query:\s*["'`]([^"'`\n]{4,200})["'`]/g)].map((m) => m[1]);
-}
-
-const queries = devCorpus();
-let canonical = 0;
-let bypass = 0;
-let blocked = 0;
-
-/** Bypassed requests grouped by what the canonical parser said instead. */
-const byCanonicalVerdict = new Map<string, string[]>();
-
-for (const query of queries) {
-  const authorization = authorizeInference(query);
-  if (!authorization.eligible) {
-    blocked += 1;
-    continue;
+export function classify(
+  expected: string,
+  expectedOperation: string,
+  canonicalStatus: string,
+  plannerCalled: boolean | null,
+): BypassClass {
+  if (canonicalStatus === "PROHIBITED" || canonicalStatus === "AMBIGUOUS") {
+    return "CANONICAL_SAFETY_BYPASS";
   }
-  if (authorization.provenance === "CANONICAL") {
-    canonical += 1;
-    continue;
+  if (expected === "REFUSED") {
+    // Measured, not assumed. A refused request that never reaches a model is an eligibility
+    // divergence; only one that DOES reach it is an exposure.
+    return plannerCalled === true ? "FALSE_ELIGIBILITY_EXPOSURE" : "REFUSED_DOWNSTREAM";
   }
-  bypass += 1;
-  const verdict = resolveRequestAuthority(query).status;
-  const bucket = byCanonicalVerdict.get(verdict) ?? [];
-  bucket.push(query);
-  byCanonicalVerdict.set(verdict, bucket);
+  if (DETERMINISTIC_OPERATIONS.has(expectedOperation)) return "DETERMINISTIC_VIA_PLANNER";
+  return "TRUE_RECOGNITION_GAP";
 }
 
-const eligible = canonical + bypass;
-console.log(`development corpus: ${queries.length} queries`);
-console.log(`  blocked before a planner : ${blocked}`);
-console.log(`  eligible                 : ${eligible}`);
-console.log(
-  `    CANONICAL              : ${canonical}` +
-    (eligible > 0 ? `  (${((canonical / eligible) * 100).toFixed(1)}% throughput)` : ""),
-);
-console.log(`    LEGACY_BYPASS          : ${bypass}`);
-
-console.log(`\nwhat the canonical parser says about each bypassed request:`);
-for (const [verdict, rows] of [...byCanonicalVerdict].sort((a, b) => b[1].length - a[1].length)) {
-  console.log(`  ${verdict.padEnd(14)} ${rows.length}`);
-  for (const row of rows.slice(0, 4)) console.log(`      ${JSON.stringify(row.slice(0, 90))}`);
-  if (rows.length > 4) console.log(`      ... and ${rows.length - 4} more`);
+export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]> {
+  const rows: Row[] = [];
+  for (const c of corpus) {
+    const canonical = resolveRequestAuthority(c.query);
+    const authorization = authorizeInference(c.query);
+    const base = {
+      id: c.id,
+      language: c.language,
+      query: c.query,
+      expected: c.expected,
+      expectedOperation: c.operation,
+      canonicalStatus: canonical.status,
+      canonicalOperation: canonical.status === "AUTHORIZED" ? canonical.operation : "-",
+      eligible: authorization.eligible,
+      frame: authorization.eligible ? authorization.frame : "-",
+      provenance: authorization.eligible ? authorization.provenance : "-",
+      plannerPermitted:
+        authorization.eligible && authorization.provenance === "CANONICAL"
+          ? asPlannerRequest(authorization.request) !== null
+          : null,
+    };
+    const isBypass = base.eligible && base.provenance === "LEGACY_BYPASS";
+    if (!isBypass) {
+      rows.push({ ...base, plannerCalled: null, legacyStatus: null, klass: null });
+      continue;
+    }
+    const probed = await probeDoor(c.query);
+    rows.push({
+      ...base,
+      plannerCalled: probed.called,
+      legacyStatus: probed.legacyStatus,
+      klass: classify(c.expected, c.operation, base.canonicalStatus, probed.called),
+    });
+  }
+  return rows;
 }
 
-// The distinction the decision turns on. A request the parser calls PROHIBITED and the bypass
-// admits is a live safety exposure; one it calls UNSUPPORTED is unrecognised, and removing the
-// bypass would lose it rather than protect anyone.
-const prohibited = byCanonicalVerdict.get("PROHIBITED")?.length ?? 0;
-const ambiguous = byCanonicalVerdict.get("AMBIGUOUS")?.length ?? 0;
-const unsupported = byCanonicalVerdict.get("UNSUPPORTED")?.length ?? 0;
-console.log(`\nEXPOSURE  bypassed while the parser calls them PROHIBITED : ${prohibited}`);
-console.log(`EXPOSURE  bypassed while the parser calls them AMBIGUOUS  : ${ambiguous}`);
-console.log(`LOSS      bypassed only because the parser cannot read them: ${unsupported}`);
-console.log(
-  `\nREADINESS: removing LEGACY_BYPASS today would close ${prohibited + ambiguous} exposure(s) ` +
-    `and lose ${unsupported} recognised-by-legacy request(s).`,
-);
+/**
+ * One real trip through the production door, counting model calls.
+ *
+ * A thrown sink is reported as thrown rather than as zero calls -- the previous measurement printed
+ * `calls=0` from a stub whose method name was wrong, and the zero read as safety.
+ */
+async function probeDoor(query: string): Promise<{ called: boolean | null; legacyStatus: string }> {
+  const { answerWithInference } = await import("@/server/domain/askMarketInference");
+  const { deriveLegacyCandidateEnvelope } = await import("@/server/domain/candidateEnvelope");
+  let called = 0;
+  try {
+    const legacy = await deriveLegacyCandidateEnvelope(query);
+    await answerWithInference(query, {
+      generatePlan: async () => {
+        called += 1;
+        return { segments: [] };
+      },
+    });
+    return { called: called > 0, legacyStatus: legacy.status };
+  } catch (error) {
+    return { called: null, legacyStatus: `THREW ${(error as Error).message.slice(0, 40)}` };
+  }
+}
+
+async function main() {
+  const corpus = REQUEST_DEVELOPMENT_CORPUS;
+  if (corpus.length !== CANONICAL_DENOMINATOR) {
+    // FAIL CLOSED. A readiness number computed over an unknown denominator is the defect this
+    // script was rewritten to remove; it must not be silently recomputed over a different one.
+    console.error(
+      `DENOMINATOR MISMATCH: corpus has ${corpus.length} cases, expected ${CANONICAL_DENOMINATOR}. ` +
+        "Refusing to report a readiness metric over an unverified denominator.",
+    );
+    process.exit(2);
+  }
+
+  const rows = await measure(corpus);
+  const bypasses = rows.filter((r) => r.klass !== null);
+  const canonicalRows = rows.filter((r) => r.eligible && r.provenance === "CANONICAL");
+  const eligible = rows.filter((r) => r.eligible);
+
+  console.log(`development corpus: ${corpus.length} cases (denominator asserted)`);
+  console.log(`  blocked before a planner : ${rows.length - eligible.length}`);
+  console.log(`  eligible                 : ${eligible.length}`);
+  console.log(
+    `    CANONICAL              : ${canonicalRows.length}` +
+      (eligible.length > 0
+        ? `  (${((canonicalRows.length / eligible.length) * 100).toFixed(1)}% throughput)`
+        : ""),
+  );
+  console.log(`    LEGACY_BYPASS          : ${bypasses.length}`);
+
+  const order: BypassClass[] = [
+    "CANONICAL_SAFETY_BYPASS",
+    "FALSE_ELIGIBILITY_EXPOSURE",
+    "REFUSED_DOWNSTREAM",
+    "DETERMINISTIC_VIA_PLANNER",
+    "TRUE_RECOGNITION_GAP",
+  ];
+  console.log(`\nbypass classification:`);
+  for (const klass of order) {
+    const of = bypasses.filter((r) => r.klass === klass);
+    console.log(`  ${klass.padEnd(28)} ${of.length}`);
+    for (const r of of.slice(0, 6)) {
+      console.log(
+        `      ${r.id} [${r.language}] expected=${r.expected}/${r.expectedOperation} ` +
+          `canonical=${r.canonicalStatus} legacy=${r.legacyStatus} plannerCalled=${r.plannerCalled}`,
+      );
+      console.log(`         ${JSON.stringify(r.query.slice(0, 88))}`);
+    }
+    if (of.length > 6) console.log(`      ... and ${of.length - 6} more`);
+  }
+
+  // NON-VACUITY WARNING. A door probe against an empty repository cannot tell a refusal from an
+  // empty shelf, and reporting its zeros as safety is exactly how the previous metric went wrong.
+  const anySeries = bypasses.some((r) => r.legacyStatus === "AUTHORIZED");
+  if (bypasses.length > 0 && !anySeries) {
+    console.log(
+      `
+NOTE: no bypass row resolved candidate evidence in this repository. If it is empty, the ` +
+        `zero planner calls below are NOT evidence of safety — seed fixtures and re-run.`,
+    );
+  }
+
+  const unsafe = bypasses.filter(
+    (r) => r.klass === "CANONICAL_SAFETY_BYPASS" || r.klass === "FALSE_ELIGIBILITY_EXPOSURE",
+  );
+  console.log(
+    `\nSAFETY DIVERGENCES (a refused request that can still reach a planner): ${unsafe.length}`,
+  );
+  console.log(
+    `SEMANTIC DEBT (deterministic operation answered through the planner): ` +
+      `${bypasses.filter((r) => r.klass === "DETERMINISTIC_VIA_PLANNER").length}`,
+  );
+  console.log(
+    `RECOGNITION DEBT (genuinely answerable, canonical cannot read): ` +
+      `${bypasses.filter((r) => r.klass === "TRUE_RECOGNITION_GAP").length}`,
+  );
+
+  if (process.argv.includes("--rows")) {
+    console.log(`\n--- machine-readable rows (JSONL) ---`);
+    for (const r of bypasses) console.log(JSON.stringify(r));
+  }
+}
+
+if (process.argv[1]?.includes("legacy-bypass-readiness")) void main();

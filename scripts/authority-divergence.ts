@@ -155,14 +155,29 @@ async function main(): Promise<void> {
       console.log(`\n--- ${group}`);
     }
     console.log(
-      `${r.unsafe ? "UNSAFE " : "       "}${r.authority.padEnd(12)} ${r.operation.padEnd(32)} ` +
+      `${r.unsafe ? "DIVERGE" : "       "}${r.authority.padEnd(12)} ${r.operation.padEnd(32)} ` +
         `${r.inference.padEnd(34)} ${r.envelope.padEnd(26)} ${r.p.query.slice(0, 58)}`,
     );
   }
 
   const unsafe = rows.filter((r) => r.unsafe);
+  // DELIBERATELY NO LONGER CALLED "UNSAFE".
+  //
+  // This counted every row where the parser refuses and inference permits, and printed it as an
+  // unsafe divergence. That is the same conflation that made `legacy-bypass-readiness` report a
+  // false `0 exposures / 13 legitimate gaps`: an UNSUPPORTED status says the canonical parser could
+  // not READ the request, not that the request ought to have been refused, and permitting it is a
+  // safety problem only if a request the corpus marks REFUSED actually reaches a model.
+  //
+  // Whether that happens is measured at the door in `legacy-bypass-readiness.ts`, against the typed
+  // 500-case corpus where every row carries its own `expected`. This probe matrix is hand-written
+  // and carries no expectation on any row, so it may report a divergence and must not grade one.
   console.log(
-    `\nUNSAFE DIVERGENCES (parser refuses, inference permits): ${unsafe.length}/${rows.length}`,
+    `\nELIGIBILITY DIVERGENCES (parser refuses, inference permits): ${unsafe.length}/${rows.length}`,
+  );
+  console.log(
+    "   NOT graded here — these rows carry no expected verdict. Safety is classified in " +
+      "legacy-bypass-readiness.ts against the typed corpus, with planner reach measured at the door.",
   );
   for (const r of unsafe) {
     console.log(`   ${r.authority} vs ${r.inference}   ${r.p.query}`);

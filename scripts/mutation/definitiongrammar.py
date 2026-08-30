@@ -48,7 +48,7 @@ MUTATIONS = [
         "M-DEFGRAM-OFF the definitional recogniser is never consulted",
         REQUEST,
         "  if (readings.length === 0) {\n"
-        "    const definitional = definitionalMatch(normalized);\n"
+        "    const definitional = definitionalMatch(normalized, span);\n"
         "    if (definitional) readings.push(definitional);\n"
         "  }",
         "",
@@ -60,9 +60,9 @@ MUTATIONS = [
         "M-DEFGRAM-LAST-RESORT definitional recognition competes instead of yielding",
         REQUEST,
         "  if (readings.length === 0) {\n"
-        "    const definitional = definitionalMatch(normalized);",
+        "    const definitional = definitionalMatch(normalized, span);",
         "  if (true) {\n"
-        "    const definitional = definitionalMatch(normalized);",
+        "    const definitional = definitionalMatch(normalized, span);",
     ),
     # M-DEFGRAM-PREPOSITION -- THE discriminator. Without it `the level of the VIX`, `the published
     # view on Brent crude` and `the weather in Seoul tomorrow` are all terms, and four corpus
@@ -80,8 +80,8 @@ MUTATIONS = [
     (
         "M-DEFGRAM-TAIL a second term may hide in the predicate's tail",
         REQUEST,
-        "    if (!isSingleTermRegion(term) || !isSingleTermRegion(` x ${tail}`)) continue;",
-        "    if (!isSingleTermRegion(term)) continue;",
+        "    if (!isSingleTermRegion(term, raw) || !isSingleTermRegion(` x ${tail}`, raw)) continue;",
+        "    if (!isSingleTermRegion(term, raw)) continue;",
     ),
     # M-DEFGRAM-PLANNER -- the operation becomes planner-permitted. Success for this unit is
     # canonical recognition with ZERO planner calls, so a definition reaching a model must fail

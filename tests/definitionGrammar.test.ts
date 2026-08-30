@@ -69,12 +69,30 @@ describe("what must NOT become a definition", () => {
     );
   });
 
-  it("refuses a calculation over two named things", () => {
-    // REVIEW FINDING, and a real regression this unit introduced: `What is EBITDA minus capex?`
-    // became a definition of something. It asks for a result computed from two subjects, which is
-    // neither a definition nor an operation this product performs.
-    expect(operationOf("What is EBITDA minus capex?")).not.toBe("DEFINITION");
-    expect(operationOf("What is revenue plus other income?")).not.toBe("DEFINITION");
+  it("refuses a calculation over two named things, symbolic or written out", () => {
+    // TWO REVIEW ROUNDS. The first found `What is EBITDA minus capex?` becoming a definition and I
+    // added a five-word list; the second found the CLASS still open, because normalization deletes
+    // punctuation so `EBITDA - capex` arrives as two bare nouns, and `less` and `multiplied by`
+    // were simply absent. Patching the instance and leaving the category is the recurring shape of
+    // my errors in this area, so the symbols are now read from the RAW request before they are
+    // destroyed.
+    for (const query of [
+      "What is EBITDA minus capex?",
+      "What is revenue plus other income?",
+      "What is EBITDA - capex?",
+      "What is EBITDA / revenue?",
+      "What is EBITDA less capex?",
+      "What is revenue multiplied by margin?",
+    ]) {
+      expect(operationOf(query), query).not.toBe("DEFINITION");
+    }
+  });
+
+  it("does not mistake a hyphenated name for a subtraction", () => {
+    // The cost of reading raw punctuation, and it was paid before the qualifier was added: matching
+    // a bare `-` refused `What is the Herfindahl-Hirschman Index?`. An operator stands free; a
+    // compound name does not. This is the same mistake the retired raw-comma test made.
+    expect(operationOf("What is the Herfindahl-Hirschman Index?")).toBe("DEFINITION");
   });
 
   it("leaves every other operation to its own construction", () => {
@@ -131,10 +149,13 @@ describe("declared limitations of this grammar", () => {
     expect(operationOf("What is return on equity?")).toBe("DEFINITION");
   });
 
-  it("is inconsistent in a way worth seeing, not hiding", () => {
-    // The other half of the same limitation, asserted as it actually behaves.
-    expect(operationOf("What is value at risk?")).toBe("DEFINITION");
-    expect(operationOf("What is earnings per share?")).toBe("DEFINITION");
+  it("now refuses lexicalized terms UNIFORMLY rather than inconsistently", () => {
+    // Review's second round: the preposition set was a subset presented as the class, so
+    // `value at risk` was recognised while `proof of stake` was not, for no defensible reason. The
+    // set is now the functional class, which makes the gap uniform. Worse coverage, better
+    // behaviour -- an inconsistency a reader cannot predict is more dangerous than a known limit.
+    expect(operationOf("What is value at risk?")).not.toBe("DEFINITION");
+    expect(operationOf("What is earnings per share?")).not.toBe("DEFINITION");
   });
 
   it.fails("PENDING: definitional constructions this family does not yet cover", () => {

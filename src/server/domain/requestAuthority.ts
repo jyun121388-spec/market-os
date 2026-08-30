@@ -965,7 +965,7 @@ function koreanCopularMatch(query: string): KoreanMatch {
  * those into DEFINITION would be exactly the silent coercion this unit is required to prevent. So a
  * definitional frame must be POSITIVELY present; absence of operands narrows, it does not decide.
  */
-function definitionalMatch(normalized: string): Recognised | null {
+function definitionalMatch(normalized: string, raw: string): Recognised | null {
   // Shape 1: the wh-copular. `what is X` / `what are X`, generalising the two existing rows that
   // required an article. Framing between the copula and the term is allowed, which is what lets
   // `what exactly is X` and `what is the X` in without either being its own entry.
@@ -976,7 +976,7 @@ function definitionalMatch(normalized: string): Recognised | null {
     // whole point of the residue rules elsewhere in this file is that those are not one question.
     if (normalizedTokens(normalized.slice(0, at + 1)).length > 0) continue;
     const term = normalized.slice(at + copula.length - 1);
-    if (!isSingleTermRegion(term)) continue;
+    if (!isSingleTermRegion(term, raw)) continue;
     return {
       operation: "DEFINITION",
       subjectRegion: term,
@@ -1011,7 +1011,7 @@ function definitionalMatch(normalized: string): Recognised | null {
     // because this grammar cannot tell an adverbial tail from an argument without a lexicon. Losing
     // a true positive to keep a negative control refused is the right direction for the trade.
     const tail = rest.slice(rest.indexOf(`${closer} `) + closer.length);
-    if (!isSingleTermRegion(term) || !isSingleTermRegion(` x ${tail}`)) continue;
+    if (!isSingleTermRegion(term, raw) || !isSingleTermRegion(` x ${tail}`, raw)) continue;
     return {
       operation: "DEFINITION",
       subjectRegion: term,
@@ -1039,15 +1039,24 @@ const INTRANSITIVE_PREDICATES = ["work", "works", "operate", "operates", "functi
  * operation. It cannot ask the repository whether the term exists -- a missing row is evidence about
  * the repository and never evidence about what the request meant.
  */
-function isSingleTermRegion(region: string): boolean {
+function isSingleTermRegion(region: string, raw?: string): boolean {
   const tokens = normalizedTokens(region);
   if (tokens.length === 0) return false;
   if (tokens.some((token) => CLAUSE_CONNECTIVES.includes(token))) return false;
   if (tokens.some((token) => OBJECT_COORDINATORS.includes(token))) return false;
-  // A calculation is not a term. Review found `What is EBITDA minus capex?` becoming a definition:
-  // it asks for an arithmetic result over two named things, which is neither a definition nor
-  // anything this product computes on request.
-  if (tokens.some((token) => ARITHMETIC_OPERATORS.has(token))) return false;
+  // A CALCULATION IS NOT A TERM, and this has to be checked on the RAW text as well as the tokens.
+  //
+  // Review found `What is EBITDA minus capex?` becoming a definition, I added a five-word list, and
+  // the class stayed open: normalization strips punctuation, so `EBITDA - capex` and
+  // `EBITDA / revenue` reach here as two bare nouns indistinguishable from `real GDP`. The symbols
+  // have to be read before they are destroyed.
+  //
+  // Symbolic operators ARE a closed class and are treated as one. The WORD forms are not -- `less`
+  // and `multiplied by` were both missing from the first attempt -- so that set is a subset whose
+  // failure direction is ADMISSION, which is the unsafe one. It is pinned as a declared limitation
+  // rather than described as complete.
+  if (raw !== undefined && ARITHMETIC_SYMBOLS.test(raw)) return false;
+  if (tokens.some((token) => ARITHMETIC_WORDS.has(token))) return false;
   // An interval belongs to OBSERVED_CHANGE and a currentness marker to CURRENT_OBSERVATION. Either
   // one means the request was not asking what a term means.
   if (intervalConstituent(region) !== null) return false;
@@ -1121,16 +1130,50 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "in",
   "about",
   "with",
+  // Added after review pointed out the set was a SUBSET presented as the class. Their absence made
+  // the behaviour inconsistent rather than strict: `What is value at risk?` was recognised while
+  // `What is proof of stake?` was not, for no reason a reader could defend. Both are refused now,
+  // which is uniform and is covered by the pinned lexicalized-term limitation.
+  "at",
+  "by",
+  "per",
+  "between",
+  "through",
+  "against",
+  "under",
 ]);
 
 /**
- * Arithmetic over two named things is a calculation request, not a term.
+ * Arithmetic symbols, read from the RAW request because normalization deletes them.
  *
- * Review found `What is EBITDA minus capex?` becoming a definition of something. It asks for a
- * result computed from two subjects, which is neither a definition nor an operation this product
- * performs, so it must not be admitted by the shape that recognises bare terms.
+ * FREE-STANDING ONLY, and that qualifier cost a real row before it was added. Matching the bare
+ * character refused `What is the Herfindahl-Hirschman Index?` -- a hyphenated proper name is not a
+ * subtraction, and reading raw punctuation without asking what it is attached to is the same
+ * mistake the retired raw-comma test made. An operator has whitespace around it; a compound name
+ * does not.
+ *
+ * The symbols are a genuinely closed class, unlike the word forms below. The residue is narrow and
+ * named: `EBITDA-capex` written without spaces reads as a compound and is admitted.
  */
-const ARITHMETIC_OPERATORS = new Set(["minus", "plus", "times", "over", "divided"]);
+const ARITHMETIC_SYMBOLS = /(^|\s)[-+*/×÷=](\s|$)/;
+
+/**
+ * Word forms of the same thing.
+ *
+ * A SUBSET, not the class, and its failure direction is admission -- a form missing from here is
+ * silently accepted as a term. `less` and `multiplied` were both absent from the first attempt and
+ * review found them. Pinned as a declared limitation rather than claimed complete.
+ */
+const ARITHMETIC_WORDS = new Set([
+  "minus",
+  "plus",
+  "times",
+  "over",
+  "divided",
+  "less",
+  "multiplied",
+  "versus",
+]);
 
 function recogniseAll(normalized: string): Recognised[] {
   const found: Recognised[] = [];
@@ -1547,7 +1590,7 @@ function recogniseSpanUncached(span: string): SpanRecognition {
   // nothing else recognised the span, it cannot outrank another operation and cannot create a
   // conflict. See `definitionalMatch`.
   if (readings.length === 0) {
-    const definitional = definitionalMatch(normalized);
+    const definitional = definitionalMatch(normalized, span);
     if (definitional) readings.push(definitional);
   }
 

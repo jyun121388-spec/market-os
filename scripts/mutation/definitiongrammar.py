@@ -27,6 +27,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-CITATION-SUBJECT   a marked nominal precedes a cited term
   M-DEFGRAM-KO-CONJUNCTION        a standalone conjunction counts as part of the term
   M-DEFGRAM-KO-FRAME-PREFIX       the request frame is stripped by prefix, eating predicates
+  M-DEFGRAM-KO-CITATION-BARE      bare 라는 counts as a citation, admitting quoted imperatives
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -216,6 +217,14 @@ MUTATIONS = [
         "  while (body.length > 0 && KOREAN_REQUEST_FRAME.includes(body[body.length - 1])) {",
         "  while (body.length > 0 && KOREAN_REQUEST_FRAME.some((f) => body[body.length - 1].startsWith(f))) {",
     ),
+    # M-DEFGRAM-KO-CITATION-BARE -- bare 라는 counts as a citation again, so the adnominal form of a
+    # quoted imperative is a cited term and `팔라는 뜻인가요?` becomes a definition of 팔.
+    (
+        "M-DEFGRAM-KO-CITATION-BARE bare 라는 counts as a citation",
+        REQUEST,
+        'const KOREAN_CITATION_SUFFIXES = ["이라는"];',
+        'const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];',
+    ),
     # M-DEFGRAM-EN-FRAME -- shape 1 stops checking that the clause is wh-copular, so
     # `How does the meaning of inflation change?` defines `inflation change`.
     (
@@ -254,6 +263,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 17. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 18. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

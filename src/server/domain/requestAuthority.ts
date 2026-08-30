@@ -1154,8 +1154,23 @@ const KOREAN_COORDINATOR_ENDINGS = ["와", "과", "랑", "이랑", "하고", "�
  */
 const KOREAN_COORDINATOR_WORDS = ["또는", "혹은", "그리고", "및", "아니면", "내지", "또한"];
 
-/** `(이)라는` — the attributive quotative that cites a term: `X라는 표현`, "the expression 'X'". */
-const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];
+/**
+ * `이라는` — the attributive quotative that cites a term: `X이라는 표현`, "the expression 'X'".
+ *
+ * BARE `라는` IS NOT HERE, and review is why. `떠나라는 뜻이야?` -- "does that mean [we should]
+ * LEAVE?" -- was authorized as a definition of `떠나`, because `-(으)라는` is also the adnominal
+ * form of a quoted IMPERATIVE, and stripping it leaves a verb stem. The citation path deliberately
+ * waives the case-marker requirement, on the argument that the citation particle is itself the
+ * evidence of nominality, and for bare `라는` that argument is simply false.
+ *
+ * `이라는` carries the copula 이, which attaches to nouns and not to verb stems, so the evidence is
+ * real there. NAMED COST: a vowel-final noun cited with the contracted form -- `코스피라는 지수`,
+ * where 이 legitimately drops -- is refused. That is the safe direction, it costs no corpus row,
+ * and closing it needs the nominality test this grammar does not have.
+ *
+ * `(이)란` is unaffected: it comes through `analyseNoun`, which checks allomorph conditioning.
+ */
+const KOREAN_CITATION_SUFFIXES = ["이라는"];
 
 /**
  * The Korean half of MARKET-DEFINITION-GRAMMAR-001, built on the same rule as the English half.

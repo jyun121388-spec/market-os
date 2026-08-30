@@ -166,7 +166,15 @@ same shape and separating them needs a lexicon or the adverb prefix list `korean
 refuses by name — which would also refuse `현재가`, an ordinary term, and is the exact discipline
 error round eleven exposed.
 
-17 definition mutants, 17 of 17 ISOLATED full suite 138 files / 2419 pass / 19 expected fail
+**THIRTEEN rounds.** `떠나라는 뜻이야?` — "does that mean [we should] LEAVE?" — was a definition of
+`떠나`, because `-(으)라는` is also the adnominal form of a quoted IMPERATIVE and stripping it
+leaves a verb stem. The citation path waives the case-marker requirement on the argument that the
+citation particle IS the evidence of nominality, and for bare `라는` that argument was simply
+false; `이라는` carries the copula 이, which attaches to nouns and not to verb stems. The same
+shape in this product's own subject matter is `팔라는 뜻인가요?` — "does that mean SELL?" — so the
+direction of this one matters beyond tidiness.
+
+18 definition mutants, 18 of 18 ISOLATED full suite 138 files / 2420 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

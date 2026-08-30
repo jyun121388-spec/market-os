@@ -185,6 +185,20 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("장단기 금리 역전이 무슨 뜻이죠?")).toBe("DEFINITION");
   });
 
+  it("refuses a quoted imperative wearing the citation suffix", () => {
+    // `떠나라는 뜻이야?` -- "does that mean [we should] LEAVE?" -- was a definition of 떠나, because
+    // `-(으)라는` is also the adnominal form of a quoted IMPERATIVE and stripping it leaves a verb
+    // stem. The citation path deliberately waives the case-marker requirement, on the argument that
+    // the citation particle IS the evidence of nominality; for bare 라는 that argument is false.
+    // `이라는` carries the copula 이, which attaches to nouns and not to verb stems.
+    //
+    // `팔라는 뜻인가요?` -- "does that mean SELL?" -- is the same shape in this product's own
+    // subject matter, which is why the direction of this one matters beyond tidiness.
+    expect(operationOf("떠나라는 뜻이야?")).not.toBe("DEFINITION");
+    expect(operationOf("팔라는 뜻인가요?")).not.toBe("DEFINITION");
+    expect(operationOf("기술적 반등이라는 표현은 무슨 뜻이야")).toBe("DEFINITION");
+  });
+
   it("strips a request frame by whole eojeol, never by prefix", () => {
     // `주가가 무엇을 설명하나요?` -- "what does the share price EXPLAIN" -- was authorized, because
     // 설명하나요 starts with 설명 and was stripped as framing, leaving a bare interrogative behind.

@@ -125,6 +125,11 @@ describe("what must NOT become a definition", () => {
     // and `do` take a bare infinitive here, which is exactly what makes `work` a verb in those.
     expect(operationOf("How is remote work?")).not.toBe("DEFINITION");
     expect(operationOf("How is shift work?")).not.toBe("DEFINITION");
+    // And the predicate is matched at a WORD BOUNDARY. `How does a network?` was a definition of
+    // `a net`, because `network ` contains `work `. Same class as the Korean request frame matched
+    // by prefix two rounds earlier: a substring test does not find the word, it finds the letters.
+    expect(operationOf("How does a network?")).not.toBe("DEFINITION");
+    expect(operationOf("How does a framework?")).not.toBe("DEFINITION");
     expect(operationOf("How do repurchase agreements work?")).toBe("DEFINITION");
   });
 

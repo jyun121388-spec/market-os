@@ -1632,11 +1632,14 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
     const at = normalized.indexOf(opener);
     if (at !== 0) continue;
     const rest = normalized.slice(opener.length - 1);
-    const closer = INTRANSITIVE_PREDICATES.find(
-      (p) => rest.endsWith(`${p} `) || rest.includes(`${p} `),
-    );
+    // MATCHED AT A WORD BOUNDARY. `How does a network?` was a definition of `a net`, because
+    // `network ` contains `work ` and the predicate was found by substring. Every region here is
+    // space-padded, so requiring the leading space is the whole fix -- and it is the same class of
+    // error as the Korean request frame matched by prefix, found two rounds earlier in this unit.
+    const closer = INTRANSITIVE_PREDICATES.find((p) => rest.includes(delimited(p)));
     if (closer === undefined) continue;
-    const term = ` ${rest.slice(0, rest.indexOf(`${closer} `)).trim()} `;
+    const boundary = rest.indexOf(delimited(closer));
+    const term = ` ${rest.slice(0, boundary).trim()} `;
     // THE TAIL MUST BE EMPTY, and reaching that took one review round more than it should have.
     //
     // `How does the unemployment rate work WITH INFLATION?` is a negative control -- two terms and
@@ -1651,7 +1654,7 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
     // decide which circumstances are harmless. The cost is what it already was --
     // `How does yield curve control operate IN GENERAL TERMS?` is refused -- and the rule is now
     // closed instead of sampled.
-    const tail = rest.slice(rest.indexOf(`${closer} `) + closer.length);
+    const tail = rest.slice(boundary + delimited(closer).length - 1);
     if (normalizedTokens(tail).length > 0) continue;
     if (!isSingleTermRegion(term, raw)) continue;
     return {
@@ -1673,6 +1676,21 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
  * An intransitive predicate with one named subject is a request to explain that subject.
  */
 const INTRANSITIVE_PREDICATES = ["work", "works", "operate", "operates", "function", "functions"];
+
+/**
+ * A word, delimited, so a substring test finds the WORD and not the letters.
+ *
+ * `How does a network?` was recognised as a definition of `a net`, because `network ` contains
+ * `work `. Every region tested here is space-padded, so the delimiters are just the spaces. It is
+ * the same class of error as the Korean request frame matched by prefix, found two rounds earlier
+ * in this unit -- a substring test does not find the word.
+ *
+ * A function rather than three inline template literals, because the mutation harness could not
+ * attack it otherwise: with the boundary spelled out at each call site, reverting one of them left
+ * the others disagreeing and the request refused for the wrong reason, so the mutant came back
+ * MISSED and the repair looked untested. One place to say it, one place to break it.
+ */
+const delimited = (word: string) => ` ${word} `;
 
 /**
  * Is this region one term being asked about, rather than a clause carrying something else?

@@ -214,7 +214,18 @@ metalinguistic heads verbalised — was applied to the WHAT-interrogatives too, 
 ("what is the share price DOING") read `뭐하나요` as `뭐` plus a light verb. 의미하다 makes a verb
 OF the noun; 뭐 is a pronoun with nothing to verbalise. Restricted to heads, at no corpus cost.
 
-21 definition mutants, 21 of 21 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
+**EIGHTEEN rounds.** `How does a network?` was a definition of `a net` — `network ` contains
+`work ` and the intransitive predicate was found by substring. The same class as the Korean request
+frame matched by prefix two rounds earlier: a substring test does not find the word, it finds the
+letters. The boundary now lives in one `delimited()` helper rather than being spelled out at three
+call sites, because with it spelled out three times the mutant could not be isolated — reverting
+one site left the others disagreeing and the request refused for the wrong reason, so a real repair
+looked untested.
+
+The round's second finding did NOT reproduce: `인플레이션이 무슨 뜻인가요 설명해주시겠어요?` returns
+UNSUPPORTED. Reported as measured, as with `채권 또는 주식은…` in round ten.
+
+22 definition mutants, 22 of 22 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

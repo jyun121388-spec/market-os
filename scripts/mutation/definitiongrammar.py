@@ -31,6 +31,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-EN-HOW-IS             ` how is ` shares the ` how does ` rule, so a noun reads as a verb
   M-DEFGRAM-KO-CITATION-HEAD      a citation need not govern an interrogative or a marked head
   M-DEFGRAM-KO-VERBALISE          the light-verb carveout reaches interrogatives
+  M-DEFGRAM-EN-BOUNDARY           the intransitive predicate is matched by substring
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -245,6 +246,14 @@ MUTATIONS = [
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||",
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w, true)) ||",
     ),
+    # M-DEFGRAM-EN-BOUNDARY -- the intransitive predicate is matched by substring again, so
+    # `network ` contains `work ` and `How does a network?` becomes a definition of `a net`.
+    (
+        "M-DEFGRAM-EN-BOUNDARY the predicate is matched by substring, not at a word boundary",
+        REQUEST,
+        "const delimited = (word: string) => ` ${word} `;",
+        "const delimited = (word: string) => `${word} `;",
+    ),
     # M-DEFGRAM-EN-HOW-IS -- ` how is ` rejoins the shape-2 openers, so a final noun `work` reads as
     # the intransitive predicate and `How is remote work?` becomes a definition of `remote`.
     (
@@ -291,6 +300,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 21. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 22. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

@@ -24,7 +24,7 @@ STATUS as of 2026-08-18:
 ## The last thing done
 
 **2026-08-30 — MARKET-DEFINITION-GRAMMAR-001. Structural DEFINITION recognition, EN and KO.
-9/60 → 28/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
+9/60 → 27/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
 
 `CONSTRUCTIONS` recognised DEFINITION through four literals — `definition of`, `what is a`,
 `what is an`, `what does … mean` — so `What is real GDP?` failed on a missing article. The
@@ -33,10 +33,10 @@ consulted only when nothing else recognised the span.
 
 | measure                             | before | after                  |
 | ----------------------------------- | ------ | ---------------------- |
-| corpus DEFINITION rows recognised   | 9 / 60 | 28 / 60                |
-| rows answered through LEGACY_BYPASS | 12     | 7                      |
+| corpus DEFINITION rows recognised   | 9 / 60 | 27 / 60                |
+| rows answered through LEGACY_BYPASS | 12     | 8                      |
 | planner calls, whole 500-row corpus | 0      | 0                      |
-| rows changed                        | —      | 19, every one intended |
+| rows changed                        | —      | 18, every one intended |
 
 **FIVE review rounds, and the fourth changed the design rather than extending it.** It began as a
 bare wh-copular — `what is X` for unconstrained X, made safe by listing what X must not contain —
@@ -120,7 +120,26 @@ whole 500-row corpus is CHANGED 0. The guard stays — it enforces precedence by
 load-bearing the moment a shape widens — and its mutant is deleted, because a mutant that cannot
 be isolated is not coverage.
 
-11 definition mutants, 11 of 11 ISOLATED full suite 138 files / 2414 pass / 19 expected fail
+**NINE rounds. The last one refuted two things I had declared unfixable.** I had written that
+`오늘 주가 하락의 의미가 무엇인가요?` and `기준금리은 수준이 무슨 뜻인가요?` needed a term lexicon,
+and offered `물가`/`소비자물가` as proof that no suffix scan could work. The counter-example was
+real and the conclusion was not: review supplied a lexicon-free rule, and both are refused now. A
+metalinguistic head licenses exactly ONE eojeol of term — the same cardinality proof the
+interrogative path borrows from `koreanCopularMatch` — and modifiers in front of the final eojeol
+may not be particle-shaped-but-declined, with the final eojeol exempt because that is where a
+lexical `가` actually lands. Named cost: `채권 듀레이션 개념 알려주세요`, one row.
+
+Two more real bugs came with it. `주가가 개념인가요?` ("is the share price a concept") was a
+definition of `주가` — a metalinguistic head used as the copular PREDICATE rather than citing
+anything, separated now by the case on the term, with 어떤 absorbed so
+`신용스프레드가 어떤 개념인지` survives. And `주가가 100이라는 의미인가요?` made a whole
+proposition the definiendum; requiring the citation to open the request fixed it and refused
+`기술적 반등이라는 표현은 무슨 뜻이야`, so the rule tests CASE rather than position.
+
+**A declared residue is a claim, and three of them did not survive contact with a reviewer.** Two
+were fixed here; one — the arithmetic residue — has now been examined twice and held.
+
+15 definition mutants, 15 of 15 ISOLATED full suite 138 files / 2417 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

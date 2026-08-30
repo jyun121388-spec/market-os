@@ -958,6 +958,19 @@ const KOREAN_METALINGUISTIC_HEADS = ["뜻", "의미", "정의", "개념", "용�
 const KOREAN_WHAT_INTERROGATIVES = ["무엇", "뭐", "뭔", "뭘", "무슨"];
 
 /**
+ * Determiners that make a following noun the QUESTION rather than the answer.
+ *
+ * `어떤 개념인지` is "what kind of concept", and it is what separates
+ * `신용스프레드가 어떤 개념인지` -- a definitional request, and a corpus row -- from
+ * `주가가 개념인가요?`, which asks whether the share price is one. They are otherwise the same
+ * shape. Absorbed into the marker so the term does not end with one.
+ *
+ * Deliberately used ONLY in front of a metalinguistic head. `어떤 수준인지` is a current
+ * observation, and 수준 is not a head, so it never reaches this.
+ */
+const KOREAN_INTERROGATIVE_DETERMINERS = ["어떤", "어떠한", "무슨"];
+
+/**
  * Trailing eojeols that ask FOR the answer rather than adding to the question.
  *
  * `설명해 주세요`, `알려줘`, `궁금합니다`, `알고 싶어요`. These are politeness and request framing:
@@ -1210,10 +1223,34 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   let at = body.findIndex((eojeol) => isMarker(eojeol) || definiendumStem(eojeol) !== null);
   if (at === -1) return null;
 
+  // AN INTERROGATIVE DETERMINER BELONGS TO THE MARKER, NOT TO THE TERM. `어떤 개념인지` is "what
+  // kind of concept", and without absorbing 어떤 the term region would end with it and the subject
+  // would read `신용스프레드가 어떤`. It also does the work of separating two requests that are
+  // otherwise identical in shape -- see the copular-predicate rule further down.
+  const determined = at > 0 && KOREAN_INTERROGATIVE_DETERMINERS.includes(body[at - 1]);
+  const headAt = at;
+  if (determined) at -= 1;
+
   // A cited term carries its marker on itself -- `양적완화란`, `X라는` -- so it belongs to the term
   // region rather than ending it. Everything after it must still be metalinguistic, which is what
   // separates `테이퍼링이란 용어의 뜻은?` from `양적완화란 어떻게 시작됐나요?`.
   const cited = definiendumStem(body[at]);
+  // NOTHING MARKED MAY STAND IN FRONT OF A CITED TERM. `주가가 100이라는 의미인가요?` -- "does it
+  // mean the share price is 100" -- made a whole proposition the definiendum with a nominative
+  // subject sitting in front of it.
+  //
+  // Requiring the citation to open the request was the first attempt and it was too strict: it
+  // refused `기술적 반등이라는 표현은 무슨 뜻이야`, where 기술적 is an ordinary adnominal modifier
+  // of 반등 and the whole compound is the cited term. What is wrong in the first is the CASE, not
+  // the position -- 주가가 is a subject, and a citation does not take one.
+  if (
+    cited !== null &&
+    body
+      .slice(0, at)
+      .some((eojeol) => analyseNoun(eojeol).some((a) => a.role !== null && a.role !== "GENITIVE"))
+  ) {
+    return null;
+  }
   const term = cited === null ? body.slice(0, at) : [...body.slice(0, at), cited];
   if (cited !== null) {
     at += 1;
@@ -1225,6 +1262,58 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // the English side, and it refuses the same shapes.
   const region = term.join(" ");
   if (KOREAN_COMPLEMENT_MARKERS.some((m) => region.includes(m))) return null;
+  // A METALINGUISTIC HEAD LICENSES EXACTLY ONE EOJEOL OF TERM, which is that path's version of the
+  // two-eojeol proof the interrogative path borrows from `koreanCopularMatch`.
+  //
+  // Review produced `오늘 주가 하락의 의미가 무엇인가요?` -- "what is the significance of TODAY's
+  // share price fall" -- a question about a current event, admitted because a metalinguistic head
+  // let the term run to three eojeol and nothing morphological separates 오늘 주가 하락 from
+  // 장단기 금리 역전. It also produced `기준금리은 수준이 무슨 뜻인가요?`, where an ill-formed 은
+  // sits on a non-final eojeol. I had declared both unfixable without a lexicon; review answered
+  // with the rule below, and it is right. The cost is named and it is one corpus row:
+  // `채권 듀레이션 개념 알려주세요` is refused, because its term is two eojeol.
+  const metalinguisticMarker =
+    !KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(body[headAt], w)) &&
+    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[headAt], h));
+  if (metalinguisticMarker && term.length > 1) return null;
+
+  // A HEAD USED AS THE COPULAR PREDICATE IS NOT CITING ANYTHING. `주가가 개념인가요?` asks whether
+  // the share price IS a concept; `경상수지의 정의가 ...` asks for the definition OF the current
+  // account. The difference is the case on the term: a genitive or a bare compound modifier gives
+  // "the HEAD of X", a topic or nominative gives "X IS a HEAD".
+  //
+  // The exception is an interrogative determiner, which turns the predicate back into a question
+  // about the term -- `신용스프레드가 어떤 개념인지` is "what kind of concept IS the credit
+  // spread", and that is a definitional request. It is a corpus row, and this is why 어떤 is
+  // absorbed above rather than refused.
+  if (metalinguisticMarker && !determined) {
+    const subjectCased = analyseNoun(term[term.length - 1]).some(
+      (a) => a.role === "TOPIC" || a.role === "NOMINATIVE",
+    );
+    if (subjectCased) return null;
+  }
+
+  // A DECLINED MARKER ANYWHERE IN THE TERM, not only on its last eojeol. `기준금리은 수준이 무슨
+  // 뜻인가요?` hides the ill-formed 은 in front of a validly marked 수준이.
+  //
+  // This is the check I argued was impossible, and the argument was half right. A naive scan does
+  // refuse 물가 and 소비자물가 -- 물 and 소비자물 are consonant-final, so their 가 is declined by
+  // its own conditioning. What makes it safe here is POSITION: the FINAL eojeol is exempt, because
+  // that is where a lexical 가 actually lands, and only the modifiers in front of it are checked.
+  // The residue is a compound modifier ending in a declined particle shape -- `소비자물가 상승률이
+  // 무슨 뜻인가요?` is refused -- which is the safe direction and is named rather than absorbed.
+  const declinedInModifier = term
+    .slice(0, -1)
+    .some((eojeol) =>
+      PARTICLE_SURFACES.some(
+        (surface) =>
+          eojeol.endsWith(surface) &&
+          eojeol.length > surface.length &&
+          !analyseNoun(eojeol).some((a) => a.role !== null),
+      ),
+    );
+  if (declinedInModifier) return null;
+
   // A COORDINATED PAIR IS NOT ONE TERM, and this is checked at the eojeol boundary rather than by
   // substring -- see `KOREAN_COORDINATOR_ENDINGS` for why the difference is a corpus row.
   if (term.some((eojeol) => KOREAN_COORDINATOR_ENDINGS.some((c) => eojeol.endsWith(c)))) {

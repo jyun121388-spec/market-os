@@ -150,6 +150,41 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("GDP디플레이터란 무엇을 말합니까")).not.toBe("DEFINITION");
   });
 
+  it("refuses a metalinguistic head used as the copular predicate", () => {
+    // `주가가 개념인가요?` asks whether the share price IS a concept. `경상수지의 정의가 ...` asks
+    // for the definition OF the current account. The case on the term decides: a genitive or a bare
+    // compound modifier gives "the HEAD of X", a topic or nominative gives "X IS a HEAD".
+    expect(operationOf("주가가 개념인가요?")).not.toBe("DEFINITION");
+    // Unless an interrogative determiner turns the predicate back into a question about the term,
+    // which is a corpus row and the reason 어떤 is absorbed into the marker rather than refused.
+    expect(operationOf("신용스프레드가 어떤 개념인지 설명해 주십시오")).toBe("DEFINITION");
+  });
+
+  it("refuses a proposition cited as if it were a term", () => {
+    // `주가가 100이라는 의미인가요?` made a whole proposition the definiendum, with a nominative
+    // subject in front of it. Requiring the citation to OPEN the request was the first attempt and
+    // was too strict -- it refused `기술적 반등이라는 표현은 무슨 뜻이야`, where 기술적 is an
+    // ordinary adnominal modifier. What is wrong in the first is the CASE, not the position.
+    expect(operationOf("주가가 100이라는 의미인가요?")).not.toBe("DEFINITION");
+    expect(operationOf("기술적 반등이라는 표현은 무슨 뜻이야")).toBe("DEFINITION");
+  });
+
+  it("gives a metalinguistic head the same cardinality proof as the interrogative path", () => {
+    // I DECLARED THESE TWO UNFIXABLE WITHOUT A LEXICON AND REVIEW ANSWERED WITH THE RULE.
+    //
+    // `오늘 주가 하락의 의미가 무엇인가요?` asks the significance of TODAY's fall -- a current
+    // event -- and `기준금리은 수준이 무슨 뜻인가요?` hides an ill-formed 은 on a non-final eojeol.
+    // A metalinguistic head now licenses exactly ONE eojeol of term, and modifiers in front of the
+    // final eojeol may not be particle-shaped-but-declined. The final eojeol stays exempt, which is
+    // what keeps 물가 and 소비자물가 usable as terms elsewhere.
+    expect(operationOf("오늘 주가 하락의 의미가 무엇인가요?")).not.toBe("DEFINITION");
+    expect(operationOf("기준금리은 수준이 무슨 뜻인가요?")).not.toBe("DEFINITION");
+    // NAMED COST, one corpus row: a two-eojeol term under a metalinguistic head.
+    expect(operationOf("채권 듀레이션 개념 알려주세요")).not.toBe("DEFINITION");
+    // And the interrogative path is untouched, because it has its own borrowed proof.
+    expect(operationOf("장단기 금리 역전이 무슨 뜻이죠?")).toBe("DEFINITION");
+  });
+
   it("refuses a Korean adjunct particle", () => {
     // `주가처럼` restricts by comparison, exactly as an English complement preposition does.
     expect(operationOf("주가처럼 변동성의 의미가 무엇인가요?")).not.toBe("DEFINITION");
@@ -264,7 +299,7 @@ describe("the same grammar in Korean", () => {
     expect(operationOf("장단기 금리 역전이 무슨 뜻이죠?")).toBe("DEFINITION");
     expect(operationOf("경상수지의 정의가 궁금합니다")).toBe("DEFINITION");
     expect(operationOf("근원물가지수가 무엇을 의미하는지 알려주세요")).toBe("DEFINITION");
-    expect(operationOf("채권 듀레이션 개념 알려주세요")).toBe("DEFINITION");
+    expect(operationOf("무위험수익률 개념 설명해줘")).toBe("DEFINITION");
   });
 
   it("treats the request frame as framing, not as an operand", () => {
@@ -381,20 +416,15 @@ describe("declared limitations of this grammar", () => {
     expect(operationOf("How does EBITDA mod capex work?")).toBe("DEFINITION");
   });
 
-  it("ADMITS what a lexicon-free Korean grammar cannot see inside a nominal", () => {
-    // DECLARED RESIDUE, both found by review round six, both disposed of by argument and pinned so
-    // the argument survives. `koreanCopularMatch` already states the limitation these live in: one
-    // marked subject SLOT is a claim about the construction, not about the morphology inside it.
-    expect(operationOf("오늘 주가 하락의 의미가 무엇인가요?")).toBe("DEFINITION");
-    expect(operationOf("기준금리은 수준이 무슨 뜻인가요?")).toBe("DEFINITION");
-
-    // The second looks trivially fixable -- check every eojeol for a declined marker instead of
-    // only the last -- and these are why it is not. 물가 is 물 plus a 가 its own conditioning
-    // declines, and so is 소비자물가. Both are ordinary financial vocabulary. Any check strict
-    // enough to refuse 기준금리은 refuses these, and a syllable-count qualifier that spares them is
-    // a number with no argument behind it.
-    expect(operationOf("물가 안정의 의미가 무엇인가요?")).toBe("DEFINITION");
-    expect(operationOf("소비자물가 상승의 의미가 무엇인가요?")).toBe("DEFINITION");
+  it("still cannot see inside a single Korean nominal, and says so", () => {
+    // `koreanCopularMatch` states the limitation: one marked subject SLOT is a claim about the
+    // CONSTRUCTION, not about the morphology inside it. Two round-six findings lived here and were
+    // declared unfixable; round seven produced a lexicon-free rule for both, and they are now
+    // refused (see the cardinality test above). What remains is the limitation itself, which these
+    // pin from the other side -- 물가 is 물 plus a 가 its own conditioning declines, as is
+    // 소비자물가, and both must stay usable as terms.
+    expect(operationOf("물가란 무엇인가요?")).toBe("DEFINITION");
+    expect(operationOf("소비자물가란 무엇인가요?")).toBe("DEFINITION");
   });
 
   it.fails("PENDING: definitional constructions this family does not yet cover", () => {

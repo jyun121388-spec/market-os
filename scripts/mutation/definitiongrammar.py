@@ -21,6 +21,10 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-DECLINED    an ill-formed case marker counts as no case marker
   M-DEFGRAM-KO-COORDINATOR a coordinated pair counts as one term
   M-DEFGRAM-EN-FRAME       shape 1 accepts any clause containing a form of `do`
+  M-DEFGRAM-KO-HEAD-CARDINALITY   a metalinguistic head licenses a multi-eojeol term
+  M-DEFGRAM-KO-PREDICATE-HEAD     a head as copular predicate counts as a citation
+  M-DEFGRAM-KO-DECLINED-MODIFIER  a declined marker hides before the final eojeol
+  M-DEFGRAM-KO-CITATION-SUBJECT   a marked nominal precedes a cited term
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -155,6 +159,45 @@ MUTATIONS = [
         "  }",
         "",
     ),
+    # M-DEFGRAM-KO-HEAD-CARDINALITY -- the metalinguistic path loses its one-eojeol proof, and
+    # `오늘 주가 하락의 의미가 무엇인가요?` becomes a definition of a current event.
+    (
+        "M-DEFGRAM-KO-HEAD-CARDINALITY a metalinguistic head licenses a multi-eojeol term",
+        REQUEST,
+        "  if (metalinguisticMarker && term.length > 1) return null;",
+        "",
+    ),
+    # M-DEFGRAM-KO-PREDICATE-HEAD -- a head used as the copular predicate counts as a citation, and
+    # `주가가 개념인가요?` -- "IS the share price a concept" -- becomes a definition of 주가.
+    (
+        "M-DEFGRAM-KO-PREDICATE-HEAD a head as copular predicate is a citation",
+        REQUEST,
+        "    if (subjectCased) return null;",
+        "",
+    ),
+    # M-DEFGRAM-KO-DECLINED-MODIFIER -- the declined-marker check stops reaching non-final eojeols,
+    # and `기준금리은 수준이 무슨 뜻인가요?` slips past with an ill-formed 은 in front.
+    (
+        "M-DEFGRAM-KO-DECLINED-MODIFIER a declined marker may hide before the final eojeol",
+        REQUEST,
+        "  if (declinedInModifier) return null;",
+        "",
+    ),
+    # M-DEFGRAM-KO-CITATION-SUBJECT -- a marked nominal may stand in front of a cited term, and
+    # `주가가 100이라는 의미인가요?` makes a whole proposition the definiendum.
+    (
+        "M-DEFGRAM-KO-CITATION-SUBJECT a marked nominal may precede a citation",
+        REQUEST,
+        "  if (\n"
+        "    cited !== null &&\n"
+        "    body\n"
+        "      .slice(0, at)\n"
+        "      .some((eojeol) => analyseNoun(eojeol).some((a) => a.role !== null && a.role !== \"GENITIVE\"))\n"
+        "  ) {\n"
+        "    return null;\n"
+        "  }",
+        "",
+    ),
     # M-DEFGRAM-EN-FRAME -- shape 1 stops checking that the clause is wh-copular, so
     # `How does the meaning of inflation change?` defines `inflation change`.
     (
@@ -193,6 +236,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 11. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 15. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

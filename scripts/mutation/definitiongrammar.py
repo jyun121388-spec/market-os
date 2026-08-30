@@ -25,6 +25,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-PREDICATE-HEAD     a head as copular predicate counts as a citation
   M-DEFGRAM-KO-DECLINED-MODIFIER  a declined marker hides before the final eojeol
   M-DEFGRAM-KO-CITATION-SUBJECT   a marked nominal precedes a cited term
+  M-DEFGRAM-KO-CONJUNCTION        a standalone conjunction counts as part of the term
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -198,6 +199,14 @@ MUTATIONS = [
         "  }",
         "",
     ),
+    # M-DEFGRAM-KO-CONJUNCTION -- standalone coordinating conjunctions stop being refused, and
+    # `채권 그리고 주식은 무슨 뜻인가요?` becomes one definition of two coordinated terms.
+    (
+        "M-DEFGRAM-KO-CONJUNCTION a standalone conjunction is part of the term",
+        REQUEST,
+        "  if (term.some((eojeol) => KOREAN_COORDINATOR_WORDS.includes(eojeol))) return null;",
+        "",
+    ),
     # M-DEFGRAM-EN-FRAME -- shape 1 stops checking that the clause is wh-copular, so
     # `How does the meaning of inflation change?` defines `inflation change`.
     (
@@ -236,6 +245,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 15. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 16. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

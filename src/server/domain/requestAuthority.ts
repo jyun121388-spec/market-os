@@ -1119,6 +1119,20 @@ const KOREAN_COPULAR_ENDINGS = [
  */
 const KOREAN_COORDINATOR_ENDINGS = ["와", "과", "랑", "이랑", "하고", "및"];
 
+/**
+ * Coordinating conjunctions that stand as a WHOLE eojeol rather than attaching to one.
+ *
+ * Review reported `채권 또는 주식은 무슨 뜻인가요?` as authorized, and it was not -- 또는 splits as
+ * 또 plus a valid topic 는, so the one-marked-nominal rule already refuses it. The FINDING was still
+ * right about the class: 그리고 and 아니면 end in nothing a particle rule can see and did get
+ * through, as `채권 그리고 주식은 무슨 뜻인가요?` showed.
+ *
+ * These are matched whole, which is what makes them safe. A substring test for 및 or 또는 would
+ * split compounds the way `internalConjunction` split 통화스와프; an eojeol that IS the conjunction
+ * cannot be part of a word.
+ */
+const KOREAN_COORDINATOR_WORDS = ["또는", "혹은", "그리고", "및", "아니면", "내지", "또한"];
+
 /** `(이)라는` — the attributive quotative that cites a term: `X라는 표현`, "the expression 'X'". */
 const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];
 
@@ -1319,6 +1333,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   if (term.some((eojeol) => KOREAN_COORDINATOR_ENDINGS.some((c) => eojeol.endsWith(c)))) {
     return null;
   }
+  if (term.some((eojeol) => KOREAN_COORDINATOR_WORDS.includes(eojeol))) return null;
 
   // EXACTLY ONE MARKED NOMINAL in the term region, and the corpus produced this rule the same way
   // the English preposition rule was produced -- by coercing a row that is not a definition:

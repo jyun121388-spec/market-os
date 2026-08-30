@@ -139,7 +139,14 @@ proposition the definiendum; requiring the citation to open the request fixed it
 **A declared residue is a claim, and three of them did not survive contact with a reviewer.** Two
 were fixed here; one — the arithmetic residue — has now been examined twice and held.
 
-15 definition mutants, 15 of 15 ISOLATED full suite 138 files / 2417 pass / 19 expected fail
+**TEN rounds, and the tenth found one thing — down from five, three, four, six.** Standalone
+coordinating conjunctions were not refused. The reported example, `채권 또는 주식은 무슨 뜻인가요?`,
+did NOT reproduce: 또는 splits as 또 plus a valid topic 는, so the one-marked-nominal rule already
+refused it. The finding was right about the class anyway — `그리고` and `아니면` end in nothing a
+particle rule can see, and those did get through. Matched as whole eojeols, which is what stops a
+substring test from splitting `통화스와프`.
+
+16 definition mutants, 16 of 16 ISOLATED full suite 138 files / 2418 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

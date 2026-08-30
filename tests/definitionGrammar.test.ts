@@ -185,6 +185,22 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("장단기 금리 역전이 무슨 뜻이죠?")).toBe("DEFINITION");
   });
 
+  it("refuses a standalone coordinating conjunction", () => {
+    // Review reported `채권 또는 주식은 무슨 뜻인가요?` as authorized and it was not -- 또는 splits
+    // as 또 plus a valid topic 는, so the one-marked-nominal rule already refused it. The finding
+    // was still right about the CLASS: 그리고 and 아니면 end in nothing a particle rule can see,
+    // and those did get through. Matched as whole eojeols, which is what keeps a substring test
+    // from splitting 통화스와프 the way `internalConjunction` did.
+    for (const query of [
+      "채권 또는 주식은 무슨 뜻인가요?",
+      "채권 그리고 주식은 무슨 뜻인가요?",
+      "채권 아니면 주식은 무슨 뜻인가요?",
+    ]) {
+      expect(operationOf(query), query).not.toBe("DEFINITION");
+    }
+    expect(operationOf("통화스와프란 무슨 제도인지 설명해 주세요")).toBe("DEFINITION");
+  });
+
   it("refuses a Korean adjunct particle", () => {
     // `주가처럼` restricts by comparison, exactly as an English complement preposition does.
     expect(operationOf("주가처럼 변동성의 의미가 무엇인가요?")).not.toBe("DEFINITION");

@@ -1630,7 +1630,15 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
     // ordinary noun in a sentence about something else. The complement was optional and is now
     // required, which costs nothing measurable: the two corpus rows this shape recognises are
     // `What is meant BY 'basis risk'?` and `What is the meaning OF 'carry trade'?`.
-    const complement = /^\s(of|by|behind)\s+/.exec(term);
+    //
+    // `behind` WAS in this set and is removed. Review asked for the rule rather than one more
+    // string and named it: `the meaning OF x` and `meant BY x` cite x as a term, while
+    // `the meaning BEHIND x` asks for the rationale of an event -- and
+    // `What is the meaning behind the Fed raising rates?` was authorized, with `the Fed raising
+    // rates` passing the term test because that test has no proof of noun-shape. Two of the three
+    // prepositions carried the justification and the third was there by association. No corpus row
+    // used it.
+    const complement = /^\s(of|by)\s+/.exec(term);
     if (complement === null) continue;
     const stripped = ` ${term.slice(complement[0].length)}`;
     if (!isSingleTermRegion(` ${stripped.trim()} `, raw)) continue;

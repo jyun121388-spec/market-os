@@ -33,6 +33,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-VERBALISE          the light-verb carveout reaches interrogatives
   M-DEFGRAM-EN-BOUNDARY           the intransitive predicate is matched by substring
   M-DEFGRAM-KO-AGENTIVE           an agentive head verb counts as metalinguistic
+  M-DEFGRAM-EN-BEHIND             a non-citing complement counts as citing
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -247,6 +248,14 @@ MUTATIONS = [
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||",
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w, true)) ||",
     ),
+    # M-DEFGRAM-EN-BEHIND -- `behind` rejoins the citing complements, so `the meaning BEHIND x` asks
+    # for the rationale of an event and is read as a definition of it.
+    (
+        "M-DEFGRAM-EN-BEHIND a non-citing complement counts as citing",
+        REQUEST,
+        "    const complement = /^\s(of|by)\s+/.exec(term);",
+        "    const complement = /^\s(of|by|behind)\s+/.exec(term);",
+    ),
     # M-DEFGRAM-KO-AGENTIVE -- every metalinguistic head may be verbalised again, so the agentive
     # 정의하다 ("to define") counts and `주가가 무엇을 정의하나요?` becomes a definition of 주가.
     (
@@ -309,6 +318,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 23. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 24. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

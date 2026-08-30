@@ -80,6 +80,12 @@ describe("what must NOT become a definition", () => {
     // A metalinguistic noun CITES a term only when it governs one, so the complement is required.
     expect(operationOf("How does the concept drift?")).not.toBe("DEFINITION");
     expect(operationOf("How does the definition change?")).not.toBe("DEFINITION");
+    // And the complement has to be one that CITES. Review was asked for the rule rather than one
+    // more string and named it: `the meaning OF x` and `meant BY x` cite x as a term, while
+    // `the meaning BEHIND x` asks for the rationale of an event. `behind` was in the set by
+    // association with the other two, carried none of their justification, and no corpus row used
+    // it -- `the Fed raising rates` passed the term test because that test has no noun-shape proof.
+    expect(operationOf("What is the meaning behind the Fed raising rates?")).not.toBe("DEFINITION");
   });
 
   it("refuses a Korean predicate that merely BEGINS with a metalinguistic noun", () => {

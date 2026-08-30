@@ -232,7 +232,15 @@ metalinguistic head, and `정의하다`/`표현하다` are AGENTIVE: the subject
 expresses. The carveout now follows the semantics of the derived verb rather than the shape of the
 derivation, at no corpus cost.
 
-23 definition mutants, 23 of 23 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
+**TWENTY rounds. TERRA returned APPROVE; SOL was asked for the RULE rather than one more string
+and named one.** `behind` sat in shape 1's citing-complement set: `the meaning OF x` and
+`meant BY x` cite x as a term, while `the meaning BEHIND x` asks for the rationale of an event, so
+`What is the meaning behind the Fed raising rates?` was a definition of `the Fed raising rates` —
+which passed the term test only because that test has no proof of noun-shape. Two of the three
+prepositions carried the justification and the third was there by association. Removed; no corpus
+row used it.
+
+24 definition mutants, 24 of 24 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

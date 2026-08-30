@@ -44,6 +44,59 @@ Tracks Codex reviews that are pending, deferred, or resulted in an unresolved di
 | M16       | Filing Diff cannot show an original-vs-restated comparison                                                     | Deliberate, recorded 2026-08-18 so it is not mistaken for the +233% bug returning. A period-over-period change now requires a DIFFERENT period end, which by construction excludes a restatement of the same period (same length, same end, different accession). That exclusion is correct: a restatement is not a period-over-period change and showing it in that section would be the same category error the +233% defect was. But it does mean restatements are currently invisible in the UI even though both rows are stored and provenance is intact. A "this figure was later restated" surface would be a real feature; it is not built, and is not being built speculatively                                                                                                        | PENDING            |
 | M11       | Unit strings are matched exactly and case-sensitively                                                          | `computeChange` branches on `unit === "percent"` to decide whether basis points are meaningful, and a series declared "Percent"/"pct"/"%" would silently return `bpsChange: null` while every other number stayed correct. No such typo exists today. `tests/unitVocabulary.test.ts` pins every tracked series to a known unit vocabulary so the next one fails at test time; a stricter type-level unit would be the fuller fix and is not warranted at five units                                                                                                                                                                                                                                                                                                                             | MITIGATED          |
 
+## IR-111 — the LEGACY_BYPASS readiness verdict cannot reach CONCLUSIVE (measured 2026-08-31)
+
+`scripts/legacy-bypass-readiness.ts` ends every run with the same instruction: "Seed fixtures for
+those rows and re-run." For one of the two remaining rows that instruction cannot be followed, and
+the verdict is therefore permanently INCONCLUSIVE under the approved rule rather than one fixture
+away from clean.
+
+    DEV-EN-214  "How does the unemployment rate work with inflation?"
+    DEV-EN-215  "What is the mechanism for the policy rate?"
+
+Both are `expected=REFUSED/AMBIGUOUS_CARDINALITY`, both `plannerCalled=false`, both currently
+PROBE_INCONCLUSIVE. They land there through the second branch of `classify()`: the row should
+refuse, and `evidenceSufficient` says the shelf held nothing it could have been answered from, so a
+no-call cannot be told apart from an empty shelf.
+
+`evidenceSufficient` treats AMBIGUOUS_CARDINALITY exactly as STORED_MECHANISM: an edge counts only
+when BOTH endpoints are named in the request.
+
+**DEV-EN-215 names ONE subject.** "The policy rate" is the only nominal in it — that is precisely
+why the corpus expects it refused as under-specified. No causal edge can have both endpoints named
+in a request that names one endpoint, so no fixture makes this row evidence-backed. It is
+structurally unmeasurable, not unmeasured, and it belongs with the cases `evidenceSufficient`
+already returns `false` for on principle (MISSING_INTERVAL, MISSING_ATTRIBUTION, DEFINITION,
+OBSERVED_CHANGE) rather than in a bucket that reads as a measurement failure someone could fix.
+
+**DEV-EN-214 could be made evidence-backed**, and doing so is a decision rather than a chore. It
+names two subjects, so an edge between them would satisfy the rule and convert the row into a
+genuinely meaningful measured refusal — the guard declining because the request never said which
+subject acts on which, with an edge sitting right there that could have answered a well-formed
+version. But `CausalEdge` requires `mechanism`, `evidence` ("established literature/precedent, not
+a citation-shaped guess") and at least one `counterexample`. Seeding it means storing a real
+economic claim, which is available here — the Phillips relation, with its own well-known
+counterexamples — but it is still the deliberate insertion of a sourced causal assertion into the
+fixture set, and `docs/DATA_POLICY.md` governs that.
+
+NOT DONE, deliberately, and the reason is about evidence hygiene rather than effort: the readiness
+shelf is read live from the database, so seeding changes the substrate that
+`[ESCALATION][MARKET-OS][DEC-INTERVAL-FAMILY-20260831]` and the whole-corpus transition matrices are
+currently measured against. Changing the measurement input while a measurement-dependent decision
+is open is how a comparison quietly stops being one.
+
+A related observation worth recording separately: that shelf is whatever the dev database happens to
+hold. It currently carries 27 series and 7 causal edges, most of them plainly other units' fixtures
+(`TEST Canonical Cause Alpha`, `Test Output freight index`). The readiness measurement is therefore
+not reproducible by a second party from the repository alone. That is a property of the
+measurement, not a defect in the code it measures, and it bounds how much any single run of it can
+be claimed to establish.
+
+Decision needed: whether DEV-EN-214 gets a sourced fixture edge, and whether
+`evidenceSufficient` should classify a one-endpoint relation request as structurally unanswerable
+instead of PROBE_INCONCLUSIVE. The second is a semantics change to an independently APPROVED script
+and is NOT being made unilaterally.
+
 ## IR-110 — a compounded temporal modifier is a definition (found by review 2026-08-31, PRE-EXISTING)
 
     오늘주가가 뭐야?     -> AUTHORIZED / DEFINITION, subject `오늘주가`

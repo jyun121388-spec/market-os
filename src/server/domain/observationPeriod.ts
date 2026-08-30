@@ -101,8 +101,21 @@ function sameDayMonthsBefore(date: Date, months: number): Date | null {
  * they are the ones a reader would otherwise have to infer from behaviour:
  *
  * **A complete period ends where the calendar ended.** "Last quarter" is the previous complete
- * calendar quarter, not a trailing three months. Trailing windows are a different question and the
- * product does not currently accept one.
+ * calendar quarter, not a trailing three months. The distinction is the point: a calendar period
+ * has fixed boundaries the reader can name, and a trailing window moves with the clock.
+ *
+ * **The product accepts BOTH, and this comment used to deny it.** It read "trailing windows are a
+ * different question and the product does not currently accept one" while `over the past year` and
+ * `over the past month`, resolved a few lines below by `sameDayMonthsBefore` with a running end at
+ * `asOf`, are exactly trailing windows and have been accepted all along. A comment that argues for
+ * a policy the code does not have is the defect class that cost MARKET-DEFINITION-GRAMMAR-001
+ * three review rounds, so it is corrected here rather than left to be discovered again.
+ *
+ * What remains true, and is the actual constraint: the trailing forms are two fixed operands, not a
+ * grammar. There is no `over the past N <unit>`; `over the past six weeks` is unreadable. Widening
+ * that is gated on `[ESCALATION][MARKET-OS][DEC-INTERVAL-FAMILY-20260831]`, because the operand
+ * table here and the one in `requestAuthority` are the SAME closed set, and widening the parser
+ * alone would authorize a period this resolver cannot compute.
  *
  * **A period opens on the boundary date itself.** Not the last reading before it, which imports
  * movement from outside the period; not the first reading after it, which silently shortens the

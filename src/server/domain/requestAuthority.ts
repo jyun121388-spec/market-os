@@ -1000,7 +1000,10 @@ const KOREAN_REQUEST_FRAME = [
  * `koreanDefinitionalMatch`.
  *
  * These, by contrast, are PARTICLES and postpositions -- a closed morphological class, the same
- * kind of inventory as `PARTICLE_SURFACES`, and finished.
+ * kind of inventory as `PARTICLE_SURFACES`. Closed, and NOT claimed finished: review named 처럼
+ * after this comment said it was, which is the same mistake the English preposition list made
+ * three times. An omission admits into the bounded residue described there, not into another
+ * operation.
  */
 const KOREAN_COMPLEMENT_MARKERS = [
   "에서",
@@ -1014,6 +1017,56 @@ const KOREAN_COMPLEMENT_MARKERS = [
   "으로",
   "하고",
   "및",
+  // Round seven named 처럼. The auxiliary particles are a closed morphological class like the case
+  // particles, so the rest of the common inventory goes in with it rather than one per round.
+  "처럼",
+  "만큼",
+  "대로",
+  "밖에",
+  "조차",
+  "마저",
+  "부터",
+  "라도",
+  "치고",
+  "커녕",
+  "따라",
+  "관해",
+  "대해",
+  "위해",
+  "비해",
+];
+
+/**
+ * Syllables that can only be grammar, never lexical content.
+ *
+ * Case particles, the copula stem 이/인, and the interrogative and declarative endings. What makes
+ * this list safe where the deleted arithmetic list was not is the direction again: a grammatical
+ * syllable missing from here makes a real marker unrecognisable and REFUSES the request, and a
+ * lexical syllable is not going to be added to it by accident.
+ */
+const KOREAN_GRAMMATICAL_SYLLABLES = [
+  "은",
+  "는",
+  "이",
+  "가",
+  "을",
+  "를",
+  "의",
+  "란",
+  "인",
+  "지",
+  "야",
+  "죠",
+  "요",
+  "까",
+  "니",
+  "나",
+  "다",
+  "습",
+  "입",
+  "임",
+  "네",
+  "래",
 ];
 
 /**
@@ -1098,9 +1151,28 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     }
     return null;
   };
+  // A MARKER IS THE HEAD PLUS GRAMMATICAL MATERIAL, AND NOTHING ELSE.
+  //
+  // `startsWith` alone was the whole test, and review broke it with
+  // `주가가 의미있게 상승하나요?` -- "does the share price rise MEANINGFULLY". 의미있게 is 의미 plus
+  // a derivational suffix and an adverbial ending, and it was read as the metalinguistic head 의미.
+  // Korean agglutinates, so a head must be allowed its particles and copular endings -- 뜻이죠,
+  // 정의가, 무엇을, 뭔지 -- but everything following it has to be grammatical, not lexical. 있게
+  // opens with 있, which is a verb stem and not a particle, so the eojeol is a predicate about
+  // something rather than a citation of a term.
+  const isMarkedBy = (eojeol: string, head: string): boolean => {
+    if (!eojeol.startsWith(head)) return false;
+    // The head may also be VERBALISED. 의미하는 is 의미 plus the light verb 하-, "that means", and
+    // `PER이 뭘 의미하는 지표인가요` is a corpus row that needs it -- tightening this test to
+    // grammatical syllables lost that row until 하- was allowed. It is the one derivation permitted,
+    // because it makes a verb of the SAME noun rather than a different word: 의미있게 opens with 있,
+    // a separate stem, and stays out.
+    const tail = eojeol.slice(head.length).replace(/^하/, "");
+    return [...tail].every((syllable) => KOREAN_GRAMMATICAL_SYLLABLES.includes(syllable));
+  };
   const isMarker = (eojeol: string): boolean =>
-    KOREAN_WHAT_INTERROGATIVES.some((w) => eojeol.startsWith(w)) ||
-    KOREAN_METALINGUISTIC_HEADS.some((h) => eojeol.startsWith(h));
+    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||
+    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(eojeol, h));
 
   // The LEFTMOST marker, so that everything before it is the term and everything after it is
   // predicate. Taking the rightmost would let `X는 무슨 뜻` split at 뜻 and swallow 무슨 into the
@@ -1202,7 +1274,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   const compounded =
     cited === null &&
     !particleShaped &&
-    KOREAN_METALINGUISTIC_HEADS.some((h) => body[at].startsWith(h));
+    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[at], h));
   // A CITED term carries its own marker. `테이퍼링이라는 표현은 무슨 뜻인가요?` was refused by an
   // earlier version of this line, which required a case marker on 테이퍼링 after the citation
   // suffix had already been stripped off it -- so the frame the comments claimed to support did not
@@ -1287,7 +1359,16 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
     // The marked head must be introduced by a copula, so that `the meaning of X` is a request and
     // `a fund whose meaning of X` -- were anyone to write it -- is not silently one too.
     if (!/\s(is|are|does|do)\s/.test(normalized.slice(0, at + 1))) continue;
-    const stripped = term.replace(/^\s*(of|by|behind)\s+/, " ");
+    // AND IT MUST TAKE A COMPLEMENT. Review found `How does the concept drift?` recognised as a
+    // definition of `drift`: the copula test was satisfied by the `does` of `how does`, and the
+    // bare head then took the rest of the clause as its term. A metalinguistic noun CITES a term
+    // only when it governs one -- `the meaning OF x`, `meant BY x` -- and standing bare it is an
+    // ordinary noun in a sentence about something else. The complement was optional and is now
+    // required, which costs nothing measurable: the two corpus rows this shape recognises are
+    // `What is meant BY 'basis risk'?` and `What is the meaning OF 'carry trade'?`.
+    const complement = /^\s(of|by|behind)\s+/.exec(term);
+    if (complement === null) continue;
+    const stripped = ` ${term.slice(complement[0].length)}`;
     if (!isSingleTermRegion(` ${stripped.trim()} `, raw)) continue;
     return {
       operation: "DEFINITION",
@@ -1436,17 +1517,25 @@ const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense",
  * Their presence says the request is about a relation or property the term participates in, which
  * belongs to another operation.
  *
- * THE CLASS, and the distinction from the arithmetic list that was deleted is the point. English
- * prepositions are a CLOSED function-word class, fixed by the grammar and not by usage, in exactly
- * the sense `koreanMorphology`'s particle inventory is closed — so unlike `minus`/`modulo`/`mod`,
- * this one HAS a last member and writing it down is a finite job.
+ * A CLOSED CLASS, AND THIS IS STILL NOT PROVABLY ALL OF IT. Both halves of that sentence are the
+ * result of review, and the second half is the one I keep getting wrong.
  *
- * FIVE ROUNDS OF PATCHING IT ONE WORD AT A TIME, and then a sixth. Rounds 2-5 added `at`, `per`,
- * `via`, `without`, `within`, `among`, `amid`; round 5 declared the list complete on the strength
- * of the closed-class argument, wrote out the prepositions that came to mind, and round 6 answered
- * with `as`. Being a closed class makes the list finishable; it does not finish it, and confusing
- * those two is what that round cost. The second half below is transcribed from a reference,
- * participial prepositions included, rather than recalled.
+ * English prepositions ARE a closed function-word class, fixed by the grammar and not by usage, in
+ * the sense `koreanMorphology`'s particle inventory is closed — so unlike `minus`/`modulo`/`mod`
+ * this one HAS a last member, and it is the reason the arithmetic list was deleted while this one
+ * was kept.
+ *
+ * SIX ROUNDS OF PATCHING IT ONE WORD AT A TIME. Rounds 2-5 added `at`, `per`, `via`, `without`,
+ * `within`, `among`, `amid`. Round 5 declared it complete on the strength of the closed-class
+ * argument, having written out the prepositions that came to mind; round 6 answered with `as`.
+ * Round 6 then declared it complete again, from a reference this time; round 7 answered with `qua`.
+ *
+ * So the claim is retired rather than made a fourth time. A closed class is FINISHABLE; that a
+ * particular transcription of it is FINISHED is a separate assertion, and nothing here establishes
+ * it. An omission ADMITS, and what it admits is bounded to the residue class `isSingleTermRegion`
+ * describes — a term-shaped subject no operation owns and the repository cannot resolve — because
+ * every path reaching this function is already positively marked as definitional. That bound is
+ * the actual safety argument. The list is a refinement on top of it.
  *
  * Arithmetic word forms are the opposite and were treated the opposite way. `minus`, `less`,
  * `multiplied`, `modulo`, `subtract`, `mod` are ordinary vocabulary with no last member, and no
@@ -1501,6 +1590,13 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "minus",
   "plus",
   "sans",
+  "qua",
+  "vis-a-vis",
+  "betwixt",
+  "ere",
+  "pro",
+  "re",
+  "thru",
   "above",
   "across",
   "after",

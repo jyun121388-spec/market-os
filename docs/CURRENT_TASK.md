@@ -85,7 +85,22 @@ two are declared rather than fixed, because `물가` is 물 plus a `가` its own
 and so is `소비자물가`, so any check strict enough to refuse `기준금리은` refuses ordinary
 vocabulary, and a syllable-count qualifier that spares it is a number with no argument behind it.
 
-10 definition mutants, 10 of 10 ISOLATED full suite 138 files / 2407 pass / 19 expected fail
+**SEVEN rounds, and the last two found two real bugs plus the same overstatement three times.**
+`How does the concept drift?` was a definition of `drift` — the copula test was satisfied by the
+`does` of `how does` and a bare metalinguistic head took the rest of the clause, so the complement
+is now required. `주가가 의미있게 상승하나요?` was a definition of `주가` — the head 의미 was
+matched by prefix, so 의미있게 counted, and what follows a head must now be grammatical rather
+than lexical (with the light verb 하- carved out, because tightening it lost a corpus row).
+
+The overstatement is the more useful finding. The preposition list was declared complete three
+times — on the closed-class argument, then from a reference — and answered with `as`, then `qua`.
+A closed class is FINISHABLE; a particular transcription of it being FINISHED is a separate claim,
+and nothing here establishes it. That claim is retired. What carries the safety argument is that
+every path reaching these lists is already positively marked, so an omission lands in the bounded
+residue — a term-shaped subject no operation owns and the repository cannot resolve — which review
+confirmed selects no competing operation, reaches no planner, and crosses no legal prohibition.
+
+10 definition mutants, 10 of 10 ISOLATED full suite 138 files / 2410 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

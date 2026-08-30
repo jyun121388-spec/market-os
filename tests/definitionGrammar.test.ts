@@ -74,6 +74,25 @@ describe("what must NOT become a definition", () => {
     }
   });
 
+  it("refuses a metalinguistic head that governs nothing", () => {
+    // `How does the concept drift?` was recognised as a definition of `drift`. The copula test was
+    // satisfied by the `does` of `how does`, and the bare head then took the rest of the clause.
+    // A metalinguistic noun CITES a term only when it governs one, so the complement is required.
+    expect(operationOf("How does the concept drift?")).not.toBe("DEFINITION");
+    expect(operationOf("How does the definition change?")).not.toBe("DEFINITION");
+  });
+
+  it("refuses a Korean predicate that merely BEGINS with a metalinguistic noun", () => {
+    // `주가가 의미있게 상승하나요?` -- "does the share price rise MEANINGFULLY" -- was read as a
+    // definition of 주가, because matching the head 의미 by prefix accepted 의미있게. Korean
+    // agglutinates, so a head must be allowed its particles and copular endings; what follows it
+    // has to be grammatical, and 있 is a verb stem.
+    expect(operationOf("주가가 의미있게 상승하나요?")).not.toBe("DEFINITION");
+    // The one derivation still allowed is the light verb 하-, which makes a verb of the SAME noun.
+    // Tightening the rule lost this corpus row until that was carved out.
+    expect(operationOf("PER이 뭘 의미하는 지표인가요")).toBe("DEFINITION");
+  });
+
   it("refuses a complement inside the SUBJECT of a how-it-works question", () => {
     // The tail rule and the complement rule overlapped once the tail had to be empty, and mutation
     // reported the complement rule MISSED -- not because it stopped mattering, but because no test
@@ -87,6 +106,15 @@ describe("what must NOT become a definition", () => {
     // them. Being closed makes a class finishable, which is not the same as having finished it.
     expect(operationOf("How does a derivative as collateral work?")).not.toBe("DEFINITION");
     expect(operationOf("How does a swap like a forward work?")).not.toBe("DEFINITION");
+    // Round seven, after round six's list was also declared complete -- from a reference that time.
+    // The claim of completeness is retired rather than made a fourth time; what carries the safety
+    // argument is that an omission lands in the bounded residue, not that the list has no gaps.
+    expect(operationOf("How does a derivative qua collateral work?")).not.toBe("DEFINITION");
+  });
+
+  it("refuses a Korean adjunct particle", () => {
+    // `주가처럼` restricts by comparison, exactly as an English complement preposition does.
+    expect(operationOf("주가처럼 변동성의 의미가 무엇인가요?")).not.toBe("DEFINITION");
   });
 
   it("refuses a predicate with anything after it", () => {

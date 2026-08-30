@@ -21,11 +21,11 @@ const operationOf = (query: string) => {
 };
 
 describe("what makes a request definitional", () => {
-  it("recognises a bare term, with or without an article", () => {
-    // The article was the whole difference between these two before this unit.
+  it("keeps the constructions that already worked", () => {
     expect(operationOf("What is a Eurodollar?")).toBe("DEFINITION");
-    expect(operationOf("What is real GDP?")).toBe("DEFINITION");
-    expect(operationOf("What is the Herfindahl-Hirschman Index?")).toBe("DEFINITION");
+    expect(operationOf("What is the definition of the natural rate of unemployment?")).toBe(
+      "DEFINITION",
+    );
   });
 
   it("recognises a metalinguistic head taking the term as its complement", () => {
@@ -88,11 +88,36 @@ describe("what must NOT become a definition", () => {
     }
   });
 
-  it("does not mistake a hyphenated name for a subtraction", () => {
-    // The cost of reading raw punctuation, and it was paid before the qualifier was added: matching
-    // a bare `-` refused `What is the Herfindahl-Hirschman Index?`. An operator stands free; a
-    // compound name does not. This is the same mistake the retired raw-comma test made.
-    expect(operationOf("What is the Herfindahl-Hirschman Index?")).toBe("DEFINITION");
+  it("refuses an open-class connective rather than enumerating them", () => {
+    // FOUR REVIEW ROUNDS produced this, and the lesson is the design rather than the words. The
+    // shape began as a bare wh-copular -- `what is X` for any X -- and each round found another
+    // member of a set I was treating as closed: `at`, `by`, `per`, then `via`, `without`, `within`,
+    // `among`; `less`, `multiplied`, then `modulo`, `subtract`. Every miss ADMITS a non-definition,
+    // which is the unfinishable denylist this repository has abandoned twice before.
+    //
+    // Requiring the definitional intent to be positively marked inverts the failure direction: an
+    // unmarked request is UNSUPPORTED rather than guessed at, and none of these needs a list entry.
+    for (const query of [
+      "What is exposure via derivatives?",
+      "What is protection without collateral?",
+      "What is EBITDA modulo capex?",
+      "What is EBITDA subtract capex?",
+      "What is duration - in bond mathematics?",
+    ]) {
+      expect(operationOf(query), query).not.toBe("DEFINITION");
+    }
+  });
+
+  it("yields to an operation that overlaps a definitional frame", () => {
+    // WHERE THE LAST-RESORT ORDERING ACTUALLY DECIDES, and it took a MISSED mutant to find it.
+    //
+    // Narrowing shape 1 to a marked head made M-DEFGRAM-LAST-RESORT survive: with the guard removed
+    // the family fired unconditionally and nothing broke, because no remaining test held a request
+    // that two recognisers both matched. That is a real hole in the evidence, not a sign the guard
+    // was unnecessary -- `the current meaning of X` carries both a currentness marker and a
+    // metalinguistic head, so unguarded it yields two readings and the request becomes AMBIGUOUS.
+    // Guarded, the operation that recognised it first keeps it.
+    expect(operationOf("What is the current meaning of tapering?")).toBe("CURRENT_OBSERVATION");
   });
 
   it("leaves every other operation to its own construction", () => {
@@ -119,6 +144,68 @@ describe("what must NOT become a definition", () => {
   });
 });
 
+describe("the same grammar in Korean", () => {
+  it("recognises a term marked with a definitional interrogative or a metalinguistic head", () => {
+    // `koreanCopularMatch` takes 2 of the corpus's 30 Korean definitional requests, because it
+    // requires exactly two eojeol. These are the same question in three, four and five.
+    expect(operationOf("장단기 금리 역전이 무슨 뜻이죠?")).toBe("DEFINITION");
+    expect(operationOf("경상수지의 정의가 궁금합니다")).toBe("DEFINITION");
+    expect(operationOf("근원물가지수가 무엇을 의미하는지 알려주세요")).toBe("DEFINITION");
+    expect(operationOf("채권 듀레이션 개념 알려주세요")).toBe("DEFINITION");
+  });
+
+  it("treats the request frame as framing, not as an operand", () => {
+    // 설명해 주세요 / 알려줘 / 궁금해요 say the speaker wants to be told, which every request says.
+    for (const query of [
+      "스태그플레이션이 뭔지 설명해줘",
+      "물가연동국채가 뭔지 궁금해요",
+      "헤지펀드가 무엇인지 알려주십시오",
+    ]) {
+      expect(operationOf(query), query).toBe("DEFINITION");
+    }
+  });
+
+  it("refuses a relation between two marked nominals", () => {
+    // COERCED, and caught by the whole-corpus diff rather than by a count of the intended gains.
+    // `미국 고용지표가 ... 영향은 무엇인가요` ends in 무엇인가요 and is STORED_MECHANISM: two overtly
+    // marked nominals is a clause, not a term. The Korean form of the English complement rule.
+    expect(operationOf("미국 고용지표가 연준 통화정책에 미치는 영향은 무엇인가요")).not.toBe(
+      "DEFINITION",
+    );
+  });
+
+  it("refuses two operations joined into one request", () => {
+    // COERCED, and both are corpus rows the grammar is required to REFUSE. Looking only for a
+    // second CASE-MARKED subject missed them -- the second question's subject is 수치도 in one and
+    // a bare 리츠 in the other -- so what is checked is that nothing after the marker is anything
+    // but predicate. 설명해주고 ends in the connective 고, which is "explain, AND".
+    expect(operationOf("CPI가 뭔지 설명해주고 최신 미국 CPI 수치도 알려주세요")).not.toBe(
+      "DEFINITION",
+    );
+    expect(operationOf("ETF 정의랑 리츠 정의 둘 다 설명해줘")).not.toBe("DEFINITION");
+  });
+
+  it("refuses a term restricted to a setting, as the English side does", () => {
+    // `국채 입찰에서 응찰률이란?` is `What is duration in bond mathematics?` in Korean, and both are
+    // refused. The adjunct says the request is about the term somewhere, not about the term.
+    expect(operationOf("국채 입찰에서 응찰률이란?")).not.toBe("DEFINITION");
+  });
+
+  it("inherits the guards of the recognisers it stands behind", () => {
+    // REGRESSION, caught by the existing suite rather than by this file. `koreanCopularMatch` drops
+    // a first-person possessive subject; dropping it leaves no reading, and no reading is the
+    // condition that invites a last-resort recogniser in. So the guard has to be repeated here or
+    // declining the evidence quietly becomes a way of reaching a weaker grammar.
+    expect(operationOf("제포트폴리오는 무엇인가요?")).not.toBe("DEFINITION");
+    expect(operationOf("내수익률은 무슨 뜻이죠?")).not.toBe("DEFINITION");
+  });
+
+  it("does not turn a quantity question into a definition", () => {
+    // 얼마 is absent from the interrogative set on purpose: it asks HOW MUCH.
+    expect(operationOf("기준금리는 얼마인가요?")).not.toBe("DEFINITION");
+  });
+});
+
 describe("a definition never reaches a planner", () => {
   it("declares DEFINITION planner-forbidden in the contract", () => {
     // Success for this unit is canonical recognition with ZERO planner calls, and the authority for
@@ -129,7 +216,7 @@ describe("a definition never reaches a planner", () => {
 });
 
 describe("declared limitations of this grammar", () => {
-  it.fails("PENDING: a lexicalized term that contains a preposition", () => {
+  it.fails("PENDING: an unmarked bare term is not recognised", () => {
     // OPEN, PRE-EXISTING, and NOT closed by this unit. Named by review as P1 and reproduced.
     //
     // `return on equity`, `proof of stake` and `cash flow from operations` are single financial
@@ -142,20 +229,17 @@ describe("declared limitations of this grammar", () => {
     // ` definition of `, ` what is a `, ` what is an `, ` what does … mean ` -- and matched none of
     // these either, so they were UNSUPPORTED before this change and remain so.
     //
-    // The set is also a SUBSET of the prepositions, so the behaviour is inconsistent rather than
-    // uniformly strict: `What is value at risk?` and `What is earnings per share?` are recognised
-    // because `at` and `per` are absent from it. Pinned executable so the inconsistency is visible
-    // rather than described.
+    // Pinned executable so the gap is visible rather than described.
     expect(operationOf("What is return on equity?")).toBe("DEFINITION");
   });
 
-  it("now refuses lexicalized terms UNIFORMLY rather than inconsistently", () => {
-    // Review's second round: the preposition set was a subset presented as the class, so
-    // `value at risk` was recognised while `proof of stake` was not, for no defensible reason. The
-    // set is now the functional class, which makes the gap uniform. Worse coverage, better
-    // behaviour -- an inconsistency a reader cannot predict is more dangerous than a known limit.
+  it("refuses an unmarked bare term, which is the price of the narrowing", () => {
+    // NAMED COST. `What is real GDP?` and `What is the Herfindahl-Hirschman Index?` are plainly
+    // definitional and are not recognised, because nothing in them says so and an unconstrained
+    // complement cannot be filtered safely. Neither was recognised before this unit either -- the
+    // previous family was four literals -- so the claim is smaller, not regressed.
+    expect(operationOf("What is real GDP?")).not.toBe("DEFINITION");
     expect(operationOf("What is value at risk?")).not.toBe("DEFINITION");
-    expect(operationOf("What is earnings per share?")).not.toBe("DEFINITION");
   });
 
   it.fails("PENDING: definitional constructions this family does not yet cover", () => {

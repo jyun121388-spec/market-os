@@ -15,6 +15,9 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-PREPOSITION    a head noun with a prepositional complement counts as a term again
   M-DEFGRAM-TAIL           the predicate's tail stops being checked, so a second term hides in it
   M-DEFGRAM-PLANNER        DEFINITION becomes planner-permitted
+  M-DEFGRAM-KO-OFF         the Korean half is never consulted
+  M-DEFGRAM-KO-CARDINALITY a clause with two marked nominals counts as a term
+  M-DEFGRAM-KO-PREDICATE   two operations joined by a connective read as one
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -48,9 +51,41 @@ MUTATIONS = [
         "M-DEFGRAM-OFF the definitional recogniser is never consulted",
         REQUEST,
         "  if (readings.length === 0) {\n"
-        "    const definitional = definitionalMatch(normalized, span);\n"
+        "    const definitional = containsHangul(span)\n"
+        "      ? koreanDefinitionalMatch(span)\n"
+        "      : definitionalMatch(normalized, span);\n"
         "    if (definitional) readings.push(definitional);\n"
         "  }",
+        "",
+    ),
+    # M-DEFGRAM-KO-OFF -- the English half stays, the Korean half goes. Separated from the mutant
+    # above because one recogniser covering for the other is exactly the confusion a single
+    # whole-family mutant cannot rule out.
+    (
+        "M-DEFGRAM-KO-OFF the Korean definitional recogniser is never consulted",
+        REQUEST,
+        "    const definitional = containsHangul(span)\n"
+        "      ? koreanDefinitionalMatch(span)\n"
+        "      : definitionalMatch(normalized, span);",
+        "    const definitional = containsHangul(span)\n"
+        "      ? null\n"
+        "      : definitionalMatch(normalized, span);",
+    ),
+    # M-DEFGRAM-KO-CARDINALITY -- the Korean counterpart of M-DEFGRAM-PREPOSITION. Without it
+    # `미국 고용지표가 ... 영향은 무엇인가요` is a term rather than a relation, and STORED_MECHANISM
+    # loses a row to DEFINITION.
+    (
+        "M-DEFGRAM-KO-CARDINALITY a clause with two marked nominals is a term again",
+        REQUEST,
+        "  if (markedInTerm.length > 1) return null;",
+        "",
+    ),
+    # M-DEFGRAM-KO-PREDICATE -- without it, two operations joined by the connective 고 or by 랑 read
+    # as one definitional request, and two corpus rows that must be REFUSED authorize.
+    (
+        "M-DEFGRAM-KO-PREDICATE material after the marker need not be predicate",
+        REQUEST,
+        "    if (!KOREAN_PREDICATE_ENDINGS.some((e) => eojeol.endsWith(e))) return null;",
         "",
     ),
     # M-DEFGRAM-LAST-RESORT -- it runs unconditionally instead of only when nothing else matched.
@@ -60,9 +95,9 @@ MUTATIONS = [
         "M-DEFGRAM-LAST-RESORT definitional recognition competes instead of yielding",
         REQUEST,
         "  if (readings.length === 0) {\n"
-        "    const definitional = definitionalMatch(normalized, span);",
+        "    const definitional = containsHangul(span)",
         "  if (true) {\n"
-        "    const definitional = definitionalMatch(normalized, span);",
+        "    const definitional = containsHangul(span)",
     ),
     # M-DEFGRAM-PREPOSITION -- THE discriminator. Without it `the level of the VIX`, `the published
     # view on Brent crude` and `the weather in Seoul tomorrow` are all terms, and four corpus
@@ -108,6 +143,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 5. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 8. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

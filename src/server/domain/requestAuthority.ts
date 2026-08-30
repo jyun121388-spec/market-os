@@ -937,6 +937,242 @@ function koreanCopularMatch(query: string): KoreanMatch {
 }
 
 /**
+ * Nouns that talk about words. The Korean counterpart of `METALINGUISTIC_HEADS`.
+ *
+ * Same argument, same failure direction: a head missing from here means a definitional request is
+ * REFUSED, never that something else is admitted. `표현` is included because Korean cites a term
+ * with it -- `X라는 표현은` is "the expression 'X'" -- which is metalinguistic in the strict sense.
+ */
+const KOREAN_METALINGUISTIC_HEADS = ["뜻", "의미", "정의", "개념", "용어", "표현"];
+
+/**
+ * The interrogatives that ask what a thing IS.
+ *
+ * `무엇`/`뭐` are the closed pronoun class `koreanMorphology` already names; `뭔`/`뭘` are their
+ * contracted forms before `-지`/`-을`, and `무슨` is the corresponding determiner. None of them asks
+ * a quantity, a time or a source, which is what makes the frame positively definitional rather than
+ * merely interrogative. `얼마` is deliberately absent: it asks HOW MUCH, and that is
+ * CURRENT_OBSERVATION's question.
+ */
+const KOREAN_WHAT_INTERROGATIVES = ["무엇", "뭐", "뭔", "뭘", "무슨"];
+
+/**
+ * Trailing eojeols that ask FOR the answer rather than adding to the question.
+ *
+ * `설명해 주세요`, `알려줘`, `궁금합니다`, `알고 싶어요`. These are politeness and request framing:
+ * they say the speaker wants to be told, which every request already says.
+ *
+ * AN OPEN CLASS, and safe to keep as a list only because of which way it fails. A form missing from
+ * here survives as an unconsumed eojeol, the term region then fails to parse, and the request is
+ * REFUSED. Nothing is admitted by an omission. That is the property the English arithmetic list did
+ * not have, which is why that one had to go and this one may stay.
+ */
+const KOREAN_REQUEST_FRAME = [
+  "설명",
+  "알려",
+  "주세",
+  "주십",
+  "궁금",
+  "알고",
+  "싶어",
+  "싶습",
+  "알려줘",
+  "설명해줘",
+];
+
+/**
+ * Markers that give the term a complement, an adjunct or a second constituent.
+ *
+ * The Korean counterpart of `TERM_COMPLEMENT_PREPOSITIONS`, and it refuses the same requests for the
+ * same reason: `국채 입찰에서 응찰률이란?` restricts the term to a setting, exactly as
+ * `What is duration in bond mathematics?` does, so both are refused rather than half-read.
+ *
+ * The temporal adverbs are here rather than in a framing list because `현재 X는 무엇인가요` is a
+ * currentness question wearing a definitional frame, and `koreanCopularMatch` already refuses the
+ * whole class for the same reason -- see its "exactly two eojeol" note.
+ */
+const KOREAN_COMPLEMENT_MARKERS = [
+  "에서",
+  "에게",
+  "에는",
+  "에도",
+  "에 대",
+  "부터",
+  "까지",
+  "보다",
+  "으로",
+  "하고",
+  "및",
+  "현재",
+  "지금",
+  "오늘",
+  "최근",
+  "올해",
+  "작년",
+  "내년",
+];
+
+/**
+ * Endings that CLOSE a Korean question.
+ *
+ * The connective endings `-고` and `-며` are omitted on purpose: they join a second clause, which is
+ * precisely what must not be swallowed into one request.
+ */
+const KOREAN_PREDICATE_ENDINGS = ["지", "요", "까", "야", "죠", "니", "나", "다", "?"];
+
+/** `(이)라는` — the attributive quotative that cites a term: `X라는 표현`, "the expression 'X'". */
+const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];
+
+/**
+ * The Korean half of MARKET-DEFINITION-GRAMMAR-001, built on the same rule as the English half.
+ *
+ * `koreanCopularMatch` recognises `[TERM+marker] [무엇/뭐 + copula]` in exactly two eojeol, and of
+ * the corpus's 30 Korean definitional requests it takes two. The rest are not different questions:
+ * `장단기 금리 역전이 무슨 뜻이죠?` and `경상수지의 정의가 궁금합니다` ask what a term means, in four
+ * eojeol and in three.
+ *
+ * ## Why this is not the two-eojeol rule relaxed
+ *
+ * That rule counts eojeol because the construction IS the whole request, so length is its proof that
+ * nothing is left over. Simply allowing more would delete the proof, and the review history of this
+ * file is what happens then -- `안 얼마인가요?` authorized with a negator as its subject.
+ *
+ * So the proof is rebuilt rather than dropped. A definitional marker must be POSITIVELY present, the
+ * material before it must be nominal and carry no other operation's operand, and the material after
+ * it must introduce no second subject. Length stops being the argument; constituency becomes it.
+ *
+ * ## Why the English narrowing applies here too
+ *
+ * Four review rounds killed the bare English `what is X` because X was unconstrained and could only
+ * be filtered by listing what it must not contain. Korean is not exempt -- it is only luckier, in
+ * that the language marks the distinction morphologically. `X가 뭐야` says "what IS X" with a
+ * pronoun that cannot ask a quantity, and `X의 정의` says "the definition of X" with a noun that
+ * cannot mean anything else. The marking is in the grammar, so no phrase list stands in for it.
+ */
+function koreanDefinitionalMatch(query: string): Recognised | null {
+  const all = eojeols(query);
+
+  // The request frame is stripped from the END only. A leading `설명해 주세요` is not a thing, and
+  // consuming these anywhere would let one hide between the term and its marker.
+  let body = all;
+  while (body.length > 0 && KOREAN_REQUEST_FRAME.some((f) => body[body.length - 1].startsWith(f))) {
+    body = body.slice(0, -1);
+  }
+  if (body.length === 0) return null;
+
+  const definiendumStem = (eojeol: string): string | null => {
+    for (const analysis of analyseNoun(eojeol)) {
+      if (analysis.role === "DEFINIENDUM") return analysis.stem;
+    }
+    for (const suffix of KOREAN_CITATION_SUFFIXES) {
+      if (eojeol.endsWith(suffix) && eojeol.length > suffix.length) {
+        return eojeol.slice(0, eojeol.length - suffix.length);
+      }
+    }
+    return null;
+  };
+  const isMarker = (eojeol: string): boolean =>
+    KOREAN_WHAT_INTERROGATIVES.some((w) => eojeol.startsWith(w)) ||
+    KOREAN_METALINGUISTIC_HEADS.some((h) => eojeol.startsWith(h));
+
+  // The LEFTMOST marker, so that everything before it is the term and everything after it is
+  // predicate. Taking the rightmost would let `X는 무슨 뜻` split at 뜻 and swallow 무슨 into the
+  // term.
+  let at = body.findIndex((eojeol) => isMarker(eojeol) || definiendumStem(eojeol) !== null);
+  if (at === -1) return null;
+
+  // A cited term carries its marker on itself -- `양적완화란`, `X라는` -- so it belongs to the term
+  // region rather than ending it. Everything after it must still be metalinguistic, which is what
+  // separates `테이퍼링이란 용어의 뜻은?` from `양적완화란 어떻게 시작됐나요?`.
+  const cited = definiendumStem(body[at]);
+  const term = cited === null ? body.slice(0, at) : [...body.slice(0, at), cited];
+  if (cited !== null) {
+    at += 1;
+    if (at < body.length && !body.slice(at).some(isMarker)) return null;
+  }
+  if (term.length === 0) return null;
+
+  // A COMPLEMENT IS NOT PART OF THE TERM, and neither is a currentness adverb. Same discriminator as
+  // the English side, and it refuses the same shapes.
+  const region = term.join(" ");
+  if (KOREAN_COMPLEMENT_MARKERS.some((m) => region.includes(m))) return null;
+
+  // EXACTLY ONE MARKED NOMINAL in the term region, and the corpus produced this rule the same way
+  // the English preposition rule was produced -- by coercing a row that is not a definition:
+  //
+  //     미국 고용지표가 연준 통화정책에 미치는 영향은 무엇인가요
+  //     "what is the effect OF US employment data ON Fed policy"
+  //
+  // It ends in 무엇인가요 and is a relation between two subjects, which is STORED_MECHANISM. Its
+  // shape is 고용지표가 (nominative) ... 영향은 (topic): two overtly marked nominals, which is a
+  // clause and not a term. `장단기 금리 역전이` has one, and a compound noun spanning three eojeol
+  // still has one, so this separates constituency from length without counting words.
+  const markedInTerm = term.filter((eojeol) =>
+    analyseNoun(eojeol).some((a) => a.role !== null && a.role !== "GENITIVE" && a.stem.length > 0),
+  );
+  if (markedInTerm.length > 1) return null;
+
+  // AFTER the marker, only predicate. `CPI가 뭔지 설명해주고 최신 미국 CPI 수치도 알려주세요` and
+  // `ETF 정의랑 리츠 정의 둘 다 설명해줘` are both corpus rows the grammar must REFUSE as two
+  // operations, and both slipped through a rule that only looked for a second case-marked subject:
+  // the second question's subject is 수치도 in one and a bare 리츠 in the other.
+  //
+  // A Korean predicate ends in a verbal or copular ending. The list is the endings that CLOSE a
+  // question -- 지, 요, 까, 야, 죠, 니, 나, 다 -- and it deliberately omits the CONNECTIVE endings
+  // 고 and 며, because those are what joins a second clause: 설명해주고 is "explain, and". Anything
+  // that is neither predicate-shaped nor a marker means the request did not end at the question.
+  //
+  // Failing here REFUSES, which is why a list is tolerable in this position at all.
+  for (const eojeol of body.slice(at + (cited === null ? 1 : 0))) {
+    if (isMarker(eojeol)) continue;
+    if (!KOREAN_PREDICATE_ENDINGS.some((e) => eojeol.endsWith(e))) return null;
+  }
+
+  // The term must END in evidence that it IS a noun phrase.
+  //
+  // An overt case marker is that evidence, and requiring one is the invariant `koreanCopularMatch`
+  // paid for: without it, exactly two eojeol promoted a negator to a subject. The one alternative
+  // allowed here is a bare metalinguistic HEAD taking the term as its modifier -- `채권 듀레이션
+  // 개념` -- because Korean noun-noun compounding cannot contain a verb, so the head is itself the
+  // proof that what precedes it is nominal.
+  const last = term[term.length - 1];
+  const roled = analyseNoun(last).find(
+    (a) =>
+      a.role === "TOPIC" ||
+      a.role === "NOMINATIVE" ||
+      a.role === "GENITIVE" ||
+      a.role === "DEFINIENDUM",
+  );
+  const compounded =
+    cited === null && KOREAN_METALINGUISTIC_HEADS.some((h) => body[at].startsWith(h));
+  if (roled === undefined && !compounded) return null;
+
+  const stem = roled === undefined ? last : roled.stem;
+  if (stem.length === 0) return null;
+
+  // A FIRST-PERSON POSSESSIVE SUBJECT, refused here for the same reason `koreanCopularMatch` refuses
+  // it -- and this was a REGRESSION the suite caught, not a precaution.
+  //
+  // `제포트폴리오는 무엇인가요?` is "what is MY portfolio", a request about the speaker's holdings.
+  // `koreanCopularMatch` drops that analysis, dropping it leaves `readings` empty, and an empty
+  // `readings` is exactly the condition that invites this recogniser in. So the older grammar
+  // declined the evidence and the newer one picked the request up anyway -- the precise failure that
+  // "evidence which was present and declined never falls through to a weaker reading" exists to
+  // prevent. A last-resort recogniser inherits every guard of the recognisers standing before it.
+  if (KOREAN_POSSESSIVE_DETERMINERS.some((d) => stem.startsWith(d) && stem !== d)) return null;
+
+  const subject = [...term.slice(0, -1), stem].join(" ");
+  return {
+    operation: "DEFINITION",
+    subjectRegion: ` ${subject} `,
+    residue: [],
+    // One marked nominal, and this grammar cannot prove what is inside it -- the same claim
+    // `koreanCopularMatch` makes, and for the reason its `internalConjunction` note gives.
+    subjectIdentity: "WHOLE_REGION",
+  };
+}
+
+/**
  * A definitional request: one term, asked about as a term, with no other operation's operand.
  *
  * MARKET-DEFINITION-GRAMMAR-001. `CONSTRUCTIONS` carried four DEFINITION rows -- ` definition of `,
@@ -966,24 +1202,39 @@ function koreanCopularMatch(query: string): KoreanMatch {
  * definitional frame must be POSITIVELY present; absence of operands narrows, it does not decide.
  */
 function definitionalMatch(normalized: string, raw: string): Recognised | null {
-  // Shape 1: the wh-copular. `what is X` / `what are X`, generalising the two existing rows that
-  // required an article. Framing between the copula and the term is allowed, which is what lets
-  // `what exactly is X` and `what is the X` in without either being its own entry.
-  for (const copula of [" what is ", " what are ", " what s "]) {
-    const at = normalized.indexOf(copula);
+  // Shape 1: a METALINGUISTICALLY MARKED term. `What is meant by X?`, `What is the meaning of X?`
+  //
+  // This began as the bare wh-copular -- `what is X` for any X, generalising the two rows that
+  // required an article -- and four review rounds killed it. The generalisation admitted
+  // `What is exposure via derivatives?`, `What is EBITDA modulo capex?`,
+  // `What is protection without collateral?` and one more each time I extended a list. The problem
+  // was never the missing words: an unconstrained X can only be filtered by enumerating what it may
+  // NOT contain, every miss ADMITS a non-definition, and that is the unfinishable denylist this
+  // repository has abandoned twice before.
+  //
+  // Positive marking inverts the failure direction. A request must SAY it is asking about a term,
+  // and an unmarked one is UNSUPPORTED rather than guessed at. The cost is real and named:
+  // `What is real GDP?` and `What is the Herfindahl-Hirschman Index?` are not recognised. Neither
+  // was recognised before this unit either -- the previous family was four literals -- so this is a
+  // smaller claim, not a regression.
+  for (const head of METALINGUISTIC_HEADS) {
+    const marker = ` ${head} `;
+    const at = normalized.indexOf(marker);
     if (at === -1) continue;
-    // Only at the head of the request. A copula later in the sentence is a second clause, and the
-    // whole point of the residue rules elsewhere in this file is that those are not one question.
-    if (normalizedTokens(normalized.slice(0, at + 1)).length > 0) continue;
-    const term = normalized.slice(at + copula.length - 1);
-    if (!isSingleTermRegion(term, raw)) continue;
+    const term = normalized.slice(at + marker.length - 1);
+    // The marked head must be introduced by a copula, so that `the meaning of X` is a request and
+    // `a fund whose meaning of X` -- were anyone to write it -- is not silently one too.
+    if (!/\s(is|are|does|do)\s/.test(normalized.slice(0, at + 1))) continue;
+    const stripped = term.replace(/^\s*(of|by|behind)\s+/, " ");
+    if (!isSingleTermRegion(` ${stripped.trim()} `, raw)) continue;
     return {
       operation: "DEFINITION",
-      subjectRegion: term,
+      subjectRegion: ` ${stripped.trim()} `,
       residue: [],
       subjectIdentity: "OCCURRENCE",
     };
   }
+
   // Shape 2: how a single named thing WORKS. `How does X work?`, `How do X work?`,
   // `How does X operate?`. The corpus reaches this construction six times and it is the same
   // question as shape 1 asked from the other side -- what a term IS, phrased as what it DOES.
@@ -1110,11 +1361,14 @@ const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense",
  * Their presence says the request is about a relation or property the term participates in, which
  * belongs to another operation.
  *
- * TWO HONEST CORRECTIONS, both from review. This is a SUBSET of the prepositions, not the class:
- * `at`, `by`, `between`, `through`, `against` and `under` are absent, so `What is value at risk?`
- * is accepted where `What is proof of stake?` is not — an inconsistency, not a design.
+ * STILL A SUBSET of the prepositions, and after the narrowing that is no longer the dangerous kind.
+ * While `what is X` was recognised for unconstrained X, a preposition missing from here ADMITTED a
+ * non-definition, and three review rounds each found another one — `at`, `per`, then `via`,
+ * `without`, `within`, `among`. What reaches this function now is already positively marked as
+ * definitional, so a missing entry can at worst let through something a speaker explicitly asked
+ * the meaning of. This list refines a decision; it is no longer the thing making it.
  *
- * And membership cannot tell a complement from a LEXICALIZED TERM. `return on equity`, `proof of
+ * Membership cannot tell a complement from a LEXICALIZED TERM. `return on equity`, `proof of
  * stake` and `cash flow from operations` are single financial terms that happen to contain a
  * preposition, and this refuses all three. That is a real capability gap and it is NOT introduced
  * here: the previous grammar recognised DEFINITION through four literals — ` definition of `,
@@ -1130,10 +1384,8 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "in",
   "about",
   "with",
-  // Added after review pointed out the set was a SUBSET presented as the class. Their absence made
-  // the behaviour inconsistent rather than strict: `What is value at risk?` was recognised while
-  // `What is proof of stake?` was not, for no reason a reader could defend. Both are refused now,
-  // which is uniform and is covered by the pinned lexicalized-term limitation.
+  // Added after review pointed out the set was a SUBSET presented as the class, back when that
+  // omission meant `What is value at risk?` was recognised and `What is proof of stake?` was not.
   "at",
   "by",
   "per",
@@ -1160,9 +1412,13 @@ const ARITHMETIC_SYMBOLS = /(^|\s)[-+*/×÷=](\s|$)/;
 /**
  * Word forms of the same thing.
  *
- * A SUBSET, not the class, and its failure direction is admission -- a form missing from here is
- * silently accepted as a term. `less` and `multiplied` were both absent from the first attempt and
- * review found them. Pinned as a declared limitation rather than claimed complete.
+ * A SUBSET, not the class -- `less` and `multiplied` were absent from the first attempt, `modulo`
+ * and `subtract` from the second, and there is no reason to think a third pass would end it.
+ *
+ * That unfinishable list is what killed the bare wh-copular shape. It is kept here because the two
+ * surviving shapes are positively marked, so the worst a missing form can now do is treat
+ * `How does EBITDA modulo capex work?` as one term -- a strange request answered oddly, not a
+ * calculation silently authorized as a definition.
  */
 const ARITHMETIC_WORDS = new Set([
   "minus",
@@ -1590,7 +1846,9 @@ function recogniseSpanUncached(span: string): SpanRecognition {
   // nothing else recognised the span, it cannot outrank another operation and cannot create a
   // conflict. See `definitionalMatch`.
   if (readings.length === 0) {
-    const definitional = definitionalMatch(normalized, span);
+    const definitional = containsHangul(span)
+      ? koreanDefinitionalMatch(span)
+      : definitionalMatch(normalized, span);
     if (definitional) readings.push(definitional);
   }
 

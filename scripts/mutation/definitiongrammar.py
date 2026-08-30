@@ -36,6 +36,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-EN-BEHIND             a non-citing complement counts as citing
   M-DEFGRAM-EN-QUOTED             the metalinguistic complement need not be quoted
   M-DEFGRAM-EN-PRONOUN            a pronoun counts as a term
+  M-DEFGRAM-EN-INDEFINITE         the indefinite pronouns are enumerated by hand, not generated
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -258,6 +259,14 @@ MUTATIONS = [
         "  if (tokens.some((token) => PRONOUNS.has(token))) return false;",
         "",
     ),
+    # M-DEFGRAM-EN-INDEFINITE -- the indefinite pronouns stop being generated from their morphemes
+    # and shrink to what one person remembered, so `How does everybody work?` authorizes again.
+    (
+        "M-DEFGRAM-EN-INDEFINITE the indefinite pronouns are enumerated by hand",
+        REQUEST,
+        'const INDEFINITE_HEADS = ["one", "body", "thing", "where"];',
+        'const INDEFINITE_HEADS = ["one", "thing"];',
+    ),
     # M-DEFGRAM-EN-QUOTED -- the complement no longer has to be QUOTED, so `meaning of` governs an
     # event clause and `What is the meaning of the Fed raising rates?` becomes a definition of it.
     (
@@ -336,6 +345,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 26. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 27. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

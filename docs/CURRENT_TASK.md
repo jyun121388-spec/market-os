@@ -266,7 +266,14 @@ Rounds 21, 22 and 24 were all documentation: comments left arguing for designs t
 abandoned. After the third I swept both files myself and found two more. When a rule changes, the
 comment that argued for the old rule is part of what changed.
 
-26 definition mutants, 26 of 26 ISOLATED full suite 138 files / 2422 pass / 19 expected fail
+**TWENTY-SIX rounds, and the fourth time writing out "the class" from memory produced a subset.**
+I listed `nobody` and omitted `everybody`, after the same thing happened twice with the
+prepositions. English indefinite pronouns are COMPOSITIONAL — a determiner morpheme crossed with a
+head morpheme — so the code now generates the cross product and the subclass is closed by
+construction rather than by recall. That is the general lesson of this unit stated one more way: a
+class you can DERIVE should never be typed out.
+
+27 definition mutants, 27 of 27 ISOLATED full suite 138 files / 2422 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

@@ -161,6 +161,15 @@ describe("what must NOT become a definition", () => {
       "How does she work?",
       "How does it work?",
       "How do they work?",
+      // THE FOURTH TIME writing out "the class" from memory produced a subset in this unit: I
+      // listed `nobody` and omitted `everybody`, after the same thing happened twice with the
+      // prepositions. English indefinite pronouns are COMPOSITIONAL -- a determiner morpheme
+      // crossed with a head morpheme -- so the code now generates the cross product instead of
+      // enumerating twelve items by hand, and the subclass is closed by construction.
+      "How does everybody work?",
+      "How does somebody work?",
+      "How does anyone work?",
+      "How does one work?",
     ]) {
       expect(operationOf(query), query).not.toBe("DEFINITION");
     }

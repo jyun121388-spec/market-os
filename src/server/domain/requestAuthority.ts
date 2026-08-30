@@ -1888,13 +1888,24 @@ const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense",
 /**
  * Pronouns, which stand in for a thing instead of naming one.
  *
- * A term is a NAME. `How does he work?` is a question about a person, `What is meant by 'it'?`
- * cites nothing, and neither is a definitional request -- review found the first authorized as a
- * definition of `he`.
+ * A term is a NAME. `How does he work?` is a question about a person, not a definitional request,
+ * and it was authorized as a definition of `he`.
  *
- * Closed, like the prepositions, and unlike them nothing in financial vocabulary shades into it,
- * so the whole class can be refused without any judgement about individual members.
+ * THE INDEFINITES ARE GENERATED, NOT LISTED, and that is the fourth time in this unit that writing
+ * out "the class" from memory produced a subset. I listed `nobody` and omitted `everybody`, and
+ * review answered `How does everybody work?` -- after the same thing happened twice with the
+ * prepositions. English indefinite pronouns are COMPOSITIONAL: a determiner morpheme crossed with
+ * a head morpheme, and the cross product is the class. Enumerating a cross product by hand when
+ * the two axes are three and four items long is how the omission happens, so the code does the
+ * crossing.
+ *
+ * The personal and demonstrative pronouns below are small, genuinely fixed paradigms and are
+ * written out. Nothing in financial vocabulary shades into any of this, so refusing the whole
+ * class costs nothing and needs no judgement about members.
  */
+const INDEFINITE_DETERMINERS = ["some", "any", "every", "no"];
+const INDEFINITE_HEADS = ["one", "body", "thing", "where"];
+
 const PRONOUNS = new Set([
   "i",
   "me",
@@ -1936,14 +1947,17 @@ const PRONOUNS = new Set([
   "whose",
   "which",
   "what",
-  "someone",
-  "anyone",
-  "everyone",
-  "nobody",
-  "something",
-  "anything",
-  "everything",
-  "nothing",
+  "one",
+  "none",
+  "each",
+  "either",
+  "neither",
+  "both",
+  "few",
+  "many",
+  "several",
+  "all",
+  ...INDEFINITE_DETERMINERS.flatMap((d) => INDEFINITE_HEADS.map((h) => `${d}${h}`)),
 ]);
 
 /**

@@ -514,6 +514,23 @@ describe("the same grammar in Korean", () => {
     // condition that invites a last-resort recogniser in. So the guard has to be repeated here or
     // declining the evidence quietly becomes a way of reaching a weaker grammar.
     expect(operationOf("제포트폴리오는 무엇인가요?")).not.toBe("DEFINITION");
+    // THE SPACED FORM IS ALSO REFUSED, BY A DIFFERENT MECHANISM, and the difference is worth
+    // pinning rather than papering over. Review reported `내 포트폴리오가 무슨 뜻인가요?` as
+    // authorized and it is not -- it returns PROHIBITED, because the personalized-advice detector
+    // has absolute precedence over every recogniser here.
+    //
+    // The structural observation behind the report was still correct: the possessive guard inside
+    // the Korean recogniser checks only the FINAL stem, so a determiner standing as its own eojeol
+    // would walk past it. Nothing was added for that, because it is not reachable and this unit
+    // does not ship insurance against unreproduced defects. These pin the OUTCOME instead, so that
+    // if the upstream guardrail is ever narrowed the gap becomes visible here rather than silent.
+    for (const query of [
+      "내 포트폴리오가 무슨 뜻인가요?",
+      "제 포트폴리오가 무슨 뜻인가요?",
+      "내 수익률이 무슨 뜻인가요?",
+    ]) {
+      expect(operationOf(query), query).not.toBe("DEFINITION");
+    }
     expect(operationOf("내수익률은 무슨 뜻이죠?")).not.toBe("DEFINITION");
   });
 

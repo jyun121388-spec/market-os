@@ -1578,7 +1578,12 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
   // STORED_MECHANISM. `How does A affect B?` names two subjects joined by a relation construction,
   // so `mechanismMatch` recognises it and this never runs; `How does X work?` names one and no
   // relation, so there is nothing for a mechanism to be between. Intransitive predicate, one term.
-  for (const opener of [" how does ", " how do ", " how is "]) {
+  // ` how is ` IS NOT ONE OF THESE, and including it was a real defect. `How is remote work?`
+  // authorized as a definition of `remote`, because the rule found `work` in final position and
+  // read it as the predicate -- where it is the head NOUN of the subject, and the request asks
+  // about the state of remote work. `How is X work?` is not English; only `does` and `do` take a
+  // bare infinitive here, and that is exactly what makes `work` a verb in the other two.
+  for (const opener of [" how does ", " how do "]) {
     const at = normalized.indexOf(opener);
     if (at !== 0) continue;
     const rest = normalized.slice(opener.length - 1);

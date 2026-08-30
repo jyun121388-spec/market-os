@@ -112,6 +112,16 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("How does a derivative qua collateral work?")).not.toBe("DEFINITION");
   });
 
+  it("refuses `how is X work`, where work is a noun", () => {
+    // `How is remote work?` was a definition of `remote`: the rule found `work` in final position
+    // and read it as the intransitive predicate, where it is the head NOUN of the subject and the
+    // request asks about the state of remote work. `How is X work?` is not English -- only `does`
+    // and `do` take a bare infinitive here, which is exactly what makes `work` a verb in those.
+    expect(operationOf("How is remote work?")).not.toBe("DEFINITION");
+    expect(operationOf("How is shift work?")).not.toBe("DEFINITION");
+    expect(operationOf("How do repurchase agreements work?")).toBe("DEFINITION");
+  });
+
   it("refuses a metalinguistic head outside a wh-copular clause", () => {
     // `How does the MEANING OF inflation change?` was a definition of `inflation change`. The head
     // governed a complement, as required, and the copula test was satisfied by the `does` of

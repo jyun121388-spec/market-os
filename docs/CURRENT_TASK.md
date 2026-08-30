@@ -174,7 +174,13 @@ false; `이라는` carries the copula 이, which attaches to nouns and not to ve
 shape in this product's own subject matter is `팔라는 뜻인가요?` — "does that mean SELL?" — so the
 direction of this one matters beyond tidiness.
 
-18 definition mutants, 18 of 18 ISOLATED full suite 138 files / 2420 pass / 19 expected fail
+**FOURTEEN rounds. TERRA returned APPROVE; SOL, which holds publication authority, found one more
+and confirmed the IR-110 deferral.** `How is remote work?` was a definition of `remote` — the rule
+found `work` in final position and read it as the intransitive predicate, where it is the head NOUN
+of the subject. `How is X work?` is not English; only `does` and `do` take a bare infinitive there,
+which is exactly what makes `work` a verb in the other two openers. `how is` is removed.
+
+19 definition mutants, 19 of 19 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

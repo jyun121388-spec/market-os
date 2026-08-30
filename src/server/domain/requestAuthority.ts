@@ -1070,12 +1070,41 @@ const KOREAN_GRAMMATICAL_SYLLABLES = [
 ];
 
 /**
- * Endings that CLOSE a Korean question.
+ * Endings that close a Korean question WITH THE COPULA.
  *
- * The connective endings `-고` and `-며` are omitted on purpose: they join a second clause, which is
- * precisely what must not be swallowed into one request.
+ * A definitional request asks what a term IS, so the predicate that closes it is a form of 이다.
+ * The first version of this list took any question ending -- 지, 요, 까, 야, 죠, 니, 나, 다 -- and
+ * review answered `주가가 의미가 있나요?`, "is the share price meaningful", which ends in 요 and is
+ * an existential rather than a copula. Every form here carries 이/인 or is the contraction 예요.
  */
-const KOREAN_PREDICATE_ENDINGS = ["지", "요", "까", "야", "죠", "니", "나", "다", "?"];
+const KOREAN_COPULAR_ENDINGS = [
+  "인가요",
+  "인가",
+  "인지",
+  "인지요",
+  "입니까",
+  "입니다",
+  "이죠",
+  "이야",
+  "이에요",
+  "예요",
+  "이다",
+  "이란",
+  "인",
+];
+
+/**
+ * Coordinators, tested at the END of an eojeol and never as a substring.
+ *
+ * `ETF와 리츠의 차이는 무슨 뜻인가요?` asks about two terms, and adding 와 to the postposition list
+ * would have refused it -- along with `통화스와프`, a currency swap, which contains 와 in the
+ * middle of a compound. That is the exact false positive `koreanMorphology` removed
+ * `internalConjunction` for, and it would have cost a corpus row this unit gains.
+ *
+ * Position is what separates them. 와 coordinates when it CLOSES an eojeol; inside one it is a
+ * syllable of a word.
+ */
+const KOREAN_COORDINATOR_ENDINGS = ["와", "과", "랑", "이랑", "하고", "및"];
 
 /** `(이)라는` — the attributive quotative that cites a term: `X라는 표현`, "the expression 'X'". */
 const KOREAN_CITATION_SUFFIXES = ["이라는", "라는"];
@@ -1164,10 +1193,11 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     if (!eojeol.startsWith(head)) return false;
     // The head may also be VERBALISED. 의미하는 is 의미 plus the light verb 하-, "that means", and
     // `PER이 뭘 의미하는 지표인가요` is a corpus row that needs it -- tightening this test to
-    // grammatical syllables lost that row until 하- was allowed. It is the one derivation permitted,
-    // because it makes a verb of the SAME noun rather than a different word: 의미있게 opens with 있,
-    // a separate stem, and stays out.
-    const tail = eojeol.slice(head.length).replace(/^하/, "");
+    // grammatical syllables lost that row until 하- was allowed. 합 is the same morpheme contracted
+    // with the formal ending, which `GDP디플레이터란 무엇을 말합니까` needs. It is the one
+    // derivation permitted, because it makes a verb of the SAME noun rather than a different word:
+    // 의미있게 opens with 있, a separate stem, and stays out.
+    const tail = eojeol.slice(head.length).replace(/^[하합]/, "");
     return [...tail].every((syllable) => KOREAN_GRAMMATICAL_SYLLABLES.includes(syllable));
   };
   const isMarker = (eojeol: string): boolean =>
@@ -1195,6 +1225,11 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // the English side, and it refuses the same shapes.
   const region = term.join(" ");
   if (KOREAN_COMPLEMENT_MARKERS.some((m) => region.includes(m))) return null;
+  // A COORDINATED PAIR IS NOT ONE TERM, and this is checked at the eojeol boundary rather than by
+  // substring -- see `KOREAN_COORDINATOR_ENDINGS` for why the difference is a corpus row.
+  if (term.some((eojeol) => KOREAN_COORDINATOR_ENDINGS.some((c) => eojeol.endsWith(c)))) {
+    return null;
+  }
 
   // EXACTLY ONE MARKED NOMINAL in the term region, and the corpus produced this rule the same way
   // the English preposition rule was produced -- by coercing a row that is not a definition:
@@ -1234,15 +1269,21 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // operations, and both slipped through a rule that only looked for a second case-marked subject:
   // the second question's subject is 수치도 in one and a bare 리츠 in the other.
   //
-  // A Korean predicate ends in a verbal or copular ending. The list is the endings that CLOSE a
-  // question -- 지, 요, 까, 야, 죠, 니, 나, 다 -- and it deliberately omits the CONNECTIVE endings
-  // 고 and 며, because those are what joins a second clause: 설명해주고 is "explain, and". Anything
-  // that is neither predicate-shaped nor a marker means the request did not end at the question.
+  // AFTER THE MARKER, ONLY A COPULAR PREDICATE. `CPI가 뭔지 설명해주고 최신 미국 CPI 수치도
+  // 알려주세요` and `ETF 정의랑 리츠 정의 둘 다 설명해줘` are corpus rows the grammar must REFUSE as
+  // two operations, and both slipped past a rule that looked only for a second case-marked subject.
+  //
+  // "Ends like a question" was the first replacement and it was too weak: review found
+  // `주가가 의미가 있나요?` -- "IS the share price meaningful" -- recognised as a definition of
+  // 주가, because 있나요 ends in 요. The request has to ask what the term IS, so the predicate must
+  // carry the COPULA 이/인, and an existential or an ordinary verb does not. That also keeps out
+  // the connective endings 고 and 며, which is what joins a second clause: 설명해주고 is
+  // "explain, and".
   //
   // Failing here REFUSES, which is why a list is tolerable in this position at all.
   for (const eojeol of body.slice(at + (cited === null ? 1 : 0))) {
     if (isMarker(eojeol)) continue;
-    if (!KOREAN_PREDICATE_ENDINGS.some((e) => eojeol.endsWith(e))) return null;
+    if (!KOREAN_COPULAR_ENDINGS.some((e) => eojeol.endsWith(e))) return null;
   }
 
   // The term must END in evidence that it IS a noun phrase.
@@ -1356,9 +1397,20 @@ function definitionalMatch(normalized: string, raw: string): Recognised | null {
     const at = normalized.indexOf(marker);
     if (at === -1) continue;
     const term = normalized.slice(at + marker.length - 1);
-    // The marked head must be introduced by a copula, so that `the meaning of X` is a request and
-    // `a fund whose meaning of X` -- were anyone to write it -- is not silently one too.
-    if (!/\s(is|are|does|do)\s/.test(normalized.slice(0, at + 1))) continue;
+    // THE CLAUSE MUST BE WH-COPULAR, and testing for "a form of `do` somewhere earlier" was not
+    // that. Review found `How does the MEANING OF inflation change?` recognised as a definition of
+    // `inflation change`: the head governed a complement, as now required, and the copula test was
+    // satisfied by the `does` of `how does`. That request asks how a meaning CHANGES.
+    //
+    // So the frame is checked as a frame. `what` opens it, a copula follows, and only determiners
+    // may stand between that and the head. `how does` is not this frame -- it is shape 2's, and
+    // shape 2 has its own predicate and its own empty-tail rule.
+    const prefix = normalizedTokens(normalized.slice(0, at + 1));
+    if (prefix.length < 2 || prefix[0] !== "what") continue;
+    if (prefix[1] !== "is" && prefix[1] !== "are" && prefix[1] !== "s") continue;
+    if (!prefix.slice(2).every((token) => token === "the" || token === "a" || token === "an")) {
+      continue;
+    }
     // AND IT MUST TAKE A COMPLEMENT. Review found `How does the concept drift?` recognised as a
     // definition of `drift`: the copula test was satisfied by the `does` of `how does`, and the
     // bare head then took the rest of the clause as its term. A metalinguistic noun CITES a term
@@ -1498,6 +1550,16 @@ function isSingleTermRegion(region: string, raw?: string): boolean {
 
 /**
  * Heads that talk about WORDS rather than about the world.
+ *
+ * `말` -- "word", "speech" -- was ADDED here and REMOVED again in the same round, and the reason
+ * is worth keeping. The copular tightening lost `GDP디플레이터란 무엇을 말합니까`, where 말하다
+ * means "to say", and adding the head recovered it. It also coerced `달러 예금 지금 들까요 말까요`
+ * -- "should I open a dollar deposit or NOT" -- a corpus row expecting PROHIBITED_ADVICE, because
+ * 말까요 is the prohibitive auxiliary 말다 and the two are homographs.
+ *
+ * Nothing morphological separates them, the lost row is one, and the admitted row is a personalized
+ * advice request. `docs/LEGAL_GUARDRAILS.md` decides that trade before coverage does. The whole
+ * design of this unit is that a marker must be UNAMBIGUOUSLY metalinguistic, and 말 is not.
  *
  * These are the nouns and participles a speaker uses to cite a term AS a term, and they are the only
  * heads permitted a prepositional complement while still being a definitional request: `the meaning
@@ -2076,6 +2138,16 @@ function recogniseSpanUncached(span: string): SpanRecognition {
   // make `What is the current CPI?` two readings and therefore AMBIGUOUS; consulted only when
   // nothing else recognised the span, it cannot outrank another operation and cannot create a
   // conflict. See `definitionalMatch`.
+  //
+  // AND IT CURRENTLY DECIDES NOTHING, which is worth saying rather than leaving to be discovered.
+  // A mutant replacing this condition with `true` was ISOLATED while the English shape was a bare
+  // wh-copular. Every narrowing round since made it harder to catch, and after the eighth the
+  // guard was removed by hand and the whole 500-row corpus re-run: CHANGED 0. The two surviving
+  // shapes are narrow enough that nothing they match is matched by another construction.
+  //
+  // It stays because it enforces precedence by POSITION rather than by a rule someone has to
+  // remember, it costs nothing, and it is load-bearing again the moment a shape widens. The mutant
+  // is deleted, because a mutant that cannot be isolated is not coverage.
   if (readings.length === 0) {
     const definitional = containsHangul(span)
       ? koreanDefinitionalMatch(span)

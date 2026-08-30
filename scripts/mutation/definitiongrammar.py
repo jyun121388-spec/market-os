@@ -11,7 +11,6 @@ discrimination rather than towards the recognition: a grammar that recognises mo
 that recognises more WITHOUT stealing anything is the actual claim.
 
   M-DEFGRAM-OFF            the recogniser is never consulted -> intended definitions leave canonical
-  M-DEFGRAM-LAST-RESORT    it competes with other operations instead of yielding to them
   M-DEFGRAM-PREPOSITION    a head noun with a prepositional complement counts as a term again
   M-DEFGRAM-TAIL           the predicate's tail stops being checked, so a second term hides in it
   M-DEFGRAM-PLANNER        DEFINITION becomes planner-permitted
@@ -20,6 +19,8 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-PREDICATE   two operations joined by a connective read as one
   M-DEFGRAM-KO-TWO-EOJEOL  a bare final interrogative stops proving cardinality
   M-DEFGRAM-KO-DECLINED    an ill-formed case marker counts as no case marker
+  M-DEFGRAM-KO-COORDINATOR a coordinated pair counts as one term
+  M-DEFGRAM-EN-FRAME       shape 1 accepts any clause containing a form of `do`
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -87,20 +88,27 @@ MUTATIONS = [
     (
         "M-DEFGRAM-KO-PREDICATE material after the marker need not be predicate",
         REQUEST,
-        "    if (!KOREAN_PREDICATE_ENDINGS.some((e) => eojeol.endsWith(e))) return null;",
+        "    if (!KOREAN_COPULAR_ENDINGS.some((e) => eojeol.endsWith(e))) return null;",
         "",
     ),
-    # M-DEFGRAM-LAST-RESORT -- it runs unconditionally instead of only when nothing else matched.
-    # Precedence is enforced by POSITION here rather than by an ordering rule, so removing the guard
-    # should make requests that another operation owns become two readings, i.e. AMBIGUOUS.
-    (
-        "M-DEFGRAM-LAST-RESORT definitional recognition competes instead of yielding",
-        REQUEST,
-        "  if (readings.length === 0) {\n"
-        "    const definitional = containsHangul(span)",
-        "  if (true) {\n"
-        "    const definitional = containsHangul(span)",
-    ),
+    # M-DEFGRAM-LAST-RESORT LIVED HERE AND IS REMOVED, with the measurement rather than a guess.
+    #
+    # It replaced the `readings.length === 0` guard with `true`, so definitional recognition
+    # competed with every other operation instead of yielding to it. It was ISOLATED while the
+    # English shape was a bare wh-copular; each narrowing round made it harder to catch, and after
+    # round eight the guard has no observable effect at all.
+    #
+    # That is measured, not assumed: the guard was removed by hand and the whole 500-row corpus
+    # re-run through scripts/corpus-transition-matrix.ts. CHANGED 0. The two surviving shapes are
+    # narrow enough that nothing they match is matched by another construction, so there is no
+    # request left for the ordering to decide.
+    #
+    # The guard STAYS. It enforces precedence by position rather than by a rule anyone has to
+    # remember, it costs nothing, and it becomes load-bearing again the moment a shape widens. What
+    # goes is the claim to have tested it: a mutant that cannot be isolated is not coverage, and
+    # carrying it would report 11 of 12 forever and blunt the signal from the ones that work. Its
+    # invariant is stated in `recogniseSpanUncached` and pinned as an ordinary assertion in
+    # tests/definitionGrammar.test.ts.
     # M-DEFGRAM-PREPOSITION -- THE discriminator. Without it `the level of the VIX`, `the published
     # view on Brent crude` and `the weather in Seoul tomorrow` are all terms, and four corpus
     # negative controls authorize.
@@ -137,6 +145,29 @@ MUTATIONS = [
         "    !particleShaped &&\n",
         "",
     ),
+    # M-DEFGRAM-KO-COORDINATOR -- a coordinated pair counts as one term, and
+    # `ETF와 리츠의 차이는 무슨 뜻인가요?` becomes a definition of both at once.
+    (
+        "M-DEFGRAM-KO-COORDINATOR a coordinated pair is one term again",
+        REQUEST,
+        "  if (term.some((eojeol) => KOREAN_COORDINATOR_ENDINGS.some((c) => eojeol.endsWith(c)))) {\n"
+        "    return null;\n"
+        "  }",
+        "",
+    ),
+    # M-DEFGRAM-EN-FRAME -- shape 1 stops checking that the clause is wh-copular, so
+    # `How does the meaning of inflation change?` defines `inflation change`.
+    (
+        "M-DEFGRAM-EN-FRAME shape 1 accepts any clause containing a form of do",
+        REQUEST,
+        '    const prefix = normalizedTokens(normalized.slice(0, at + 1));\n'
+        '    if (prefix.length < 2 || prefix[0] !== "what") continue;\n'
+        '    if (prefix[1] !== "is" && prefix[1] !== "are" && prefix[1] !== "s") continue;\n'
+        '    if (!prefix.slice(2).every((token) => token === "the" || token === "a" || token === "an")) {\n'
+        "      continue;\n"
+        "    }",
+        "",
+    ),
     # M-DEFGRAM-PLANNER -- the operation becomes planner-permitted. Success for this unit is
     # canonical recognition with ZERO planner calls, so a definition reaching a model must fail
     # rather than read as extra capability.
@@ -162,6 +193,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 10. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 11. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

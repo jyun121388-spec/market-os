@@ -24,7 +24,7 @@ STATUS as of 2026-08-18:
 ## The last thing done
 
 **2026-08-30 — MARKET-DEFINITION-GRAMMAR-001. Structural DEFINITION recognition, EN and KO.
-9/60 → 29/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
+9/60 → 28/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
 
 `CONSTRUCTIONS` recognised DEFINITION through four literals — `definition of`, `what is a`,
 `what is an`, `what does … mean` — so `What is real GDP?` failed on a missing article. The
@@ -33,10 +33,10 @@ consulted only when nothing else recognised the span.
 
 | measure                             | before | after                  |
 | ----------------------------------- | ------ | ---------------------- |
-| corpus DEFINITION rows recognised   | 9 / 60 | 29 / 60                |
-| rows answered through LEGACY_BYPASS | 12     | 6                      |
+| corpus DEFINITION rows recognised   | 9 / 60 | 28 / 60                |
+| rows answered through LEGACY_BYPASS | 12     | 7                      |
 | planner calls, whole 500-row corpus | 0      | 0                      |
-| rows changed                        | —      | 20, every one intended |
+| rows changed                        | —      | 19, every one intended |
 
 **FIVE review rounds, and the fourth changed the design rather than extending it.** It began as a
 bare wh-copular — `what is X` for unconstrained X, made safe by listing what X must not contain —
@@ -100,7 +100,27 @@ every path reaching these lists is already positively marked, so an omission lan
 residue — a term-shaped subject no operation owns and the repository cannot resolve — which review
 confirmed selects no competing operation, reaches no planner, and crosses no legal prohibition.
 
-10 definition mutants, 10 of 10 ISOLATED full suite 138 files / 2410 pass / 19 expected fail
+**EIGHT rounds. The last found three more, and the corpus caught a fourth of my own making.**
+Shape 1 accepted any clause containing a form of `do`, so `How does the meaning of inflation
+change?` defined `inflation change`; the frame is now checked as a frame. The Korean post-marker
+predicate accepted any question ending, so `주가가 의미가 있나요?` — "is the share price
+meaningful" — defined `주가`; it must now carry the copula 이/인. A coordinated pair
+(`ETF와 리츠의 차이는…`) was one term, and the fix had to be positional: adding 와 as a substring
+would have refused `통화스와프`, the exact false positive `koreanMorphology` deleted
+`internalConjunction` for.
+
+The copular tightening lost `GDP디플레이터란 무엇을 말합니까`, and recovering it by adding the head
+`말` ("word") coerced `달러 예금 지금 들까요 말까요` — a PROHIBITED_ADVICE row — because `말까요`
+is the prohibitive auxiliary `말다`. Homographs, nothing morphological between them. The head was
+removed and the definitional row given up: one row of coverage does not buy a personalized advice
+request, and a marker that is only sometimes metalinguistic is not a positive marker.
+
+The last-resort ordering guard now decides nothing. Measured, not assumed: removed by hand, the
+whole 500-row corpus is CHANGED 0. The guard stays — it enforces precedence by position and is
+load-bearing the moment a shape widens — and its mutant is deleted, because a mutant that cannot
+be isolated is not coverage.
+
+11 definition mutants, 11 of 11 ISOLATED full suite 138 files / 2414 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

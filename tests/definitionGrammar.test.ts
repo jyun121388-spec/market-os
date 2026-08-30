@@ -112,6 +112,44 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("How does a derivative qua collateral work?")).not.toBe("DEFINITION");
   });
 
+  it("refuses a metalinguistic head outside a wh-copular clause", () => {
+    // `How does the MEANING OF inflation change?` was a definition of `inflation change`. The head
+    // governed a complement, as required, and the copula test was satisfied by the `does` of
+    // `how does`. That request asks how a meaning CHANGES, so the frame is now checked as a frame:
+    // `what`, a copula, then only determiners before the head.
+    expect(operationOf("How does the meaning of inflation change?")).not.toBe("DEFINITION");
+  });
+
+  it("refuses a Korean predicate that is not copular", () => {
+    // `주가가 의미가 있나요?` -- "IS the share price meaningful" -- was a definition of 주가,
+    // because 있나요 ends in 요 and the rule accepted any question ending. A definitional request
+    // asks what a term IS, so the closing predicate must carry the copula 이/인.
+    expect(operationOf("주가가 의미가 있나요?")).not.toBe("DEFINITION");
+  });
+
+  it("refuses a coordinated pair without breaking a compound", () => {
+    // `ETF와 리츠의 차이는 무슨 뜻인가요?` asks about two terms. Adding 와 to the postposition list
+    // as a SUBSTRING would refuse it and also refuse 통화스와프 -- the exact false positive
+    // koreanMorphology removed `internalConjunction` for, and it would cost a corpus row this unit
+    // gains. Position separates them: 와 coordinates when it closes an eojeol.
+    expect(operationOf("ETF와 리츠의 차이는 무슨 뜻인가요?")).not.toBe("DEFINITION");
+    expect(operationOf("통화스와프란 무슨 제도인지 설명해 주세요")).toBe("DEFINITION");
+  });
+
+  it("does not admit a prohibited request through a homographic head", () => {
+    // 말 -- "word" -- was added as a metalinguistic head to recover
+    // `GDP디플레이터란 무엇을 말합니까`, where 말하다 means "to say". The whole-corpus diff showed
+    // what it cost: `달러 예금 지금 들까요 말까요` -- "should I open a dollar deposit or NOT" -- is
+    // a PROHIBITED_ADVICE row, and 말까요 is the prohibitive auxiliary 말다. Homographs, with
+    // nothing morphological between them.
+    //
+    // The head was removed and the definitional row given up. One row of coverage does not buy a
+    // personalized advice request, and a marker that is only sometimes metalinguistic is not a
+    // positive marker at all. Pinned in both directions so the trade is not quietly re-made.
+    expect(operationOf("달러 예금 지금 들까요 말까요")).not.toBe("DEFINITION");
+    expect(operationOf("GDP디플레이터란 무엇을 말합니까")).not.toBe("DEFINITION");
+  });
+
   it("refuses a Korean adjunct particle", () => {
     // `주가처럼` restricts by comparison, exactly as an English complement preposition does.
     expect(operationOf("주가처럼 변동성의 의미가 무엇인가요?")).not.toBe("DEFINITION");
@@ -153,14 +191,14 @@ describe("what must NOT become a definition", () => {
   });
 
   it("yields to an operation that overlaps a definitional frame", () => {
-    // WHERE THE LAST-RESORT ORDERING ACTUALLY DECIDES, and it took a MISSED mutant to find it.
+    // The precedence invariant, pinned as an ordinary assertion because it can no longer be pinned
+    // as a mutant. `the current meaning of X` carries a currentness marker AND a metalinguistic
+    // head, and CURRENT_OBSERVATION keeps it.
     //
-    // Narrowing shape 1 to a marked head made M-DEFGRAM-LAST-RESORT survive: with the guard removed
-    // the family fired unconditionally and nothing broke, because no remaining test held a request
-    // that two recognisers both matched. That is a real hole in the evidence, not a sign the guard
-    // was unnecessary -- `the current meaning of X` carries both a currentness marker and a
-    // metalinguistic head, so unguarded it yields two readings and the request becomes AMBIGUOUS.
-    // Guarded, the operation that recognised it first keeps it.
+    // The last-resort guard that expresses this now decides nothing measurable: removed by hand,
+    // the whole 500-row corpus is unchanged, so its mutant is deleted rather than left MISSED. The
+    // guard stays, and so does this assertion, because both are cheap and both stop mattering only
+    // for as long as the two shapes stay narrow.
     expect(operationOf("What is the current meaning of tapering?")).toBe("CURRENT_OBSERVATION");
   });
 
@@ -195,7 +233,7 @@ describe("the same grammar in Korean", () => {
     // `테이퍼링이라는 표현은 무슨 뜻인가요?` while the comments claimed to support it -- found by
     // review, not by this file.
     expect(operationOf("테이퍼링이라는 표현은 무슨 뜻인가요?")).toBe("DEFINITION");
-    expect(operationOf("GDP디플레이터란 무엇을 말합니까")).toBe("DEFINITION");
+    expect(operationOf("테이퍼링이란 용어의 뜻은?")).toBe("DEFINITION");
   });
 
   it("refuses a temporal adjunct without owning a list of adverbs", () => {

@@ -1213,28 +1213,25 @@ const KOREAN_CITATION_SUFFIXES = ["이라는"];
  * material before it must be nominal and carry no other operation's operand, and the material after
  * it must introduce no second subject. Length stops being the argument; constituency becomes it.
  *
- * ## What this grammar cannot see inside, stated because review asked twice
+ * ## What this grammar cannot see inside a nominal, and what that stopped excusing
  *
- * `koreanCopularMatch` already says it: `subjectCardinality: 1` is a claim about the CONSTRUCTION,
- * one marked subject slot, and not about the morphology inside it. Two round-six findings live
- * inside exactly that gap, and both are declared rather than fixed, because every fix on offer is
- * an arbitrary threshold or a lexicon.
+ * `koreanCopularMatch` says it first: `subjectCardinality: 1` is a claim about the CONSTRUCTION,
+ * one marked subject slot, and not about the morphology inside it. That is still true.
  *
- *   오늘 주가 하락의 의미가 무엇인가요?    a metalinguistic head licenses a multi-eojeol term, and
- *                                          nothing morphological separates 오늘 주가 하락 from
- *                                          장단기 금리 역전.
- *   기준금리은 수준이 무슨 뜻인가요?        an ill-formed 은 sits on a NON-final eojeol, where the
- *                                          declined-marker check does not reach.
+ * IT WAS ALSO USED AS A REASON NOT TO FIX TWO THINGS, and this comment argued that case at length
+ * before review dismantled it. `오늘 주가 하락의 의미가 무엇인가요?` and
+ * `기준금리은 수준이 무슨 뜻인가요?` were declared unfixable without a term lexicon, with
+ * `물가` -- 물 plus a 가 its own conditioning declines, as is `소비자물가` -- offered as proof that
+ * no suffix scan could work.
  *
- * The second looks trivially fixable -- check every eojeol, not the last -- and it is not.
- * `물가` is 물 plus a 가 that its own conditioning declines, and so is `소비자물가`; both are
- * ordinary financial vocabulary and both are recognised today. A check that refuses 기준금리은
- * refuses those too, and a syllable-count qualifier that spares them is a number with no argument
- * behind it.
+ * The counter-example was real and the conclusion was not. Both are REFUSED now, by rules that
+ * need no lexicon: a metalinguistic head licenses exactly one eojeol of term, and modifiers BEFORE
+ * the final eojeol may not be particle-shaped-but-declined, the final eojeol exempt because that
+ * is precisely where a lexical 가 lands. `물가란 무엇인가요?` still works.
  *
- * Both admit a term-shaped subject that no other operation owns, that no corpus control expects
- * refused, and that the repository has no entry for -- the same residue class as the deleted
- * arithmetic list, and not the class rounds 1-4 found. Pinned executable in the tests.
+ * The limitation that remains is the honest one -- this grammar cannot analyse inside a single
+ * marked nominal -- and it is no longer doing duty as an excuse. Declaring something unfixable is
+ * itself a claim, and it gets reviewed like any other.
  *
  * ## Why the English narrowing applies here too
  *

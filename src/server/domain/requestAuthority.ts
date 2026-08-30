@@ -1044,6 +1044,10 @@ function isSingleTermRegion(region: string): boolean {
   if (tokens.length === 0) return false;
   if (tokens.some((token) => CLAUSE_CONNECTIVES.includes(token))) return false;
   if (tokens.some((token) => OBJECT_COORDINATORS.includes(token))) return false;
+  // A calculation is not a term. Review found `What is EBITDA minus capex?` becoming a definition:
+  // it asks for an arithmetic result over two named things, which is neither a definition nor
+  // anything this product computes on request.
+  if (tokens.some((token) => ARITHMETIC_OPERATORS.has(token))) return false;
   // An interval belongs to OBSERVED_CHANGE and a currentness marker to CURRENT_OBSERVATION. Either
   // one means the request was not asking what a term means.
   if (intervalConstituent(region) !== null) return false;
@@ -1079,10 +1083,15 @@ function isSingleTermRegion(region: string): boolean {
 /**
  * Heads that talk about WORDS rather than about the world.
  *
- * Closed on purpose, and closed by grammar rather than by taste: these are the nouns and participles
- * a speaker uses to cite a term AS a term. They are the only heads permitted to take a prepositional
- * complement and still be a definitional request, because `the meaning of X` is asking what X means
- * while `the level of X` is asking what X is currently at.
+ * These are the nouns and participles a speaker uses to cite a term AS a term, and they are the only
+ * heads permitted a prepositional complement while still being a definitional request: `the meaning
+ * of X` asks what X means, `the level of X` asks what X is currently at.
+ *
+ * NOT A CLOSED CLASS, and an earlier version of this comment claimed it was. Review named
+ * `interpretation`, `explanation`, `significance` and `usage` as members it omits, and it is right —
+ * this is a semantic inventory, so it will need feeding as constructions appear. What limits the
+ * damage is the direction of the failure: a missing head means a definitional request is REFUSED,
+ * never that something else is admitted.
  */
 const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense", "concept"]);
 
@@ -1090,8 +1099,18 @@ const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense",
  * Prepositions that give a head noun its own complement.
  *
  * Their presence says the request is about a relation or property the term participates in, which
- * belongs to another operation. Not a synonym list: it is the closed functional class that projects
- * an argument, and the corpus rows above are what each one was found by.
+ * belongs to another operation.
+ *
+ * TWO HONEST CORRECTIONS, both from review. This is a SUBSET of the prepositions, not the class:
+ * `at`, `by`, `between`, `through`, `against` and `under` are absent, so `What is value at risk?`
+ * is accepted where `What is proof of stake?` is not — an inconsistency, not a design.
+ *
+ * And membership cannot tell a complement from a LEXICALIZED TERM. `return on equity`, `proof of
+ * stake` and `cash flow from operations` are single financial terms that happen to contain a
+ * preposition, and this refuses all three. That is a real capability gap and it is NOT introduced
+ * here: the previous grammar recognised DEFINITION through four literals — ` definition of `,
+ * ` what is a `, ` what is an `, ` what does … mean ` — and matched none of them either. This unit
+ * does not close it, and separating the two cases needs a term lexicon rather than a longer list.
  */
 const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "of",
@@ -1103,6 +1122,15 @@ const TERM_COMPLEMENT_PREPOSITIONS = new Set([
   "about",
   "with",
 ]);
+
+/**
+ * Arithmetic over two named things is a calculation request, not a term.
+ *
+ * Review found `What is EBITDA minus capex?` becoming a definition of something. It asks for a
+ * result computed from two subjects, which is neither a definition nor an operation this product
+ * performs, so it must not be admitted by the shape that recognises bare terms.
+ */
+const ARITHMETIC_OPERATORS = new Set(["minus", "plus", "times", "over", "divided"]);
 
 function recogniseAll(normalized: string): Recognised[] {
   const found: Recognised[] = [];

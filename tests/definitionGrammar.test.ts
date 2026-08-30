@@ -69,6 +69,14 @@ describe("what must NOT become a definition", () => {
     );
   });
 
+  it("refuses a calculation over two named things", () => {
+    // REVIEW FINDING, and a real regression this unit introduced: `What is EBITDA minus capex?`
+    // became a definition of something. It asks for a result computed from two subjects, which is
+    // neither a definition nor an operation this product performs.
+    expect(operationOf("What is EBITDA minus capex?")).not.toBe("DEFINITION");
+    expect(operationOf("What is revenue plus other income?")).not.toBe("DEFINITION");
+  });
+
   it("leaves every other operation to its own construction", () => {
     // Definitional recognition is last-resort: it runs only when nothing else recognised the span,
     // so it cannot outrank an operation or make a request ambiguous.
@@ -99,5 +107,39 @@ describe("a definition never reaches a planner", () => {
     // that is the contract rather than anything the grammar asserts. Preserving a legacy planner
     // call for a deterministic operation would not be capability.
     expect(OPERATION_CONTRACTS.DEFINITION.plannerPermitted).toBe(false);
+  });
+});
+
+describe("declared limitations of this grammar", () => {
+  it.fails("PENDING: a lexicalized term that contains a preposition", () => {
+    // OPEN, PRE-EXISTING, and NOT closed by this unit. Named by review as P1 and reproduced.
+    //
+    // `return on equity`, `proof of stake` and `cash flow from operations` are single financial
+    // terms that happen to contain a preposition, and the discriminator that keeps `the level OF
+    // the VIX` out cannot tell them apart from it. Membership in a preposition set says nothing
+    // about whether the word is a complement or part of a name; separating the two needs a term
+    // lexicon, which is a different unit.
+    //
+    // Not a regression. The previous grammar recognised DEFINITION through four literals --
+    // ` definition of `, ` what is a `, ` what is an `, ` what does … mean ` -- and matched none of
+    // these either, so they were UNSUPPORTED before this change and remain so.
+    //
+    // The set is also a SUBSET of the prepositions, so the behaviour is inconsistent rather than
+    // uniformly strict: `What is value at risk?` and `What is earnings per share?` are recognised
+    // because `at` and `per` are absent from it. Pinned executable so the inconsistency is visible
+    // rather than described.
+    expect(operationOf("What is return on equity?")).toBe("DEFINITION");
+  });
+
+  it("is inconsistent in a way worth seeing, not hiding", () => {
+    // The other half of the same limitation, asserted as it actually behaves.
+    expect(operationOf("What is value at risk?")).toBe("DEFINITION");
+    expect(operationOf("What is earnings per share?")).toBe("DEFINITION");
+  });
+
+  it.fails("PENDING: definitional constructions this family does not yet cover", () => {
+    // Review's answer 1, reproduced. The frames are finite, so a construction outside them is
+    // UNSUPPORTED rather than guessed at -- which is the safe direction, and still a gap.
+    expect(operationOf("Could you define convexity?")).toBe("DEFINITION");
   });
 });

@@ -61,25 +61,50 @@ import {
   type DevelopmentCase,
 } from "../tests/fixtures/requestDevelopmentCorpus";
 import { authorizeInference } from "@/server/domain/inferenceAuthorization";
-import { resolveRequestAuthority, asPlannerRequest } from "@/server/domain/requestAuthority";
+import {
+  resolveRequestAuthority,
+  asPlannerRequest,
+  OPERATION_CONTRACTS,
+} from "@/server/domain/requestAuthority";
 
 /** The corpus's own declared size. A different number means the fixture changed under this script. */
 const CANONICAL_DENOMINATOR = 500;
 
-/** Operations this product answers deterministically, where a planner call is a defect not a win. */
-const DETERMINISTIC_OPERATIONS = new Set(["DEFINITION", "CURRENT_OBSERVATION", "OBSERVED_CHANGE"]);
+/**
+ * Operations where a planner call is a defect rather than throughput, DERIVED from the contracts.
+ *
+ * This was a literal set of three names, and review pointed out that a duplicated list can drift
+ * away from the contracts it is supposed to mirror without anything failing. `plannerPermitted` is
+ * the property that actually decides it, so it is read rather than restated: an operation the
+ * planner may not see should be answered deterministically, and a planner call for one means the
+ * wrong door answered.
+ */
+const DETERMINISTIC_OPERATIONS = new Set(
+  Object.entries(OPERATION_CONTRACTS)
+    .filter(([, contract]) => !contract.plannerPermitted)
+    .map(([operation]) => operation),
+);
 
 type BypassClass =
-  /** Corpus expects ANSWERABLE, canonical cannot read it, and the intended operation is known. */
-  | "TRUE_RECOGNITION_GAP"
-  /** Corpus expects REFUSED and the door really did call a planner. The only safety exposure. */
+  /** Should have been refused, and a real run DID call the planner. The only safety exposure. */
   | "FALSE_ELIGIBILITY_EXPOSURE"
-  /** Corpus expects REFUSED, eligibility admitted it, the candidate door refused it anyway. */
+  /** Should have been refused; a real run with evidence available did not reach the planner. */
   | "REFUSED_DOWNSTREAM"
-  /** Corpus expects a deterministic operation; a planner call means the wrong door answered. */
+  /**
+   * Nothing was proven. The probe threw before any call could be observed, or no candidate
+   * evidence existed for this row so a zero cannot be told apart from an empty shelf.
+   *
+   * Its own class because review found the previous version folding it into REFUSED_DOWNSTREAM,
+   * where a reader of the five headline counts could not tell a measured refusal from a
+   * measurement failure.
+   */
+  | "PROBE_INCONCLUSIVE"
+  /** Deterministic operation, and a planner call really happened: the wrong door answered. */
   | "DETERMINISTIC_VIA_PLANNER"
-  /** Canonical says PROHIBITED or AMBIGUOUS and the bypass admits it anyway. */
-  | "CANONICAL_SAFETY_BYPASS";
+  /** Deterministic operation the canonical parser cannot read, and no planner call either. */
+  | "DETERMINISTIC_NOT_RECOGNISED"
+  /** Genuinely answerable, non-deterministic, canonical cannot read it. Real recognition debt. */
+  | "TRUE_RECOGNITION_GAP";
 
 interface Row {
   id: string;
@@ -96,6 +121,8 @@ interface Row {
   /** Measured: did a real `answerWithInference` run call the sink? null when not probed. */
   plannerCalled: boolean | null;
   legacyStatus: string | null;
+  /** Did the repository actually hold something this row could be answered from? */
+  evidenceBacked: boolean;
   klass: BypassClass | null;
 }
 
@@ -108,17 +135,53 @@ export function classify(
   expectedOperation: string,
   canonicalStatus: string,
   plannerCalled: boolean | null,
+  evidenceBacked: boolean,
 ): BypassClass {
-  if (canonicalStatus === "PROHIBITED" || canonicalStatus === "AMBIGUOUS") {
-    return "CANONICAL_SAFETY_BYPASS";
+  // Nothing is claimed from an unobserved run. `plannerCalled === null` means the probe threw
+  // before an answer existed; `!evidenceBacked` means the repository held nothing this row could
+  // have been answered from, so a zero says as much about the fixtures as about the code.
+  if (plannerCalled === null) return "PROBE_INCONCLUSIVE";
+
+  // Canonical PROHIBITED/AMBIGUOUS joins the corpus's own REFUSED rather than overriding the
+  // measurement. Review was right that precedence-by-status contradicted the printed definition:
+  // it let a row with no planner call be counted under "can still reach a planner".
+  const shouldRefuse =
+    expected === "REFUSED" || canonicalStatus === "PROHIBITED" || canonicalStatus === "AMBIGUOUS";
+
+  if (shouldRefuse) {
+    if (plannerCalled) return "FALSE_ELIGIBILITY_EXPOSURE";
+    // A refusal is only PROVEN when the row had something to be answered from.
+    return evidenceBacked ? "REFUSED_DOWNSTREAM" : "PROBE_INCONCLUSIVE";
   }
-  if (expected === "REFUSED") {
-    // Measured, not assumed. A refused request that never reaches a model is an eligibility
-    // divergence; only one that DOES reach it is an exposure.
-    return plannerCalled === true ? "FALSE_ELIGIBILITY_EXPOSURE" : "REFUSED_DOWNSTREAM";
+
+  if (DETERMINISTIC_OPERATIONS.has(expectedOperation)) {
+    return plannerCalled ? "DETERMINISTIC_VIA_PLANNER" : "DETERMINISTIC_NOT_RECOGNISED";
   }
-  if (DETERMINISTIC_OPERATIONS.has(expectedOperation)) return "DETERMINISTIC_VIA_PLANNER";
   return "TRUE_RECOGNITION_GAP";
+}
+
+/**
+ * Run something that may call a sink and may then fail, and report BOTH facts.
+ *
+ * Extracted and exported because the bug it fixes is invisible from outside: the sink incremented a
+ * counter, the pipeline threw afterwards, and the catch returned `null` — discarding the proof that
+ * a call had already happened. A refused request that reached the model was recorded as unproven.
+ * That is the same "a zero from a crash is not a zero" defect this whole measurement exists to
+ * correct, rebuilt one layer down, and only a test that calls-then-throws can see it.
+ */
+export async function countCallsDespiteFailure(
+  run: (sink: () => Promise<void>) => Promise<unknown>,
+): Promise<{ called: boolean; threw: string | null }> {
+  let called = 0;
+  try {
+    await run(async () => {
+      called += 1;
+    });
+    return { called: called > 0, threw: null };
+  } catch (error) {
+    // The count survives the throw. That is the entire point.
+    return { called: called > 0, threw: (error as Error).message.slice(0, 80) };
+  }
 }
 
 export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]> {
@@ -144,7 +207,13 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
     };
     const isBypass = base.eligible && base.provenance === "LEGACY_BYPASS";
     if (!isBypass) {
-      rows.push({ ...base, plannerCalled: null, legacyStatus: null, klass: null });
+      rows.push({
+        ...base,
+        plannerCalled: null,
+        legacyStatus: null,
+        evidenceBacked: false,
+        klass: null,
+      });
       continue;
     }
     const probed = await probeDoor(c.query);
@@ -152,7 +221,14 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
       ...base,
       plannerCalled: probed.called,
       legacyStatus: probed.legacyStatus,
-      klass: classify(c.expected, c.operation, base.canonicalStatus, probed.called),
+      evidenceBacked: probed.evidenceBacked,
+      klass: classify(
+        c.expected,
+        c.operation,
+        base.canonicalStatus,
+        probed.called,
+        probed.evidenceBacked,
+      ),
     });
   }
   return rows;
@@ -164,22 +240,33 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
  * A thrown sink is reported as thrown rather than as zero calls -- the previous measurement printed
  * `calls=0` from a stub whose method name was wrong, and the zero read as safety.
  */
-async function probeDoor(query: string): Promise<{ called: boolean | null; legacyStatus: string }> {
+async function probeDoor(
+  query: string,
+): Promise<{ called: boolean | null; legacyStatus: string; evidenceBacked: boolean }> {
   const { answerWithInference } = await import("@/server/domain/askMarketInference");
   const { deriveLegacyCandidateEnvelope } = await import("@/server/domain/candidateEnvelope");
-  let called = 0;
-  try {
+  let legacyStatus = "-";
+  let evidenceBacked = false;
+  const outcome = await countCallsDespiteFailure(async (sink) => {
     const legacy = await deriveLegacyCandidateEnvelope(query);
+    legacyStatus = legacy.status;
+    // PER ROW, not per run. Review found one AUTHORIZED row suppressing the non-vacuity warning for
+    // every other row, so a partly-populated database could exercise one harmless bypass while every
+    // safety row lacked the evidence needed to reach a planner — and still print a reassuring zero.
+    evidenceBacked = legacy.seriesIds.length > 0 || legacy.causalEdgeIds.length > 0;
     await answerWithInference(query, {
       generatePlan: async () => {
-        called += 1;
+        await sink();
         return { segments: [] };
       },
     });
-    return { called: called > 0, legacyStatus: legacy.status };
-  } catch (error) {
-    return { called: null, legacyStatus: `THREW ${(error as Error).message.slice(0, 40)}` };
-  }
+  });
+  return {
+    // A throw BEFORE any call is genuinely "no call observed"; a throw after one is still a call.
+    called: outcome.threw !== null && !outcome.called ? null : outcome.called,
+    legacyStatus: outcome.threw === null ? legacyStatus : `${legacyStatus} THREW ${outcome.threw}`,
+    evidenceBacked,
+  };
 }
 
 async function main() {
@@ -211,10 +298,11 @@ async function main() {
   console.log(`    LEGACY_BYPASS          : ${bypasses.length}`);
 
   const order: BypassClass[] = [
-    "CANONICAL_SAFETY_BYPASS",
     "FALSE_ELIGIBILITY_EXPOSURE",
+    "PROBE_INCONCLUSIVE",
     "REFUSED_DOWNSTREAM",
     "DETERMINISTIC_VIA_PLANNER",
+    "DETERMINISTIC_NOT_RECOGNISED",
     "TRUE_RECOGNITION_GAP",
   ];
   console.log(`\nbypass classification:`);
@@ -231,20 +319,11 @@ async function main() {
     if (of.length > 6) console.log(`      ... and ${of.length - 6} more`);
   }
 
-  // NON-VACUITY WARNING. A door probe against an empty repository cannot tell a refusal from an
-  // empty shelf, and reporting its zeros as safety is exactly how the previous metric went wrong.
-  const anySeries = bypasses.some((r) => r.legacyStatus === "AUTHORIZED");
-  if (bypasses.length > 0 && !anySeries) {
-    console.log(
-      `
-NOTE: no bypass row resolved candidate evidence in this repository. If it is empty, the ` +
-        `zero planner calls below are NOT evidence of safety — seed fixtures and re-run.`,
-    );
-  }
-
-  const unsafe = bypasses.filter(
-    (r) => r.klass === "CANONICAL_SAFETY_BYPASS" || r.klass === "FALSE_ELIGIBILITY_EXPOSURE",
-  );
+  // The headline cannot be read as a clean bill while any safety-relevant row is unproven. Review
+  // found the previous note both too weak (informational, and lost the moment a number is copied
+  // into a packet) and too coarse (one AUTHORIZED row silenced it for all of them).
+  const unsafe = bypasses.filter((r) => r.klass === "FALSE_ELIGIBILITY_EXPOSURE");
+  const inconclusive = bypasses.filter((r) => r.klass === "PROBE_INCONCLUSIVE");
   console.log(
     `\nSAFETY DIVERGENCES (a refused request that can still reach a planner): ${unsafe.length}`,
   );
@@ -256,6 +335,16 @@ NOTE: no bypass row resolved candidate evidence in this repository. If it is emp
     `RECOGNITION DEBT (genuinely answerable, canonical cannot read): ` +
       `${bypasses.filter((r) => r.klass === "TRUE_RECOGNITION_GAP").length}`,
   );
+  if (inconclusive.length > 0) {
+    console.log(
+      `
+VERDICT: INCONCLUSIVE — ${inconclusive.length} bypass row(s) proved nothing. The safety ` +
+        `count above is a lower bound, not a clean bill. Seed fixtures for those rows and re-run.`,
+    );
+  } else {
+    console.log(`
+VERDICT: every bypass row was measured against real candidate evidence.`);
+  }
 
   if (process.argv.includes("--rows")) {
     console.log(`\n--- machine-readable rows (JSONL) ---`);

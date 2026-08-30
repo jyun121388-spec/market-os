@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classify } from "../scripts/legacy-bypass-readiness";
+import { classify, countCallsDespiteFailure } from "../scripts/legacy-bypass-readiness";
 import { REQUEST_DEVELOPMENT_CORPUS } from "./fixtures/requestDevelopmentCorpus";
 
 /**
@@ -51,63 +51,106 @@ describe("the corpus denominator", () => {
 });
 
 describe("bypass classification", () => {
+  // Signature: expected, expectedOperation, canonicalStatus, plannerCalled, evidenceBacked.
+  // `evidenceBacked` says the repository actually held something this row could have been answered
+  // from. Review found the previous version treating an evidence-starved zero as a proven refusal,
+  // so a refusal now only counts as measured when there was something to refuse.
+
   it("calls a refused request that REACHED a planner an exposure", () => {
-    // THE CASE THE OLD METRIC COULD NOT SEE. A negative control admitted by the bypass, where the
-    // door really did call the model. This is the only thing that counts as a safety exposure.
-    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", true)).toBe(
+    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", true, true)).toBe(
       "FALSE_ELIGIBILITY_EXPOSURE",
     );
-    expect(classify("REFUSED", "PROHIBITED_ADVICE", "UNSUPPORTED", true)).toBe(
+    expect(classify("REFUSED", "PROHIBITED_ADVICE", "UNSUPPORTED", true, false)).toBe(
       "FALSE_ELIGIBILITY_EXPOSURE",
     );
   });
 
-  it("does not call a refused request an exposure when the door refused it downstream", () => {
-    // Measured, not assumed, and this is the correction to my OWN first attempt at the fix: I
-    // labelled these exposures from provenance alone, then reproduced DEV-EN-214/215 and found the
-    // legacy envelope refuses them — "no construction establishes which acts on which" — with the
-    // planner never called. Eligibility being too permissive is real; it is not the same defect.
-    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", false)).toBe(
+  it("calls a canonical PROHIBITED bypass an exposure only when a call happened", () => {
+    // REVIEW FINDING. Canonical refusal used to win outright, so a row with NO planner call was
+    // still printed under "a refused request that can still reach a planner". Canonical status now
+    // joins the corpus's REFUSED rather than overriding the measurement.
+    expect(classify("ANSWERABLE", "STORED_MECHANISM", "PROHIBITED", true, true)).toBe(
+      "FALSE_ELIGIBILITY_EXPOSURE",
+    );
+    expect(classify("ANSWERABLE", "STORED_MECHANISM", "PROHIBITED", false, true)).toBe(
       "REFUSED_DOWNSTREAM",
     );
   });
 
-  it("treats an unprobed refused request as unproven rather than safe", () => {
-    // null means no door probe happened. It must not silently become an exposure OR a clean bill;
-    // it lands in the same bucket as a refusal but the row carries plannerCalled=null so a reader
-    // can tell the difference.
-    expect(classify("REFUSED", "MALFORMED", "UNSUPPORTED", null)).toBe("REFUSED_DOWNSTREAM");
+  it("proves a refusal only when the row had evidence to be answered from", () => {
+    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", false, true)).toBe(
+      "REFUSED_DOWNSTREAM",
+    );
+    // Same row, empty shelf: a zero here says as much about the fixtures as about the code.
+    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", false, false)).toBe(
+      "PROBE_INCONCLUSIVE",
+    );
+  });
+
+  it("never lets a failed probe pass as a refusal", () => {
+    // REVIEW FINDING. `null` was folded into REFUSED_DOWNSTREAM, so a reader of the headline counts
+    // could not tell a measured refusal from a measurement failure.
+    expect(classify("REFUSED", "MALFORMED", "UNSUPPORTED", null, true)).toBe("PROBE_INCONCLUSIVE");
+    expect(classify("ANSWERABLE", "DEFINITION", "UNSUPPORTED", null, true)).toBe(
+      "PROBE_INCONCLUSIVE",
+    );
   });
 
   it("never counts a deterministic operation as recognition throughput", () => {
-    // A DEFINITION or observation request answered through the planner is the deterministic path
-    // being bypassed, not capability. The old metric counted all nine of these as "legitimate
-    // recognition gaps we would lose".
+    // A DEFINITION or observation request is answered deterministically with the planner at zero
+    // calls. The old metric counted all nine of these as "legitimate recognition gaps we would
+    // lose", which had the sign backwards.
     for (const op of ["DEFINITION", "CURRENT_OBSERVATION", "OBSERVED_CHANGE"]) {
-      expect(classify("ANSWERABLE", op, "UNSUPPORTED", true), op).toBe("DETERMINISTIC_VIA_PLANNER");
-      expect(classify("ANSWERABLE", op, "UNSUPPORTED", false), op).toBe(
+      expect(classify("ANSWERABLE", op, "UNSUPPORTED", true, true), op).toBe(
         "DETERMINISTIC_VIA_PLANNER",
+      );
+      // And with no call it is unrecognised, not "answered by the planner" — review asked for the
+      // distinction because the class name asserted a call that had not been observed.
+      expect(classify("ANSWERABLE", op, "UNSUPPORTED", false, true), op).toBe(
+        "DETERMINISTIC_NOT_RECOGNISED",
       );
     }
   });
 
-  it("counts only a genuinely answerable non-deterministic request as recognition debt", () => {
-    expect(classify("ANSWERABLE", "ATTRIBUTED_REPORTED_OBSERVATION", "UNSUPPORTED", false)).toBe(
-      "TRUE_RECOGNITION_GAP",
-    );
-    expect(classify("ANSWERABLE", "STORED_MECHANISM", "UNSUPPORTED", false)).toBe(
+  it("derives the deterministic set from the contracts rather than a second list", () => {
+    // STORED_MECHANISM and ATTRIBUTED_REPORTED_OBSERVATION are planner-permitted, so they are
+    // genuine recognition debt rather than a door mix-up.
+    expect(
+      classify("ANSWERABLE", "ATTRIBUTED_REPORTED_OBSERVATION", "UNSUPPORTED", false, true),
+    ).toBe("TRUE_RECOGNITION_GAP");
+    expect(classify("ANSWERABLE", "STORED_MECHANISM", "UNSUPPORTED", false, true)).toBe(
       "TRUE_RECOGNITION_GAP",
     );
   });
+});
 
-  it("reports a canonical safety refusal separately, whatever the corpus says", () => {
-    // PROHIBITED/AMBIGUOUS from the canonical parser dominates: the request is refused on this
-    // product's own authority, so how the corpus labelled it does not soften the bypass.
-    expect(classify("ANSWERABLE", "STORED_MECHANISM", "PROHIBITED", false)).toBe(
-      "CANONICAL_SAFETY_BYPASS",
-    );
-    expect(classify("REFUSED", "PROHIBITED_ADVICE", "AMBIGUOUS", true)).toBe(
-      "CANONICAL_SAFETY_BYPASS",
+describe("a call that happened is a call, even when the run then failed", () => {
+  it("keeps the count when the pipeline throws AFTER the planner was called", async () => {
+    // REVIEW FINDING, HIGH, and it is the very defect I criticised in the old metric. `called` was
+    // incremented inside the sink and then DISCARDED by the catch, which returned null. A refused
+    // request that demonstrably reached the model was reported as unproven and classified as
+    // not-an-exposure. Fail-open.
+    const result = await countCallsDespiteFailure(async (sink) => {
+      await sink();
+      throw new Error("output validation rejected the plan");
+    });
+    expect(result.called).toBe(true);
+    expect(result.threw).toContain("output validation");
+  });
+
+  it("reports no call as no call, and says the run threw", async () => {
+    const result = await countCallsDespiteFailure(async () => {
+      throw new Error("refused before the planner");
+    });
+    expect(result.called).toBe(false);
+    expect(result.threw).toContain("refused before");
+  });
+
+  it("classifies a refused request that reached the planner before throwing as an exposure", () => {
+    // The end-to-end consequence of the fix: the preserved `true` reaches `classify` and lands in
+    // the safety count instead of vanishing into REFUSED_DOWNSTREAM.
+    expect(classify("REFUSED", "AMBIGUOUS_CARDINALITY", "UNSUPPORTED", true, true)).toBe(
+      "FALSE_ELIGIBILITY_EXPOSURE",
     );
   });
 });

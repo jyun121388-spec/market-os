@@ -261,8 +261,16 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
  * independence-versus-connection confusion B2-C existed to fix, reappearing in the measurement.
  */
 interface Shelf {
-  /** Series that actually carry observations. A metadata row answers nothing. */
+  /** Series carrying at least one observation. A metadata row answers nothing. */
   observedSeries: string[];
+  /**
+   * Series with at least TWO observations, i.e. enough to establish a cadence.
+   *
+   * This product decides currentness from the interval between period ends, so a series that has
+   * reported once cannot be shown to be current -- unknown is not fresh. Sufficiency for a
+   * current-observation request therefore needs two, not one.
+   */
+  currentableSeries: string[];
   /** Provider-owned series, as pairs, so attribution needs the connection and not two coincidences. */
   attributed: { provider: string; series: string }[];
   edges: { from: string; to: string }[];
@@ -283,6 +291,7 @@ async function loadShelf(): Promise<Shelf> {
   const answerBearing = series.filter((s) => s._count.observations > 0);
   return {
     observedSeries: answerBearing.map((s) => s.name),
+    currentableSeries: series.filter((s) => s._count.observations > 1).map((s) => s.name),
     attributed: answerBearing.map((s) => ({ provider: s.source.name, series: s.name })),
     edges: edges.map((e) => ({ from: e.fromVariable, to: e.toVariable })),
   };
@@ -316,11 +325,13 @@ export function evidenceSufficient(
     case "AMBIGUOUS_CARDINALITY":
       return shelf.edges.some((e) => occurs(e.from, query) && occurs(e.to, query));
 
-    // A named series that actually CARRIES observations. A metadata row with none answers nothing,
-    // and counting it made an empty shelf look populated.
+    // A named series with enough readings to be CURRENT. One observation is not enough: this
+    // product derives freshness from the cadence between period ends, and a series that has
+    // reported once has no derivable cadence -- "unknown is not fresh" is the rule the company
+    // path already states. Counting a single reading would repeat, one layer down, the same
+    // too-loose proxy that let a metadata-only series look answerable.
     case "CURRENT_OBSERVATION":
-    case "OBSERVED_CHANGE":
-      return shelf.observedSeries.some((name) => occurs(name, query));
+      return shelf.currentableSeries.some((name) => occurs(name, query));
 
     // The provider must OWN the series. Finding a provider and a series independently proves only
     // that two rows exist -- the same independence-versus-connection error B2-C was about.
@@ -333,6 +344,13 @@ export function evidenceSufficient(
     // definition record class in this repository at all. No repository state can satisfy them, so
     // a no-call is structural. Review pointed out it was inconsistent to declare that a limitation
     // for one under-specified row and quietly require the impossible of these.
+    // OBSERVED_CHANGE joins them, and the reason is specific rather than defeatist. A computed
+    // change needs usable readings at BOTH boundaries of the requested interval, and the interval
+    // is exactly what a refused row does not have -- the parser declined to authorize one, so there
+    // is nothing to check coverage against. Review found the previous mapping treating one
+    // observation as sufficient, which could promote an unanswerable row to a measured refusal and
+    // let the headline go conclusive. Asserting less is the only honest option here.
+    case "OBSERVED_CHANGE":
     case "MISSING_INTERVAL":
     case "MISSING_ATTRIBUTION":
     case "DEFINITION":

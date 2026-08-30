@@ -182,6 +182,7 @@ describe("evidence sufficiency inspects answer-bearing records", () => {
   const occurs = (name: string, query: string) => query.toLowerCase().includes(name.toLowerCase());
   const shelf = (over: Partial<Parameters<typeof evidenceSufficient>[2]> = {}) => ({
     observedSeries: [],
+    currentableSeries: [],
     attributed: [],
     edges: [],
     ...over,
@@ -218,10 +219,11 @@ describe("evidence sufficiency inspects answer-bearing records", () => {
     ).toBe(false);
   });
 
-  it("does not accept a series that carries no observations", () => {
-    // FOURTH REVIEW ROUND. A `Series` metadata row answers nothing, so counting it made an empty
-    // shelf look populated and promoted an evidence-starved no-call to a measured refusal. The
-    // shelf now only carries series that actually have observations.
+  it("requires a derivable cadence before calling a series current", () => {
+    // FOURTH ROUND: a `Series` metadata row answers nothing, so counting it made an empty shelf
+    // look populated. FIFTH ROUND, pre-empting the same shape: ONE observation is not enough
+    // either. This product decides currentness from the interval between period ends, so a series
+    // that has reported once has no derivable cadence and unknown is not fresh.
     const query = "What is the current US unemployment rate?";
     expect(evidenceSufficient("CURRENT_OBSERVATION", query, shelf(), occurs)).toBe(false);
     expect(
@@ -231,7 +233,31 @@ describe("evidence sufficiency inspects answer-bearing records", () => {
         shelf({ observedSeries: ["US unemployment rate"] }),
         occurs,
       ),
+    ).toBe(false);
+    expect(
+      evidenceSufficient(
+        "CURRENT_OBSERVATION",
+        query,
+        shelf({ currentableSeries: ["US unemployment rate"] }),
+        occurs,
+      ),
     ).toBe(true);
+  });
+
+  it("cannot establish sufficiency for a computed change, and says so", () => {
+    // FIFTH REVIEW ROUND. A change needs usable readings at BOTH boundaries of the requested
+    // interval — and the interval is exactly what a refused row lacks, since the parser declined to
+    // authorize one. Treating a single observation as sufficient could promote an unanswerable row
+    // to a measured refusal and let the headline go conclusive.
+    const query = "How much has US CPI changed?";
+    expect(
+      evidenceSufficient(
+        "OBSERVED_CHANGE",
+        query,
+        shelf({ currentableSeries: ["US CPI"], observedSeries: ["US CPI"] }),
+        occurs,
+      ),
+    ).toBe(false);
   });
 
   it("requires the provider to OWN the series for an attributed observation", () => {
@@ -260,13 +286,14 @@ describe("evidence sufficiency inspects answer-bearing records", () => {
     // These name what the request LACKS. No repository state can satisfy them, so a no-call is
     // structural rather than measured. Review pointed out it was inconsistent to declare that a
     // limitation for one under-specified row while quietly requiring the impossible of these.
-    for (const op of ["MISSING_INTERVAL", "MISSING_ATTRIBUTION", "DEFINITION"]) {
+    for (const op of ["MISSING_INTERVAL", "MISSING_ATTRIBUTION", "DEFINITION", "OBSERVED_CHANGE"]) {
       expect(
         evidenceSufficient(
           op,
           "anything at all",
           shelf({
             observedSeries: ["anything"],
+            currentableSeries: ["anything"],
             attributed: [{ provider: "anything", series: "anything" }],
           }),
           occurs,
@@ -281,7 +308,7 @@ describe("evidence sufficiency inspects answer-bearing records", () => {
       evidenceSufficient(
         "SOMETHING_NEW",
         "anything at all",
-        shelf({ observedSeries: ["anything"] }),
+        shelf({ currentableSeries: ["anything"] }),
         occurs,
       ),
     ).toBe(false);

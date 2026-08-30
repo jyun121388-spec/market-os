@@ -185,6 +185,19 @@ describe("what must NOT become a definition", () => {
     expect(operationOf("장단기 금리 역전이 무슨 뜻이죠?")).toBe("DEFINITION");
   });
 
+  it("strips a request frame by whole eojeol, never by prefix", () => {
+    // `주가가 무엇을 설명하나요?` -- "what does the share price EXPLAIN" -- was authorized, because
+    // 설명하나요 starts with 설명 and was stripped as framing, leaving a bare interrogative behind.
+    //
+    // This is the finding that mattered most in eleven rounds, because it broke the PROPERTY the
+    // list rests on rather than the list. A prefix test does not consume framing; it consumes any
+    // predicate beginning with a framing word, so an omission ADMITS instead of refusing. Matched
+    // whole, an unlisted form survives as an unconsumed eojeol and the request is refused.
+    expect(operationOf("주가가 무엇을 설명하나요?")).not.toBe("DEFINITION");
+    expect(operationOf("주가가 무엇을 알려주나요?")).not.toBe("DEFINITION");
+    expect(operationOf("스태그플레이션이 뭔지 설명해줘")).toBe("DEFINITION");
+  });
+
   it("refuses a standalone coordinating conjunction", () => {
     // Review reported `채권 또는 주식은 무슨 뜻인가요?` as authorized and it was not -- 또는 splits
     // as 또 plus a valid topic 는, so the one-marked-nominal rule already refused it. The finding

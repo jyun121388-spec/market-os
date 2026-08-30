@@ -26,6 +26,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-DECLINED-MODIFIER  a declined marker hides before the final eojeol
   M-DEFGRAM-KO-CITATION-SUBJECT   a marked nominal precedes a cited term
   M-DEFGRAM-KO-CONJUNCTION        a standalone conjunction counts as part of the term
+  M-DEFGRAM-KO-FRAME-PREFIX       the request frame is stripped by prefix, eating predicates
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -207,6 +208,14 @@ MUTATIONS = [
         "  if (term.some((eojeol) => KOREAN_COORDINATOR_WORDS.includes(eojeol))) return null;",
         "",
     ),
+    # M-DEFGRAM-KO-FRAME-PREFIX -- the request frame is stripped by PREFIX again, so any predicate
+    # starting with a framing word is eaten and `주가가 무엇을 설명하나요?` becomes a definition.
+    (
+        "M-DEFGRAM-KO-FRAME-PREFIX the request frame is stripped by prefix",
+        REQUEST,
+        "  while (body.length > 0 && KOREAN_REQUEST_FRAME.includes(body[body.length - 1])) {",
+        "  while (body.length > 0 && KOREAN_REQUEST_FRAME.some((f) => body[body.length - 1].startsWith(f))) {",
+    ),
     # M-DEFGRAM-EN-FRAME -- shape 1 stops checking that the clause is wh-copular, so
     # `How does the meaning of inflation change?` defines `inflation change`.
     (
@@ -245,6 +254,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 16. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 17. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

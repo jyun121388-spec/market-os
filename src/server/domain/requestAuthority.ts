@@ -980,20 +980,34 @@ const KOREAN_INTERROGATIVE_DETERMINERS = ["어떤", "어떠한", "무슨"];
  * here survives as an unconsumed eojeol, the term region then fails to parse, and the request is
  * REFUSED. Nothing is admitted by an omission. That is the property the English arithmetic list did
  * not have, which is why that one had to go and this one may stay.
+ *
+ * MATCHED WHOLE, and that qualifier is the whole of the property. Matching by PREFIX destroyed it:
+ * review found `주가가 무엇을 설명하나요?` -- "what does the share price EXPLAIN" -- authorized,
+ * because `설명하나요` starts with `설명` and was stripped as framing, leaving a bare interrogative
+ * behind. A prefix test does not consume framing, it consumes any predicate that happens to begin
+ * with a framing word, and that admits rather than refuses.
  */
 const KOREAN_REQUEST_FRAME = [
   "설명",
+  "설명해",
+  "설명해줘",
+  "설명해주세요",
+  "설명해주십시오",
   "알려",
-  "주세",
-  "주십",
+  "알려줘",
+  "알려주세요",
+  "알려주십시오",
+  "주세요",
+  "주십시오",
   "궁금",
+  "궁금해",
+  "궁금해요",
+  "궁금합니다",
   "알고",
   "싶어",
-  "싶습",
-  "알려줘",
-  "설명해줘",
+  "싶어요",
+  "싶습니다",
 ];
-
 /**
  * Markers that give the term a complement, an adjunct or a second constituent.
  *
@@ -1191,7 +1205,7 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // The request frame is stripped from the END only. A leading `설명해 주세요` is not a thing, and
   // consuming these anywhere would let one hide between the term and its marker.
   let body = all;
-  while (body.length > 0 && KOREAN_REQUEST_FRAME.some((f) => body[body.length - 1].startsWith(f))) {
+  while (body.length > 0 && KOREAN_REQUEST_FRAME.includes(body[body.length - 1])) {
     body = body.slice(0, -1);
   }
   if (body.length === 0) return null;

@@ -146,7 +146,16 @@ refused it. The finding was right about the class anyway — `그리고` and `�
 particle rule can see, and those did get through. Matched as whole eojeols, which is what stops a
 substring test from splitting `통화스와프`.
 
-16 definition mutants, 16 of 16 ISOLATED full suite 138 files / 2418 pass / 19 expected fail
+**ELEVEN rounds, and the eleventh found the one that mattered most.** The Korean request-frame
+list was matched by PREFIX, so `주가가 무엇을 설명하나요?` — "what does the share price EXPLAIN" —
+had `설명하나요` stripped as framing and authorized as a definition of `주가`. That broke the
+PROPERTY the list rests on, not the list: a prefix test does not consume framing, it consumes any
+predicate beginning with a framing word, so an omission ADMITS instead of refusing. Matched whole,
+an unlisted form survives as an unconsumed eojeol and the request is refused. Every "this list is
+safe because its omissions refuse" argument in this unit depended on a matching discipline nobody
+had checked.
+
+17 definition mutants, 17 of 17 ISOLATED full suite 138 files / 2419 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

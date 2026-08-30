@@ -820,10 +820,20 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2412 / 2412 PASS across 138 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment), measured 2026-08-28 on the ask-guardrail architecture branch after the ESC-015
-exact-cover redesign -- 2393 passing plus 19 pinned `it.fails`, which are reproduced defects this
-unit is deliberately NOT closing and which the total must not quietly absorb.
+2440 / 2440 PASS across 138 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2421 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+NOT closed and which the total must not quietly absorb.
+
+MEASURED 2026-08-31 on `claude/ask-guardrail-architecture-20260823` at the exact SHA recorded in
+`docs/CURRENT_TASK.md` for MARKET-DEFINITION-GRAMMAR-001, from one fresh run on that tree.
+
+PROVENANCE CORRECTION, and the defect is instructive. This line read `2412 / 2412 ... measured
+2026-08-28`, and the count had been revised upward on 2026-08-30 while the DATE was left alone.
+Independent review caught it: the tests being counted did not exist on 2026-08-28, so a current
+number was inheriting an old measurement's authority. A count and the date it was taken are one
+fact, not two, and updating half of it silently is how a document starts self-certifying. Both
+halves move together from here, and the SHA is named so the claim can be re-run rather than
+believed.
 
 CORRECTED: an earlier version of this line said 2297 / 2297 and then, two clauses later, 2285
 passing plus 12 -- numbers that could not both be right and were not. Both reviews caught the

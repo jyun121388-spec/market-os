@@ -225,7 +225,14 @@ looked untested.
 The round's second finding did NOT reproduce: `인플레이션이 무슨 뜻인가요 설명해주시겠어요?` returns
 UNSUPPORTED. Reported as measured, as with `채권 또는 주식은…` in round ten.
 
-22 definition mutants, 22 of 22 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
+**NINETEEN rounds.** `주가가 무엇을 정의하나요?` — "what does the share price DEFINE" — was a
+definition of `주가`. The light-verb carveout was written for `의미하는` and applied to every
+metalinguistic head, and `정의하다`/`표현하다` are AGENTIVE: the subject does the defining.
+`의미하다` and `뜻하다` are not — the subject IS the meaning, which is the relation the noun itself
+expresses. The carveout now follows the semantics of the derived verb rather than the shape of the
+derivation, at no corpus cost.
+
+23 definition mutants, 23 of 23 ISOLATED full suite 138 files / 2421 pass / 19 expected fail
 typecheck, eslint, prettier, `next build --webpack` all clean
 
 Outstanding and declared, not closed: lexicalized terms containing a preposition (`return on

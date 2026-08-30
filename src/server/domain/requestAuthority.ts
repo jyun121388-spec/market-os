@@ -947,6 +947,21 @@ function koreanCopularMatch(query: string): KoreanMatch {
 const KOREAN_METALINGUISTIC_HEADS = ["뜻", "의미", "정의", "개념", "용어", "표현"];
 
 /**
+ * The heads whose 하다 form still MEANS "to mean".
+ *
+ * The light-verb carveout was written for 의미하는 ("that means") and applied to every head, and
+ * review answered `주가가 무엇을 정의하나요?` -- "what does the share price DEFINE" -- authorized,
+ * with `표현하나요` ("what does it express") right behind it. Both are agentive: the subject is
+ * doing the defining. 의미하다 and 뜻하다 are not -- the subject IS the meaning, which is the same
+ * relation the noun expresses.
+ *
+ * So the carveout follows the semantics of the derived verb rather than the shape of the
+ * derivation. 정의하다, 표현하다, 개념하다 and 용어하다 get no verbalised form here; the first two
+ * because they name an act, the last two because they are not verbs at all.
+ */
+const KOREAN_MEANING_HEADS = ["의미", "뜻"];
+
+/**
  * The interrogatives that ask what a thing IS.
  *
  * `무엇`/`뭐` are the closed pronoun class `koreanMorphology` already names; `뭔`/`뭘` are their
@@ -1271,7 +1286,13 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
     const next = body[index + 1];
     if (next === undefined) return false;
     if (KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(next, w))) return true;
-    if (!KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(next, h, true))) return false;
+    if (
+      !KOREAN_METALINGUISTIC_HEADS.some((h) =>
+        isMarkedBy(next, h, KOREAN_MEANING_HEADS.includes(h)),
+      )
+    ) {
+      return false;
+    }
     return analyseNoun(next).some(
       (a) => a.role === "TOPIC" || a.role === "NOMINATIVE" || a.role === "GENITIVE",
     );
@@ -1305,7 +1326,9 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   };
   const isMarker = (eojeol: string): boolean =>
     KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||
-    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(eojeol, h, true));
+    KOREAN_METALINGUISTIC_HEADS.some((h) =>
+      isMarkedBy(eojeol, h, KOREAN_MEANING_HEADS.includes(h)),
+    );
 
   // The LEFTMOST marker, so that everything before it is the term and everything after it is
   // predicate. Taking the rightmost would let `X는 무슨 뜻` split at 뜻 and swallow 무슨 into the
@@ -1369,7 +1392,9 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   // `채권 듀레이션 개념 알려주세요` is refused, because its term is two eojeol.
   const metalinguisticMarker =
     !KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(body[headAt], w)) &&
-    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[headAt], h, true));
+    KOREAN_METALINGUISTIC_HEADS.some((h) =>
+      isMarkedBy(body[headAt], h, KOREAN_MEANING_HEADS.includes(h)),
+    );
   if (metalinguisticMarker && term.length > 1) return null;
 
   // A HEAD USED AS THE COPULAR PREDICATE IS NOT CITING ANYTHING. `주가가 개념인가요?` asks whether
@@ -1500,7 +1525,9 @@ function koreanDefinitionalMatch(query: string): Recognised | null {
   const compounded =
     cited === null &&
     !particleShaped &&
-    KOREAN_METALINGUISTIC_HEADS.some((h) => isMarkedBy(body[at], h, true));
+    KOREAN_METALINGUISTIC_HEADS.some((h) =>
+      isMarkedBy(body[at], h, KOREAN_MEANING_HEADS.includes(h)),
+    );
   // A CITED term carries its own marker. `테이퍼링이라는 표현은 무슨 뜻인가요?` was refused by an
   // earlier version of this line, which required a case marker on 테이퍼링 after the citation
   // suffix had already been stripped off it -- so the frame the comments claimed to support did not

@@ -32,6 +32,7 @@ that recognises more WITHOUT stealing anything is the actual claim.
   M-DEFGRAM-KO-CITATION-HEAD      a citation need not govern an interrogative or a marked head
   M-DEFGRAM-KO-VERBALISE          the light-verb carveout reaches interrogatives
   M-DEFGRAM-EN-BOUNDARY           the intransitive predicate is matched by substring
+  M-DEFGRAM-KO-AGENTIVE           an agentive head verb counts as metalinguistic
 
     python scripts/mutation/definitiongrammar.py [ID ...]
 """
@@ -246,6 +247,14 @@ MUTATIONS = [
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w)) ||",
         "    KOREAN_WHAT_INTERROGATIVES.some((w) => isMarkedBy(eojeol, w, true)) ||",
     ),
+    # M-DEFGRAM-KO-AGENTIVE -- every metalinguistic head may be verbalised again, so the agentive
+    # 정의하다 ("to define") counts and `주가가 무엇을 정의하나요?` becomes a definition of 주가.
+    (
+        "M-DEFGRAM-KO-AGENTIVE an agentive head verb counts as metalinguistic",
+        REQUEST,
+        'const KOREAN_MEANING_HEADS = ["의미", "뜻"];',
+        'const KOREAN_MEANING_HEADS = ["의미", "뜻", "정의", "개념", "용어", "표현"];',
+    ),
     # M-DEFGRAM-EN-BOUNDARY -- the intransitive predicate is matched by substring again, so
     # `network ` contains `work ` and `How does a network?` becomes a definition of `a net`.
     (
@@ -300,6 +309,6 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 22. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 23. Not a substitute for the full set.")
 
 sys.exit(harness([REQUEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

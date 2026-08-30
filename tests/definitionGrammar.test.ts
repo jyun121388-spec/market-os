@@ -94,6 +94,12 @@ describe("what must NOT become a definition", () => {
     // verbalise, and letting it through was the same carveout applied where it has no argument.
     expect(operationOf("주가가 뭐하나요?")).not.toBe("DEFINITION");
     expect(operationOf("주가가 뭐합니까?")).not.toBe("DEFINITION");
+    // And it follows the SEMANTICS of the derived verb, not the shape of the derivation.
+    // `주가가 무엇을 정의하나요?` -- "what does the share price DEFINE" -- and `무엇을 표현하나요?`
+    // are agentive: the subject is doing the defining. 의미하다 and 뜻하다 are not -- the subject
+    // IS the meaning, which is the relation the noun itself expresses.
+    expect(operationOf("주가가 무엇을 정의하나요?")).not.toBe("DEFINITION");
+    expect(operationOf("주가가 무엇을 표현하나요?")).not.toBe("DEFINITION");
     // The one derivation still allowed is the light verb 하-, which makes a verb of the SAME noun.
     // Tightening the rule lost this corpus row until that was carved out.
     expect(operationOf("PER이 뭘 의미하는 지표인가요")).toBe("DEFINITION");

@@ -936,6 +936,174 @@ function koreanCopularMatch(query: string): KoreanMatch {
   return { status: "ONE", match: candidates[0] };
 }
 
+/**
+ * A definitional request: one term, asked about as a term, with no other operation's operand.
+ *
+ * MARKET-DEFINITION-GRAMMAR-001. `CONSTRUCTIONS` carried four DEFINITION rows -- ` definition of `,
+ * ` what is a `, ` what is an `, ` what does … mean ` -- and the corpus shows what that costs: of 60
+ * definitional requests it recognises 9. `What is real GDP?` fails on the missing article alone,
+ * which is not a distinction anybody asking the question is making.
+ *
+ * The family is not nine phrases to memorise. What these requests share is structural: they name
+ * exactly ONE term and carry NO operand belonging to any other operation -- no interval, no source
+ * constituent, no relation between two subjects, no currentness marker. That is the definition of
+ * DEFINITION in this product's own contract table, and it is what is checked here.
+ *
+ * ## Why this is a LAST-RESORT recogniser
+ *
+ * `recogniseSpanUncached` collects every reading and refuses when two disagree, so a rule that also
+ * fired on `What is the current CPI?` would not steal that request -- it would make it AMBIGUOUS
+ * and break it. This runs only when nothing else recognised the span, which gets the precedence
+ * right by construction rather than by ordering a list carefully: every other operation wins, and
+ * definitional recognition picks up only what would otherwise have been UNSUPPORTED.
+ *
+ * ## Why it still needs a positive frame
+ *
+ * Residual recognition -- "one term, no operands, therefore a definition" -- was considered and
+ * rejected against the corpus's own negative controls. `Summarise today's market news.` and
+ * `Rank all the world's economies by GDP.` name one thing and carry no operand either, and turning
+ * those into DEFINITION would be exactly the silent coercion this unit is required to prevent. So a
+ * definitional frame must be POSITIVELY present; absence of operands narrows, it does not decide.
+ */
+function definitionalMatch(normalized: string): Recognised | null {
+  // Shape 1: the wh-copular. `what is X` / `what are X`, generalising the two existing rows that
+  // required an article. Framing between the copula and the term is allowed, which is what lets
+  // `what exactly is X` and `what is the X` in without either being its own entry.
+  for (const copula of [" what is ", " what are ", " what s "]) {
+    const at = normalized.indexOf(copula);
+    if (at === -1) continue;
+    // Only at the head of the request. A copula later in the sentence is a second clause, and the
+    // whole point of the residue rules elsewhere in this file is that those are not one question.
+    if (normalizedTokens(normalized.slice(0, at + 1)).length > 0) continue;
+    const term = normalized.slice(at + copula.length - 1);
+    if (!isSingleTermRegion(term)) continue;
+    return {
+      operation: "DEFINITION",
+      subjectRegion: term,
+      residue: [],
+      subjectIdentity: "OCCURRENCE",
+    };
+  }
+  // Shape 2: how a single named thing WORKS. `How does X work?`, `How do X work?`,
+  // `How does X operate?`. The corpus reaches this construction six times and it is the same
+  // question as shape 1 asked from the other side -- what a term IS, phrased as what it DOES.
+  //
+  // Cardinality is the whole discriminator here, and it is why this is safe next to
+  // STORED_MECHANISM. `How does A affect B?` names two subjects joined by a relation construction,
+  // so `mechanismMatch` recognises it and this never runs; `How does X work?` names one and no
+  // relation, so there is nothing for a mechanism to be between. Intransitive predicate, one term.
+  for (const opener of [" how does ", " how do ", " how is "]) {
+    const at = normalized.indexOf(opener);
+    if (at !== 0) continue;
+    const rest = normalized.slice(opener.length - 1);
+    const closer = INTRANSITIVE_PREDICATES.find(
+      (p) => rest.endsWith(`${p} `) || rest.includes(`${p} `),
+    );
+    if (closer === undefined) continue;
+    const term = ` ${rest.slice(0, rest.indexOf(`${closer} `)).trim()} `;
+    // THE TAIL COUNTS TOO, and this is what the corpus taught. `How does the unemployment rate work
+    // WITH INFLATION?` is a negative control -- two terms, no construction saying which acts on
+    // which -- and taking the subject before `work` while discarding the rest turned a refusal into
+    // an AUTHORIZED definition of the first one. An oblique argument after the predicate makes it
+    // transitive in effect, so the whole region is tested rather than the head of it.
+    //
+    // The cost is named: `How does yield curve control operate IN GENERAL TERMS?` is refused too,
+    // because this grammar cannot tell an adverbial tail from an argument without a lexicon. Losing
+    // a true positive to keep a negative control refused is the right direction for the trade.
+    const tail = rest.slice(rest.indexOf(`${closer} `) + closer.length);
+    if (!isSingleTermRegion(term) || !isSingleTermRegion(` x ${tail}`)) continue;
+    return {
+      operation: "DEFINITION",
+      subjectRegion: term,
+      residue: [],
+      subjectIdentity: "OCCURRENCE",
+    };
+  }
+  return null;
+}
+
+/**
+ * Predicates that describe a thing on its own, taking no object.
+ *
+ * `work`, `operate` and their inflections say what something does BY ITSELF. That is what separates
+ * this from a relation: `affects`, `drives`, `influences` all need something on the far side, and a
+ * request carrying one of those is recognised as a mechanism before this rule is ever consulted.
+ * An intransitive predicate with one named subject is a request to explain that subject.
+ */
+const INTRANSITIVE_PREDICATES = ["work", "works", "operate", "operates", "function", "functions"];
+
+/**
+ * Is this region one term being asked about, rather than a clause carrying something else?
+ *
+ * Structural and inventory-free: no clause connective, no coordinator, no operand of another
+ * operation. It cannot ask the repository whether the term exists -- a missing row is evidence about
+ * the repository and never evidence about what the request meant.
+ */
+function isSingleTermRegion(region: string): boolean {
+  const tokens = normalizedTokens(region);
+  if (tokens.length === 0) return false;
+  if (tokens.some((token) => CLAUSE_CONNECTIVES.includes(token))) return false;
+  if (tokens.some((token) => OBJECT_COORDINATORS.includes(token))) return false;
+  // An interval belongs to OBSERVED_CHANGE and a currentness marker to CURRENT_OBSERVATION. Either
+  // one means the request was not asking what a term means.
+  if (intervalConstituent(region) !== null) return false;
+
+  // A NOUN PHRASE WITH A PREPOSITIONAL COMPLEMENT IS NOT A TERM.
+  //
+  // This is the discriminator, and the corpus is what produced it. Generalising `what is a X` to
+  // `what is X` immediately coerced seven rows that are not definitions -- including four negative
+  // controls, which then AUTHORIZED:
+  //
+  //     What's the going level of the VIX?                  a current observation
+  //     What is the stored effect of drought on wheat?      a relation
+  //     What is the published view on Brent crude?          an attribution, corpus says REFUSE
+  //     What is the mechanism for the policy rate?          under-specified, corpus says REFUSE
+  //     What is the weather in Seoul tomorrow?              not this product's subject at all
+  //
+  // Every one has the same shape: a head noun taking a prepositional complement. `the level OF x`
+  // asks about a property of x; `real GDP` IS x. So a complement containing a preposition means the
+  // request is about something the term has, not about the term.
+  //
+  // The exception is metalinguistic: `the meaning of x`, `meant by x`, `the definition of x`. Those
+  // heads are words that talk about words, which is precisely a definitional request, and they are a
+  // closed class rather than an open list of phrasings.
+  const head =
+    tokens[0] === "the" || tokens[0] === "a" || tokens[0] === "an" ? tokens[1] : tokens[0];
+  const metalinguistic = head !== undefined && METALINGUISTIC_HEADS.has(head);
+  if (!metalinguistic && tokens.some((token) => TERM_COMPLEMENT_PREPOSITIONS.has(token))) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Heads that talk about WORDS rather than about the world.
+ *
+ * Closed on purpose, and closed by grammar rather than by taste: these are the nouns and participles
+ * a speaker uses to cite a term AS a term. They are the only heads permitted to take a prepositional
+ * complement and still be a definitional request, because `the meaning of X` is asking what X means
+ * while `the level of X` is asking what X is currently at.
+ */
+const METALINGUISTIC_HEADS = new Set(["meaning", "definition", "meant", "sense", "concept"]);
+
+/**
+ * Prepositions that give a head noun its own complement.
+ *
+ * Their presence says the request is about a relation or property the term participates in, which
+ * belongs to another operation. Not a synonym list: it is the closed functional class that projects
+ * an argument, and the corpus rows above are what each one was found by.
+ */
+const TERM_COMPLEMENT_PREPOSITIONS = new Set([
+  "of",
+  "on",
+  "for",
+  "from",
+  "to",
+  "in",
+  "about",
+  "with",
+]);
+
 function recogniseAll(normalized: string): Recognised[] {
   const found: Recognised[] = [];
 
@@ -1345,6 +1513,15 @@ function recogniseSpanUncached(span: string): SpanRecognition {
     ...(korean.status === "ONE" ? [korean.match] : []),
     ...recogniseAll(normalized),
   ];
+
+  // Definitional recognition is LAST RESORT, and deliberately so. Adding it to the list above would
+  // make `What is the current CPI?` two readings and therefore AMBIGUOUS; consulted only when
+  // nothing else recognised the span, it cannot outrank another operation and cannot create a
+  // conflict. See `definitionalMatch`.
+  if (readings.length === 0) {
+    const definitional = definitionalMatch(normalized);
+    if (definitional) readings.push(definitional);
+  }
 
   const seen = new Set<string>();
   const distinct: Recognised[] = [];

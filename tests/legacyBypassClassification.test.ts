@@ -177,27 +177,26 @@ describe("a call that happened is a call, even when the run then failed", () => 
   });
 });
 
-describe("evidence sufficiency is operation-aware", () => {
-  // A deliberately naive occurrence test, so these assert the SUFFICIENCY rule and not the matcher.
+describe("evidence sufficiency inspects answer-bearing records", () => {
+  // A deliberately naive occurrence test, so these assert the SUFFICIENCY rule, not the matcher.
   const occurs = (name: string, query: string) => query.toLowerCase().includes(name.toLowerCase());
   const shelf = (over: Partial<Parameters<typeof evidenceSufficient>[2]> = {}) => ({
-    seriesNames: [],
+    observedSeries: [],
+    attributed: [],
     edges: [],
-    sourceNames: [],
     ...over,
   });
 
   it("requires BOTH endpoints of a stored edge for a relation request", () => {
-    // REVIEW FINDING, third round, and my own demonstration was the counterexample: I seeded four
-    // SERIES and no edges, both mechanism-shaped controls were called evidence-backed anyway, and I
-    // reported that flip as proof the metric worked. A series sharing one endpoint name could never
-    // have answered a relation request.
+    // THIRD REVIEW ROUND, and my own demonstration was the counterexample: I seeded four SERIES and
+    // no edges, both mechanism-shaped controls were called evidence-backed anyway, and I reported
+    // that flip as proof the metric worked.
     const query = "How does the unemployment rate work with inflation?";
     expect(
       evidenceSufficient(
         "STORED_MECHANISM",
         query,
-        shelf({ seriesNames: ["unemployment rate", "inflation"] }),
+        shelf({ observedSeries: ["unemployment rate", "inflation"] }),
         occurs,
       ),
     ).toBe(false);
@@ -209,7 +208,6 @@ describe("evidence sufficiency is operation-aware", () => {
         occurs,
       ),
     ).toBe(true);
-    // An edge sharing ONE endpoint is not evidence either.
     expect(
       evidenceSufficient(
         "STORED_MECHANISM",
@@ -220,37 +218,62 @@ describe("evidence sufficiency is operation-aware", () => {
     ).toBe(false);
   });
 
-  it("requires a provider AND a subject for an attributed observation", () => {
-    const query = "What did Consensus publish about US nonfarm payrolls?";
+  it("does not accept a series that carries no observations", () => {
+    // FOURTH REVIEW ROUND. A `Series` metadata row answers nothing, so counting it made an empty
+    // shelf look populated and promoted an evidence-starved no-call to a measured refusal. The
+    // shelf now only carries series that actually have observations.
+    const query = "What is the current US unemployment rate?";
+    expect(evidenceSufficient("CURRENT_OBSERVATION", query, shelf(), occurs)).toBe(false);
     expect(
       evidenceSufficient(
-        "ATTRIBUTED_REPORTED_OBSERVATION",
+        "CURRENT_OBSERVATION",
         query,
-        shelf({ seriesNames: ["US nonfarm payrolls"] }),
-        occurs,
-      ),
-    ).toBe(false);
-    expect(
-      evidenceSufficient(
-        "ATTRIBUTED_REPORTED_OBSERVATION",
-        query,
-        shelf({ seriesNames: ["US nonfarm payrolls"], sourceNames: ["Consensus"] }),
+        shelf({ observedSeries: ["US unemployment rate"] }),
         occurs,
       ),
     ).toBe(true);
   });
 
-  it("never calls a definition evidence-backed, because no shelf can answer one", () => {
-    // GLOSSARY_ENTRY fails closed by design: this repository stores no definitions. The zero is
-    // structural, and calling it a measured refusal would overclaim.
+  it("requires the provider to OWN the series for an attributed observation", () => {
+    // The same independence-versus-connection error B2-C was about, reappearing in the measurement:
+    // a provider and a series existing separately prove only that two rows exist.
+    const query = "What did Consensus publish about US nonfarm payrolls?";
     expect(
       evidenceSufficient(
-        "DEFINITION",
-        "How does a repurchase agreement work?",
-        shelf({ seriesNames: ["repurchase agreement"] }),
+        "ATTRIBUTED_REPORTED_OBSERVATION",
+        query,
+        shelf({ attributed: [{ provider: "Someone Else", series: "US nonfarm payrolls" }] }),
         occurs,
       ),
     ).toBe(false);
+    expect(
+      evidenceSufficient(
+        "ATTRIBUTED_REPORTED_OBSERVATION",
+        query,
+        shelf({ attributed: [{ provider: "Consensus", series: "US nonfarm payrolls" }] }),
+        occurs,
+      ),
+    ).toBe(true);
+  });
+
+  it("treats structurally unanswerable labels as unanswerable, consistently", () => {
+    // These name what the request LACKS. No repository state can satisfy them, so a no-call is
+    // structural rather than measured. Review pointed out it was inconsistent to declare that a
+    // limitation for one under-specified row while quietly requiring the impossible of these.
+    for (const op of ["MISSING_INTERVAL", "MISSING_ATTRIBUTION", "DEFINITION"]) {
+      expect(
+        evidenceSufficient(
+          op,
+          "anything at all",
+          shelf({
+            observedSeries: ["anything"],
+            attributed: [{ provider: "anything", series: "anything" }],
+          }),
+          occurs,
+        ),
+        op,
+      ).toBe(false);
+    }
   });
 
   it("fails closed on an operation whose sufficiency it cannot state", () => {
@@ -258,7 +281,7 @@ describe("evidence sufficiency is operation-aware", () => {
       evidenceSufficient(
         "SOMETHING_NEW",
         "anything at all",
-        shelf({ seriesNames: ["anything"] }),
+        shelf({ observedSeries: ["anything"] }),
         occurs,
       ),
     ).toBe(false);

@@ -252,24 +252,39 @@ export async function measure(corpus: readonly DevelopmentCase[]): Promise<Row[]
  * A thrown sink is reported as thrown rather than as zero calls -- the previous measurement printed
  * `calls=0` from a stub whose method name was wrong, and the zero read as safety.
  */
-/** What the repository holds, kept apart by KIND because sufficiency differs by operation. */
+/**
+ * What the repository holds, in ANSWER-BEARING form.
+ *
+ * Not a list of names. Review found the previous shape letting a `Series` row with no observations
+ * count as evidence for a current-observation request, and letting an unrelated provider and an
+ * unrelated series together count as evidence for an attributed one — which is precisely the
+ * independence-versus-connection confusion B2-C existed to fix, reappearing in the measurement.
+ */
 interface Shelf {
-  seriesNames: string[];
+  /** Series that actually carry observations. A metadata row answers nothing. */
+  observedSeries: string[];
+  /** Provider-owned series, as pairs, so attribution needs the connection and not two coincidences. */
+  attributed: { provider: string; series: string }[];
   edges: { from: string; to: string }[];
-  sourceNames: string[];
 }
 
 async function loadShelf(): Promise<Shelf> {
   const { prisma } = await import("@/server/db/client");
-  const [series, edges, sources] = await Promise.all([
-    prisma.series.findMany({ select: { name: true } }),
+  const [series, edges] = await Promise.all([
+    prisma.series.findMany({
+      select: {
+        name: true,
+        source: { select: { name: true } },
+        _count: { select: { observations: true } },
+      },
+    }),
     prisma.causalEdge.findMany({ select: { fromVariable: true, toVariable: true } }),
-    prisma.source.findMany({ select: { name: true } }),
   ]);
+  const answerBearing = series.filter((s) => s._count.observations > 0);
   return {
-    seriesNames: series.map((s) => s.name),
+    observedSeries: answerBearing.map((s) => s.name),
+    attributed: answerBearing.map((s) => ({ provider: s.source.name, series: s.name })),
     edges: edges.map((e) => ({ from: e.fromVariable, to: e.toVariable })),
-    sourceNames: sources.map((s) => s.name),
   };
 }
 
@@ -294,8 +309,6 @@ export function evidenceSufficient(
   shelf: Shelf,
   occurs: (name: string, query: string) => boolean,
 ): boolean {
-  const named = (names: string[]) => names.filter((n) => occurs(n, query));
-
   switch (expectedOperation) {
     // A relation needs a stored edge whose BOTH endpoints this request names. One endpoint, or an
     // unrelated edge sharing a name, could never have answered it.
@@ -303,20 +316,25 @@ export function evidenceSufficient(
     case "AMBIGUOUS_CARDINALITY":
       return shelf.edges.some((e) => occurs(e.from, query) && occurs(e.to, query));
 
-    // One stored series the request names is what these could be answered from.
+    // A named series that actually CARRIES observations. A metadata row with none answers nothing,
+    // and counting it made an empty shelf look populated.
     case "CURRENT_OBSERVATION":
     case "OBSERVED_CHANGE":
-    case "MISSING_INTERVAL":
-      return named(shelf.seriesNames).length > 0;
+      return shelf.observedSeries.some((name) => occurs(name, query));
 
-    // Attribution needs BOTH a provider and a subject; either alone cannot answer it.
+    // The provider must OWN the series. Finding a provider and a series independently proves only
+    // that two rows exist -- the same independence-versus-connection error B2-C was about.
     case "ATTRIBUTED_REPORTED_OBSERVATION":
-    case "MISSING_ATTRIBUTION":
-      return named(shelf.sourceNames).length > 0 && named(shelf.seriesNames).length > 0;
+      return shelf.attributed.some((a) => occurs(a.provider, query) && occurs(a.series, query));
 
-    // A definition has no record class in this repository at all — GLOSSARY_ENTRY fails closed by
-    // design — so no shelf can make one answerable. Saying "not evidence-backed" here is honest:
-    // the zero is structural, and calling it a measured refusal would overclaim.
+    // STRUCTURALLY UNANSWERABLE, and reported as such rather than as a measured refusal.
+    //
+    // These negative-control labels name what the request LACKS: no interval, no attribution, no
+    // definition record class in this repository at all. No repository state can satisfy them, so
+    // a no-call is structural. Review pointed out it was inconsistent to declare that a limitation
+    // for one under-specified row and quietly require the impossible of these.
+    case "MISSING_INTERVAL":
+    case "MISSING_ATTRIBUTION":
     case "DEFINITION":
       return false;
 
@@ -429,7 +447,8 @@ async function main() {
       `${bypasses.filter((r) => r.klass === "DETERMINISTIC_VIA_PLANNER").length}`,
   );
   console.log(
-    `RECOGNITION DEBT (genuinely answerable, canonical cannot read): ` +
+    `RECOGNITION DEBT (corpus says answerable, canonical cannot read; repository answerability ` +
+      `NOT demonstrated): ` +
       `${bypasses.filter((r) => r.klass === "TRUE_RECOGNITION_GAP").length}`,
   );
   if (inconclusive.length > 0) {

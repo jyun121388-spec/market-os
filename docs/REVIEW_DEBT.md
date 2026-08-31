@@ -44,6 +44,48 @@ Tracks Codex reviews that are pending, deferred, or resulted in an unresolved di
 | M16       | Filing Diff cannot show an original-vs-restated comparison                                                     | Deliberate, recorded 2026-08-18 so it is not mistaken for the +233% bug returning. A period-over-period change now requires a DIFFERENT period end, which by construction excludes a restatement of the same period (same length, same end, different accession). That exclusion is correct: a restatement is not a period-over-period change and showing it in that section would be the same category error the +233% defect was. But it does mean restatements are currently invisible in the UI even though both rows are stored and provenance is intact. A "this figure was later restated" surface would be a real feature; it is not built, and is not being built speculatively                                                                                                        | PENDING            |
 | M11       | Unit strings are matched exactly and case-sensitively                                                          | `computeChange` branches on `unit === "percent"` to decide whether basis points are meaningful, and a series declared "Percent"/"pct"/"%" would silently return `bpsChange: null` while every other number stayed correct. No such typo exists today. `tests/unitVocabulary.test.ts` pins every tracked series to a known unit vocabulary so the next one fails at test time; a stricter type-level unit would be the fuller fix and is not warranted at five units                                                                                                                                                                                                                                                                                                                             | MITIGATED          |
 
+## IR-112 — a politeness hedge is read as a prohibited request (reproduced 2026-08-31, P1)
+
+    "Latest reading on the eurozone unemployment rate."                  -> CURRENT_OBSERVATION
+    "Latest reading on the eurozone unemployment rate, if you have it."  -> PROHIBITED
+    "What is the current US headline CPI, if you have it?"               -> PROHIBITED
+    "What is a Eurodollar, if you have it?"                              -> PROHIBITED
+
+Appending `, if you have it` to an otherwise answerable request makes it PROHIBITED. It is not
+specific to one operation — a definition goes the same way — and `, if available` does NOT, so the
+trigger is the second-person possession wording rather than the hedge itself.
+
+WHY THIS IS WORSE THAN A RECALL GAP. UNSUPPORTED says the product could not read the request.
+PROHIBITED says the request was not allowed to be asked, and `docs/LEGAL_GUARDRAILS.md` gives that
+screen absolute precedence over every other reading. A reader who politely writes "if you have it"
+is told their question about a public price index is disallowed. That is a false positive on the
+one check that is designed to be unappealable.
+
+NOT YET REPAIRED, and deliberately not repaired in the same breath as it was found. The advice
+guardrail is the most safety-sensitive surface in the product and its false-NEGATIVE direction is
+what IR-085/IR-090 were about; loosening it to fix a false positive is exactly the trade that needs
+measurement and an architecture pass rather than a quick edit. The holdouts must not be opened for
+it either.
+
+HOW IT WAS FOUND, because the route matters more than the row. An architecture pass proposed a
+`<marker> <MEASURE_HEAD> of|on|for <SUBJECT>` construction to close six CURRENT_OBSERVATION rows,
+diagnosing a closed head-noun slot. Reproduction refuted that diagnosis:
+
+    head varied, frame constant   print / observation / value / reading / number / figure
+                                  -> ALL SIX already recognised
+    frame varied, head constant   "The most recent value of X, please."      -> recognised
+                                  "I'd like the most recent value of X."     -> UNSUPPORTED
+                                  "I'd like the most recent print of X."     -> UNSUPPORTED
+
+So there is no MEASURE_HEAD gap at all. The six rows fail on their REQUEST FRAME. Imperatives are
+handled (`Give me`, `Show me`, `Tell me`, `Please give me`); first-person desideratives
+(`I'd like`, `I need`, `I want`) and polite interrogatives (`Could you pull`, `Can you get`) are
+not, and one trailing hedge crosses into PROHIBITED.
+
+Building the proposed construction would have added a whole family for a defect that does not
+exist. The frame inconsistency and IR-112 are the real findings, and both need their own measured
+units — the frame list is open-class vocabulary and must not simply be enumerated.
+
 ## IR-111 — the LEGACY_BYPASS readiness verdict cannot reach CONCLUSIVE (measured 2026-08-31)
 
 `scripts/legacy-bypass-readiness.ts` ends every run with the same instruction: "Seed fixtures for

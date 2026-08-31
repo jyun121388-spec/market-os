@@ -53,13 +53,13 @@ MUTATIONS = [
     (
         "M-ANCHOR-OFF the governing preposition is never inspected",
         REQUEST,
-        "    if (\n"
-        "      word !== null &&\n"
-        "      TERM_COMPLEMENT_PREPOSITIONS.has(word) &&\n"
-        "      !TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)\n"
-        "    ) {\n"
-        "      continue;\n"
-        "    }",
+        "      if (\n"
+        "        word !== null &&\n"
+        "        TERM_COMPLEMENT_PREPOSITIONS.has(word) &&\n"
+        "        !TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)\n"
+        "      ) {\n"
+        "        continue;\n"
+        "      }",
         "",
     ),
     # M-ANCHOR-DENYLIST -- the direction is inverted. Membership in the transparent set becomes the
@@ -68,8 +68,8 @@ MUTATIONS = [
     (
         "M-ANCHOR-DENYLIST an unlisted anchor is admitted again",
         REQUEST,
-        "      !TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)\n",
-        "      TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)\n",
+        "        !TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)\n",
+        "        TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)\n",
     ),
     # M-ANCHOR-ADJACENT -- only the adjacent token is inspected, so a determiner defeats the rule
     # and `since the last quarter` binds `last quarter`. This is the exact shape the DEFINITION unit
@@ -77,7 +77,7 @@ MUTATIONS = [
     (
         "M-ANCHOR-ADJACENT a determiner defeats the rule",
         REQUEST,
-        "    while (governor >= 0 && INTERVAL_DETERMINERS.has(preceding[governor])) governor -= 1;\n",
+        "      while (governor >= 0 && INTERVAL_DETERMINERS.has(preceding[governor])) governor -= 1;\n",
         "",
     ),
     # M-ANCHOR-TRANSPARENT -- `over` stops being transparent, which must break the one corpus row

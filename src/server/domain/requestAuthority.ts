@@ -51,6 +51,7 @@ import {
   KOREAN_POSSESSIVE_DETERMINERS,
   PARTICLE_SURFACES,
 } from "./koreanMorphology";
+import { parseInterval } from "./observationPeriod";
 import { classifyRequestFrame } from "./requestFrame";
 import { relationSyntax } from "./subjectAuthority";
 
@@ -614,26 +615,17 @@ function firstPersonPossession(query: string, normalized: string): boolean {
   );
 }
 
-/** Closed set of interval operands. `OBSERVED_CHANGE` refuses without one. */
-const INTERVAL_OPERANDS = [
-  "this year",
-  "last year",
-  "this month",
-  "last month",
-  "this week",
-  "last week",
-  "this quarter",
-  "last quarter",
-  "year to date",
-  "over the past year",
-  "over the past month",
-  // "since last year" was here and is deliberately gone. It has at least three readings -- since
-  // 1 January last year, since this date last year, since last year's final observation -- and the
-  // architecture round could not choose between them on any principle. An operand whose boundaries
-  // cannot be stated is not a period; supporting it approximately would mean answering about a
-  // period the request did not name. Deleting it makes those requests AMBIGUOUS, which is true.
-];
-
+/*
+ * `INTERVAL_OPERANDS` lived here: twelve literals the parser would admit, kept in step BY HAND with
+ * a switch in `observationPeriod`. It is deleted, which is item 6 of
+ * `[CHATGPT_DECISION][MARKET-OS][DEC-INTERVAL-FAMILY-20260831]`.
+ *
+ * The two lists had already drifted, and the drift was not theoretical: `since last year` sat in
+ * this one with no case in the resolver, and the scan found the shorter ` last year ` inside it
+ * first, so the request was answered about the wrong period. A value cannot drift from itself, so
+ * `parseInterval` in `observationPeriod` is now the only place that says what an interval phrase
+ * means, and `intervalConstituent` asks it.
+ */
 /**
  * Reporting acts the product can serve a record for.
  *
@@ -2355,47 +2347,58 @@ const TRANSPARENT_INTERVAL_PREPOSITIONS = new Set(["over", "in", "during", "for"
 const INTERVAL_DETERMINERS = new Set(["the", "a", "an"]);
 
 function intervalConstituent(normalized: string): IntervalConstituent | null {
-  for (const operand of INTERVAL_OPERANDS) {
-    const start = normalized.indexOf(" " + operand + " ");
-    if (start < 0) continue;
-    const end = start + operand.length + 1;
+  // LONGEST MATCH, and it is a correctness rule rather than an optimisation.
+  //
+  // The previous scan walked a literal list and took the first hit, so ` last year ` was found
+  // inside `since last year` and a request naming one period was answered about another. Trying
+  // the longest phrase first means a shorter operand can never shadow a longer one, whatever the
+  // grammar admits -- the class is closed by construction instead of by ordering a list carefully.
+  const boundaries: number[] = [];
+  for (let i = 0; i < normalized.length; i++) {
+    if (normalized[i] === " ") boundaries.push(i);
+  }
 
-    // AN ANCHORED INTERVAL IS NOT THIS INTERVAL.
-    //
-    // The boundary test below is satisfied vacuously when the operand ends the request, because
-    // `allFraming("")` is true of no tokens. Anything at all could therefore stand in front of the
-    // operand and be dropped, and measurement showed exactly that: `since`, `from`, `after`,
-    // `before`, `until`, `through` and `up to` ALL bound plain `last year` and answered
-    // 2025-01-01..2025-12-31. `since last year` silently lost the eight months since it, and
-    // `before last year` was answered with the complement of the period it named.
-    //
-    // Worse, `since last year` is an operand the resolver deliberately REFUSES -- it has at least
-    // three readings and no principle to choose between them -- and the refusal was being bypassed
-    // because the scan finds the shorter ` last year ` inside it first.
-    //
-    // Determiners are stepped over so that `since THE last quarter` cannot slip past a rule that
-    // only inspected the adjacent token. Anchor SEMANTICS stay out of scope per
-    // `[CHATGPT_DECISION][MARKET-OS][DEC-INTERVAL-FAMILY-20260831]` item 5; refusing them is not
-    // deciding them.
-    const preceding = normalized
-      .slice(0, start + 1)
-      .trim()
-      .split(" ")
-      .filter(Boolean);
-    let governor = preceding.length - 1;
-    while (governor >= 0 && INTERVAL_DETERMINERS.has(preceding[governor])) governor -= 1;
-    const word = governor >= 0 ? preceding[governor] : null;
-    if (
-      word !== null &&
-      TERM_COMPLEMENT_PREPOSITIONS.has(word) &&
-      !TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)
-    ) {
-      continue;
+  for (let span = boundaries.length - 1; span >= 1; span--) {
+    for (let b = 0; b + span < boundaries.length; b++) {
+      const start = boundaries[b];
+      const end = boundaries[b + span];
+      const phrase = normalized.slice(start + 1, end);
+      if (!phrase || phrase.includes("  ")) continue;
+      if (parseInterval(phrase) === null) continue;
+
+      // AN ANCHORED INTERVAL IS NOT THIS INTERVAL.
+      //
+      // The boundary test below is satisfied vacuously when the phrase ends the request, because
+      // `allFraming("")` is true of no tokens. Anything at all could therefore stand in front of
+      // the phrase and be dropped, and measurement showed exactly that: `since`, `from`, `after`,
+      // `before`, `until` and `through` ALL bound plain `last year` and answered
+      // 2025-01-01..2025-12-31. `since last year` silently lost the eight months since it, and
+      // `before last year` was answered with the complement of the period it named.
+      //
+      // Determiners are stepped over so that `since THE last quarter` cannot slip past a rule that
+      // only inspected the adjacent token. Anchor SEMANTICS stay out of scope per
+      // `[CHATGPT_DECISION][MARKET-OS][DEC-INTERVAL-FAMILY-20260831]` item 5; refusing them is not
+      // deciding them.
+      const preceding = normalized
+        .slice(0, start + 1)
+        .trim()
+        .split(" ")
+        .filter(Boolean);
+      let governor = preceding.length - 1;
+      while (governor >= 0 && INTERVAL_DETERMINERS.has(preceding[governor])) governor -= 1;
+      const word = governor >= 0 ? preceding[governor] : null;
+      if (
+        word !== null &&
+        TERM_COMPLEMENT_PREPOSITIONS.has(word) &&
+        !TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)
+      ) {
+        continue;
+      }
+
+      const fronted = allFraming(normalized.slice(0, start));
+      const trailing = allFraming(normalized.slice(end));
+      if (fronted || trailing) return { operand: phrase, start, end };
     }
-
-    const fronted = allFraming(normalized.slice(0, start));
-    const trailing = allFraming(normalized.slice(end));
-    if (fronted || trailing) return { operand, start, end };
   }
   return null;
 }

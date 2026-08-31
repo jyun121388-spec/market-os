@@ -1393,3 +1393,67 @@ describe("an anchored interval is not the interval it names", () => {
     );
   });
 });
+
+describe("the parser asks one grammar for what an interval means", () => {
+  const authority = (query: string) => resolveRequestAuthority(query);
+  const intervalOf = (query: string) => {
+    const a = authority(query);
+    return a.status === "AUTHORIZED" ? (a.interval ?? null) : null;
+  };
+  const operationOf = (query: string) => {
+    const a = authority(query);
+    return a.status === "AUTHORIZED" ? a.operation : a.status;
+  };
+
+  it("admits a counted trailing window without a new parser literal", () => {
+    // GATE B. `INTERVAL_OPERANDS` was twelve literals kept in step BY HAND with the resolver's
+    // switch, and the two had already drifted. The parser now asks `parseInterval`, so anything the
+    // typed grammar admits is admissible here -- these were unreadable before and no literal was
+    // added for them.
+    expect(intervalOf("What was the change in US CPI over the past 6 weeks?")).toBe(
+      "over the past 6 weeks",
+    );
+    expect(intervalOf("What was the change in US CPI over the past six weeks?")).toBe(
+      "over the past six weeks",
+    );
+    expect(intervalOf("What was the change in US CPI over the past 3 months?")).toBe(
+      "over the past 3 months",
+    );
+  });
+
+  it("refuses a malformed count here too, because there is only one grammar to refuse it", () => {
+    // The point of a single authority: the parser cannot admit what the resolver cannot compute.
+    for (const query of [
+      "What was the change in US CPI over the past 0 weeks?",
+      "What was the change in US CPI over the past several weeks?",
+      "What was the change in US CPI over the past 6 fortnights?",
+    ]) {
+      expect(operationOf(query), query).not.toBe("OBSERVED_CHANGE");
+    }
+  });
+
+  it("takes the LONGEST interval phrase, so a shorter one cannot shadow it", () => {
+    // This is the structural cure for the `since last year` defect. That bug existed because the
+    // scan walked a list and found ` last year ` inside `since last year` first. Longest match
+    // means the longer phrase is always tried before its own substring, whatever the grammar
+    // admits -- `over the past year` is never read as the bare `year to date` fragment beside it,
+    // and the anchored-interval rule still stands in front.
+    expect(intervalOf("What was the change in US CPI over the past year?")).toBe(
+      "over the past year",
+    );
+    expect(operationOf("What was the change in US CPI since last year?")).not.toBe(
+      "OBSERVED_CHANGE",
+    );
+  });
+
+  it("still refuses the two-endpoint range it has no semantics for", () => {
+    // DEV-EN-055. Its real period is a half-to-half comparison, and binding it to the ` last year `
+    // sitting inside it would be the anchored-interval defect again. Out of scope per the
+    // decision's item 5, and refused rather than approximated.
+    expect(
+      operationOf(
+        "What is the delta in Korean semiconductor exports between the first half and second half of last year?",
+      ),
+    ).not.toBe("OBSERVED_CHANGE");
+  });
+});

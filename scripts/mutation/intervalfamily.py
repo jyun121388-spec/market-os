@@ -33,11 +33,18 @@ PERIOD = "src/server/domain/observationPeriod.ts"
 
 BINDING_TESTS = [
     "tests/observationPeriod.test.ts",
+    # BOUND BY GATE B, and it was UNRELATED before that on purpose. The parser used to keep its own
+    # `INTERVAL_OPERANDS`, so a resolver change genuinely could not reach request recognition.
+    # Gate B deleted that list and had `intervalConstituent` ask `parseInterval` instead, which is
+    # the whole point of the single-authority requirement -- so recognition now depends on this
+    # grammar by design. M-IVAL-TRAILING-OFF came back CAUGHT-BUT-BROAD saying exactly that, and
+    # the honest response is to reclassify the file rather than to loosen the mutant.
+    "tests/requestAuthority.test.ts",
 ]
 UNRELATED_TESTS = [
-    # A period-resolution change must not reach request recognition or repository authority.
-    "tests/requestAuthority.test.ts",
+    # Repository-side authority, which no interval-grammar change should reach.
     "tests/integration/source-authority.test.ts",
+    "tests/definitionGrammar.test.ts",
 ]
 
 MUTATIONS = [

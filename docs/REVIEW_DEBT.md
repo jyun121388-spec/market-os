@@ -109,6 +109,36 @@ MEASURED WITH, all read-only and committed alongside this entry: `scripts/ir112-
 `ir112-subject.ts`, `ir112-negative.ts`, `ir112-corpus.ts`, `ir112-counterfactual.ts`. English only;
 the Korean path was not measured and no claim is made about it. No sealed holdout was opened.
 
+THE REPOSITORY ALREADY RUNS THE EXPERIMENT, and this is the part that decides the repair. Of the
+twelve construction rows, ELEVEN have `markers: [<opener>, null]` — no closing marker, so the
+subject runs to the end. Exactly one has a real right edge: `what does X mean`. Put the same tails
+on both and the correct behaviour is already there, on the closed one only:
+
+    closed   "What does quantitative easing mean, if you have it?"
+                 UNSUPPORTED   residue carries "if", "you", "it"
+    open     "What is the latest US CPI reading, if you have it?"
+                 PROHIBITED    `you` absorbed into the subject
+
+    closed   "What does quantitative easing mean, please?"   subj=[ quantitative easing ]
+    open     "What is the latest US CPI reading, please?"    subj=[ us cpi reading please ]
+
+So the target behaviour is not a design that has to be argued for — it is what this grammar does
+wherever a subject right edge exists, and the defect is the eleven rows that have none.
+
+AND THE PRICE IS LOWER THAN THIS ENTRY FIRST SAID. `please` is already in `FRAMING_TOKENS`, so it
+is exempt from the residue check; `thanks` and `if` are not. Under a right edge, DEV-EN-015 and
+DEV-EN-030 therefore bind a CLEAN subject and stay AUTHORIZED rather than being lost. The corpus
+cost is one row moving PROHIBITED -> UNSUPPORTED and no recall loss at all — not the two-row loss
+recorded above, which was assumed rather than measured.
+
+WHAT STILL BLOCKS IT. Nothing supplies the right edge for the eleven open rows. Normalization has
+already removed the punctuation by the time the subject region is formed (`Smith, Jones` arrives as
+`smith jones`, `Yahoo! Finance` as `yahoo finance`, `U.S.` as `u s`), so a comma rule is not merely
+unsafe, it is not available. Deciding the edge from stored names would make repository inventory
+segment the sentence, which was removed before. A closed subordinator class (`if`, `unless`,
+`while`, ...) is finite and positively statable, but its omission direction is wrong: a subordinator
+left out keeps its clause inside the subject, which ADMITS. Recorded as considered and rejected.
+
 WHY THIS IS WORSE THAN A RECALL GAP. UNSUPPORTED says the product could not read the request.
 PROHIBITED says the request was not allowed to be asked, and `docs/LEGAL_GUARDRAILS.md` gives that
 screen absolute precedence over every other reading. A reader who politely writes "if you have it"

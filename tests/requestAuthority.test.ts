@@ -1339,3 +1339,57 @@ describe("a second question may not hide inside an open-class region", () => {
     servesNothing("Should I buy stock. Reuters published about Alpha?");
   });
 });
+
+describe("an anchored interval is not the interval it names", () => {
+  const operationOf = (query: string) => {
+    const a = resolveRequestAuthority(query);
+    return a.status === "AUTHORIZED" ? a.operation : a.status;
+  };
+  const intervalOf = (query: string) => {
+    const a = resolveRequestAuthority(query);
+    return a.status === "AUTHORIZED" ? (a.interval ?? null) : null;
+  };
+
+  it("refuses a temporal anchor rather than silently answering the plain operand", () => {
+    // MEASURED, not supposed. Every one of these bound plain `last year` and would have been
+    // answered over 2025-01-01..2025-12-31 at an asOf of 2026-08-25:
+    //
+    //   since last year   loses the eight months since it -- the request runs to NOW
+    //   before last year  is answered with the COMPLEMENT of the period it names
+    //   after / until / through / from   each name a different period again
+    //
+    // `since last year` is also an operand `resolveObservationPeriod` deliberately REFUSES, and the
+    // refusal was being bypassed because the scan finds the shorter ` last year ` inside it first.
+    for (const anchor of ["since", "from", "after", "before", "until", "through"]) {
+      const query = `What was the change in US CPI ${anchor} last year?`;
+      expect(operationOf(query), query).not.toBe("OBSERVED_CHANGE");
+    }
+  });
+
+  it("steps over a determiner, so `since THE last quarter` cannot slip past", () => {
+    expect(operationOf("What was the change in US CPI since the last quarter?")).not.toBe(
+      "OBSERVED_CHANGE",
+    );
+  });
+
+  it("keeps the prepositions that leave the operand meaning what it says", () => {
+    // An ALLOWLIST, and the direction is the point: a missing anchor in a denylist ADMITS a
+    // silently reinterpreted period, while a missing member here only refuses a request that would
+    // have been fine. `over the last quarter` is the one corpus row this construction authorizes.
+    for (const transparent of ["over", "in", "during", "for"]) {
+      const query = `What was the change in US CPI ${transparent} last year?`;
+      expect(operationOf(query), query).toBe("OBSERVED_CHANGE");
+      expect(intervalOf(query), query).toBe("last year");
+    }
+    expect(operationOf("What was the change in the KOSPI over the last quarter?")).toBe(
+      "OBSERVED_CHANGE",
+    );
+  });
+
+  it("leaves an unanchored interval alone", () => {
+    expect(intervalOf("What was the change in US CPI last year?")).toBe("last year");
+    expect(intervalOf("What was the change in US CPI over the past year?")).toBe(
+      "over the past year",
+    );
+  });
+});

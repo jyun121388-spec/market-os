@@ -2338,11 +2338,61 @@ function allFraming(span: string): boolean {
     .every((token) => FRAMING_TOKENS.has(token));
 }
 
+/**
+ * Prepositions that leave an interval operand meaning what it says.
+ *
+ * `over last quarter`, `in last quarter`, `during last quarter` and `for last quarter` all ask
+ * about last quarter. `since last quarter` does not -- it asks about the run from then until now.
+ *
+ * An ALLOWLIST rather than a list of the dangerous ones, and the direction is the whole point. A
+ * missing anchor in a denylist ADMITS a silently reinterpreted period; a missing member here
+ * REFUSES a request that would have been fine. This unit's predecessor spent five review rounds
+ * learning which of those two mistakes is affordable.
+ */
+const TRANSPARENT_INTERVAL_PREPOSITIONS = new Set(["over", "in", "during", "for"]);
+
+/** Determiners are skipped when looking for the word that governs an interval. */
+const INTERVAL_DETERMINERS = new Set(["the", "a", "an"]);
+
 function intervalConstituent(normalized: string): IntervalConstituent | null {
   for (const operand of INTERVAL_OPERANDS) {
     const start = normalized.indexOf(" " + operand + " ");
     if (start < 0) continue;
     const end = start + operand.length + 1;
+
+    // AN ANCHORED INTERVAL IS NOT THIS INTERVAL.
+    //
+    // The boundary test below is satisfied vacuously when the operand ends the request, because
+    // `allFraming("")` is true of no tokens. Anything at all could therefore stand in front of the
+    // operand and be dropped, and measurement showed exactly that: `since`, `from`, `after`,
+    // `before`, `until`, `through` and `up to` ALL bound plain `last year` and answered
+    // 2025-01-01..2025-12-31. `since last year` silently lost the eight months since it, and
+    // `before last year` was answered with the complement of the period it named.
+    //
+    // Worse, `since last year` is an operand the resolver deliberately REFUSES -- it has at least
+    // three readings and no principle to choose between them -- and the refusal was being bypassed
+    // because the scan finds the shorter ` last year ` inside it first.
+    //
+    // Determiners are stepped over so that `since THE last quarter` cannot slip past a rule that
+    // only inspected the adjacent token. Anchor SEMANTICS stay out of scope per
+    // `[CHATGPT_DECISION][MARKET-OS][DEC-INTERVAL-FAMILY-20260831]` item 5; refusing them is not
+    // deciding them.
+    const preceding = normalized
+      .slice(0, start + 1)
+      .trim()
+      .split(" ")
+      .filter(Boolean);
+    let governor = preceding.length - 1;
+    while (governor >= 0 && INTERVAL_DETERMINERS.has(preceding[governor])) governor -= 1;
+    const word = governor >= 0 ? preceding[governor] : null;
+    if (
+      word !== null &&
+      TERM_COMPLEMENT_PREPOSITIONS.has(word) &&
+      !TRANSPARENT_INTERVAL_PREPOSITIONS.has(word)
+    ) {
+      continue;
+    }
+
     const fronted = allFraming(normalized.slice(0, start));
     const trailing = allFraming(normalized.slice(end));
     if (fronted || trailing) return { operand, start, end };

@@ -123,9 +123,13 @@ describe("a period that cannot be stated refuses", () => {
   });
 
   it("refuses an operand it has no boundaries for", () => {
-    // "since last year" was in the operand set and is deliberately gone: at least three readings,
-    // no principle to choose between them. This asserts the resolver refuses rather than guesses,
-    // whatever the operand set happens to contain.
+    // "since last year" has at least three readings and no principle to choose between them, so the
+    // resolver refuses rather than guessing, whatever the operand set happens to contain.
+    //
+    // THE COMMENT HERE USED TO SAY IT WAS "deliberately gone" FROM THE OPERAND SET. It was not --
+    // it is still in `INTERVAL_OPERANDS`, and the parser was reaching this refusal only in theory,
+    // because the scan finds the shorter ` last year ` inside it first. See the anchored-interval
+    // controls in `tests/requestAuthority.test.ts` for what that cost.
     expect(resolveObservationPeriod("since last year", at("2026-08-25T12:00:00Z")).status).toBe(
       "INDETERMINATE",
     );

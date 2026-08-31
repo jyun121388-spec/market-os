@@ -23,6 +23,54 @@ STATUS as of 2026-08-18:
 
 ## The last thing done
 
+**2026-08-31 — the interval unit, `DEC-INTERVAL-FAMILY-20260831`. Two gates, and the second one's
+value is authority rather than recall.**
+
+Selected by whole-corpus measurement against the playbook's own suggestion. The bypass classifier
+named attributed-observation as the one TRUE_RECOGNITION_GAP, but it only sees the 10-row eligible
+population — the wrong lens for choosing a grammar family. The corpus-wide table said
+OBSERVED_CHANGE, at 1/60.
+
+| gate | what it bought                                                                   | corpus    |
+| ---- | -------------------------------------------------------------------------------- | --------- |
+| A    | typed `Interval` is the shared parser/resolver authority; resolver total over it | CHANGED 0 |
+| B/6  | parser stops keeping its own operand list; longest match                         | CHANGED 0 |
+| B/7B | one change-nominal family, closed head slot                                      | CHANGED 1 |
+
+**A P1 fell out of starting Gate A, and it was a wrong number rather than a gap.**
+`change in US CPI since last year` and `... last year` returned the IDENTICAL authorization — at
+asOf 2026-08-25 both resolved 2025-01-01..2025-12-31, so `since` silently lost eight months and
+`before last year` was answered with the COMPLEMENT of the period it named. All six of
+`since|from|after|before|until|through` behaved that way: a class, measured, not an instance.
+Repaired with an ALLOWLIST of transparent prepositions rather than a denylist of anchors — a
+denylist admits on omission, an allowlist only refuses.
+
+**Gate A** made `Interval` a value and `resolveInterval` exhaustive over it, checked by the compiler
+instead of by a `default` branch apologising for drift. Every pre-existing operand resolves
+byte-identically. **Gate B/6** deleted `INTERVAL_OPERANDS` — the two lists had already drifted,
+which is how `since last year` reached a resolver case that did not exist — and replaced
+first-in-list-wins with LONGEST MATCH, closing the shadowing class by construction.
+
+**Gate B/7B** is `the <HEAD> in <SUBJECT> <INTERVAL>` with a closed head slot, rows derived from the
+class rather than typed out. `DEV-EN-038` is recognised; `delta`, `shift` and `movement` are
+refused although they appear in the corpus in the same role, because every one of those rows carries
+an interval this grammar cannot resolve — admitting them would recognise nothing and would be the
+speculative enumeration the architecture pass prohibited.
+
+**The decision's cited examples did not match the repository, and that decided the implementation.**
+It quoted DEV-EN-038 as an `ITGM revenue` string and DEV-EN-045 as `EXAI ASSETS`; neither exists in
+the corpus. Item 2 authorized only `change` while item 5 required DEV-EN-038, whose head is `move` —
+irreconcilable as written. Resolved by item 2's own evidence test, and reported rather than quietly
+reinterpreted.
+
+Not done, and deliberately: anchor semantics (`since <anchor>`), two-endpoint ranges, incomplete
+dates, fiscal periods, year-on-year, peak-to-trough. All out of scope per the decision's item 5, and
+all of them are what currently blocks the remaining OBSERVED_CHANGE rows.
+
+4 change-nominal + 5 interval + 4 anchored-interval mutants, 13 of 13 ISOLATED with exact
+cardinalities full suite 138 files / 2445 pass / 19 expected fail exact-head CI `33370069003`
+SUCCESS at `3d90ea6`
+
 **2026-08-30 — MARKET-DEFINITION-GRAMMAR-001. Structural DEFINITION recognition, EN and KO.
 9/60 → 26/60 of the corpus's definitional requests, zero coercions, zero planner calls.**
 

@@ -820,12 +820,12 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2440 / 2440 PASS across 138 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2421 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2464 / 2464 PASS across 138 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2445 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-08-31 on `claude/ask-guardrail-architecture-20260823` at the exact SHA recorded in
-`docs/CURRENT_TASK.md` for MARKET-DEFINITION-GRAMMAR-001, from one fresh run on that tree.
+MEASURED 2026-08-31 on `claude/ask-guardrail-architecture-20260823` at `3d90ea6`, from one fresh
+run on that tree, with exact-head CI `33370069003` SUCCESS.
 
 PROVENANCE CORRECTION, and the defect is instructive. This line read `2412 / 2412 ... measured
 2026-08-28`, and the count had been revised upward on 2026-08-30 while the DATE was left alone.

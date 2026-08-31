@@ -55,6 +55,60 @@ Appending `, if you have it` to an otherwise answerable request makes it PROHIBI
 specific to one operation — a definition goes the same way — and `, if available` does NOT, so the
 trigger is the second-person possession wording rather than the hedge itself.
 
+MECHANISM, LOCALIZED BY MEASUREMENT (2026-08-31, HEAD `c772c4d`). The heading above is wrong about
+what this is, and the correction is the finding. It is not a hedge-vocabulary problem. A trailing
+construction's SUBJECT REGION runs to the end of the request, and only ONE trailing constituent —
+the interval, via `withoutInterval` — is ever taken back out of it. Everything else after the
+subject is absorbed INTO the subject and then tested as if it were the subject. Printing the bound
+region says so directly:
+
+    "What is the latest US CPI reading?"                    subj=[ us cpi reading ]
+    "What is the latest US CPI reading, if available?"      subj=[ us cpi reading if available ]
+    "What is the latest US CPI reading, thanks?"            subj=[ us cpi reading thanks ]
+    "What is the latest US CPI reading, if the desk has it?"
+                                                    subj=[ us cpi reading if the desk has it ]
+    "What is the latest US CPI reading, if you have it?"    PROHIBITED
+
+So `, if available` is not handled correctly — it is handled WRONGLY AND QUIETLY. The adjunct binds
+as part of the subject the repository will be asked to match; the row only survives because English
+subject identity is `OCCURRENCE`, so a stored name occurring inside the corrupted region still
+matches. `, if you have it` is the same absorption with a louder consequence: `you` lands in
+`PERSONAL_PRONOUNS`, whose own comment justifies the class as "a question about the person asking",
+which the addressee is not.
+
+The exact-cover machinery that should have caught this is present and correct — `match.residue`
+refuses anything the grammar did not read, as UNSUPPORTED. It never fires here because the region
+is a SINK: material that was never read is nonetheless counted as read, by being called the subject.
+
+WHAT THE MEASUREMENT ALSO SHOWS, and it is the part that makes a repair tractable. The genuine
+negative controls do NOT rent their refusal from this mechanism. All three mixed factual+directive
+corpus rows are refused by the advice detector on its own absolute precedence, not by the absorbed
+pronoun:
+
+    DEV-EN-171 / 173 / 178   PROHIBITED  "asks the product to decide, choose or act on the
+                                          reader's behalf"
+    DEV-EN-024               PROHIBITED  "the subject of the request is the reader"   <- only this
+                                          one is the false positive
+
+Whole development corpus, 500 rows: 18 carry a trailing comma-adjunct; of those, 4 are PROHIBITED
+(3 correctly, 1 falsely), 2 are AUTHORIZED with a visibly corrupted subject (DEV-EN-015,
+DEV-EN-030, both `please`), and both of those are stopped downstream at `blocked/FRAME_NOT_PROVEN`,
+so the corruption is latent rather than serving-visible today. Baseline at this HEAD: 78 AUTHORIZED
+/ 52 PROHIBITED / 16 AMBIGUOUS / 354 UNSUPPORTED, 0 planner calls across all 500, 0 THREW, real
+local PostgreSQL through `answerWithInference()`.
+
+DIRECTION OF REPAIR, recorded so the next unit does not start from the wrong end: stop the subject
+region being a sink. Its right edge must be a boundary, and the remainder must be a constituent
+that is either CONSUMED as a licensed adjunct or routed to residue and refused. Licensing must be
+derivable rather than listed — an adjunct that binds no operand, carries no clause connective and
+no first-person possessive, and does not trip the advice detector — because a phrase list of
+politeness forms is the open-class enumeration this project has already paid for repeatedly. An
+unlicensed adjunct must REFUSE, never admit.
+
+MEASURED WITH, all read-only and committed alongside this entry: `scripts/ir112-probe.ts`,
+`ir112-subject.ts`, `ir112-negative.ts`, `ir112-corpus.ts`, `ir112-counterfactual.ts`. English only;
+the Korean path was not measured and no claim is made about it. No sealed holdout was opened.
+
 WHY THIS IS WORSE THAN A RECALL GAP. UNSUPPORTED says the product could not read the request.
 PROHIBITED says the request was not allowed to be asked, and `docs/LEGAL_GUARDRAILS.md` gives that
 screen absolute precedence over every other reading. A reader who politely writes "if you have it"

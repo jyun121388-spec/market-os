@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveObservationPeriod } from "@/server/domain/observationPeriod";
+import {
+  parseInterval,
+  resolveInterval,
+  resolveObservationPeriod,
+} from "@/server/domain/observationPeriod";
 
 /**
  * What each interval operand MEANS, against a frozen clock.
@@ -155,5 +159,147 @@ describe("the clock decides, and only the clock", () => {
     process.env.TZ = original;
     expect(new Set(results).size).toBe(1);
     expect(results[0]).toBe("2025-10-01..2025-12-31");
+  });
+});
+
+describe("the trailing family, and what it is NOT", () => {
+  const at = (iso: string) => new Date(iso);
+  const dates = (phrase: string, clock: string) => {
+    const r = resolveObservationPeriod(phrase, at(clock));
+    if (r.status !== "RESOLVED") throw new Error(`${phrase} did not resolve`);
+    return `${r.period.start}..${r.period.until} running=${r.period.running}`;
+  };
+
+  it("counts back from the clock, in days for day and week", () => {
+    // A trailing week is seven days back, NOT the ISO calendar week. The decision names the
+    // distinction because the two are different periods reachable by different phrases.
+    expect(dates("over the past 6 weeks", "2026-08-25T12:00:00Z")).toBe(
+      "2026-07-14..2026-08-25 running=true",
+    );
+    expect(dates("over the past 10 days", "2026-08-25T12:00:00Z")).toBe(
+      "2026-08-15..2026-08-25 running=true",
+    );
+  });
+
+  it("counts back by exact calendar day for month, quarter and year", () => {
+    expect(dates("over the past 3 months", "2026-08-25T12:00:00Z")).toBe(
+      "2026-05-25..2026-08-25 running=true",
+    );
+    // A trailing quarter is 3N months, not a calendar quarter.
+    expect(dates("over the past 1 quarter", "2026-08-25T12:00:00Z")).toBe(
+      "2026-05-25..2026-08-25 running=true",
+    );
+    expect(dates("over the past 2 years", "2026-08-25T12:00:00Z")).toBe(
+      "2024-08-25..2026-08-25 running=true",
+    );
+  });
+
+  it("keeps `last quarter` a COMPLETE calendar quarter, distinct from the trailing one", () => {
+    // THE DISCRIMINATION the decision asks for by name. Same clock, two phrases, two periods --
+    // and the complete one is not running, which is the property the whole module exists to hold.
+    expect(dates("last quarter", "2026-08-25T12:00:00Z")).toBe(
+      "2026-04-01..2026-06-30 running=false",
+    );
+    expect(dates("over the past 1 quarter", "2026-08-25T12:00:00Z")).toBe(
+      "2026-05-25..2026-08-25 running=true",
+    );
+  });
+
+  it("maps the pre-existing fixed operands onto the same family as N=1", () => {
+    // Item 4: these must keep their current behaviour exactly. `over the past year` and
+    // `over the past 1 year` are the same interval said two ways.
+    const clock = "2026-08-25T12:00:00Z";
+    expect(dates("over the past year", clock)).toBe(dates("over the past 1 year", clock));
+    expect(dates("over the past month", clock)).toBe(dates("over the past 1 month", clock));
+    expect(parseInterval("over the past year")).toEqual({
+      kind: "TRAILING",
+      count: 1,
+      unit: "year",
+    });
+  });
+
+  it("refuses a non-existent calendar day rather than clamping it", () => {
+    // 31 March minus one month is not 28 February; it is nothing. Clamping would answer about a
+    // period the request did not name.
+    expect(
+      resolveObservationPeriod("over the past 1 month", at("2026-03-31T12:00:00Z")).status,
+    ).toBe("INDETERMINATE");
+    expect(
+      resolveObservationPeriod("over the past 1 year", at("2024-02-29T12:00:00Z")).status,
+    ).toBe("INDETERMINATE");
+    // And the same for a multi-unit count that lands on the same impossible day.
+    expect(
+      resolveObservationPeriod("over the past 2 quarters", at("2026-08-31T12:00:00Z")).status,
+    ).toBe("INDETERMINATE");
+  });
+
+  it("fails closed on every malformed count and unsupported unit", () => {
+    // Item 1: zero, negative, fractional, missing unit, unsupported unit, and a cardinal outside
+    // the closed set. Each must be UNPARSEABLE -- null, not a default.
+    for (const phrase of [
+      "over the past 0 weeks",
+      "over the past -3 weeks",
+      "over the past 1.5 years",
+      "over the past several weeks",
+      "over the past few months",
+      "over the past 6 fortnights",
+      "over the past 6",
+      "over the past weeks extra",
+      "since last year",
+      "between january and june",
+    ]) {
+      expect(parseInterval(phrase), phrase).toBeNull();
+      expect(resolveObservationPeriod(phrase, at("2026-08-25T12:00:00Z")).status, phrase).toBe(
+        "INDETERMINATE",
+      );
+    }
+  });
+
+  it("accepts a closed set of cardinal words as well as digits", () => {
+    // An omission here REFUSES rather than admitting a guess, which is why a list is tolerable in
+    // this position at all. `several` is not a number and never becomes one.
+    expect(parseInterval("over the past six weeks")).toEqual({
+      kind: "TRAILING",
+      count: 6,
+      unit: "week",
+    });
+    expect(parseInterval("over the past twelve months")).toEqual({
+      kind: "TRAILING",
+      count: 12,
+      unit: "month",
+    });
+    expect(parseInterval("over the past six weeks")).toEqual(
+      parseInterval("over the past 6 weeks"),
+    );
+  });
+
+  it("resolves EVERY value the grammar admits, so parser and resolver cannot drift", () => {
+    // Item 6, as an executable property rather than a promise in a comment. Anything `parseInterval`
+    // returns must resolve, and the only INDETERMINATE allowed is the impossible-calendar-day one.
+    const clock = at("2026-08-17T12:00:00Z"); // a 17th exists in every month
+    const units = ["day", "week", "month", "quarter", "year"];
+    for (const unit of units) {
+      for (const count of [1, 2, 7, 12]) {
+        const phrase = `over the past ${count} ${unit}s`;
+        const interval = parseInterval(phrase);
+        expect(interval, phrase).not.toBeNull();
+        expect(resolveInterval(interval!, clock).status, phrase).toBe("RESOLVED");
+      }
+    }
+    for (const phrase of [
+      "this week",
+      "last week",
+      "this month",
+      "last month",
+      "this quarter",
+      "last quarter",
+      "this year",
+      "last year",
+      "year to date",
+    ]) {
+      const interval = parseInterval(phrase);
+      expect(interval, phrase).not.toBeNull();
+      expect(resolveInterval(interval!, clock).status, phrase).toBe("RESOLVED");
+    }
   });
 });

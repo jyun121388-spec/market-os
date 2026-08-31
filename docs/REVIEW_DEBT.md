@@ -139,6 +139,41 @@ segment the sentence, which was removed before. A closed subordinator class (`if
 `while`, ...) is finite and positively statable, but its omission direction is wrong: a subordinator
 left out keeps its clause inside the subject, which ADMITS. Recorded as considered and rejected.
 
+THE COUNTERFACTUAL, AND IT COMES BACK NEGATIVE. `scripts/ir112-counterfactual-boundary.ts`. This
+repository has already solved "where does a constituent end" once, for sentence terminators:
+`fragments` carry RAW-query coordinates, and `confirmedBoundary` accepts a break only on the TAIL'S
+TEXT — a clause-initial token, a boundary-adjacent determiner, or Hangul carrying a predicate. Its
+own comment says why nothing cheaper works: "At the cover level the bad case and the good one are
+the SAME OBJECT: fragment 0 reads, fragment 1 does not, the join reads."
+
+So the counterfactual changes exactly one thing and holds the authority fixed — candidate geometry
+widened from terminators to the COMMA, accept/reject still the existing positive tail-text rule.
+Punctuation as geometry, clause-opening evidence as authority. Over the 29 comma-bearing corpus
+rows it is well behaved: 24 confirmed, 5 not, and `Smith, Jones revenue` is correctly among the 5,
+so the old comma/identity failure class does not return.
+
+It still does not repair IR-112, and the reason is exact:
+
+    "if you have it"   CONFIRMED      but because `have` is an auxiliary in the class,
+                                      not because of anything about the adjunct
+    "if available"     NOT CONFIRMED
+    "thanks"           NOT CONFIRMED
+    "please"           CONFIRMED      it is an imperative opener
+
+The mechanism splits the very class IR-112 names, along a line unrelated to the defect, and the one
+member it catches it catches by luck. That is coverage, not grammar. Per item 6 of
+`[CHATGPT_DECISION][MARKET-IR112-RIGHT-EDGE-REFRAME-20260831]`:
+**`NO_SAFE_REPAIR_FOR_THAT_CONSTRUCTION`** — the eleven opener-only constructions stay fail-closed
+and IR-112 stays open debt rather than being closed on a guessed boundary.
+
+SIDE FINDING, checked before being claimed and then downgraded. `CLAUSE_OPENING_TOKENS` carries
+`will would can could may might must` but not `should` or `shall` — a hand-written closed modal
+paradigm with two members missing, which is the omission pattern this module's own comments keep
+recording. It has NO measured consequence: `scripts/ir112-modal-gap.ts` varies only the modal
+across a real sentence boundary, and `Should`/`Shall` come back PROHIBITED via the advice detector
+while all seven present modals are UNSUPPORTED. The advice screen's precedence happens to cover
+exactly the two that are missing. Recorded as inert, not as a P1.
+
 WHY THIS IS WORSE THAN A RECALL GAP. UNSUPPORTED says the product could not read the request.
 PROHIBITED says the request was not allowed to be asked, and `docs/LEGAL_GUARDRAILS.md` gives that
 screen absolute precedence over every other reading. A reader who politely writes "if you have it"

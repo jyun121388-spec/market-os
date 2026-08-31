@@ -18,10 +18,39 @@ STATUS as of 2026-08-18:
 - Shadow layers implemented: Reality Fabric projection, Verify, Governance policy engine,
   Evolution ledger and detector — plus the provider-vintage contract that ties them together.
 
-- Provider capability matrix covers 13 axes × 4 providers. Only SEC_EDGAR has live evidence;
-  FRED, ECOS and OpenDART are entirely NOT_VERIFIED behind HG-002/003/004.
+- Provider capability matrix covers 14 axes × 4 providers = 56 cells. Only SEC_EDGAR has live
+  evidence; FRED, ECOS and OpenDART are entirely NOT_VERIFIED behind HG-002/003/004, which is 42 of
+  the 56. Counted 2026-08-31 by running the matrix. This line said 13, and the suite has asserted
+  14 for as long as the fourteenth axis has existed — a documented number nobody re-measured, which
+  is the failure class the "last thing learned" section at the bottom of this file is about.
 
 ## The last thing done
+
+**2026-08-31 — the capability-gate invariant, chosen by RUNNING the scheduler rather than by
+picking.** `scheduleNextWork()` returned 5 actionable / 0 deferred with `CLUSTER-PROVIDER_ASSUMPTION`
+top-ranked (5 observed instances, 4 subsystems, P1, SYSTEMIC) and the only one of the five carrying
+no Human Gate. Its proposed change has two halves; the live-verification half is credential-blocked
+behind HG-002/003/004, and the other half — every NOT_VERIFIED cell names the gate that would clear
+it — needs nothing but this repository.
+
+Audited first: the convention was already intact, 42 of 42 cells naming a gate and no resolved cell
+carrying a stray one. So there was no data to fix, and the work was to stop it being a convention.
+`CapabilityEvidence` is now a discriminated union — `NOT_VERIFIED` REQUIRES `blockedBy`, every other
+state FORBIDS it — so both violations fail to compile (TS2322 on each, demonstrated in
+`scripts/capability-type-proof.ts`). Two runtime checks were DELETED rather than kept, because a
+test for something the compiler already refuses can never fail and reads like coverage.
+
+What a type cannot say is that the gate EXISTS, and `HG-999` passed every check the suite had. One
+test added for that, against `docs/HUMAN_GATE_QUEUE.md` as the register. Mutations, predictions
+written before running and all three matched: `M-CAPGATE-UNDOCUMENTED` exactly 1 red (the new test
+alone, proving the old shape test does not cover it), `M-CAPGATE-SHAPE` exactly 2, and
+`M-CAPGATE-REGISTER` MISSED as declared — the empty-register guard protects a future edit to the
+register path and nothing exercises it today.
+
+One trap worth carrying forward: the first attempt to prove the type rejected the violations put
+them in a DOT-PREFIXED file and reported zero errors. TypeScript's include globs skip dotfiles, so
+the compiler never opened it. A silent zero from a file nobody compiled is indistinguishable from a
+pass.
 
 **2026-08-31 — the interval unit, `DEC-INTERVAL-FAMILY-20260831`. Two gates, and the second one's
 value is authority rather than recall.**

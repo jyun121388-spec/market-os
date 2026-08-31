@@ -83,16 +83,38 @@ export type CapabilityAxis =
   /** Whether the provider marks a value provisional, so a preliminary figure is not read as final. */
   | "preliminary_final_identity";
 
-export interface CapabilityEvidence {
-  state: CapabilityState;
+interface CapabilityEvidenceBase {
   /** The mechanism, in the provider's own vocabulary. Null where there is none to name. */
   field: string | null;
   /** How we know. Required — a state with no basis is an opinion with a type annotation. */
   basis: string;
   provenance: CapabilityProvenance;
-  /** The gate blocking verification, where one does. */
-  blockedBy?: string;
 }
+
+/**
+ * Evidence about one axis, with the gate bound to the state that needs one.
+ *
+ * `blockedBy` used to be optional on every state, which made "every NOT_VERIFIED cell names the
+ * gate that would clear it" a CONVENTION held up by the `unverified()` helper rather than a
+ * property of the type. An audit found the convention intact — 42 of 42 cells named a gate, and no
+ * resolved cell carried a stray one — and an invariant that currently holds is exactly the one
+ * worth making unbreakable, because the next cell written by hand is the one that breaks it.
+ *
+ * Both directions are enforced, and the second is not decoration. A gate on a SUPPORTED cell would
+ * say a live response is still waiting on a credential, which is the same false "we do not know
+ * yet" that `NOT_VERIFIED` exists to distinguish from a real limitation.
+ */
+export type CapabilityEvidence =
+  | (CapabilityEvidenceBase & {
+      state: "NOT_VERIFIED";
+      /** The gate that would clear it. Required: debt nobody can act on is indistinguishable from a limitation. */
+      blockedBy: string;
+    })
+  | (CapabilityEvidenceBase & {
+      state: Exclude<CapabilityState, "NOT_VERIFIED">;
+      /** Nothing is blocked, so naming a blocker would be a claim with no referent. */
+      blockedBy?: never;
+    });
 
 export interface ProviderCapabilityProfile {
   sourceCode: string;

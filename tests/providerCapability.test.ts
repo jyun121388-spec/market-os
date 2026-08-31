@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CAPABILITY_AXES,
@@ -52,6 +53,11 @@ describe("what a capability cell is allowed to claim", () => {
   /**
    * Verification debt with no owner is not debt, it is a shrug. Every NOT_VERIFIED must name the
    * gate that would clear it, so the matrix doubles as a work list rather than a list of regrets.
+   *
+   * PRESENCE is no longer this test's job and must not be added back: `CapabilityEvidence` is a
+   * discriminated union in which `NOT_VERIFIED` requires `blockedBy` and every other state forbids
+   * it, so a cell without a gate does not compile. What is left here is the SHAPE, which the type
+   * cannot check.
    */
   it("names the gate behind every unverified capability", () => {
     for (const profile of PROVIDER_CAPABILITIES) {
@@ -60,6 +66,31 @@ describe("what a capability cell is allowed to claim", () => {
         if (cell.state === "NOT_VERIFIED") {
           expect(cell.blockedBy, `${profile.sourceCode}.${axis}`).toMatch(/^HG-\d+$/);
         }
+      }
+    }
+  });
+
+  /**
+   * And the gate has to be a gate that EXISTS.
+   *
+   * A well-shaped id is not an owner. `HG-999` passes the shape test above, names nothing, and
+   * turns a work list back into the list of regrets the previous test exists to prevent — the same
+   * failure as an unowned cell, wearing the format that was supposed to rule it out. The gate
+   * register is `docs/HUMAN_GATE_QUEUE.md`, so that is what the cell is checked against rather
+   * than against a second copy of the ids kept here.
+   */
+  it("every gate a cell names is a gate the human-gate queue actually carries", () => {
+    const register = readFileSync("docs/HUMAN_GATE_QUEUE.md", "utf8");
+    const documented = new Set(register.match(/\bHG-\d{3}\b/g) ?? []);
+    expect(documented.size, "no gate ids found in docs/HUMAN_GATE_QUEUE.md").toBeGreaterThan(0);
+    for (const profile of PROVIDER_CAPABILITIES) {
+      for (const axis of CAPABILITY_AXES) {
+        const cell = profile.axes[axis];
+        if (cell.state !== "NOT_VERIFIED") continue;
+        expect(
+          documented.has(cell.blockedBy),
+          `${profile.sourceCode}.${axis} names ${cell.blockedBy}, which HUMAN_GATE_QUEUE.md does not carry`,
+        ).toBe(true);
       }
     }
   });

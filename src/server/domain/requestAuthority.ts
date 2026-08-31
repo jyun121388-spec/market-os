@@ -505,11 +505,51 @@ interface Construction {
  * phrase. Adding to this list is how the product gains a way of being asked something; it is not a
  * place to accumulate synonyms, and an unrecognised phrasing is UNSUPPORTED rather than guessed at.
  */
+/**
+ * Heads of the change-nominal construction `the <HEAD> in <SUBJECT> <INTERVAL>`.
+ *
+ * A CLOSED SLOT inside one structural construction, which is what
+ * `[CHATGPT_DECISION][MARKET-OS][DEC-CHANGE-CONSTRUCTION-20260831]` authorizes -- not a free phrase
+ * inventory, and not a row per synonym. The rows below are DERIVED from this class rather than
+ * typed out, so the family has one definition and adding a head is a deliberate act with evidence
+ * attached rather than a copy-paste.
+ *
+ * EVERY MEMBER NEEDS AN ACTUAL CORPUS ROW IN THIS EXACT GRAMMATICAL ROLE. That is the decision's own
+ * test for admitting a head, and it is the difference between a construction and the phrase
+ * authority the architecture pass prohibited.
+ *
+ *   change  DEV-EN-032, "What was the change in the KOSPI over the last quarter?" -- already
+ *           recognised before this unit, by the single literal row this class replaces.
+ *   move    DEV-EN-038, "Give me the move in the 10-year Treasury yield over the past six weeks."
+ *
+ * DELIBERATELY ABSENT: `delta`, `shift`, `movement`. Each does appear in the corpus in this role --
+ * `the delta in Korean semiconductor exports`, `the movement in the USD/KRW rate` -- but every one
+ * of those rows carries an interval this grammar cannot resolve (`between the first half and second
+ * half of last year`, `over the last fortnight`), so admitting the head would recognise nothing and
+ * would be exactly the speculative synonym enumeration the decision forbids. They become admissible
+ * the day their interval does, and not before.
+ *
+ * A NOTE ON THE DECISION'S CITED EXAMPLES, because the difference is load-bearing rather than
+ * pedantic. It quotes DEV-EN-038 as "how much was the change in ITGM revenue over the past 5 years?"
+ * and DEV-EN-045 as "EXAI ASSETS, change this week?". Neither string exists anywhere in the corpus:
+ * DEV-EN-038 is the `move in` row above and DEV-EN-045 is "the Baltic Dry Index, change over the
+ * past 30 days?". Taken literally, item 2 authorizes only `change` while item 5 requires DEV-EN-038
+ * recognised -- and DEV-EN-038's head is `move`, so those two cannot both hold. `move` is included
+ * because item 2's own evidence test admits it: DEV-EN-038 IS an actual supported example of that
+ * grammatical role. The discrepancy is reported rather than quietly resolved.
+ */
+const CHANGE_NOMINAL_HEADS = ["change", "move"] as const;
+
+const CHANGE_NOMINAL_CONSTRUCTIONS: readonly Construction[] = CHANGE_NOMINAL_HEADS.map((head) => ({
+  operation: "OBSERVED_CHANGE" as const,
+  markers: [` ${head} in `, null] as const,
+}));
+
 const CONSTRUCTIONS: readonly Construction[] = [
   { operation: "CURRENT_OBSERVATION", markers: [" current ", null] },
   { operation: "CURRENT_OBSERVATION", markers: [" latest ", null] },
   { operation: "CURRENT_OBSERVATION", markers: [" most recent ", null] },
-  { operation: "OBSERVED_CHANGE", markers: [" change in ", null] },
+  ...CHANGE_NOMINAL_CONSTRUCTIONS,
   { operation: "OBSERVED_CHANGE", markers: [" changed ", null], subjectSide: "BEFORE" },
   { operation: "OBSERVED_CHANGE", markers: [" moved ", null], subjectSide: "BEFORE" },
   { operation: "OBSERVED_CHANGE", markers: [" rose ", null], subjectSide: "BEFORE" },

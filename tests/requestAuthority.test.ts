@@ -1457,3 +1457,85 @@ describe("the parser asks one grammar for what an interval means", () => {
     ).not.toBe("OBSERVED_CHANGE");
   });
 });
+
+describe("the change-nominal construction family", () => {
+  const operationOf = (query: string) => {
+    const a = resolveRequestAuthority(query);
+    return a.status === "AUTHORIZED" ? a.operation : a.status;
+  };
+  const intervalOf = (query: string) => {
+    const a = resolveRequestAuthority(query);
+    return a.status === "AUTHORIZED" ? (a.interval ?? null) : null;
+  };
+
+  it("recognises the motivating row, and binds the interval it actually names", () => {
+    // DEV-EN-038, and the whole point of the family. `move` is admitted because this row IS the
+    // evidence for that grammatical role, not because a synonym list was extended.
+    const query = "Give me the move in the 10-year Treasury yield over the past six weeks.";
+    expect(operationOf(query)).toBe("OBSERVED_CHANGE");
+    expect(intervalOf(query)).toBe("over the past six weeks");
+  });
+
+  it("keeps the head the family already had", () => {
+    // DEV-EN-032. The literal ` change in ` row was REPLACED by the derived family, so this is the
+    // regression that proves the replacement lost nothing.
+    expect(operationOf("What was the change in the KOSPI over the last quarter?")).toBe(
+      "OBSERVED_CHANGE",
+    );
+  });
+
+  it("refuses when the interval is absent rather than defaulting one", () => {
+    // The interval is load-bearing. A change with no period is not a question anyone can answer,
+    // and guessing one would answer about a period the request never named.
+    expect(operationOf("What was the change in US CPI?")).not.toBe("OBSERVED_CHANGE");
+    expect(operationOf("Give me the move in the 10-year Treasury yield.")).not.toBe(
+      "OBSERVED_CHANGE",
+    );
+  });
+
+  it("refuses an interval the typed grammar cannot resolve", () => {
+    // `over the last fortnight` and a half-to-half range are real corpus phrasings this grammar has
+    // no semantics for. Unsupported must refuse, not approximate.
+    expect(
+      operationOf("What was the movement in the USD/KRW rate over the last fortnight?"),
+    ).not.toBe("OBSERVED_CHANGE");
+    expect(
+      operationOf(
+        "What is the delta in Korean semiconductor exports between the first half and second half of last year?",
+      ),
+    ).not.toBe("OBSERVED_CHANGE");
+  });
+
+  it("needs the `in` relation, not merely the head next to a subject", () => {
+    // DEV-EN-045, `the Baltic Dry Index, change over the past 30 days?`, is an APPOSITIVE and is
+    // explicitly NOT authorized by this decision. It stays unresolved on purpose, and this pins it
+    // so that a later loosening of the relation cannot pick it up silently.
+    expect(operationOf("the Baltic Dry Index, change over the past 30 days?")).not.toBe(
+      "OBSERVED_CHANGE",
+    );
+    expect(
+      operationOf("Give me the move the 10-year Treasury yield over the past six weeks."),
+    ).not.toBe("OBSERVED_CHANGE");
+  });
+
+  it("does not turn an adjacent level or definition question into a change", () => {
+    // The family must not reach across into the operations either side of it.
+    expect(operationOf("What is the current US headline CPI?")).toBe("CURRENT_OBSERVATION");
+    expect(operationOf("What is a Eurodollar?")).toBe("DEFINITION");
+    expect(operationOf("What is the level of the KOSPI over the last quarter?")).not.toBe(
+      "OBSERVED_CHANGE",
+    );
+  });
+
+  it("admits no head that has no corpus row in this role", () => {
+    // `delta`, `shift` and `movement` all appear in the corpus in exactly this grammatical role, and
+    // are all DELIBERATELY absent, because every one of those rows carries an interval this grammar
+    // cannot resolve -- so admitting the head would recognise nothing and would be the speculative
+    // synonym enumeration the decision forbids. With a resolvable interval they still refuse, which
+    // is what makes this a closed slot rather than a growing list.
+    for (const head of ["delta", "shift", "movement", "swing", "variation"]) {
+      const query = `Give me the ${head} in the 10-year Treasury yield over the past six weeks.`;
+      expect(operationOf(query), query).not.toBe("OBSERVED_CHANGE");
+    }
+  });
+});

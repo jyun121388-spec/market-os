@@ -820,15 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2465 / 2465 PASS across 138 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2446 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2466 / 2466 PASS across 138 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2447 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-08-31 on `claude/ask-guardrail-architecture-20260823` at `39c5377` plus the
-capability-gate unit committed on top of it, from one fresh run on that tree. The count moved by
-one: `providerCapability.test.ts` gained "every gate a cell names is a gate the human-gate queue
-actually carries". Date, SHA and what changed are written in one edit, because the last correction
-here was a count revised upward while the date was left alone.
+MEASURED 2026-08-31 on `claude/ask-guardrail-architecture-20260823` at `c6e1e18` plus the
+gate-ownership rework committed on top of it, from one fresh run on that tree. The count moved by
+two across the capability-gate unit and its review rework: `providerCapability.test.ts` gained
+"every gate a cell names is a gate the human-gate queue actually carries" and then "the gate a cell
+names is the gate that owns that provider's verification". Date, SHA and what changed are written
+in one edit, because the last correction here was a count revised upward while the date was left
+alone.
 
 PROVENANCE CORRECTION, and the defect is instructive. This line read `2412 / 2412 ... measured
 2026-08-28`, and the count had been revised upward on 2026-08-30 while the DATE was left alone.

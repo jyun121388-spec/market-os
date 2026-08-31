@@ -41,11 +41,22 @@ state FORBIDS it — so both violations fail to compile (TS2322 on each, demonst
 test for something the compiler already refuses can never fail and reads like coverage.
 
 What a type cannot say is that the gate EXISTS, and `HG-999` passed every check the suite had. One
-test added for that, against `docs/HUMAN_GATE_QUEUE.md` as the register. Mutations, predictions
-written before running and all three matched: `M-CAPGATE-UNDOCUMENTED` exactly 1 red (the new test
-alone, proving the old shape test does not cover it), `M-CAPGATE-SHAPE` exactly 2, and
-`M-CAPGATE-REGISTER` MISSED as declared — the empty-register guard protects a future edit to the
-register path and nothing exercises it today.
+test added for that, against `docs/HUMAN_GATE_QUEUE.md` as the register.
+
+**Then review found what existence still does not buy, and it reproduced.** `HG-007` is production
+deployment and `HG-008` is payment activation — both real, both in the register, neither owning
+FRED's live response. Pointed at either, a FRED cell passed shape and existence and was still a lie
+about who could clear it: the same defect as `HG-999` wearing a valid id instead of a valid format.
+Occurrence was never the claim; ownership was. Reproduced first (both returned `shape=true,
+inRegister=true`), then closed with a second test that DERIVES the relation from the register's own
+`## HG-002 — FRED API key` headings rather than restating it as a parallel table, and fails closed
+when a provider's section is missing or duplicated.
+
+Mutations, all four predicted before running and all four matching:
+`M-CAPGATE-WRONGGATE` exactly 1 red — the ownership test alone, and two reds there would mean
+existence had started deciding ownership by accident; `M-CAPGATE-UNDOCUMENTED` 2;
+`M-CAPGATE-SHAPE` 3; `M-CAPGATE-REGISTER` MISSED as declared, its guard protecting a future edit to
+the register path that nothing exercises today.
 
 One trap worth carrying forward: the first attempt to prove the type rejected the violations put
 them in a DOT-PREFIXED file and reported zero errors. TypeScript's include globs skip dotfiles, so

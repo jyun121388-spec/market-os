@@ -95,6 +95,59 @@ describe("what a capability cell is allowed to claim", () => {
     }
   });
 
+  /**
+   * And it has to be THE gate that would clear THIS provider, which existence does not establish.
+   *
+   * Review found the hole and it reproduces: `HG-007` is production deployment and `HG-008` is
+   * payment activation, both real, both present in the register, and neither owns FRED's live
+   * response. A FRED cell pointing at either passes the shape rule and the existence rule and is
+   * still a lie about who can clear it — the same defect as `HG-999`, wearing a valid id instead of
+   * a valid format. Occurrence was never the claim; ownership was.
+   *
+   * The relation is DERIVED from the register's own section headings rather than restated as a
+   * second table here. `## HG-002 — FRED API key` is where the binding already lives, and a copy
+   * kept in this file would be the parallel list that drifts.
+   *
+   * Fail-closed in both directions. A provider with no gate section cannot have NOT_VERIFIED cells,
+   * and a provider named by two sections is ambiguous rather than satisfied — either way the test
+   * fails rather than picking one.
+   */
+  it("the gate a cell names is the gate that owns that provider's verification", () => {
+    const register = readFileSync("docs/HUMAN_GATE_QUEUE.md", "utf8");
+    const sections = [...register.matchAll(/^## (HG-\d{3}) — (.+)$/gm)].map((m) => ({
+      gate: m[1],
+      title: m[2].toUpperCase(),
+    }));
+    expect(
+      sections.length,
+      "no gate sections parsed from docs/HUMAN_GATE_QUEUE.md",
+    ).toBeGreaterThan(0);
+
+    for (const profile of PROVIDER_CAPABILITIES) {
+      const unverified = CAPABILITY_AXES.map((axis) => profile.axes[axis]).filter(
+        (cell) => cell.state === "NOT_VERIFIED",
+      );
+      if (unverified.length === 0) continue;
+
+      // `SEC_EDGAR` -> `SEC EDGAR`, so a code written with an underscore still matches the prose
+      // heading. Nothing else about the code is transformed: a provider whose section does not
+      // name it is exactly the case this must refuse.
+      const provider = profile.sourceCode.replace(/_/g, " ");
+      const owning = sections.filter((s) => s.title.includes(provider));
+      expect(
+        owning.length,
+        `${profile.sourceCode} has ${unverified.length} unverified cells and ${owning.length} gate sections naming it; exactly one must own it`,
+      ).toBe(1);
+
+      for (const cell of unverified) {
+        expect(
+          cell.blockedBy,
+          `${profile.sourceCode} cells name ${cell.blockedBy}, but the gate that owns ${profile.sourceCode} is ${owning[0].gate} ("${owning[0].title}")`,
+        ).toBe(owning[0].gate);
+      }
+    }
+  });
+
   it("covers every axis for every provider, so a gap cannot hide as an absent row", () => {
     expect(CAPABILITY_AXES.length).toBe(14);
     for (const profile of PROVIDER_CAPABILITIES) {

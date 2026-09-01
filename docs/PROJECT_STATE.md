@@ -820,15 +820,14 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2513 / 2513 PASS across 140 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2494 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2522 / 2522 PASS across 141 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2503 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `554622a` plus the
-owner-cardinality correction committed on top of it, from one fresh run on that tree. Six controls
-added to `tests/e2eTreeBinding.test.ts` binding the socket-owner uniqueness rule and the
-two-observation agreement rule — both now exported pure functions, so the Windows decision is
-exercised on any platform rather than only where Windows runs. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `9c78d72` plus the
+presentation-order audit committed on top of it, from one fresh run on that tree. One new file,
+`tests/presentationOrder.test.ts`, with 9 controls over a question the recency audit structurally
+could not ask: whether the same request returns its rows in the same ORDER every time. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

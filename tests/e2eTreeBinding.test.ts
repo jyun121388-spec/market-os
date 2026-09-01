@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { beforeAll, describe, expect, it } from "vitest";
+import { discoverListener } from "../scripts/listener-discovery";
 import { checkTreeBinding, compareStartToSource, formatBinding } from "../scripts/e2e-tree-binding";
 
 /**
@@ -137,11 +138,14 @@ describe("what the report is allowed to imply", () => {
     expect(binding.limitations.length).toBeGreaterThanOrEqual(3);
     expect(binding.limitations.join(" ")).toContain("node_modules");
     expect(binding.limitations.join(" ")).toContain("recompiles");
-    // The platform limit has to be DECLARED, because it is the one that makes the check inert
-    // where merges are gated. Discovery is Windows-only; CI is Linux; every verdict there is
-    // UNPROVEN. Saying so in the report is the difference between a known gap and a silent one.
-    expect(binding.limitations.join(" ")).toContain("Windows-only");
-    expect(binding.limitations.join(" ")).toContain("gates nothing there today");
+    // The platform limit has to be DECLARED, and its wording has to track what the code actually
+    // does. It once said Windows-only and "gates nothing there today", which was true and made the
+    // check inert where merges are gated; Linux discovery closed that, and this assertion moved
+    // with it rather than being left to describe a state that no longer exists.
+    expect(binding.limitations.join(" ")).toContain("Windows and Linux only");
+    expect(binding.limitations.join(" ")).toContain("socket-ownership");
+    // The fail-closed conditions must stay named: unreadable, ambiguous, or changing mid-observation.
+    expect(binding.limitations.join(" ")).toContain("ambiguous");
   });
 
   it("says outright that a non-BOUND run is not evidence about the tree", () => {
@@ -262,5 +266,82 @@ describe("a listener that serves this checkout's build id", () => {
   it("closes the listener afterwards", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     expect(server.listening).toBe(false);
+  });
+});
+
+/**
+ * REAL discovery, with no override, against a listener this test owns.
+ *
+ * This is the control the platform gap needed. It runs the production path on whatever platform it
+ * is executing on — `Get-NetTCPConnection` on Windows, `/proc/net/tcp` inode to `/proc/<pid>/fd` on
+ * Linux — so neither implementation can rot unnoticed and neither is skipped anywhere. The listener
+ * is created in THIS process, so the owner is known independently: the answer must be `process.pid`
+ * and nothing else.
+ *
+ * Note what makes that assertion strong. Many `node` processes exist while the suite runs, and
+ * several share an image path and a `node_modules`. Selecting by name, image or age would pick one
+ * of them; only socket ownership picks this one.
+ */
+describe("socket-owner discovery, running the production path", () => {
+  let port = 0;
+  const server = createServer((_req, res) => {
+    res.statusCode = 404;
+    res.end("owned by this test");
+  });
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          port = typeof address === "object" && address ? address.port : 0;
+          resolve();
+        });
+      }),
+  );
+
+  // 30s, because these are the only tests here that touch real OS tooling. On Windows each
+  // discovery spawns PowerShell TWICE -- the race recheck -- and under full-suite load that
+  // exceeds the 5s default. The cost is a property of the platform, not a flake, so it is declared
+  // rather than absorbed by loosening the default for everything.
+  it("finds the process that actually owns the socket", { timeout: 30_000 }, () => {
+    const found = discoverListener(port);
+    expect(found, "no listener discovered for a socket this process owns").not.toBeNull();
+    expect(found?.pid).toBe(process.pid);
+    // The authority is printed so a reader can judge the evidence rather than trust the verdict.
+    expect(found?.authority).toContain("socket owner");
+    expect(found?.identityToken.length).toBeGreaterThan(0);
+  });
+
+  it(
+    "reaches the binding decision through real discovery, with no injected listener",
+    { timeout: 30_000 },
+    async () => {
+      // No `listenerOverride`. A late-starting foreign-shaped listener serving 404 must be
+      // COMPATIBLE and never BOUND -- the same claim as the injected control, now proven end to end.
+      const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+      expect(binding.observed.listenerPid).toBe(process.pid);
+      expect(binding.verdict).not.toBe("BOUND");
+      expect(binding.verdict).toBe("START_ORDER_COMPATIBLE");
+    },
+  );
+
+  it("fails closed on a port nothing is listening on", { timeout: 30_000 }, () => {
+    // Port 1 is privileged and unused here. Absence must be null, never a nearby process.
+    expect(discoverListener(1)).toBeNull();
+  });
+
+  it("fails closed on a port number that cannot be a port", { timeout: 30_000 }, () => {
+    for (const bad of [0, -1, 70000, 1.5, Number.NaN]) {
+      expect(discoverListener(bad), `port ${bad}`).toBeNull();
+    }
+  });
+
+  it("closes the listener afterwards", { timeout: 30_000 }, async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    expect(server.listening).toBe(false);
+    // And discovery must stop finding it, which also proves the earlier positive was about THIS
+    // socket rather than anything ambient on the machine.
+    expect(discoverListener(port)).toBeNull();
   });
 });

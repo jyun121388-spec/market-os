@@ -44,6 +44,36 @@ Tracks Codex reviews that are pending, deferred, or resulted in an unresolved di
 | M16       | Filing Diff cannot show an original-vs-restated comparison                                                     | Deliberate, recorded 2026-08-18 so it is not mistaken for the +233% bug returning. A period-over-period change now requires a DIFFERENT period end, which by construction excludes a restatement of the same period (same length, same end, different accession). That exclusion is correct: a restatement is not a period-over-period change and showing it in that section would be the same category error the +233% defect was. But it does mean restatements are currently invisible in the UI even though both rows are stored and provenance is intact. A "this figure was later restated" surface would be a real feature; it is not built, and is not being built speculatively                                                                                                        | PENDING            |
 | M11       | Unit strings are matched exactly and case-sensitively                                                          | `computeChange` branches on `unit === "percent"` to decide whether basis points are meaningful, and a series declared "Percent"/"pct"/"%" would silently return `bpsChange: null` while every other number stayed correct. No such typo exists today. `tests/unitVocabulary.test.ts` pins every tracked series to a known unit vocabulary so the next one fails at test time; a stricter type-level unit would be the fuller fix and is not warranted at five units                                                                                                                                                                                                                                                                                                                             | MITIGATED          |
 
+## IR-113 — an integration assertion failed once under load and has not been explained (observed 2026-09-01)
+
+    tests/integration/ask-market.test.ts
+      "serves a current level as a level, with no change and no mechanism attached"
+      AssertionError: expected 530 to be 102
+
+`own.value` is a stored Series observation. It failed exactly ONCE, on the full-suite run that
+first included `tests/e2eTreeBinding.test.ts`'s real-discovery controls — which spawn PowerShell
+twice per discovery and were, at that moment, timing out at the 5s default. Declaring a 30s timeout
+for those four tests removed the perturbation, and two consecutive full-suite runs since are green.
+
+**NOT FIXED, and the distinction matters.** Nothing was changed in `ask-market` or in whatever
+writes that series. What changed is how long the slow tests held their worker, which is a property
+of scheduling rather than of correctness. The file passes alone. So the honest reading is a latent
+CROSS-FILE interaction on the shared test database that a timing change can expose, and it was
+exposed once by accident rather than found by looking.
+
+Two candidate causes, neither established:
+
+- another test file writing a Series observation that this assertion then reads, with the winner
+  decided by worker interleaving;
+- a fixture whose setup is not isolated per file, so a concurrent file's teardown removes or
+  replaces a row mid-assertion.
+
+Distinguishing them needs a deliberate run — repeated full suites, or forced single-worker versus
+parallel — rather than another accidental observation. Recorded now because a one-off failure that
+is never written down is how a flake becomes folklore, and because the run that produced it is
+already in this session's history: pretending the two green runs afterwards settle it would be
+choosing the evidence that agrees.
+
 ## IR-112 — a politeness hedge is read as a prohibited request (reproduced 2026-08-31, P1)
 
     "Latest reading on the eurozone unemployment rate."                  -> CURRENT_OBSERVATION

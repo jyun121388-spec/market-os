@@ -820,14 +820,15 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2502 / 2502 PASS across 140 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2483 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2507 / 2507 PASS across 140 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2488 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `23e716b` plus the IR-110
-adjudication committed on top of it, from one fresh run on that tree. One control added to
-`tests/governancePolicy.test.ts`, replaying HG-010 — the suite refuses to let a gate sit in the
-queue unreplayed, and caught HG-010 the moment it was recorded. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `29756b9` plus the portable
+listener-discovery unit committed on top of it, from TWO consecutive fresh runs on that tree — two
+rather than one because a third file's assertion failed on an earlier run of the same tree and is
+recorded as IR-113. Five controls added to `tests/e2eTreeBinding.test.ts`, exercising the real
+socket-owner discovery path with no injected listener. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

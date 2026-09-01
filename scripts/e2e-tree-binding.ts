@@ -65,6 +65,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
+import { discoverListener } from "./listener-discovery";
 
 export type BindingVerdict = "BOUND" | "START_ORDER_COMPATIBLE" | "STALE" | "UNPROVEN";
 
@@ -132,42 +133,6 @@ function newestSource(): { file: string; mtime: Date } | null {
     }
   }
   return best;
-}
-
-/** The listening process, via PowerShell. Windows-only, and says so rather than guessing. */
-function listener(port: number): {
-  pid: number;
-  exe: string | null;
-  commandLine: string | null;
-  started: Date | null;
-} | null {
-  if (process.platform !== "win32") return null;
-  const script =
-    `$c = Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
-    `if (-not $c) { exit 0 }; ` +
-    `$p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $c.OwningProcess) -ErrorAction SilentlyContinue; ` +
-    `if (-not $p) { exit 0 }; ` +
-    `[Console]::Out.Write(($p | Select-Object ProcessId,ExecutablePath,CommandLine,CreationDate | ConvertTo-Json -Compress))`;
-  const out = quiet("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-  if (!out) return null;
-  try {
-    const j = JSON.parse(out) as {
-      ProcessId: number;
-      ExecutablePath: string | null;
-      CommandLine: string | null;
-      CreationDate: string | null;
-    };
-    // PowerShell renders CIM datetimes as `/Date(1234567890123)/` under ConvertTo-Json.
-    const epoch = j.CreationDate ? /\/Date\((\d+)\)\//.exec(j.CreationDate)?.[1] : undefined;
-    return {
-      pid: j.ProcessId,
-      exe: j.ExecutablePath ?? null,
-      commandLine: j.CommandLine ?? null,
-      started: epoch ? new Date(Number(epoch)) : j.CreationDate ? new Date(j.CreationDate) : null,
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -266,7 +231,7 @@ export async function checkTreeBinding(
       localBuildId = null;
     }
   }
-  const proc = listenerOverride ?? (port === null ? null : listener(port));
+  const proc = listenerOverride ?? (port === null ? null : discoverListener(port));
 
   const observed: TreeBinding["observed"] = {
     url,
@@ -285,7 +250,7 @@ export async function checkTreeBinding(
 
   const limitations = [
     "The command line cannot distinguish this checkout from its sibling worktree: both resolve `next` through the same shared node_modules.",
-    "Listener DISCOVERY is Windows-only. On any other platform no listener is identified and every verdict is UNPROVEN — fail-closed, and inert. CI runs on Linux, so this check gates nothing there today.",
+    "Listener DISCOVERY is implemented for Windows and Linux only, from OS socket-ownership evidence. On any other platform, or when the owner is unreadable, ambiguous, or changes between two observations, no listener is identified and the verdict is UNPROVEN.",
     "A dev server recompiles on change, so starting before a source write does not always mean stale code — but it is never evidence of freshness either.",
     "The served build id ties the listener to this checkout's BUILD, not to its current SOURCE; a stale build still reads STALE only because the start-order comparison runs first.",
     "A dev server serves no build-id path, so dev tops out at START_ORDER_COMPATIBLE and the strict gate refuses it. Closing that needs the server to report its own commit, which needs a product endpoint SR-02's P2 severity does not justify under the V1 freeze.",

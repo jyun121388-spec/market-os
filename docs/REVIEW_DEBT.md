@@ -2312,3 +2312,46 @@ Also noted rather than fixed: the guidance asks for a `[CLAUDE_PROGRESS]` note w
 and `CLAUDE_PROGRESS` is not in `OUTBOUND_KINDS`, so the durable outbound path cannot express
 "in progress". The channel has carried 17 of them historically. Widening the outbound list is a
 protocol change no decision authorises, so it is recorded here instead of taken.
+
+### IR-118 addendum — the checker was rewriting the thing it measured
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-IR118-NONDESTRUCTIVE-FORMAT-GATE-20260902]`, durable evidence
+rather than authority; fixing a tool of mine that can mutate a user's uncommitted work needs none.
+
+The finding is exact. `format-gate.ts` measured by running `prettier --write .` against the LIVE
+working tree and asking git what changed. It snapshotted only the NAMES of already-dirty files and
+then excluded those names from both the report and the restore — so a pre-existing dirty file could
+be reformatted by the diagnostic and never mentioned. A command advertised as a check could silently
+rewrite foreign work. A verifier manufacturing its own evidence by editing the object it measures is
+the failure this file exists to catch, committed while writing the catcher.
+
+**The repair is not "restore afterwards".** That still writes, and still loses on the throwing path.
+The gate now reads COMMITTED BYTES out of git and hands them to Prettier's API in memory. There is
+no writing path at all, which is why the exception case needs no special handling.
+
+Reading git is also what removes the CRLF noise: git stores LF and converts on checkout, so the
+bytes measured are the bytes CI receives — one file, not sixty-seven.
+
+Eight controls hash the entire repository (file contents, index entries with blob hashes, and
+porcelain status) before and after: a committed offender beside a committed clean control; a dirty
+file Prettier would rewrite; a staged modification; an untracked file; a CRLF working copy over
+committed LF; the throwing path; and a vacuity control that the gate finds the offender at all,
+without which every other assertion is about something that did not happen.
+
+Mutations 3/3 ISOLATED, and the destructive one taught me something. `M-FMT-WRITE-TREE` was
+predicted at 4 and MEASURED 1: it writes only where the COMMITTED bytes are an offender, and every
+preservation fixture committed well-formatted content and dirtied it afterwards, so a writing gate
+had nothing to reach for. That left the original bug's exact scenario — dirty work on top of a file
+that is ALSO a committed offender — unexercised. A control for it was added and the mutant went to 2. The prediction being wrong is what exposed the gap.
+
+The untracked control stays green under that mutant, and it is recorded rather than patched: an
+untracked file is not in `git ls-files`, so the guarantee there comes from never enumerating it.
+
+Still NOT closed: no workflow run is bound to the corrected SHA. CI reaches this work only through
+`claude/post-rc-followup`, and advancing it is the fast-forward this session's classifier denies.
+`33547628222` is not reused as green.
+
+Also still open: the guidance asks for a `[CLAUDE_PROGRESS]` note while CI is pending, and
+`CLAUDE_PROGRESS` is not in `OUTBOUND_KINDS`, so the durable outbound path cannot express it. The
+channel has carried 17. That is the same parser-narrower-than-the-channel shape ESC-014 fixed for
+inbound, unfixed for outbound, and no decision authorises widening it.

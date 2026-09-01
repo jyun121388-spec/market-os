@@ -26,6 +26,41 @@ STATUS as of 2026-08-18:
 
 ## The last thing done
 
+**2026-09-01 — a run of audit units, and the pattern in them matters more than any one.**
+`23e716b` → `f1e3293`. No product code changed in ANY of them: V1 is frozen except for a reproduced
+P0/P1, and nothing found here cleared that bar.
+
+    cardinality        which unordered `findFirst` sites can actually match two rows
+    SR-02 tree binding whether the server under E2E test is serving this tree
+    IR-111             the readiness verdict no longer instructs a seed that cannot work
+    IR-110 / HG-010    undecidable from form; escalated as a Human Gate with a measured price
+    IR-113             a nondeterministic factor order, found through a one-off test failure
+    presentation order 44 findMany sites: 21 with no order, 13 partial, 10 total
+    order reach        those 34 narrowed to the 16 whose nondeterminism a reader can see
+
+FOUR OF THESE SHIPPED WITH A SOUNDNESS DEFECT THAT INDEPENDENT REVIEW CAUGHT, and the defects rhyme:
+each one enforced an invariant on one side of a boundary and not the other.
+
+    schema.prisma was treated as the only uniqueness authority — migration DDL also declares some,
+      including two PARTIAL indexes Prisma cannot express, so the audit over-reported defects
+    field presence was treated as a partial-index proof — a partial index constrains only the rows
+      its predicate selects, and the query must also be shown to lie in exactly one partition
+    covering a unique key was treated as a total order — PostgreSQL holds NULL distinct from NULL,
+      so a nullable key still ties
+    owner uniqueness was enforced on Linux and not on Windows, where `-First 1` made row order the
+      authority
+
+The repair each time was ONE rule shared by both sides, not a second check on the side that was
+missing it. That is the transferable part.
+
+TWO TOOL FAILURES CAUGHT BY THE SHAPE OF THEIR OWN OUTPUT. A reach audit returned 34 of 34
+identical answers — `node.parent` is set by BINDING, and neither new audit created a type checker,
+so every parent pointer was undefined. And `servesLocalBuild` was defined but never called, making
+`BOUND` unreachable while the whole suite stayed green, because every control at that moment only
+asserted BOUND was NOT returned. Lint caught the second; uniformity caught the first.
+
+## The thing done before that
+
 **2026-09-01 — the semantic-recency audit, and it comes back with nothing to repair.**
 `[CHATGPT_DECISION][MARKET-SEMANTIC-RECENCY-AUDIT-20260831]`, read-only Codex pass first
 (VERDICT: PROCEED). The invariant under audit is `RETRIEVED/ARRIVED LATER != SEMANTICALLY NEWER`.
@@ -463,12 +498,14 @@ tiebreak. See `docs/PROJECT_STATE.md` for what each layer gained.
 
 ## NEXT EXACT ACTION, in order
 
-0. **BLOCKED, and it is the first thing to read: `P1_UNBOUNDED_CLAUSE_OPENING_CLASS`.** Two
-   closure reviews and five architect rounds are done; the last one graded the remaining class a
-   P1 that blocks this unit. 28 of 38 unknown tails are swallowed
-   (`scripts/probe-unknown-tail.ts`). It cannot be closed by adding words -- that is the
-   unfinishable direction the module's own `FRAMING_TOKENS` comment warns about -- and the
-   fail-closed inversion needs a POS/name lexicon this design does not have.
+0. **OPEN DEBT, no longer a blocker: `P1_UNBOUNDED_CLAUSE_OPENING_CLASS`.** The measurement still
+   holds — re-run 2026-09-01, `scripts/probe-unknown-tail.ts` reports 28 of 38 swallowed on each
+   of the `.`, `!` and `;` boundaries, unchanged. What changed is its RELATIONSHIP to the work:
+   the unit it blocked, MARKET-DEFINITION-GRAMMAR-001, is complete and independently approved at
+   `606dc82`, so this is standing debt with an escalated product decision rather than the first
+   thing stopping anything. It cannot be closed by adding words -- that is the unfinishable
+   direction the module's own `FRAMING_TOKENS` comment warns about -- and the fail-closed
+   inversion needs a POS/name lexicon this design does not have.
 
    The open decision is **accept as a known release risk, or redesign**, and it is a product
    decision rather than an engineering one, so it is escalated and NOT assumed either way. Do not
@@ -478,9 +515,11 @@ tiebreak. See `docs/PROJECT_STATE.md` for what each layer gained.
    real issuer names stratified by tail shape, and the head-alone matrix extended to every
    candidate boundary rather than the first.
 
-1. Then the framing-positionality unit (`scripts/reproduce-framing-position.ts` is written and
-   untracked), then B2-C, then B2-D. `src/server/domain/sourceAuthority.ts` is written, referenced
-   by nothing, and is B2-C's starting point -- it must be wired or deleted, not left as it is.
+1. Then the framing-positionality unit, then B2-C, then B2-D. Two claims that used to sit here
+   were checked on 2026-09-01 and are no longer true: `scripts/reproduce-framing-position.ts` is
+   TRACKED, and `src/server/domain/sourceAuthority.ts` is REFERENCED — by `askMarket.ts` and
+   `candidateEnvelope.ts`, with its own mutation suite. It was wired, which is what this item
+   asked for.
 2. **If a FRED key has arrived** (HG-002), this is the highest-value work available and it closes
    two things at once. Live-verify the adapter the way EDGAR was verified — real endpoint, real
    response shape against the declared TypeScript types, then a real ingest followed by a

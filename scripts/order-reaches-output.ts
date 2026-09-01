@@ -83,8 +83,97 @@ export const ORDER_BLIND = new Set(["includes", "length"]);
  *
  * A name whitelist was available and is exactly what the review forbade, for the same reason a
  * method-name whitelist failed one level up: the name is not the behaviour.
+ *
+ * ## AND A SHAPE IS NOT A BEHAVIOUR EITHER — THE SAME MISTAKE, ONE LEVEL DOWN
+ *
+ * The paragraph above was still wrong, in the way this branch keeps being wrong: it enforced the
+ * invariant on one side of a boundary. `x.flag` is a syntactic property read; it is not an inert
+ * one. The property may be an accessor, or the row may be a Proxy, and then the read RUNS USER
+ * CODE — and because `some`/`every` short-circuit, reversing arrival order changes which reads
+ * happen at all. Reproduced before repairing, with getter-backed and proxy-backed rows:
+ *
+ *     forward   result=true  effects=[read:A, read:B]
+ *     reversed  result=true  effects=[read:C, read:B]
+ *
+ * The boolean is stable; the OBSERVABLE BEHAVIOUR is not, and observable behaviour is the property
+ * that was claimed. A `PropertyAccessExpression` node is not evidence about either.
+ *
+ * So a property read now needs a `FieldAuthority`, consulted per read, with no default: omitting
+ * it is a type error rather than a silent admission.
  */
-export function isProvenOrderIndependentCallback(node: ts.Node): boolean {
+
+/**
+ * The authority that says a property read executes no user code.
+ *
+ * An interface because the real one needs a type checker, and the controls must exercise both
+ * answers on shapes no checker in this repository would ever produce.
+ */
+export interface FieldAuthority {
+  /** What contract is being relied on, so that a discharge is never anonymous. */
+  provenance(): string;
+  /** Does reading `.field` off `receiver` provably run no user code? */
+  isInertRead(receiver: ts.Node, field: string): boolean;
+}
+
+/** Where `prisma/schema.prisma` writes the generated client. The contract is anchored here. */
+export const PRISMA_CLIENT_OUTPUT = "src/generated/prisma";
+
+/**
+ * Refuses every property read: the fail-closed default for a caller with no checker. An absent
+ * authority must never read as a permissive one.
+ */
+export const NO_FIELD_AUTHORITY: FieldAuthority = {
+  provenance: () => "none — no property read can be proven inert",
+  isInertRead: () => false,
+};
+
+/**
+ * The real contract, checked rather than assumed.
+ *
+ * A read discharges only when the checker resolves the property to EXACTLY ONE declaration, that
+ * declaration is a `PropertySignature` — never a `GetAccessor`, `SetAccessor`, method or index
+ * signature — and it lives in the GENERATED PRISMA CLIENT.
+ *
+ * Measured on this repository's own client before being relied on. `SourceModel` is
+ * `DefaultSelection<$SourcePayload>`, a MAPPED type, so it was not obvious the checker would reach
+ * a field declaration at all; it does, resolving `code` to a `PropertySignature` in
+ * `src/generated/prisma/models/Source.ts`. A getter in a hand-written object resolves to
+ * `GetAccessor`, and a plain field in one resolves to a `PropertySignature` OUTSIDE the generated
+ * output. All three are distinguished, so both halves of the rule are load-bearing rather than one
+ * of them being decorative.
+ *
+ * ## WHAT THIS DOES NOT PROVE, STATED RATHER THAN GLOSSED
+ *
+ * It is a claim about the DECLARED SOURCE, not about the object that arrives at runtime — anything
+ * can be wrapped in a Proxy in principle. What closes that for the audited sites is the separate
+ * `const`-binding requirement in `classifyUses`: no interposition point exists between the client
+ * and the callback. Neither half suffices alone, and the pair is why a discharge is defensible.
+ */
+export function prismaRowAuthority(checker: ts.TypeChecker): FieldAuthority {
+  const marker = `/${PRISMA_CLIENT_OUTPUT}/`;
+  return {
+    provenance: () => `a declared PropertySignature under ${PRISMA_CLIENT_OUTPUT}`,
+    isInertRead(receiver, field) {
+      const symbol = checker.getTypeAtLocation(receiver).getProperty(field);
+      if (!symbol) return false;
+      const decls = symbol.getDeclarations() ?? [];
+      // Merged or overloaded declarations mean no single source answers for the read.
+      if (decls.length !== 1) return false;
+      const decl = decls[0];
+      // An accessor IS user code, which is the entire defect this replaced.
+      if (!ts.isPropertySignature(decl)) return false;
+      return decl.getSourceFile().fileName.replace(/\\/g, "/").includes(marker);
+    },
+  };
+}
+
+/**
+ * @param authority consulted for every property read. Deliberately has no default.
+ */
+export function isProvenOrderIndependentCallback(
+  node: ts.Node,
+  authority: FieldAuthority,
+): boolean {
   if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return false;
   // A second or third parameter is the INDEX or the whole array. Either makes position readable.
   if (node.parameters.length !== 1) return false;
@@ -107,7 +196,13 @@ export function isProvenOrderIndependentCallback(node: ts.Node): boolean {
     ) {
       return true;
     }
-    if (ts.isPropertyAccessExpression(e)) return pure(e.expression);
+    if (ts.isPropertyAccessExpression(e)) {
+      // DEPTH ONE ONLY. `x.a.b` reads `x.a` and then reads INTO whatever that returned, and the
+      // authority answers about a declared field of the row — not about the shape of its value.
+      // Recursing here is what let an unbounded chain through on nothing but syntax.
+      if (!ts.isIdentifier(e.expression) || e.expression.text !== element) return false;
+      return authority.isInertRead(e.expression, e.name.text);
+    }
     if (ts.isParenthesizedExpression(e)) return pure(e.expression);
     if (ts.isPrefixUnaryExpression(e)) {
       // `!x` only. `++x` and `--x` mutate.
@@ -158,31 +253,47 @@ export const PRESERVES = new Set([
  * it slower still, so rebuilding per call turned three controls into 5s timeouts under suite load.
  * The program is identical every time; only the injected schema varies.
  */
-let cachedProgram: ts.Program | null = null;
+let cached: { program: ts.Program; checker: ts.TypeChecker } | null = null;
 
-function loadProgram(): ts.Program {
-  if (cachedProgram) return cachedProgram;
+function loadProgram(): { program: ts.Program; checker: ts.TypeChecker } {
+  if (cached) return cached;
   const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
   if (!configPath) throw new Error("tsconfig.json not found");
   const raw = ts.readConfigFile(configPath, ts.sys.readFile);
   const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath));
   const program = ts.createProgram({ options: parsed.options, rootNames: parsed.fileNames });
-  // BINDING IS WHAT SETS `node.parent`, and creating the checker is what binds. Without this line
+  // BINDING IS WHAT SETS `node.parent`, and creating the checker is what binds. Without this call
   // every parent pointer is undefined, `enclosingName` silently answers "<module scope>" for every
   // site, and any analysis that walks upward reports the same empty answer everywhere. That
   // uniformity is the tell: 34 of 34 sites returning one identical reason is a broken tool, not a
   // finding. The recency audit had a `getTypeChecker()` call it never otherwise used, and this is
   // what it was for.
-  program.getTypeChecker();
-  cachedProgram = program;
-  return program;
+  //
+  // It is RETURNED rather than discarded now, because the field authority needs the same checker.
+  // One call, one binding: a second `getTypeChecker()` elsewhere would have made deleting this one
+  // harmless, and the mutant that proves parents matter would have quietly gone equivalent.
+  const checker = program.getTypeChecker();
+  cached = { program, checker };
+  return cached;
 }
 
-/** The `const x = await prisma...` name this call is bound to, if it is bound to one. */
-function boundName(node: ts.Node): string | null {
+/**
+ * The `const x = await prisma...` name this call is bound to, and WHETHER IT IS ACTUALLY `const`.
+ *
+ * The constness is not bookkeeping. The field authority proves things about the row type the
+ * generated client declares, which says nothing about the object that reaches the callback if the
+ * binding can be reassigned in between — `rows = rows.map(wrapInProxy)` reintroduces exactly the
+ * interposition the authority was meant to exclude. A `let` binding therefore cannot discharge.
+ */
+function boundName(node: ts.Node): { name: string; isConst: boolean } | null {
   let cur: ts.Node | undefined = node;
   for (let d = 0; d < 3 && cur; d++) {
-    if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
+    if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name)) {
+      const list = cur.parent;
+      const isConst =
+        !!list && ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
+      return { name: cur.name.text, isConst };
+    }
     cur = cur.parent;
   }
   return null;
@@ -211,7 +322,12 @@ function enclosingFunction(node: ts.Node): ts.Node | null {
  * makes the site ORDER_SURVIVES even if ten others discard it, because one is enough for a reader
  * to see the sequence. A site whose every use discards is ORDER_DISCARDED. Anything else is UNREAD.
  */
-function classifyUses(name: string, scope: ts.Node, decl: ts.Node): { reach: Reach; why: string } {
+function classifyUses(
+  name: string,
+  scope: ts.Node,
+  decl: ts.Node,
+  authority: FieldAuthority,
+): { reach: Reach; why: string } {
   let survives: string | null = null;
   let discarded = 0;
   let unclassified = 0;
@@ -238,7 +354,7 @@ function classifyUses(name: string, scope: ts.Node, decl: ts.Node): { reach: Rea
           // Order-blind only with a callback proven order-independent. Unproven fails closed.
           const call = parent.parent;
           const arg = call && ts.isCallExpression(call) ? call.arguments[0] : undefined;
-          if (arg && isProvenOrderIndependentCallback(arg)) discarded += 1;
+          if (arg && isProvenOrderIndependentCallback(arg, authority)) discarded += 1;
           else
             survives =
               survives ??
@@ -296,7 +412,7 @@ function classifyUses(name: string, scope: ts.Node, decl: ts.Node): { reach: Rea
 export function auditOrderReach(): Row[] {
   const nonTotal = auditPresentationOrder().filter((s) => s.determinism !== "TOTAL_ORDER");
   const wanted = new Set(nonTotal.map((s) => `${s.file}:${s.line}`));
-  const program = loadProgram();
+  const { program, checker } = loadProgram();
   const rows: Row[] = [];
   const root = path.resolve("src/server").replace(/\\/g, "/");
 
@@ -322,7 +438,14 @@ export function auditOrderReach(): Row[] {
                       ? "the result is not bound to a name this can follow"
                       : "no enclosing function to read the uses in",
                 }
-              : classifyUses(name, scope, node);
+              : classifyUses(
+                  name.name,
+                  scope,
+                  node,
+                  // A reassignable binding admits an interposition the field authority cannot see,
+                  // so it gets an authority that proves nothing rather than the real one.
+                  name.isConst ? prismaRowAuthority(checker) : NO_FIELD_AUTHORITY,
+                );
           rows.push({
             file: rel,
             line,

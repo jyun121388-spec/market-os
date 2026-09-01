@@ -820,14 +820,15 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2543 / 2543 PASS across 143 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2524 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2548 / 2548 PASS across 143 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2529 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `68c81e8` plus the order
-ratchet committed on top of it, from one fresh run on that tree. One new file,
-`tests/orderRatchet.test.ts`, turning four audits nobody runs into a guard: the number of unordered
-`findMany` sites may fall but not rise. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `e25feb4` plus the field
+authority committed on top of it, from one fresh run on that tree. Five controls added to
+`tests/orderReachesOutput.test.ts`: a property read is admitted only when the checker resolves it
+to a declared `PropertySignature` under the generated Prisma client, so a getter or a proxy trap no
+longer passes for an inert read. Corpus unmoved at 34 examined / 16 ORDER_SURVIVES / 18 UNREAD. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

@@ -820,11 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2654 / 2654 PASS across 150 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2635 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2657 / 2657 PASS across 151 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2638 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `4aca09c` plus the
+MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `bb88ded` plus the IR-075
+premise measurement committed on top of it. The fix that residual NAMED — hold the lock file open,
+because Windows will not let another process delete it — is disproven: with the handle held, another
+process unlinked the file AND exclusively created a new one at the same path. No replacement is
+named, deliberately.
+
+Previously at `4aca09c` plus the
 exact-row status repair committed on top of it. Widening ingestion left the transition path matching
 on protocol id alone, so resolving a decision stamped every review comment on the same exchange
 beside it: the invariant held at the scheduling boundary and leaked at the status boundary.

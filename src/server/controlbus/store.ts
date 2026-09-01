@@ -502,12 +502,26 @@ function removeIfPresent(path: string): void {
  * `control-bus:start` refuses while a live lock exists, so it takes deliberate concurrent starts
  * plus a machine suspend. Recorded as IR-075.
  *
- * The real fix is a different primitive, and it is named here so the next attempt does not
- * rediscover the same three dead ends: hold the lock file OPEN for the process lifetime. On
- * Windows an open handle cannot be deleted or renamed by another process, so exclusion is enforced
- * by the OS rather than inferred from timestamps, and liveness stops being a guess — a dead
- * holder's handle is released by the kernel. That is a rewrite with its own review cycle, not a
- * patch, which is why it is recorded instead of attempted here.
+ * **The fix this comment used to name is DISPROVEN.** It said: hold the lock file open for the
+ * process lifetime, because on Windows an open handle cannot be deleted or renamed by another
+ * process. `scripts/probe-open-handle-exclusion.ts` measured it on this machine, and with the
+ * handle held open (`openSync(path, "r+")`) another process:
+ *
+ *     unlink                 SUCCEEDED
+ *     exclusive create (wx)  SUCCEEDED, at the same path, immediately after
+ *
+ * The Win32 behaviour the claim appeals to depends on the SHARE MODE a handle is opened with, and
+ * `fs.openSync` gives a caller no way to choose it — libuv opens with delete sharing permitted. So
+ * the property is not available through the API any implementation here would use, and a rewrite
+ * built on it would have failed late, after its own review cycle.
+ *
+ * No replacement is named, deliberately. The honest state is that the primitive is unknown: a real
+ * OS mutex or an advisory-locking library would each be a new dependency and a cost decision, and
+ * naming an unmeasured second candidate is how the first one got here. The next attempt starts by
+ * MEASURING a primitive, not by quoting one.
+ *
+ * The residual therefore stands, with its narrow reachability unchanged, and the probe is committed
+ * so the correction cannot be lost the way the original claim was kept.
  * It expires, because a process that dies holding it would wedge the channel — and a deadlock is
  * not an improvement on a race.
  */

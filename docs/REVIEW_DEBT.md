@@ -2227,3 +2227,40 @@ protocol id is refused.
 Mutations 3/3 ISOLATED. `M-ROW-ID-FANOUT` came in at 2 against a prediction of 3: the
 wrong-protocol-id control was wrongly counted, because under id-only matching `ESC-OTHER` still
 finds no row and refuses for the same reason as before. Corrected to what was measured.
+
+## IR-075 — the fix it named is disproven, and the residual stands
+
+Status: `VERIFIED_WITH_LIMITATION` (2026-09-02). Two verifiers said IR-075 was outside their bounded
+scope and must not be silently promoted to closed. It is not closed. What changed is that the
+sentence describing how it WOULD be closed turned out to be false.
+
+`store.ts` recorded: "hold the lock file OPEN for the process lifetime. On Windows an open handle
+cannot be deleted or renamed by another process, so exclusion is enforced by the OS rather than
+inferred from timestamps." That is an assertion about the platform living in a comment, and the next
+attempt at IR-075 would have built a lock rewrite on top of it.
+
+`scripts/probe-open-handle-exclusion.ts` measures it. With the handle held open (`openSync(path,
+"r+")`), from a SEPARATE process — same-process attempts prove nothing, the handle table is shared:
+
+    unlink                 SUCCEEDED
+    exclusive create (wx)  SUCCEEDED, at the same path, immediately after
+
+The second is the sharper half: even the `wx` primitive this store's whole mutual exclusion rests on
+remains available to a competitor while the handle is held, so holding it buys nothing at all.
+
+The Win32 behaviour the claim appeals to depends on the SHARE MODE a handle is opened with, and
+`fs.openSync` gives no way to choose one — libuv permits delete sharing. So the property is not
+reachable through the API any implementation here would use. The claim was not wrong about Windows;
+it was wrong about Node, which is the only thing that mattered.
+
+**No replacement is named, deliberately.** A real OS mutex or an advisory-locking library would each
+be a new dependency and a cost decision, and naming an unmeasured second candidate is exactly how
+the first one got here. The next attempt starts by MEASURING a primitive rather than quoting one.
+
+Three controls assert the measured behaviour, including a vacuity guard that the probe attempted all
+three operations. They are written so that a future runtime which DOES block the delete fails
+them — and the failure message says to re-read IR-075 first, because that would be good news rather
+than a regression.
+
+The residual itself is unchanged: reaching it still needs two watchers racing and one suspended past
+its lease mid-operation, and `control-bus:start` refuses while a live lock exists.

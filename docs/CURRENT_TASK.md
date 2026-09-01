@@ -26,6 +26,46 @@ STATUS as of 2026-08-18:
 
 ## The last thing done
 
+**2026-09-01 — the semantic-recency audit, and it comes back with nothing to repair.**
+`[CHATGPT_DECISION][MARKET-SEMANTIC-RECENCY-AUDIT-20260831]`, read-only Codex pass first
+(VERDICT: PROCEED). The invariant under audit is `RETRIEVED/ARRIVED LATER != SEMANTICALLY NEWER`.
+
+`scripts/recency-audit.ts` walks the real `ts.createProgram`, not the text. Every site is an AST
+node; every ordering key is the property NAME of an object-literal member; every waiver is bound
+through `getLeadingCommentRanges` on the node's own ancestors rather than by line distance. The
+field taxonomy is schema-backed — `prisma/schema.prisma` decides which fields are DateTimes at all,
+a registry classifies each as SEMANTIC or ARRIVAL with a reason, and a DateTime the registry does
+not name stays UNCLASSIFIED. Fail-closed: nothing is dropped for being hard to classify.
+
+    47 sites    0 ARRIVAL_DECIDES    11 SEMANTIC_ORDERED    10 STRUCTURAL
+                7 AGGREGATE          4 OPERATIONAL          15 UNCLASSIFIED
+
+No site lets an arrival clock choose one row out of candidates without a waiver. Two dimensions had
+to be added before that number meant anything, and both came from the architecture pass:
+
+- ENTITY, not field, decides whether a clock is semantics. `startedAt` on `IngestRun` IS the fact
+  about a run; the same clock choosing an `Observation` would be SR-01. Before this, the audit
+  reported the two health-panel sites as defects.
+- An AGGREGATE selects no row. `_max(retrievedAt)` in `lastIngestForSource` is retrieval telemetry
+  and cannot present a superseded value as current. Reading the field inside `_max` is what moved
+  seven sites out of "unknown".
+
+The 15 UNCLASSIFIED are mostly unordered `findFirst`/first-element selections, where the winner is
+whatever the database returned. That is a real category and the honest limitation is stated rather
+than closed: this audit does not yet establish candidate-set cardinality, so it cannot say whether
+those sets can hold more than one row. No repair was made, because item 6 requires a reproduced
+discriminating pair first and there is nothing yet to reproduce.
+
+**A DATABASE OUTAGE MID-UNIT, recorded because the signature repeats.** The suite came back 52
+files failed. Not attributed to the change — nothing imports the new script. `pg_isready` said no
+response, so the server was down, and restarting it produced a second, sharper lesson: the log said
+"accepting connections" while `psql` said connection refused. Both were true. The server had come
+up on port **5432**, because `postgresql.conf` leaves `port` commented out and my restart omitted
+`-o "-p 55432"`. Two tools disagreeing was resolved by a third that actually connects, not by
+re-reading either. Restarted correctly: 2447 pass / 19 expected fail, identical to before.
+
+## The thing done before that
+
 **2026-08-31 — the capability-gate invariant, chosen by RUNNING the scheduler rather than by
 picking.** `scheduleNextWork()` returned 5 actionable / 0 deferred with `CLUSTER-PROVIDER_ASSUMPTION`
 top-ranked (5 observed instances, 4 subsystems, P1, SYSTEMIC) and the only one of the five carrying

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { auditOrderReach, ORDER_BLIND, PRESERVES } from "../scripts/order-reaches-output";
+import * as ts from "typescript";
+import {
+  auditOrderReach,
+  isProvenOrderIndependentCallback,
+  ORDER_BLIND,
+  PRESERVES,
+} from "../scripts/order-reaches-output";
 import { auditPresentationOrder } from "../scripts/presentation-order";
 
 /**
@@ -87,8 +93,12 @@ describe("whether a nondeterministic order reaches a caller", () => {
  * become a wrong answer the moment a row reached one of those shapes.
  */
 describe("what may discharge a site as order-blind", () => {
-  it("admits only a boolean over the whole set, or a count", () => {
-    expect([...ORDER_BLIND].sort()).toEqual(["every", "includes", "length", "some"]);
+  it("admits unconditionally only a count and a value-only membership test", () => {
+    // `some` and `every` were here and are not any more: they short-circuit and run user code, so
+    // the method name proves nothing about whether arrival order reaches the result.
+    expect([...ORDER_BLIND].sort()).toEqual(["includes", "length"]);
+    expect(ORDER_BLIND.has("some")).toBe(false);
+    expect(ORDER_BLIND.has("every")).toBe(false);
   });
 
   it("refuses every operation whose result can depend on which row came first", () => {
@@ -125,5 +135,69 @@ describe("what may discharge a site as order-blind", () => {
       if (row.reach !== "ORDER_DISCARDED") continue;
       expect(row.why).toContain("order-blind");
     }
+  });
+});
+
+/**
+ * `some` / `every` discharge a site ONLY with a callback proven order-independent.
+ *
+ * Review's point: the method name is not the behaviour. A callback that mutates captured state,
+ * throws, reads its index or calls anything of unknown purity behaves differently depending on
+ * which row arrives first, and short-circuiting is what makes that observable.
+ *
+ * Purity is proven from the callback's own SHAPE — a whitelist of expression forms over its single
+ * parameter. A name whitelist was available and is exactly what was forbidden, for the same reason
+ * the method-name whitelist failed one level up.
+ */
+describe("when a short-circuiting predicate may discharge a site", () => {
+  const callbackOf = (src: string): ts.Node => {
+    const sf = ts.createSourceFile("t.ts", `x.some(${src});`, ts.ScriptTarget.ES2020, true);
+    let found: ts.Node | null = null;
+    const visit = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && n.arguments.length === 1) found = n.arguments[0];
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    if (!found) throw new Error(`no callback parsed from ${src}`);
+    return found;
+  };
+  const proven = (src: string) => isProvenOrderIndependentCallback(callbackOf(src));
+
+  it("proves a comparison over the element alone", () => {
+    expect(proven("(r) => r.value > 10")).toBe(true);
+    expect(proven('(r) => r.code === "FRED"')).toBe(true);
+    expect(proven("(r) => !r.stale")).toBe(true);
+    expect(proven("(r) => r.a === 1 && r.b < 2")).toBe(true);
+  });
+
+  it("refuses a callback that mutates captured state", () => {
+    // The short-circuit makes HOW MANY times this runs depend on arrival order, so the counter
+    // ends up different even when the boolean does not.
+    expect(proven("(r) => { seen += 1; return r.ok; }")).toBe(false);
+    expect(proven("(r) => (seen = r.id)")).toBe(false);
+    expect(proven("(r) => count++ > 0")).toBe(false);
+  });
+
+  it("refuses a callback that can throw or call anything", () => {
+    expect(proven("(r) => { throw new Error(r.id); }")).toBe(false);
+    expect(proven("(r) => check(r)")).toBe(false);
+    expect(proven("(r) => r.name.startsWith('A')")).toBe(false);
+    expect(proven("(r) => Date.now() > r.at")).toBe(false);
+  });
+
+  it("refuses a callback that can read its position", () => {
+    // The index and the array parameters make arrival order directly legible.
+    expect(proven("(r, i) => i === 0")).toBe(false);
+    expect(proven("(r, i, all) => all.length > 1")).toBe(false);
+  });
+
+  it("refuses a callback that reads anything but the element", () => {
+    expect(proven("(r) => r.id === wanted")).toBe(false);
+    expect(proven("(r) => globalThis.flag")).toBe(false);
+  });
+
+  it("refuses a non-callback argument outright", () => {
+    expect(proven("predicate")).toBe(false);
+    expect(proven("...rest")).toBe(false);
   });
 });

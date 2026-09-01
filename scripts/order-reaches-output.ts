@@ -18,10 +18,12 @@
  * useful output today is a short list of sites where the nondeterminism demonstrably survives to a
  * caller, plus an honest count of the ones this cannot see.
  *
- *   ORDER_DISCARDED   every use is ORDER-BLIND: a boolean over the whole set (`.some`, `.every`,
- *                     `.includes`) or a count (`.length`). Nothing else qualifies — see
- *                     `ORDER_BLIND` for why `find`, `reduce`, `sort`, `Map` and `fromEntries` were
- *                     all removed from this list after review.
+ *   ORDER_DISCARDED   every use is ORDER-BLIND. Unconditionally that is only `.length` and a
+ *                     value-only `.includes`. `.some` and `.every` qualify ONLY when their
+ *                     callback is PROVEN order-independent from its own shape — they short-circuit
+ *                     and run user code, so the method name proves nothing. See `ORDER_BLIND` and
+ *                     `isProvenOrderIndependentCallback` for why `find`, `reduce`, `sort`, `Map`
+ *                     and `fromEntries` were removed and why these two are now conditional.
  *   ORDER_SURVIVES    the sequence is returned, mapped, spread or pushed onward, OR consumed by
  *                     something whose result depends on which row came first.
  *   UNREAD            the binding is used in a way this cannot classify, or not obviously used at
@@ -63,7 +65,72 @@ interface Row {
  *
  * What is left is genuinely order-blind: a boolean over the whole set, or a count.
  */
-export const ORDER_BLIND = new Set(["some", "every", "includes", "length"]);
+export const ORDER_BLIND = new Set(["includes", "length"]);
+
+/**
+ * `some` and `every` are order-blind ONLY IF their callback is.
+ *
+ * They short-circuit and they call user code, so the METHOD NAME proves nothing: a callback that
+ * mutates captured state, throws, reads its index, or calls anything of unknown purity produces
+ * different observable behaviour depending on which row arrives first — even when the boolean it
+ * eventually returns does not.
+ *
+ * So purity is PROVEN from the callback's own shape, not assumed and not inferred from its name.
+ * The proof is a whitelist of EXPRESSION FORMS over the callback's first parameter: property
+ * access, literals, comparison and logical operators, and `!`. Anything else — an assignment, an
+ * increment, a `throw`, a call of any kind, `await`, `new`, a second or third parameter, an
+ * identifier that is not the element — is not proven and the site is not discharged.
+ *
+ * A name whitelist was available and is exactly what the review forbade, for the same reason a
+ * method-name whitelist failed one level up: the name is not the behaviour.
+ */
+export function isProvenOrderIndependentCallback(node: ts.Node): boolean {
+  if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return false;
+  // A second or third parameter is the INDEX or the whole array. Either makes position readable.
+  if (node.parameters.length !== 1) return false;
+  const param = node.parameters[0];
+  if (!ts.isIdentifier(param.name)) return false;
+  const element = param.name.text;
+
+  const body = node.body;
+  // A block body could hold anything; only a single expression is checked.
+  if (ts.isBlock(body)) return false;
+
+  const pure = (e: ts.Node): boolean => {
+    if (ts.isIdentifier(e)) return e.text === element;
+    if (
+      ts.isStringLiteral(e) ||
+      ts.isNumericLiteral(e) ||
+      e.kind === ts.SyntaxKind.TrueKeyword ||
+      e.kind === ts.SyntaxKind.FalseKeyword ||
+      e.kind === ts.SyntaxKind.NullKeyword
+    ) {
+      return true;
+    }
+    if (ts.isPropertyAccessExpression(e)) return pure(e.expression);
+    if (ts.isParenthesizedExpression(e)) return pure(e.expression);
+    if (ts.isPrefixUnaryExpression(e)) {
+      // `!x` only. `++x` and `--x` mutate.
+      return e.operator === ts.SyntaxKind.ExclamationToken && pure(e.operand);
+    }
+    if (ts.isBinaryExpression(e)) {
+      const op = e.operatorToken.kind;
+      const comparison =
+        op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        op === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+        op === ts.SyntaxKind.LessThanToken ||
+        op === ts.SyntaxKind.LessThanEqualsToken ||
+        op === ts.SyntaxKind.GreaterThanToken ||
+        op === ts.SyntaxKind.GreaterThanEqualsToken ||
+        op === ts.SyntaxKind.AmpersandAmpersandToken ||
+        op === ts.SyntaxKind.BarBarToken;
+      return comparison && pure(e.left) && pure(e.right);
+    }
+    return false;
+  };
+
+  return pure(body);
+}
 
 /** Methods that carry order onward, whether by preserving it or by reading position from it. */
 export const PRESERVES = new Set([
@@ -167,7 +234,16 @@ function classifyUses(name: string, scope: ts.Node, decl: ts.Node): { reach: Rea
       if (parent && ts.isPropertyAccessExpression(parent) && parent.expression === node) {
         const method = parent.name.text;
         if (ORDER_BLIND.has(method)) discarded += 1;
-        else if (PRESERVES.has(method))
+        else if (method === "some" || method === "every") {
+          // Order-blind only with a callback proven order-independent. Unproven fails closed.
+          const call = parent.parent;
+          const arg = call && ts.isCallExpression(call) ? call.arguments[0] : undefined;
+          if (arg && isProvenOrderIndependentCallback(arg)) discarded += 1;
+          else
+            survives =
+              survives ??
+              `\`.${method}()\` runs a callback whose order-independence is not proven, and it short-circuits`;
+        } else if (PRESERVES.has(method))
           survives = survives ?? `\`.${method}()\` lets the arrival order reach the result`;
         else unclassified += 1;
         ts.forEachChild(node, visit);

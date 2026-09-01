@@ -820,15 +820,14 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2534 / 2534 PASS across 142 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2515 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2540 / 2540 PASS across 142 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2521 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `0fc8cb8` plus the
-order-blind narrowing committed on top of it, from one fresh run on that tree. Four controls added
-to `tests/orderReachesOutput.test.ts` binding which operations may discharge a site: only a boolean
-over the whole set or a count, because `find`, `reduce`, `sort`, `Map` and `fromEntries` all carry
-arrival order into their result. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `2b1b148` plus the
+callback-purity narrowing committed on top of it, from one fresh run on that tree. Six controls
+added to `tests/orderReachesOutput.test.ts`: `some` and `every` short-circuit and run user code, so
+they discharge a site only with a callback PROVEN order-independent from its own shape. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

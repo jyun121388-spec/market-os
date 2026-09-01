@@ -10,6 +10,12 @@ Both have already gone wrong once each, which is why they get mutants rather tha
 
 Expected cardinalities, written before the run:
 
+  M-REACH-PREDICATE-BLIND    put `some`/`every` back as unconditionally order-blind
+                             -> 1 red: the exact-membership control. They short-circuit and run
+                                user code, so the method name proves nothing -- a callback that
+                                mutates, throws, or reads its index behaves differently depending
+                                on which row arrives first. Also unreachable from the corpus.
+
   M-REACH-ORDER-BLIND-WIDE   put `find` back among the order-blind operations
                              -> 2 red: the exact-membership control and the refuses-order-sensitive
                                 control. It CANNOT be caught by the corpus -- nothing today is
@@ -40,10 +46,18 @@ UNRELATED_TESTS = ["tests/recencyCardinality.test.ts"]
 
 MUTATIONS = [
     (
+        "M-REACH-PREDICATE-BLIND short-circuiting predicates discharge without proving the callback",
+        REACH,
+        'export const ORDER_BLIND = new Set(["includes", "length"]);',
+        'export const ORDER_BLIND = new Set(["includes", "length", "some", "every"]);',
+    ),
+    (
         "M-REACH-ORDER-BLIND-WIDE a first-match operation is treated as order-blind",
         REACH,
-        'export const ORDER_BLIND = new Set(["some", "every", "includes", "length"]);',
-        'export const ORDER_BLIND = new Set(["some", "every", "includes", "length", "find"]);',
+        'export const ORDER_BLIND = new Set(["includes", "length"]);\n\n/**\n'
+        " * `some` and `every` are order-blind ONLY IF their callback is.",
+        'export const ORDER_BLIND = new Set(["includes", "length", "find"]);\n\n/**\n'
+        " * `some` and `every` are order-blind ONLY IF their callback is.",
     ),
     (
         "M-REACH-NO-CHECKER the program is never bound, so parent pointers are missing",

@@ -91,8 +91,8 @@ describe("gathering evidence for the stop sentinel", () => {
           row("D", `head \`${HEAD}\``),
         ],
         [
-          { protocolId: "A", kind: "ESCALATION" },
-          { protocolId: "C", kind: "ESCALATION" },
+          { protocolId: "A", kind: "ESCALATION", transmittedCommentId: 11 },
+          { protocolId: "C", kind: "ESCALATION", transmittedCommentId: 12 },
           { protocolId: "C", kind: "CLAUDE_APPLIED" },
         ],
       );
@@ -116,14 +116,32 @@ describe("gathering evidence for the stop sentinel", () => {
         root,
         [row("A", `head \`${HEAD}\``), row("B", "head \`aaaaaaa\`"), row("C")],
         [
-          { protocolId: "A", kind: "ESCALATION" },
-          { protocolId: "B", kind: "ESCALATION" },
+          { protocolId: "A", kind: "ESCALATION", transmittedCommentId: 11 },
+          { protocolId: "B", kind: "ESCALATION", transmittedCommentId: 12 },
         ],
       );
       const rows = triageInbox(root, git)!;
       const actionable = rows.filter((r) => r.disposition !== "NOT_ACTIONABLE").length;
       expect(actionable, "the fixture must produce both kinds, or this proves nothing").toBe(2);
       expect(gather(root).supplied.receivedDecisions).toBe(actionable);
+    });
+  });
+
+  it("does not count a queued-only escalation as work the sentinel must wait for", () => {
+    // The cross-module half of the read-back correction. `A` looks exactly like an actionable row
+    // — open-looking outbox entry, anchor on HEAD — and its escalation was never read back, so it
+    // must not lower the stop sentinel as pending work.
+    withRoot((root) => {
+      writeState(root, [row("A", `head \`${HEAD}\``)], [{ protocolId: "A", kind: "ESCALATION" }]);
+      expect(gather(root).supplied.receivedDecisions).toBe(0);
+
+      // Same fixture, one field added. If the count did not move, this control proves nothing.
+      writeState(
+        root,
+        [row("A", `head \`${HEAD}\``)],
+        [{ protocolId: "A", kind: "ESCALATION", transmittedCommentId: 11 }],
+      );
+      expect(gather(root).supplied.receivedDecisions).toBe(1);
     });
   });
 

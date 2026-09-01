@@ -229,10 +229,10 @@ describe("reading open standing out of the control-bus state", () => {
     expect(a.standing("ESC-1")).toBe("ALREADY_JUDGED");
   });
 
-  it("counts an escalation this repository posted as the thing that makes an id open", () => {
+  it("counts an escalation READ BACK from the remote issue as what makes an id open", () => {
     const a = controlBusStanding({
       inbox: [],
-      outbox: [{ protocolId: "ESC-2", kind: "ESCALATION" }],
+      outbox: [{ protocolId: "ESC-2", kind: "ESCALATION", transmittedCommentId: 5495740285 }],
     });
     expect(a.standing("ESC-2")).toBe("OPEN");
   });
@@ -266,5 +266,112 @@ describe("reading open standing out of the control-bus state", () => {
 
   it("survives a state with neither collection present", () => {
     expect(controlBusStanding({}).standing("ESC-5")).toBe("STANDING_UNVERIFIABLE");
+  });
+});
+
+/**
+ * A COMPOSED ESCALATION IS NOT A SENT ONE, which is where the open-id authority was still wrong.
+ *
+ * An outbox row is written locally. `OutboxEntry.transmittedCommentId` is the canonical marker that
+ * the comment exists remotely, and its own doc says it is "set once a read-back proves the comment
+ * exists remotely. Never set on a successful POST." The first authority accepted any `ESCALATION`
+ * row, so a queued, failed or never-sent escalation granted OPEN standing and promoted an incoming
+ * decision to RUNNABLE. Reproduced against the committed implementation before repairing:
+ *
+ *     standing    OPEN
+ *     disposition RUNNABLE
+ *
+ * `CLAUDE.md` states the invariant in as many words — `REMOTE_POST_NOT_CONFIRMED =>
+ * CHATGPT_NOT_YET_NOTIFIED` — and the authority built to enforce openness ignored it.
+ *
+ * Every control here holds the protocol id, body and commit anchor CONSTANT and varies only the
+ * transmission evidence.
+ */
+describe("whether an escalation was ever actually sent", () => {
+  const HEAD = "2222222222222222222222222222222222222222";
+  const OLD = "bbbbbbb";
+  const git: GitOracle = {
+    isCommit: (sha) => sha === HEAD || sha === OLD,
+    distanceToHead: (sha) => (sha === HEAD ? 0 : 40),
+    head: () => HEAD,
+  };
+
+  const escalated = (transmittedCommentId?: unknown) =>
+    controlBusStanding({
+      inbox: [],
+      outbox: [
+        transmittedCommentId === undefined
+          ? { protocolId: "ESC-T", kind: "ESCALATION" }
+          : { protocolId: "ESC-T", kind: "ESCALATION", transmittedCommentId },
+      ],
+    });
+
+  const at = (sha: string, ids: OpenIdAuthority) =>
+    triageEntry(
+      {
+        protocolId: "ESC-T",
+        receivedAt: "2026-09-01T00:00:00.000Z",
+        githubCommentId: 1,
+        body: `reviewed head: \`${sha}\``,
+      },
+      git,
+      ids,
+    );
+
+  it("refuses to call a queued escalation evidence of an open question", () => {
+    // THE control, and the reproduction. Same id, same body, same anchor as the positive below.
+    const r = at(HEAD, escalated());
+    expect(r.standing).toBe("STANDING_UNVERIFIABLE");
+    expect(r.disposition).toBe("NOT_ACTIONABLE");
+  });
+
+  it("accepts one that was read back, and then lets the anchor decide", () => {
+    expect(at(HEAD, escalated(5495740285)).standing).toBe("OPEN");
+    expect(at(HEAD, escalated(5495740285)).disposition).toBe("RUNNABLE");
+    // The two axes stay independent: same standing, older anchor, different disposition.
+    expect(at(OLD, escalated(5495740285)).disposition).toBe("REFRESH_REQUIRED");
+  });
+
+  it("does not accept a malformed transmission id as a read-back", () => {
+    // `health()` in state.ts tests only for `undefined`. These are the shapes that slip past that
+    // and are still not evidence of anything: a comment id is a positive integer.
+    for (const bad of [0, -1, 1.5, "5495740285", null, true, {}, NaN]) {
+      expect(escalated(bad).standing("ESC-T"), `${String(bad)} is not a read-back`).toBe(
+        "STANDING_UNVERIFIABLE",
+      );
+    }
+  });
+
+  it("still lets a judged id beat a transmitted escalation", () => {
+    const a = controlBusStanding({
+      inbox: [{ protocolId: "ESC-T", status: "REJECTED" }],
+      outbox: [{ protocolId: "ESC-T", kind: "ESCALATION", transmittedCommentId: 99 }],
+    });
+    expect(a.standing("ESC-T")).toBe("ALREADY_JUDGED");
+  });
+
+  it("closes an id on an unconfirmed CLAUDE_APPLIED, because closing fails closed", () => {
+    // Asymmetry on purpose, and it is the same rule rather than an exception to it: read-back is
+    // required to make something ACTIONABLE, never to stop it being so.
+    const a = controlBusStanding({
+      inbox: [],
+      outbox: [
+        { protocolId: "ESC-T", kind: "ESCALATION", transmittedCommentId: 99 },
+        { protocolId: "ESC-T", kind: "CLAUDE_APPLIED" },
+      ],
+    });
+    expect(a.standing("ESC-T")).toBe("ALREADY_JUDGED");
+  });
+
+  it("reports how many escalations were composed but never confirmed", () => {
+    const a = controlBusStanding({
+      inbox: [],
+      outbox: [
+        { protocolId: "ESC-A", kind: "ESCALATION" },
+        { protocolId: "ESC-B", kind: "ESCALATION", transmittedCommentId: 7 },
+      ],
+    });
+    expect(a.source()).toContain("1 escalation(s) read back");
+    expect(a.source()).toContain("1 composed but never confirmed");
   });
 });

@@ -1856,3 +1856,42 @@ cannot cause a premature one.
 
 The cross-module assertion is a test, not a comment — the two counts must be equal on a fixture
 that deliberately produces both kinds. Six mutations, 6/6 ISOLATED.
+
+### IR-114 fourth addendum — a composed escalation is not a sent one
+
+`[CHATGPT_VERIFIED][MARKET-INBOX-TRIAGE-OPEN-ID-20260901]` `REWORK_REQUIRED`, and the finding is
+sharp: the positive OPEN proof was still too weak. An outbox row is written locally.
+`OutboxEntry.transmittedCommentId` is the canonical marker that the comment exists remotely, and its
+own doc comment says it is "set once a read-back proves the comment exists remotely. Never set on a
+successful POST." The authority accepted any `ESCALATION` row regardless.
+
+Reproduced against the committed implementation at `fee0ad1` before repairing, with an escalation
+that was composed and never read back:
+
+    standing    OPEN
+    disposition RUNNABLE
+
+`CLAUDE.md` states this invariant in as many words — `REMOTE_POST_NOT_CONFIRMED =>
+CHATGPT_NOT_YET_NOTIFIED`, only read-back proves transmission — and the authority built to enforce
+openness ignored it. Three of my own tests had codified the unsound rule, exactly as the review
+said; they were fixtures asserting that an untransmitted escalation opens an id.
+
+`OPEN` now requires a `transmittedCommentId` that is a positive integer. `state.ts`'s `health()`
+tests only `=== undefined`; this is the same rule and stronger, because a malformed id is not
+read-back evidence either — `0`, `-1`, `1.5`, `"5495740285"`, `null`, `true`, `{}` and `NaN` are all
+enumerated in a control.
+
+**Closure stays asymmetric, deliberately.** A `CLAUDE_APPLIED` closes an id whether or not it was
+read back, because closing fails CLOSED — the consequence is `NOT_ACTIONABLE`. Requiring read-back
+to OPEN and not to CLOSE is the same rule applied to both: never let unproven evidence make
+something actionable.
+
+`gatherStopEvidence` consumes the corrected standing for free, since it already counts through the
+triage; a control asserts a queued-only row is not counted, and that adding the read-back id alone
+moves the count from 0 to 1.
+
+Eleven mutations, 11/11 ISOLATED. `tests/stopEvidence.test.ts` is no longer this suite's
+"unrelated" comparison suite — four mutants downgraded to CAUGHT-BUT-BROAD because it now genuinely
+depends on the mutated module, which is the coupling the third addendum introduced on purpose. A
+suite that depends on the mutated module cannot answer whether the mutation broke something it
+should not have.

@@ -820,8 +820,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2589 / 2589 PASS across 145 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2570 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2596 / 2596 PASS across 145 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2577 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
 MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `ccff24d` plus the open-id

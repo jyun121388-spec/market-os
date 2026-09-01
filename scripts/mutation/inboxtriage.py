@@ -54,22 +54,40 @@ from input to output without ever asking whether that id was open. Each control 
 BODY AND ANCHORS IDENTICAL and varies only the standing.
 
   M-TRIAGE-NO-ID-CHECK          the open-id question is never asked
-                                -> 3 red: judged, unverifiable and no-authority controls. The
-                                   foreign-repository control stays green, because that anchor
-                                   verdict is non-actionable on its own.
+                                -> 3 when first written, 4 NOW MEASURED. The foreign-repository
+                                   control stays green, because that anchor verdict is
+                                   non-actionable on its own.
 
   M-TRIAGE-UNKNOWN-IS-OPEN      no canonical record is read as open
-                                -> 3 red: unjudged-row, never-seen and empty-state controls. The
-                                   double-driven controls are unaffected, which is the point of
-                                   having both.
+                                -> 3 when first written, 5 NOW MEASURED. The double-driven controls
+                                   are unaffected, which is the point of having both.
 
   M-TRIAGE-JUDGED-IS-OPEN       a judged id re-enters as open
-                                -> 2 red: the terminal-status control and the CLAUDE_APPLIED
-                                   control, both of which also posted an ESCALATION for that id.
-                                   Judged has to BEAT open, not merely coexist with it.
+                                -> 2 when first written, 4 NOW MEASURED. Judged has to BEAT open,
+                                   not merely coexist with it.
+
+                                These three rose when the read-back block below was added, because
+                                its controls exercise standing too and the older mutants break them
+                                as well. The numbers are corrected to what was measured rather than
+                                the predictions being reinterpreted; a mutant catching MORE is not
+                                a reason to leave a stale figure written down.
 
   M-TRIAGE-NO-AUTHORITY-OPEN    the fail-closed default admits everything
                                 -> 1 red: the no-authority control.
+
+  M-TRIAGE-QUEUED-IS-SENT       a composed escalation counts as a sent one
+                                -> 3 red: the queued control, the malformed-id control, and the
+                                   composed-but-never-confirmed source line. An outbox row is
+                                   written locally; `transmittedCommentId` is set only after a
+                                   read-back, never on a successful POST, and `CLAUDE.md` says so
+                                   in as many words -- REMOTE_POST_NOT_CONFIRMED =>
+                                   CHATGPT_NOT_YET_NOTIFIED. The positive read-back control must
+                                   stay GREEN under it.
+
+  M-TRIAGE-ANY-ID-IS-SENT       any truthy transmission field counts as a read-back
+                                -> 1 red: the malformed-id control alone, since a real comment id
+                                   passes either way. That is the narrowest possible catch and the
+                                   reason the malformed shapes are enumerated rather than implied.
 
     python scripts/mutation/inboxtriage.py
 """
@@ -85,7 +103,11 @@ TRIAGE = "scripts/inbox-triage.ts"
 TEST = "tests/inboxTriage.test.ts"
 
 BINDING_TESTS = [TEST]
-UNRELATED_TESTS = ["tests/stopEvidence.test.ts"]
+# NOT `tests/stopEvidence.test.ts` any more, and the reason is a real coupling rather than an
+# inconvenience: `gatherStopEvidence` now counts through `triageInbox`, so a mutation here
+# legitimately breaks it and the harness rightly downgraded four mutants to CAUGHT-BUT-BROAD. A
+# suite that depends on the mutated module cannot answer "did this change anything it should not".
+UNRELATED_TESTS = ["tests/evolutionScheduler.test.ts"]
 
 MUTATIONS = [
     (
@@ -139,6 +161,18 @@ MUTATIONS = [
         '  standing: () => "STANDING_UNVERIFIABLE",',
         '  source: () => "none — no canonical record of open ids was available",\n'
         '  standing: () => "OPEN",',
+    ),
+    (
+        "M-TRIAGE-QUEUED-IS-SENT an escalation that was never read back counts as open",
+        TRIAGE,
+        "      if (transmitted(entry)) asked.add(entry.protocolId);\n      else queued += 1;",
+        "      asked.add(entry.protocolId);",
+    ),
+    (
+        "M-TRIAGE-ANY-ID-IS-SENT any truthy transmission field counts as a read-back",
+        TRIAGE,
+        "  return typeof id === \"number\" && Number.isInteger(id) && id > 0;",
+        "  return Boolean(id);",
     ),
     (
         "M-TRIAGE-BARE-SLUG any slash-separated pair counts as a repository",

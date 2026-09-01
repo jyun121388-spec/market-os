@@ -107,34 +107,70 @@ export const NO_ID_AUTHORITY: OpenIdAuthority = {
 const TERMINAL_STATUSES = new Set(["VALIDATED", "APPLIED", "REJECTED"]);
 
 /**
+ * Was this outbox entry PROVEN to exist remotely?
+ *
+ * `OutboxEntry.transmittedCommentId` is the canonical marker and its own doc comment is explicit:
+ * "Set once a read-back proves the comment exists remotely. Never set on a successful POST."
+ * `state.ts`'s `health()` uses `transmittedCommentId === undefined` as its untransmitted test; this
+ * is the same rule and slightly stronger, because a malformed id is not read-back evidence either.
+ */
+function transmitted(entry: { transmittedCommentId?: unknown }): boolean {
+  const id = entry.transmittedCommentId;
+  return typeof id === "number" && Number.isInteger(id) && id > 0;
+}
+
+/**
  * The canonical authority: the control-bus state's own inbox statuses and outbox postings.
  *
  * Judged beats open, deliberately. A historical id must not re-enter through a stale inbox row, so
  * a terminal status anywhere for that id closes it however many unjudged rows also mention it.
  *
- * OPEN requires POSITIVE evidence that this repository asked: an `ESCALATION` in the outbox with
- * that id. A `RECEIVED_UNVALIDATED` row is not that evidence — it means the watcher wrote something
- * down and nobody judged it, which is a statement about this machine, not about an outstanding
- * question. On the live state the outbox is empty and no entry carries provenance, so every id
- * there is `STANDING_UNVERIFIABLE`; that is the honest answer and it is why the earlier confident
- * `11 STALE_REFRESH_REQUIRED` was over-claiming.
+ * OPEN requires POSITIVE evidence that this repository asked. A `RECEIVED_UNVALIDATED` row is not
+ * that evidence — it means the watcher wrote something down and nobody judged it, which is a
+ * statement about this machine, not about an outstanding question.
+ *
+ * ## AND NEITHER IS A QUEUED ESCALATION, WHICH IS WHERE THIS WAS STILL WRONG
+ *
+ * The first version accepted any outbox `ESCALATION` as proof of an open question. It is not. An
+ * outbox row is composed locally; `transmittedCommentId` is set only after a READ-BACK proves the
+ * comment exists remotely, and never on a successful POST. So a queued, failed or never-sent
+ * escalation granted OPEN standing and promoted an incoming decision to `RUNNABLE`. Reproduced
+ * against the committed implementation before repairing:
+ *
+ *     standing    OPEN
+ *     disposition RUNNABLE
+ *
+ * `CLAUDE.md` states this invariant in as many words — `REMOTE_POST_NOT_CONFIRMED =>
+ * CHATGPT_NOT_YET_NOTIFIED`, only read-back proves transmission — and the authority built to
+ * enforce openness ignored it. Local intent to send is not evidence that a remote escalation
+ * exists.
+ *
+ * CLOSURE is treated differently, and deliberately. A `CLAUDE_APPLIED` closes an id whether or not
+ * it was read back, because closing fails CLOSED: the consequence is `NOT_ACTIONABLE`, which is the
+ * safe direction. Requiring read-back to OPEN and not to CLOSE is not an inconsistency; it is the
+ * same rule — never let unproven evidence make something actionable — applied to both.
  */
 export function controlBusStanding(state: {
   inbox?: { protocolId: string; status: string }[];
-  outbox?: { protocolId: string; kind: string }[];
+  outbox?: { protocolId: string; kind: string; transmittedCommentId?: unknown }[];
 }): OpenIdAuthority {
   const judged = new Set<string>();
   const asked = new Set<string>();
+  let queued = 0;
   for (const entry of state.inbox ?? []) {
     if (TERMINAL_STATUSES.has(entry.status)) judged.add(entry.protocolId);
   }
   for (const entry of state.outbox ?? []) {
     if (entry.kind === "CLAUDE_APPLIED") judged.add(entry.protocolId);
-    else if (entry.kind === "ESCALATION") asked.add(entry.protocolId);
+    else if (entry.kind === "ESCALATION") {
+      if (transmitted(entry)) asked.add(entry.protocolId);
+      else queued += 1;
+    }
   }
   return {
     source: () =>
-      `control-bus state: ${judged.size} judged id(s), ${asked.size} escalation(s) posted from here`,
+      `control-bus state: ${judged.size} judged id(s), ${asked.size} escalation(s) read back from ` +
+      `the remote issue, ${queued} composed but never confirmed`,
     standing: (protocolId) => {
       if (judged.has(protocolId)) return "ALREADY_JUDGED";
       if (asked.has(protocolId)) return "OPEN";

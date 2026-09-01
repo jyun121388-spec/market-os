@@ -1825,3 +1825,34 @@ Still read-only. Nothing applied, resolved, refreshed or posted. Nine mutations,
 The guidance was treated as a review finding independently reproduced, NOT as an authorisation:
 whether a `CHATGPT_ARCHITECT_GUIDANCE` may authorise anything is the open ESC-014 question, and
 correcting one's own read-only script needs no authority beyond the finding being true.
+
+### IR-114 third addendum — my own two modules disagreed, and I found this one
+
+Not a review finding. `scripts/stop-evidence.ts` and `scripts/inbox-triage.ts` read the same state
+file and printed numbers any reader would take as contradictory:
+
+    stop-evidence   no received decision waiting to be consumed -- 11 received decisions.
+    inbox-triage    11  NOT_ACTIONABLE  (STANDING_UNVERIFIABLE / STALE_REFRESH_REQUIRED)
+
+Neither was wrong. They answered different questions — "how many rows has nobody judged" and "how
+many of those can be acted on" — and nothing said so. That is the same two-halves-with-no-joining-
+rule shape review has caught on this branch five times, found this time by joining two things
+already built.
+
+The repair is the one that has worked every time: ONE rule shared by both sides, not a second check
+bolted onto the side that lacked it. `gatherStopEvidence` now counts through `triageInbox` rather
+than by counting `RECEIVED_UNVALIDATED` statuses, so a row that has been triaged and come back
+`NOT_ACTIONABLE` is not reported as a decision waiting — it has been looked at and cannot be
+consumed; leaving it unfiled is transport hygiene. Both numbers are reported, in a new `notes`
+channel, because supplying one and staying silent about the other is how the contradiction arose.
+
+    0 received decisions
+    11 unjudged inbox row(s), of which 0 are actionable (11 NOT_ACTIONABLE)
+
+That condition now reads `yes` for the first time. `MAY STOP` stays `false`: the watcher is STOPPED,
+five queue items are startable, and six inputs remain deliberately ungathered. A control asserts
+that the two gathered fields at their most permissive still cannot produce a stop, so the change
+cannot cause a premature one.
+
+The cross-module assertion is a test, not a comment — the two counts must be equal on a fixture
+that deliberately produces both kinds. Six mutations, 6/6 ISOLATED.

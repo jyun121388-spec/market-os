@@ -37,10 +37,8 @@
  *   npx tsx scripts/stop-evidence.ts
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { StopSentinelInput } from "../src/server/evolution/scheduler";
-import { unprocessedDecisions } from "../src/server/controlbus/state";
-import type { ControlBusState } from "../src/server/controlbus/state";
 import {
   lockIsStale,
   processAlive,
@@ -48,6 +46,7 @@ import {
   RUNTIME_DIR,
   storePaths,
 } from "../src/server/controlbus/store";
+import { type GitOracle, localGit, triageInbox } from "./inbox-triage";
 
 /**
  * How long a watcher may go without rewriting its lock before it is presumed dead.
@@ -60,6 +59,16 @@ import {
 export const HEARTBEAT_STALE_MS = 45_000;
 
 export interface StopEvidence {
+  /**
+   * Established facts that are NOT sentinel inputs but change how one reads them.
+   *
+   * Added because two modules of mine, reading the same file, printed numbers a reader would take
+   * as contradictory: this one said `11 received decisions` while `inbox-triage` said all 11 were
+   * `NOT_ACTIONABLE`. Neither was wrong — they answered different questions — and nothing said so.
+   * That is the same two-halves-and-no-joining-rule shape review has caught here five times, found
+   * this time by joining two things already built rather than by being told.
+   */
+  notes: string[];
   /** Fields established from the machine. Spread straight into the sentinel. */
   supplied: Partial<StopSentinelInput>;
   /** Fields NOT established, and why. Printed, so the sentinel's refusal is legible. */
@@ -119,15 +128,23 @@ export function gatherStopEvidence(
   root: string = RUNTIME_DIR,
   nowMs: number = Date.now(),
   staleMs: number = HEARTBEAT_STALE_MS,
+  git: GitOracle = localGit(),
 ): StopEvidence {
   const paths = storePaths(root);
   const supplied: Partial<StopSentinelInput> = {};
   const unestablished: { field: string; because: string }[] = [];
+  const notes: string[] = [];
 
   // --- decisions waiting to be consumed -------------------------------------------------------
-  // The existence check is the whole defence. `loadState` answers `emptyState()` for a missing
-  // file, and an empty state has an empty inbox, so the count would be a confident zero about a
-  // file that was never there.
+  //
+  // Counted through `triageInbox`, NOT by counting `RECEIVED_UNVALIDATED` rows, and the difference
+  // is the point. An unjudged row means the watcher wrote something down and nobody judged it; it
+  // does not mean a decision is waiting to be consumed. A row that has been triaged and come back
+  // NOT_ACTIONABLE — closed id, unverifiable standing, foreign repository — has been looked at and
+  // cannot be consumed. Leaving it unfiled is transport hygiene, not a reason the loop must run on.
+  //
+  // Both numbers are reported, because the earlier version supplied one of them and said nothing
+  // about the other, and a reader comparing the two modules would have seen a contradiction.
   if (!existsSync(paths.state)) {
     unestablished.push({
       field: "receivedDecisions",
@@ -135,16 +152,19 @@ export function gatherStopEvidence(
     });
   } else {
     try {
-      // No `Array.isArray` guard, deliberately. One was written here and then removed once no
-      // control could tell it apart from the catch: any inbox that is not a list — an object, a
-      // string, absent — makes `.filter` throw, which lands in the same place with a truer message.
-      // A guard no mutant can kill is the `servesLocalBuild` shape again, and that one shipped.
-      const state = JSON.parse(readFileSync(paths.state, "utf8")) as ControlBusState;
-      supplied.receivedDecisions = unprocessedDecisions(state).length;
+      const rows = triageInbox(root, git);
+      if (rows === null) throw new Error("triage found no state to read");
+      const actionable = rows.filter((r) => r.disposition !== "NOT_ACTIONABLE");
+      supplied.receivedDecisions = actionable.length;
+      notes.push(
+        `${rows.length} unjudged inbox row(s), of which ${actionable.length} are actionable ` +
+          `(${rows.length - actionable.length} NOT_ACTIONABLE). Only the actionable count is fed ` +
+          "to the sentinel; the rest have been looked at and cannot be consumed.",
+      );
     } catch (error) {
       unestablished.push({
         field: "receivedDecisions",
-        because: `${paths.state} could not be read as control-bus state (${(error as Error).message})`,
+        because: `${paths.state} could not be triaged (${(error as Error).message})`,
       });
     }
   }
@@ -184,7 +204,7 @@ export function gatherStopEvidence(
   }
 
   unestablished.push(...NOT_ATTEMPTED);
-  return { supplied, unestablished };
+  return { supplied, unestablished, notes };
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {

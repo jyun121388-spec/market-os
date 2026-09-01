@@ -35,6 +35,14 @@ Expected cardinalities, written before the run:
                                 oversight, and this module's whole value is that its refusal is
                                 legible.
 
+  M-STOP-COUNT-UNJUDGED      count unjudged rows instead of actionable ones
+                             -> 2 red: the actionable-count control and the cross-module control.
+                                This is what the module did first, and it is why two of my own
+                                modules reading the same file printed numbers a reader would take
+                                as contradictory -- `11 received decisions` here against
+                                `11 NOT_ACTIONABLE` in the triage. Neither was wrong; nothing said
+                                so, and nothing stopped them drifting further apart.
+
     python scripts/mutation/stopevidence.py
 """
 
@@ -85,6 +93,12 @@ MUTATIONS = [
         EVIDENCE,
         "  unestablished.push(...NOT_ATTEMPTED);",
         "  unestablished.push();",
+    ),
+    (
+        "M-STOP-COUNT-UNJUDGED every unjudged row counts as a decision waiting",
+        EVIDENCE,
+        '      const actionable = rows.filter((r) => r.disposition !== "NOT_ACTIONABLE");',
+        "      const actionable = rows;",
     ),
 ]
 

@@ -168,6 +168,19 @@ interface Relation {
 export interface Schema {
   uniqueKeys: Map<string, UniqueKey[]>;
   relations: Map<string, Relation[]>;
+  /**
+   * Fields declared NULLABLE, per model.
+   *
+   * Carried because PostgreSQL treats NULL as distinct from NULL in an ordinary unique index, so a
+   * unique key containing a nullable column admits many rows whose column is NULL. This schema
+   * records that trap in its own comments: `Observation.revisionOf String?` sits inside
+   * `@@unique([seriesId, observationDate, isRevision, revisionOf])`, and a hand-written partial
+   * index exists precisely because the `@@unique` does not guarantee one original per series/date.
+   *
+   * Read from the schema's `Type?` marker. Nullability is never inferred from a field NAME, from
+   * `id` convention, or from whichever rule makes a site pass.
+   */
+  nullableFields: Map<string, Set<string>>;
 }
 
 export function parseSchema(): Schema {
@@ -176,6 +189,7 @@ export function parseSchema(): Schema {
   const uniqueKeys = new Map<string, UniqueKey[]>();
   const relations = new Map<string, Relation[]>();
   const tableToModel = new Map<string, string>();
+  const nullableFields = new Map<string, Set<string>>();
   const modelRe = /^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm;
   let m: RegExpExecArray | null;
   while ((m = modelRe.exec(text)) !== null) {
@@ -183,6 +197,7 @@ export function parseSchema(): Schema {
     const keys: UniqueKey[] = [];
     const rels: Relation[] = [];
     let tableName: string | null = null;
+    const nullable = new Set<string>();
     for (const raw of body.split("\n")) {
       const line = raw.trim();
       const field = /^(\w+)\s+\S+/.exec(line);
@@ -192,6 +207,9 @@ export function parseSchema(): Schema {
       if (bu) keys.push({ kind: "@@unique", fields: bu[1].split(",").map((f) => f.trim()) });
       const bi = /^@@id\(\[([^\]]+)\]/.exec(line);
       if (bi) keys.push({ kind: "@@id", fields: bi[1].split(",").map((f) => f.trim()) });
+      // `name Type?` -- the optional marker, taken from the declaration rather than guessed.
+      const opt = /^(\w+)\s+\w+\?/.exec(line);
+      if (opt) nullable.add(opt[1]);
       const map = /^@@map\("([^"]+)"\)/.exec(line);
       if (map) tableName = map[1];
       const rel = /^(\w+)\s+(\w+)\??\s+@relation\(fields:\s*\[([^\]]+)\]/.exec(line);
@@ -208,6 +226,7 @@ export function parseSchema(): Schema {
     uniqueKeys.set(key, keys);
     relations.set(key, rels);
     tableToModel.set(tableName ?? name, key);
+    nullableFields.set(key, nullable);
   }
   if (uniqueKeys.size === 0) throw new Error("no models parsed from the schema");
 
@@ -223,7 +242,7 @@ export function parseSchema(): Schema {
       "no unique indexes parsed from prisma/migrations — the second authority is silently empty, which would under-report constraints and over-report defects",
     );
   }
-  return { uniqueKeys, relations };
+  return { uniqueKeys, relations, nullableFields };
 }
 
 /**

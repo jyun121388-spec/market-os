@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { auditPresentationOrder, isTotalOrder } from "../scripts/presentation-order";
+import {
+  auditPresentationOrder,
+  isTotalOrder,
+  nullableBlockers,
+} from "../scripts/presentation-order";
 import { parseSchema, type Schema } from "../scripts/recency-cardinality";
 
 /**
@@ -24,6 +28,7 @@ const weakenSchema = (mutate: (s: Schema) => void): Schema => {
   const copy: Schema = {
     uniqueKeys: new Map([...base.uniqueKeys].map(([k, v]) => [k, v.map((x) => ({ ...x }))])),
     relations: new Map([...base.relations].map(([k, v]) => [k, v.map((x) => ({ ...x }))])),
+    nullableFields: new Map([...base.nullableFields].map(([k, v]) => [k, new Set(v)])),
   };
   mutate(copy);
   return copy;
@@ -132,5 +137,45 @@ describe("the total-order rule on its own", () => {
   it("is not satisfied by a field that merely looks like a key", () => {
     expect(isTotalOrder(["name"], "series", schema)).toBeNull();
     expect(isTotalOrder(["unit", "frequency"], "series", schema)).toBeNull();
+  });
+
+  /**
+   * THE REPOSITORY'S OWN NULLABLE-KEY TRAP, as a structural anchor.
+   *
+   * `Observation` is unique on `(seriesId, observationDate, isRevision, revisionOf)` and
+   * `revisionOf` is `String?`. PostgreSQL treats NULL as distinct from NULL in an ordinary unique
+   * index, so that constraint admits MANY rows whose `revisionOf` is NULL — the schema says so in
+   * its own comments, which is why a hand-written partial index exists alongside it.
+   *
+   * Covering every field of that key therefore does NOT make an ordering total. The compensating
+   * partial index is real and is not being claimed absent; it simply cannot establish a TOTAL
+   * order, because it constrains a subset and a total order is a statement about all rows.
+   */
+  it("refuses a unique key containing a nullable field, however completely it is covered", () => {
+    const key = ["seriesId", "observationDate", "isRevision", "revisionOf"];
+    expect(isTotalOrder(key, "observation", schema)).toBeNull();
+    const why = nullableBlockers(key, "observation", schema);
+    expect(why).toContain("revisionOf");
+    expect(why).toContain("NULL as distinct from NULL");
+  });
+
+  it("accepts the same shape when every field of the key is non-null", () => {
+    // `Filing` is unique on `(sourceId, receiptNo)` and neither is optional. Same coverage rule,
+    // opposite nullability, opposite answer — which is what makes the control above about
+    // nullability rather than about compound keys.
+    expect(isTotalOrder(["sourceId", "receiptNo"], "filing", schema)).not.toBeNull();
+    expect(nullableBlockers(["sourceId", "receiptNo"], "filing", schema)).toBeNull();
+  });
+
+  it("keeps looking after rejecting a nullable key, rather than giving up on the model", () => {
+    // `Observation` also has `@id(id)`, non-null. An ordering that covers the nullable compound key
+    // AND `id` is still total — the nullable key is skipped, not treated as a verdict.
+    expect(
+      isTotalOrder(
+        ["seriesId", "observationDate", "isRevision", "revisionOf", "id"],
+        "observation",
+        schema,
+      ),
+    ).not.toBeNull();
   });
 });

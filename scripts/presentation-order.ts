@@ -143,9 +143,26 @@ function enclosingName(node: ts.Node): string {
 /**
  * Do these ordering keys pin a TOTAL order?
  *
- * Only if they contain every field of some unique key on the model. A single-column `@unique` is
- * the common case (`id`); a compound key counts only when the ordering names all of its columns,
- * because ordering by half of a compound key still leaves ties.
+ * Two conditions, and the second was missing until review found it.
+ *
+ * COVERAGE. The ordering must contain every field of some unique key. Half of a compound key still
+ * leaves ties.
+ *
+ * NON-NULLABILITY. Every field of that key must be declared non-null. PostgreSQL treats NULL as
+ * distinct from NULL in an ordinary unique index, so a unique key containing a nullable column
+ * admits MANY rows whose column is NULL — and ordering by the whole key then still ties on them.
+ * This repository records that exact trap in its own schema: `Observation.revisionOf String?` sits
+ * inside `@@unique([seriesId, observationDate, isRevision, revisionOf])`, and a hand-written
+ * partial index exists precisely because that `@@unique` does not guarantee one original per
+ * series and date.
+ *
+ * A PARTIAL index still proves nothing here, for the reason the cardinality audit settled: it does
+ * not order the rows outside its predicate. So a nullable key is not rescued by the partial index
+ * that compensates for it elsewhere — that index constrains a subset, and a total order is a
+ * statement about all of them. Fail closed rather than reasoning about which rows are in scope.
+ *
+ * Nullability comes from the schema's own `Type?` marker, never from a field name, an `id`
+ * convention, or whichever rule makes a site green.
  */
 export function isTotalOrder(
   keys: readonly string[],
@@ -153,13 +170,41 @@ export function isTotalOrder(
   schema: Schema,
 ): string | null {
   const present = new Set(keys);
+  const nullable = schema.nullableFields.get(model) ?? new Set<string>();
   const uniqueKeys = schema.uniqueKeys.get(model) ?? [];
   for (const key of uniqueKeys) {
-    // A PARTIAL index does not order the rows outside its predicate, so it cannot make an ordering
-    // total. Same reasoning as the cardinality audit: partial means partial.
     if (key.partial) continue;
-    if (key.fields.every((f) => present.has(f))) {
-      return `${key.kind}${key.name ? ` ${key.name}` : ""}(${key.fields.join(", ")}) is fully in the ordering, so no two rows can tie`;
+    if (!key.fields.every((f) => present.has(f))) continue;
+    const nullableInKey = key.fields.filter((f) => nullable.has(f));
+    if (nullableInKey.length > 0) {
+      // Covered, and still not total. Skipped rather than returned, because another key on the
+      // same model may yet prove it.
+      continue;
+    }
+    return `${key.kind}${key.name ? ` ${key.name}` : ""}(${key.fields.join(", ")}) is fully in the ordering and every field is non-null, so no two rows can tie`;
+  }
+  return null;
+}
+
+/**
+ * Why a covered key was rejected, for the report. Purely explanatory — it decides nothing.
+ */
+export function nullableBlockers(
+  keys: readonly string[],
+  model: string,
+  schema: Schema,
+): string | null {
+  const present = new Set(keys);
+  const nullable = schema.nullableFields.get(model) ?? new Set<string>();
+  for (const key of schema.uniqueKeys.get(model) ?? []) {
+    if (key.partial) continue;
+    if (!key.fields.every((f) => present.has(f))) continue;
+    const blockers = key.fields.filter((f) => nullable.has(f));
+    if (blockers.length > 0) {
+      return (
+        `${key.kind}(${key.fields.join(", ")}) is fully in the ordering, but ${blockers.join(", ")} ` +
+        `is nullable and PostgreSQL treats NULL as distinct from NULL, so rows holding NULL there can still tie`
+      );
     }
   }
   return null;
@@ -201,7 +246,9 @@ export function auditPresentationOrder(injected?: Schema): Site[] {
               why = total;
             } else {
               determinism = "PARTIAL_ORDER";
-              why = `ordered by ${keys.join(", ")}, none of which completes a unique key, so rows that tie can come back in either order`;
+              why =
+                nullableBlockers(keys, pc.model, schema) ??
+                `ordered by ${keys.join(", ")}, none of which completes a unique key, so rows that tie can come back in either order`;
             }
           }
 

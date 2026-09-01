@@ -820,15 +820,15 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2527 / 2527 PASS across 142 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2508 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2530 / 2530 PASS across 142 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2511 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `cd6d202` plus the
-order-reach audit committed on top of it, from one fresh run on that tree. One new file,
-`tests/orderReachesOutput.test.ts`, narrowing the 34 non-total-order sites to the ones whose
-nondeterminism a reader can actually see — and carrying the regression control for the
-parents-undefined bug that made the first run of that audit return 34 identical answers. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `74c6766` plus the
+nullable-uniqueness correction committed on top of it, from one fresh run on that tree. Three
+controls added to `tests/presentationOrder.test.ts`: PostgreSQL treats NULL as distinct from NULL,
+so a unique key holding a nullable field cannot establish a total order — the trap this schema
+already documents on `Observation.revisionOf`. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

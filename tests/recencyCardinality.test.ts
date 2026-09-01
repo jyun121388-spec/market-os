@@ -32,6 +32,7 @@ const weakenSchema = (mutate: (s: Schema) => void): Schema => {
   const copy: Schema = {
     uniqueKeys: new Map([...base.uniqueKeys].map(([k, v]) => [k, v.map((x) => ({ ...x }))])),
     relations: new Map([...base.relations].map(([k, v]) => [k, v.map((x) => ({ ...x }))])),
+    nullableFields: new Map([...base.nullableFields].map(([k, v]) => [k, new Set(v)])),
   };
   mutate(copy);
   return copy;

@@ -820,12 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2565 / 2565 PASS across 144 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2546 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2576 / 2576 PASS across 145 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2557 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `bbf452e` plus the
-operator-boundary repair committed on top of it. Relational operators (`< <= > >=`) run ToPrimitive
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `3e2c1bf` plus the inbox
+triage committed on top of it. `scripts/inbox-triage.ts` mechanises the staleness check `CLAUDE.md`
+states and nothing enforced, read-only. All 11 unjudged decisions are `STALE_REFRESH_REQUIRED`,
+162-211 commits behind HEAD; none names a foreign repository and none was applied, resolved or
+refreshed. Recorded under IR-114.
+
+Previously at `bbf452e` plus the operator-boundary repair committed on top of it. Relational operators (`< <= > >=`) run ToPrimitive
 on object operands, and this schema's generated rows carry `Decimal`, `DateTime` and `Json`, so a
 proven-inert READ was still admitting a coercing USE; both now need separate proof. Five controls
 added; order-reach mutations 11/11 ISOLATED. Corpus unmoved at 34 / 16 ORDER_SURVIVES / 18 UNREAD.

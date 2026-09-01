@@ -1771,3 +1771,24 @@ Six of the eight inputs are still not gathered, each listed in `NOT_ATTEMPTED` w
 result is a claim about a past tree, and this module must not turn one into a fact about this one.
 So the sentinel still cannot reach `mayStop: true`; it can now say which of its refusals are
 findings and which are absences, which it could not before.
+
+### IR-114 addendum — the 11 are all stale, mechanically
+
+`scripts/inbox-triage.ts` (read-only) mechanises the check `CLAUDE.md` states in prose: does the
+decision target this repository, and has it gone stale against HEAD. Run against the live runtime
+root, every one of the 11 unjudged entries comes back the same way:
+
+    11  STALE_REFRESH_REQUIRED   nearest anchor 162-211 commits behind HEAD
+
+The uniformity was checked rather than trusted, because a uniform answer is this project's usual
+signature of a broken tool. The DISTANCES vary — 211, 210, 186, 184, 182, 173, 162 — which is the
+non-uniformity that argues the analysis is reading the bodies rather than defaulting.
+
+None names a foreign repository. Nothing was applied, resolved or refreshed: the module produces a
+decision-ready list and deliberately does not decide. Whether these are answered with
+`[ESCALATION_REFRESH_REQUIRED]`, resolved as superseded, or left, is a judgement about a shared
+transport and stays with the operator.
+
+The governing rule is that `ANCHOR_UNVERIFIABLE` never collapses into `CURRENT`. A commit missing
+from the local object store may be a branch nobody fetched here, and "I cannot check" reading as
+"it checks out" is exactly how a stale decision gets applied. Five mutations, 5/5 ISOLATED.

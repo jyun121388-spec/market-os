@@ -27,6 +27,19 @@
  * Reading committed bytes is also what makes the CRLF noise vanish: git stores LF and converts on
  * checkout, so the bytes measured here are exactly the bytes CI receives.
  *
+ * ## AND WHY IT FAILS CLOSED
+ *
+ * The rewritten version still contained `catch { continue; }` around the Prettier call, with a
+ * comment arguing that a file Prettier cannot parse is a different problem. That is fail-OPEN: the
+ * canonical gate is `prettier --check .`, which exits non-zero on an evaluation failure, so a file
+ * that throws here could make this diagnostic report clean about a tree CI rejects. "Not a
+ * formatting offence" is not "verified clean", and an evaluator error is UNKNOWN — which this
+ * repository's rules say is never success.
+ *
+ * So a throw is now a FINDING with its own kind, and any finding exits non-zero. Errors resolving
+ * config or inferring a parser are deliberately left to propagate, which reaches the same
+ * non-zero outcome by the shortest path.
+ *
  *   npx tsx scripts/format-gate.ts
  */
 
@@ -50,18 +63,23 @@ function committedBytes(path: string, rev: string, cwd: string): string | null {
   }
 }
 
+/** What the gate found about one committed file. Both kinds mean CI would reject the tree. */
+export type GateFinding =
+  | { path: string; kind: "MISFORMATTED" }
+  | { path: string; kind: "EVALUATION_ERROR"; detail: string };
+
 /**
- * Files whose COMMITTED bytes Prettier would rewrite — the exact set CI objects to.
+ * Everything about the COMMITTED bytes that would make `prettier --check .` exit non-zero.
  *
  * `getFileInfo` is asked about the PATH, so `.prettierignore` and parser inference keep the
  * repository's own semantics; the content it judges comes from git rather than from disk.
  */
-export async function committedFormatOffenders(
+export async function committedFormatFindings(
   cwd: string = process.cwd(),
   rev = "HEAD",
-): Promise<string[]> {
+): Promise<GateFinding[]> {
   const tracked = git(["ls-files", "-z"], cwd).split("\0").filter(Boolean);
-  const offenders: string[] = [];
+  const findings: GateFinding[] = [];
 
   for (const path of tracked) {
     const info = await getFileInfo(path, { resolveConfig: true, ignorePath: ".prettierignore" });
@@ -70,32 +88,47 @@ export async function committedFormatOffenders(
     const source = committedBytes(path, rev, cwd);
     if (source === null) continue;
 
+    // Not inside the try: a config or plugin resolution failure is not a property of this file's
+    // content, and letting it propagate reaches a non-zero exit by the shortest honest route.
     const options = (await resolveConfig(path)) ?? {};
+
     let formatted: boolean;
     try {
       formatted = await check(source, { ...options, filepath: path });
-    } catch {
-      // A file Prettier cannot parse is a different problem, not a formatting offence. Reporting it
-      // here would send the reader to reformat something that does not parse.
+    } catch (error) {
+      // NOT `continue`. That was fail-open: canonical `prettier --check .` exits non-zero when it
+      // cannot evaluate a file, so skipping one here let this gate report clean about a tree CI
+      // rejects. An evaluator error is UNKNOWN, and unknown is not success.
+      findings.push({
+        path,
+        kind: "EVALUATION_ERROR",
+        detail: (error as Error).message.split("\n")[0],
+      });
       continue;
     }
-    if (!formatted) offenders.push(path);
+    if (!formatted) findings.push({ path, kind: "MISFORMATTED" });
   }
 
-  return offenders;
+  return findings;
 }
 
 async function main(): Promise<number> {
-  const offenders = await committedFormatOffenders();
-  if (offenders.length === 0) {
+  const findings = await committedFormatFindings();
+  if (findings.length === 0) {
     console.log("format gate: clean — nothing CI would object to in the committed tree");
     return 0;
   }
-  console.log(offenders.length + " committed file(s) CI would reject:");
-  for (const f of offenders) console.log("  " + f);
+  console.log(findings.length + " committed file(s) CI would reject:");
+  for (const f of findings) {
+    console.log(
+      "  " + f.kind.padEnd(18) + f.path + (f.kind === "EVALUATION_ERROR" ? "  — " + f.detail : ""),
+    );
+  }
   console.log(
-    "\nRun prettier --write on those paths. A local format:check on Windows also lists every " +
-      "file with CRLF endings; those are checkout noise, not findings, and are not shown here.",
+    "\nMISFORMATTED: run prettier --write on those paths. EVALUATION_ERROR: Prettier could not " +
+      "read the committed bytes at all, which the canonical gate also fails on — it is unknown, " +
+      "not clean. A local format:check on Windows additionally lists every file with CRLF " +
+      "endings; those are checkout noise and are not shown here.",
   );
   return 1;
 }

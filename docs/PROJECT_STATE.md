@@ -820,8 +820,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2665 / 2665 PASS across 152 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2646 passing plus 19 pinned `it.fails`. REMOTE CI run 33547628222, bound to
+2670 / 2670 PASS across 152 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2651 passing plus 19 pinned `it.fails`. REMOTE CI run 33547628222, bound to
 `bb88ded` on `claude/post-rc-followup`, FAILED at `npm run format:check` on one file; the fix is at
 `8c58213`+1 and no fresh run is bound to it yet. A local green suite does not supersede that run `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.

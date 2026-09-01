@@ -2355,3 +2355,50 @@ Also still open: the guidance asks for a `[CLAUDE_PROGRESS]` note while CI is pe
 `CLAUDE_PROGRESS` is not in `OUTBOUND_KINDS`, so the durable outbound path cannot express it. The
 channel has carried 17. That is the same parser-narrower-than-the-channel shape ESC-014 fixed for
 inbound, unfixed for outbound, and no decision authorises widening it.
+
+## IR-119 — the gate called an evaluator error "clean"
+
+Status: `VERIFIED` (2026-09-02). Reported by
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-IR119-FAIL-CLOSED-PRETTIER-PARSE-20260902]` — durable evidence,
+not authority; fixing a verifier of mine that reports PASS on UNKNOWN needs none.
+
+The IR-118 rewrite read committed bytes and never wrote, which was right. It also carried:
+
+    try { formatted = await check(source, ...) } catch { continue; }
+
+with a comment arguing that a file Prettier cannot parse is a different problem. That is fail-OPEN.
+The canonical gate is `prettier --check .`, which exits non-zero when it cannot EVALUATE a file, so
+a throw here let the diagnostic report clean about a tree CI rejects. "Not a formatting offence" is
+not "verified clean", and this repository's own rules say a verification that could not be run is
+never recorded as passing — written into a verifier, by me, in the file whose whole purpose is to
+stop a gate lying.
+
+Findings are now typed. `MISFORMATTED` and `EVALUATION_ERROR` are both findings, and any finding
+exits non-zero. `resolveConfig` and `getFileInfo` are deliberately left OUTSIDE the try: a config or
+plugin resolution failure is not a property of one file's content, and letting it propagate reaches
+the same non-zero outcome by the shortest honest route.
+
+### The controls compare against the canonical gate rather than about themselves
+
+Each new fixture runs `prettier --check .` in the same temp repository and asserts its exit code
+alongside the diagnostic's answer, so a disagreement between the two is what fails — not an
+assertion about this gate in isolation. Clean source: canonical 0, gate empty. Misformatted:
+canonical 1, gate `MISFORMATTED`. Unparsable TS and unparsable JSON: canonical 1, gate
+`EVALUATION_ERROR` rather than omitted. A tree with both kinds keeps them distinct, without which
+mapping every finding to one kind would satisfy the rest.
+
+Thirteen controls now, with the eight IR-118 preservation and vacuity controls unchanged and still
+hashing the whole repository — contents, index blobs, porcelain status — before and after.
+
+Mutations 4/4 ISOLATED. `M-FMT-FAIL-OPEN` restores the `catch { continue; }` and goes red on all
+three evaluation-error controls, as predicted. `M-FMT-NO-OFFENDERS` came in at 5 against a predicted
+4, the both-kinds control firing as well.
+
+Both gates now agree locally: `npm run format:check` reports all files clean, and so does
+`scripts/format-gate.ts`. The canonical one became readable here only because a repo-wide
+`prettier --write` two units ago normalised this checkout's line endings on disk; that is a property
+of the working copy, not a repair, and the gate still reads git so it does not depend on it.
+
+Still NOT closed: no workflow run is bound to the corrected SHA. CI reaches this branch only through
+`claude/post-rc-followup`, whose fast-forward this session's classifier denies. `33547628222` is not
+reused as green.

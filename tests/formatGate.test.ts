@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { committedFormatOffenders } from "../scripts/format-gate";
+import { committedFormatFindings } from "../scripts/format-gate";
 
 /**
  * The gate must never write. Not to the worktree, not to the index, not to untracked files, and not
@@ -79,7 +80,9 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       },
       async (root) => {
         const before = snapshot(root);
-        expect(await committedFormatOffenders(root)).toEqual(["bad.ts"]);
+        expect(await committedFormatFindings(root)).toEqual([
+          { path: "bad.ts", kind: "MISFORMATTED" },
+        ]);
         // Neither file in the ACTIVE tree may have been touched to find that out.
         expect(snapshot(root)).toEqual(before);
       },
@@ -97,7 +100,7 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       },
       async (root) => {
         const before = snapshot(root);
-        await committedFormatOffenders(root);
+        await committedFormatFindings(root);
         const after = snapshot(root);
         expect(after).toEqual(before);
         expect(readFileSync(join(root, "clean.ts"), "utf8")).toBe(BADLY_FORMATTED);
@@ -118,7 +121,9 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       },
       async (root) => {
         const before = snapshot(root);
-        expect(await committedFormatOffenders(root)).toEqual(["both.ts"]);
+        expect(await committedFormatFindings(root)).toEqual([
+          { path: "both.ts", kind: "MISFORMATTED" },
+        ]);
         expect(snapshot(root)).toEqual(before);
         expect(readFileSync(join(root, "both.ts"), "utf8")).toBe("export const z = {  q:9 };\n");
       },
@@ -135,7 +140,7 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       },
       async (root) => {
         const before = snapshot(root);
-        await committedFormatOffenders(root);
+        await committedFormatFindings(root);
         expect(snapshot(root)).toEqual(before);
       },
     );
@@ -150,7 +155,7 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       },
       async (root) => {
         const before = snapshot(root);
-        await committedFormatOffenders(root);
+        await committedFormatFindings(root);
         expect(snapshot(root)).toEqual(before);
         expect(readFileSync(join(root, "scratch.ts"), "utf8")).toBe(BADLY_FORMATTED);
       },
@@ -167,7 +172,7 @@ describe("the format gate leaves the repository exactly as it found it", () => {
         writeFileSync(join(root, "lf.ts"), WELL_FORMATTED.replace(/\n/g, "\r\n"), "utf8");
       },
       async (root) => {
-        expect(await committedFormatOffenders(root)).toEqual([]);
+        expect(await committedFormatFindings(root)).toEqual([]);
       },
     );
   });
@@ -182,7 +187,7 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       },
       async (root) => {
         const before = snapshot(root);
-        await expect(committedFormatOffenders(join(root, "no-such-directory"))).rejects.toThrow();
+        await expect(committedFormatFindings(join(root, "no-such-directory"))).rejects.toThrow();
         expect(snapshot(root)).toEqual(before);
       },
     );
@@ -197,7 +202,123 @@ describe("the format gate leaves the repository exactly as it found it", () => {
         commitAll(root);
       },
       async (root) => {
-        expect(await committedFormatOffenders(root)).toEqual(["bad.ts"]);
+        expect(await committedFormatFindings(root)).toEqual([
+          { path: "bad.ts", kind: "MISFORMATTED" },
+        ]);
+      },
+    );
+  });
+});
+
+/**
+ * AN EVALUATOR ERROR IS UNKNOWN, AND UNKNOWN IS NOT CLEAN.
+ *
+ * The repaired gate still carried `catch { continue; }` around the Prettier call, with a comment
+ * arguing that a file Prettier cannot parse is a different problem. That is fail-OPEN. The
+ * canonical gate is `prettier --check .`, which exits non-zero when it cannot evaluate a file, so
+ * this diagnostic could report clean about a tree CI rejects — the exact "unknown recorded as
+ * success" this repository's rules forbid, written into a verifier.
+ */
+describe("the format gate fails closed on anything it cannot evaluate", () => {
+  const git = (args: string[], cwd: string) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+
+  const withRepo = async <T>(
+    build: (root: string) => void,
+    fn: (root: string) => Promise<T>,
+  ): Promise<T> => {
+    const root = mkdtempSync(join(tmpdir(), "format-gate-fc-"));
+    try {
+      git(["init", "-q"], root);
+      git(["config", "user.email", "t@example.invalid"], root);
+      git(["config", "user.name", "t"], root);
+      git(["config", "core.autocrlf", "false"], root);
+      build(root);
+      git(["add", "-A"], root);
+      git(["commit", "-qm", "fixture"], root);
+      return await fn(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  /** What the canonical gate says about the same tree, so the two are compared and not assumed. */
+  const canonicalExitCode = (root: string): number => {
+    try {
+      execFileSync(
+        process.execPath,
+        [createRequire(import.meta.url).resolve("prettier/bin/prettier.cjs"), "--check", "."],
+        { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      );
+      return 0;
+    } catch {
+      return 1;
+    }
+  };
+
+  it("agrees with the canonical gate on a clean tree", async () => {
+    await withRepo(
+      (root) => writeFileSync(join(root, "ok.ts"), "export const a = 1;\n", "utf8"),
+      async (root) => {
+        expect(canonicalExitCode(root)).toBe(0);
+        expect(await committedFormatFindings(root)).toEqual([]);
+      },
+    );
+  });
+
+  it("agrees with it on a merely misformatted file, and names the offender", async () => {
+    await withRepo(
+      (root) => writeFileSync(join(root, "ugly.ts"), "export const a = {   b:1 };\n", "utf8"),
+      async (root) => {
+        expect(canonicalExitCode(root)).toBe(1);
+        expect(await committedFormatFindings(root)).toEqual([
+          { path: "ugly.ts", kind: "MISFORMATTED" },
+        ]);
+      },
+    );
+  });
+
+  it("reports an unparsable committed file instead of skipping it", async () => {
+    // THE control. Canonical `prettier --check .` exits non-zero here; before the repair this gate
+    // returned an empty list and exited 0 about the very same tree.
+    await withRepo(
+      (root) => writeFileSync(join(root, "broken.ts"), "export const = ;\n", "utf8"),
+      async (root) => {
+        expect(canonicalExitCode(root), "the fixture must actually break the canonical gate").toBe(
+          1,
+        );
+        const findings = await committedFormatFindings(root);
+        expect(findings).toHaveLength(1);
+        expect(findings[0].path).toBe("broken.ts");
+        expect(findings[0].kind).toBe("EVALUATION_ERROR");
+      },
+    );
+  });
+
+  it("reports unparsable JSON the same way", async () => {
+    await withRepo(
+      (root) => writeFileSync(join(root, "broken.json"), '{"a": 1,,}\n', "utf8"),
+      async (root) => {
+        expect(canonicalExitCode(root)).toBe(1);
+        const findings = await committedFormatFindings(root);
+        expect(findings.map((f) => f.kind)).toEqual(["EVALUATION_ERROR"]);
+      },
+    );
+  });
+
+  it("still separates the two kinds when a tree has both", async () => {
+    // Without this, mapping every finding to one kind would satisfy the controls above.
+    await withRepo(
+      (root) => {
+        writeFileSync(join(root, "a-ugly.ts"), "export const a = {   b:1 };\n", "utf8");
+        writeFileSync(join(root, "b-broken.ts"), "export const = ;\n", "utf8");
+      },
+      async (root) => {
+        const findings = await committedFormatFindings(root);
+        expect(findings.map((f) => [f.path, f.kind])).toEqual([
+          ["a-ugly.ts", "MISFORMATTED"],
+          ["b-broken.ts", "EVALUATION_ERROR"],
+        ]);
       },
     );
   });

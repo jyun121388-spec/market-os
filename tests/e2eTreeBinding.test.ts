@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { beforeAll, describe, expect, it } from "vitest";
 import { checkTreeBinding, compareStartToSource, formatBinding } from "../scripts/e2e-tree-binding";
 
 /**
@@ -29,12 +31,36 @@ describe("comparing server start time against the newest source write", () => {
     expect(decided.reason).toContain("providerCapability.ts");
   });
 
-  it("calls it BOUND when it started after every source write", () => {
+  /**
+   * Starting after every source write is COMPATIBLE and proves nothing about identity.
+   *
+   * Review caught the first version returning BOUND here, which turned a one-way stale
+   * discriminator into a two-way identity proof: a sibling checkout's server started a minute ago
+   * satisfies this ordering while serving another tree. The verdict has to say "compatible", and
+   * the strict gate has to refuse it.
+   */
+  it("calls a later start COMPATIBLE, never BOUND, because order is not identity", () => {
     const decided = compareStartToSource(at("2026-09-01T07:01:54.038Z"), {
       file: "src/server/fabric/providerCapability.ts",
       mtime: at("2026-09-01T07:01:54.037Z"),
     });
-    expect(decided.verdict).toBe("BOUND");
+    expect(decided.verdict).toBe("START_ORDER_COMPATIBLE");
+    expect(decided.verdict).not.toBe("BOUND");
+    expect(decided.reason).toContain("identifies nothing");
+  });
+
+  it("never returns BOUND from timestamps alone, whatever the ordering", () => {
+    // The invariant behind the previous test, stated over the whole function rather than one case:
+    // this comparison has no access to identity, so BOUND is not in its range at all.
+    for (const [started, mtime] of [
+      ["2026-01-01T00:00:00Z", "2025-01-01T00:00:00Z"],
+      ["2025-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+      ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+    ] as const) {
+      expect(
+        compareStartToSource(at(started), { file: "src/x.ts", mtime: at(mtime) }).verdict,
+      ).not.toBe("BOUND");
+    }
   });
 
   /**
@@ -65,7 +91,10 @@ describe("what the report is allowed to imply", () => {
    * the least informative possible state, and it is exactly where a checker is most tempted to
    * shrug and continue.
    */
-  const binding = checkTreeBinding("http://localhost:1");
+  let binding: Awaited<ReturnType<typeof checkTreeBinding>>;
+  beforeAll(async () => {
+    binding = await checkTreeBinding("http://localhost:1");
+  });
 
   it("treats an unidentifiable listener as UNPROVEN rather than fine", () => {
     expect(binding.verdict).toBe("UNPROVEN");
@@ -108,5 +137,103 @@ describe("what the report is allowed to imply", () => {
       limitations: binding.limitations,
     });
     expect(bound).not.toContain("NOT evidence about the current tree");
+  });
+});
+
+/**
+ * The counterexample the whole rework exists for: a FOREIGN listener that starts late.
+ *
+ * It is started now, so it is later than every source write in this checkout — the exact condition
+ * the first version accepted as BOUND. It is not this application, serves no build id, and would
+ * have satisfied the strict gate while answering for something else entirely.
+ */
+describe("a foreign server that starts after this tree's newest write", () => {
+  let port = 0;
+  const server = createServer((_req, res) => {
+    // Answers 404 to everything, including the build-id path. A foreign server that happened to
+    // answer 200 to ANY path must still not be mistaken for this build.
+    res.statusCode = 404;
+    res.end("not this application");
+  });
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          port = typeof address === "object" && address ? address.port : 0;
+          resolve();
+        });
+      }),
+  );
+
+  it("is refused rather than BOUND, because start order is not identity", async () => {
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    expect(binding.verdict).not.toBe("BOUND");
+    expect(binding.verdict).toBe("START_ORDER_COMPATIBLE");
+    expect(binding.observed.listenerPid).toBeGreaterThan(0);
+    expect(binding.observed.servesLocalBuildId).not.toBe(true);
+  });
+
+  it("prints the not-evidence disclaimer for it", async () => {
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    expect(formatBinding(binding)).toContain("NOT evidence about the current tree");
+  });
+
+  it("closes the listener afterwards", async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    expect(server.listening).toBe(false);
+  });
+});
+
+/**
+ * The positive counterpart, and the reason it exists is a near miss.
+ *
+ * An earlier attempt at this rework left `servesLocalBuild` DEFINED BUT NEVER CALLED — the call
+ * site failed to apply and nothing failed, because every test at the time only asserted that BOUND
+ * was NOT returned. `BOUND` was unreachable and the suite was green. Lint caught it, not the tests.
+ *
+ * So this serves the real build-id path from a stub and requires BOUND. If the identity check ever
+ * goes dead again, this is what goes red.
+ */
+describe("a listener that serves this checkout's build id", () => {
+  const buildId = readFileSync(".next/BUILD_ID", "utf8").trim();
+  let port = 0;
+  const server = createServer((req, res) => {
+    if (req.url === `/_next/static/${buildId}/_buildManifest.js`) {
+      res.statusCode = 200;
+      res.end("self.__BUILD_MANIFEST = {};");
+      return;
+    }
+    res.statusCode = 404;
+    res.end("no");
+  });
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          port = typeof address === "object" && address ? address.port : 0;
+          resolve();
+        });
+      }),
+  );
+
+  it("is BOUND, and says which build id proved it", async () => {
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    expect(binding.verdict).toBe("BOUND");
+    expect(binding.observed.servesLocalBuildId).toBe(true);
+    expect(binding.reason).toContain(buildId);
+  });
+
+  it("drops the not-evidence disclaimer only in this state", async () => {
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    expect(formatBinding(binding)).not.toContain("NOT evidence about the current tree");
+  });
+
+  it("closes the listener afterwards", async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    expect(server.listening).toBe(false);
   });
 });

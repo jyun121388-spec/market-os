@@ -58,7 +58,7 @@ async function main() {
   // printed whatever it says; `E2E_REQUIRE_TREE_BINDING=1` turns anything short of BOUND into a
   // refusal, which is what CI should set. Left off by default because the binding is partial and
   // blocking every local dev run on a signal that cannot prove freshness would be its own lie.
-  const binding = checkTreeBinding(BASE_URL);
+  const binding = await checkTreeBinding(BASE_URL);
   console.log(formatBinding(binding));
   console.log("");
   if (binding.verdict !== "BOUND" && process.env.E2E_REQUIRE_TREE_BINDING === "1") {

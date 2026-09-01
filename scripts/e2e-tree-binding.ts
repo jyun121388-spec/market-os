@@ -38,13 +38,25 @@
  * evidence and is treated as such: starting later than every source file does not prove the process
  * loaded them, because a dev server also recompiles on change. Hence three verdicts, not two.
  *
- *   BOUND        the process started after the newest source write, and for a built server its
- *                BUILD_ID matches `.next/BUILD_ID`
- *   STALE        the process started BEFORE a source file was written. Refuse.
- *   UNPROVEN     the listener could not be identified, or nothing distinguishes the two states
+ *   STALE                    started BEFORE a source write. The one thing timestamps prove.
+ *   START_ORDER_COMPATIBLE   started after. COMPATIBLE, and identifying nothing -- a sibling
+ *                            checkout's server started a minute ago satisfies it too.
+ *   BOUND                    the listener SERVES this checkout's build identity.
+ *   UNPROVEN                 the listener could not be identified at all.
  *
- * `UNPROVEN` is not a pass. A run under it is not evidence about this tree, and the report says so
- * in those words so that a green result cannot be quoted as if it were.
+ * Only BOUND is a pass. Review caught the first version returning BOUND on timestamp order alone,
+ * which promoted a one-way stale discriminator into a two-way identity proof and let a foreign
+ * server started after this tree's newest write satisfy the strict gate while serving something
+ * else. Nothing below infers identity from a command-line path or a shared `node_modules`.
+ *
+ * THE SERVED IDENTITY, and its limit. A production Next server serves
+ * `/_next/static/<BUILD_ID>/_buildManifest.js`, and `BUILD_ID` changes per build, so a 200 from the
+ * LOCAL build id ties the listener to this checkout's build output. It is a build artefact rather
+ * than an endpoint added for the purpose, so the V1 freeze is untouched. It proves the listener
+ * serves THIS BUILD -- not that the build matches the current source, which is why the start-order
+ * comparison still runs and a stale build still reads STALE. `npm run dev` serves no such path, so
+ * dev tops out at START_ORDER_COMPATIBLE and the strict gate refuses it. That is the honest
+ * answer, not a gap to paper over.
  *
  *   npx tsx scripts/e2e-tree-binding.ts [--url http://localhost:3000] [--require-binding]
  */
@@ -54,7 +66,7 @@ import { readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
 
-export type BindingVerdict = "BOUND" | "STALE" | "UNPROVEN";
+export type BindingVerdict = "BOUND" | "START_ORDER_COMPATIBLE" | "STALE" | "UNPROVEN";
 
 export interface TreeBinding {
   verdict: BindingVerdict;
@@ -72,6 +84,8 @@ export interface TreeBinding {
     listenerExe: string | null;
     listenerCommandLine: string | null;
     listenerStarted: string | null;
+    /** null when not asked -- no local build id, or the start order already settled it. */
+    servesLocalBuildId: boolean | null;
   };
   /** Stated in the report so a reader is never left to assume the binding is total. */
   limitations: string[];
@@ -189,14 +203,30 @@ export function compareStartToSource(
     };
   }
   return {
-    verdict: "BOUND",
+    verdict: "START_ORDER_COMPATIBLE",
     reason:
       `the listening process started ${started.toISOString()}, after the newest source write ` +
-      `(${newest.file}, ${newest.mtime.toISOString()})`,
+      `(${newest.file}, ${newest.mtime.toISOString()}). That ORDER IS COMPATIBLE with this tree ` +
+      `and identifies nothing: a sibling checkout's server started a minute ago satisfies it too.`,
   };
 }
 
-export function checkTreeBinding(url: string): TreeBinding {
+/**
+ * Does the listener serve THIS checkout's build? The only positive identity available without
+ * adding a product endpoint.
+ */
+async function servesLocalBuild(url: string, buildId: string | null): Promise<boolean | null> {
+  if (!buildId) return null;
+  try {
+    const target = new URL(`/_next/static/${buildId}/_buildManifest.js`, url).toString();
+    const res = await fetch(target, { method: "GET", signal: AbortSignal.timeout(5000) });
+    return res.ok;
+  } catch {
+    return null;
+  }
+}
+
+export async function checkTreeBinding(url: string): Promise<TreeBinding> {
   const port = portOf(url);
   const headSha = quiet("git", ["rev-parse", "HEAD"]);
   const status = quiet("git", ["--no-optional-locks", "status", "--porcelain"]);
@@ -221,12 +251,14 @@ export function checkTreeBinding(url: string): TreeBinding {
     listenerExe: proc?.exe ?? null,
     listenerCommandLine: proc?.commandLine ?? null,
     listenerStarted: proc?.started?.toISOString() ?? null,
+    servesLocalBuildId: null,
   };
 
   const limitations = [
     "The command line cannot distinguish this checkout from its sibling worktree: both resolve `next` through the same shared node_modules.",
     "A dev server recompiles on change, so starting before a source write does not always mean stale code — but it is never evidence of freshness either.",
-    "Nothing here is a SERVED attestation. Only the server reporting its own commit would settle this in every mode, and that needs a product endpoint SR-02's P2 severity does not justify under the V1 freeze.",
+    "The served build id ties the listener to this checkout's BUILD, not to its current SOURCE; a stale build still reads STALE only because the start-order comparison runs first.",
+    "A dev server serves no build-id path, so dev tops out at START_ORDER_COMPATIBLE and the strict gate refuses it. Closing that needs the server to report its own commit, which needs a product endpoint SR-02's P2 severity does not justify under the V1 freeze.",
   ];
 
   if (proc === null || proc.started === null) {
@@ -242,12 +274,37 @@ export function checkTreeBinding(url: string): TreeBinding {
   }
 
   const decided = compareStartToSource(proc.started, newest);
+  const reason = decided.reason.replace(
+    "the listening process",
+    `the listening process (pid ${proc.pid})`,
+  );
+  if (decided.verdict !== "START_ORDER_COMPATIBLE") {
+    return { verdict: decided.verdict, reason, observed, limitations };
+  }
+
+  // Compatible start order is where identity has to be EARNED rather than assumed. This is the
+  // only positive evidence available without adding a product endpoint.
+  const serves = await servesLocalBuild(url, localBuildId);
+  observed.servesLocalBuildId = serves;
+  if (serves === true) {
+    return {
+      verdict: "BOUND",
+      reason:
+        `${reason} AND the listener serves /_next/static/${localBuildId}/_buildManifest.js, which ` +
+        `is this checkout's build id — so it is serving this build, not a sibling's.`,
+      observed,
+      limitations,
+    };
+  }
   return {
-    verdict: decided.verdict,
-    reason: decided.reason.replace(
-      "the listening process",
-      `the listening process (pid ${proc.pid})`,
-    ),
+    verdict: "START_ORDER_COMPATIBLE",
+    reason:
+      `${reason} No served build identity: ` +
+      (localBuildId === null
+        ? "this checkout has no `.next/BUILD_ID` to ask for."
+        : serves === false
+          ? `the listener does not serve build id ${localBuildId}.`
+          : "the request for it did not complete (a dev server serves no such path)."),
     observed,
     limitations,
   };
@@ -276,9 +333,11 @@ if (process.argv[1] && process.argv[1].includes("e2e-tree-binding")) {
     urlArg >= 0 && process.argv[urlArg + 1]
       ? process.argv[urlArg + 1]
       : (process.env.E2E_BASE_URL ?? "http://localhost:3000");
-  const binding = checkTreeBinding(url);
-  console.log(formatBinding(binding));
-  if (process.argv.includes("--require-binding") && binding.verdict !== "BOUND") {
-    process.exitCode = 1;
-  }
+  void (async () => {
+    const binding = await checkTreeBinding(url);
+    console.log(formatBinding(binding));
+    if (process.argv.includes("--require-binding") && binding.verdict !== "BOUND") {
+      process.exitCode = 1;
+    }
+  })();
 }

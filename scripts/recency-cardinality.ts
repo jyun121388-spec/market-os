@@ -460,11 +460,24 @@ function proveSingleRow(keys: UniqueKey[], pinned: Set<string>): string | null {
     const { isNull, isNotNull } = slot;
     if (!isNull || !isNotNull) continue; // half a partition covers half the domain
     if (!covers(isNull) || !covers(isNotNull)) continue;
+
+    // THE QUERY MUST LIE IN EXACTLY ONE PARTITION, and the first version of this branch forgot to
+    // require it. Review caught it: complementary predicates partition the candidate UNIVERSE, and
+    // that is not the same as making the union unique. Leave the partition column unconstrained and
+    // a query can match one row in the NULL branch AND one in the NOT-NULL branch -- each index
+    // individually unique, two rows returned, `findFirst` choosing between them.
+    //
+    // Pinning the column by equality is the minimum that settles it. `{ periodStart: x }` is either
+    // `IS NULL` when x is null or `= x` otherwise, and either way every candidate sits on one side.
+    // An unpinned column, or an implication this cannot read, is not a proof and falls through to
+    // fail-closed rather than being argued for.
+    if (!pinned.has(column)) continue;
+
     return (
-      `UNION OF PARTIAL INDEXES over \`${column}\`, both fully pinned: ` +
+      `UNION OF PARTIAL INDEXES over \`${column}\`, both fully pinned, AND the query pins ` +
+      `\`${column}\` by equality so every candidate lies in exactly one partition: ` +
       `${isNotNull.name}(${isNotNull.fields.join(", ")}) WHERE NOT NULL and ` +
-      `${isNull.name}(${isNull.fields.join(", ")}) WHERE NULL — the two predicates partition the ` +
-      `domain, so every candidate falls under one of them`
+      `${isNull.name}(${isNull.fields.join(", ")}) WHERE NULL`
     );
   }
 

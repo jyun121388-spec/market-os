@@ -212,6 +212,45 @@ describe("what counts as proof that only one row can match", () => {
    * `..._periodEnd_ac_key` in a `DO` block that drops by shape, so citing it would be a proof
    * nobody can look up.
    */
+  /**
+   * Complementary partials partition the UNIVERSE, which is not the same as making the union
+   * unique. Review found the first version accepting exactly that.
+   *
+   * Here the two partial indexes are moved to partition over `fiscalYear`, a column the ingest
+   * query does not constrain, while every KEY field they name stays pinned. Each index is still
+   * individually unique. The query can therefore match one row on each side of the partition — two
+   * rows, one `findFirst`, an arbitrary winner — so it must NOT be promoted.
+   */
+  it("refuses a partition the query does not constrain, even with both branches fully pinned", () => {
+    const weakened = weakenSchema((s) => {
+      const keys = (s.uniqueKeys.get("financialFact") ?? []).map((k) =>
+        k.partial
+          ? {
+              ...k,
+              partial: k.partial.replace(/"periodStart"/, '"fiscalYear"'),
+            }
+          : k,
+      );
+      s.uniqueKeys.set("financialFact", keys);
+    });
+    const row = rowAt(auditCardinality(weakened), "adapters/edgar-xbrl/ingest.ts", 61);
+    expect(row.verdict).not.toBe("CARDINALITY_ONE_PROVEN");
+    expect(row.whereFields).not.toContain("fiscalYear");
+  });
+
+  /**
+   * The positive half of that pair, on the real schema: the same site, the same key coverage, and
+   * the partition column IS pinned. The citation must say so — a union proof that does not mention
+   * the query's constraint on the partition column is the unsound version wearing the right words.
+   */
+  it("accepts the union only when the query pins the partition column", () => {
+    const row = at("adapters/edgar-xbrl/ingest.ts", 61);
+    expect(row.verdict).toBe("CARDINALITY_ONE_PROVEN");
+    expect(row.citation).toContain("pins `periodStart` by equality");
+    expect(row.citation).toContain("exactly one partition");
+    expect(row.whereFields).toContain("periodStart");
+  });
+
   it("reads migration DDL as a second uniqueness authority, and cites only live indexes", () => {
     const row = at("adapters/edgar-xbrl/ingest.ts", 61);
     expect(row.verdict).toBe("CARDINALITY_ONE_PROVEN");
@@ -256,6 +295,74 @@ describe("the cardinality verdicts, against a real database", () => {
       await expect(
         prisma.financialFact.create({ data: { ...shared, value: 200 } }),
       ).rejects.toThrow();
+    } finally {
+      await prisma.financialFact.deleteMany({ where: { sourceId: source.id } });
+      await prisma.source.delete({ where: { id: source.id } });
+    }
+  });
+
+  /**
+   * The two-partition witness: the concrete reason the partition column has to be constrained.
+   *
+   * Two FinancialFact rows, identical on every field the ingest predicate pins EXCEPT
+   * `periodStart` — one null, one a real date. Both persist, because each falls under a different
+   * partial index and neither index constrains the other's side. A query that omits `periodStart`
+   * therefore matches BOTH, and an unordered `findFirst` picks one arbitrarily. This is what the
+   * first version of the union proof would have called single-row.
+   */
+  it("keeps one row on each side of the partition, so an unconstrained query matches both", async () => {
+    const source = await prisma.source.create({
+      data: { code: `PART-TEST-${Date.now()}`, name: "partition control", tier: "TIER_S" },
+    });
+    const shared = {
+      sourceId: source.id,
+      corpCode: "PART0001",
+      concept: "Assets",
+      unit: "USD",
+      periodEnd: new Date("2026-03-31"),
+      accessionNumber: "0000000000-26-000009",
+      taxonomy: "us-gaap",
+      form: "10-Q",
+      filedDate: new Date("2026-04-15"),
+      raw: {},
+      retrievedAt: new Date(),
+    };
+    try {
+      const instant = await prisma.financialFact.create({
+        data: { ...shared, periodStart: null, value: 10 },
+      });
+      const duration = await prisma.financialFact.create({
+        data: { ...shared, periodStart: new Date("2026-01-01"), value: 20 },
+      });
+      expect(instant.id).not.toBe(duration.id);
+
+      // The predicate WITHOUT the partition column -- exactly the shape the fixed proof refuses.
+      const both = await prisma.financialFact.findMany({
+        where: {
+          sourceId: shared.sourceId,
+          corpCode: shared.corpCode,
+          concept: shared.concept,
+          unit: shared.unit,
+          periodEnd: shared.periodEnd,
+          accessionNumber: shared.accessionNumber,
+        },
+      });
+      expect(both.length).toBe(2);
+
+      // And WITH it, each side is single-row, which is what makes the real site provable.
+      const one = await prisma.financialFact.findMany({
+        where: {
+          sourceId: shared.sourceId,
+          corpCode: shared.corpCode,
+          concept: shared.concept,
+          unit: shared.unit,
+          periodEnd: shared.periodEnd,
+          accessionNumber: shared.accessionNumber,
+          periodStart: null,
+        },
+      });
+      expect(one.length).toBe(1);
+      expect(Number(one[0].value)).toBe(10);
     } finally {
       await prisma.financialFact.deleteMany({ where: { sourceId: source.id } });
       await prisma.source.delete({ where: { id: source.id } });

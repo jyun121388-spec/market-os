@@ -44,35 +44,51 @@ Tracks Codex reviews that are pending, deferred, or resulted in an unresolved di
 | M16       | Filing Diff cannot show an original-vs-restated comparison                                                     | Deliberate, recorded 2026-08-18 so it is not mistaken for the +233% bug returning. A period-over-period change now requires a DIFFERENT period end, which by construction excludes a restatement of the same period (same length, same end, different accession). That exclusion is correct: a restatement is not a period-over-period change and showing it in that section would be the same category error the +233% defect was. But it does mean restatements are currently invisible in the UI even though both rows are stored and provenance is intact. A "this figure was later restated" surface would be a real feature; it is not built, and is not being built speculatively                                                                                                        | PENDING            |
 | M11       | Unit strings are matched exactly and case-sensitively                                                          | `computeChange` branches on `unit === "percent"` to decide whether basis points are meaningful, and a series declared "Percent"/"pct"/"%" would silently return `bpsChange: null` while every other number stayed correct. No such typo exists today. `tests/unitVocabulary.test.ts` pins every tracked series to a known unit vocabulary so the next one fails at test time; a stricter type-level unit would be the fuller fix and is not warranted at five units                                                                                                                                                                                                                                                                                                                             | MITIGATED          |
 
-## IR-113 — an integration assertion failed once under load and has not been explained (observed 2026-09-01)
+## IR-113 — a nondeterministic factor order, found through a one-off test failure (explained 2026-09-01)
 
     tests/integration/ask-market.test.ts
       "serves a current level as a level, with no change and no mechanism attached"
       AssertionError: expected 530 to be 102
 
-`own.value` is a stored Series observation. It failed exactly ONCE, on the full-suite run that
-first included `tests/e2eTreeBinding.test.ts`'s real-discovery controls — which spawn PowerShell
-twice per discovery and were, at that moment, timing out at the 5s default. Declaring a 30s timeout
-for those four tests removed the perturbation, and two consecutive full-suite runs since are green.
+**MY FIRST WRITE-UP OF THIS WAS WRONG, and correcting it is most of the entry.** I recorded it as a
+latent CROSS-FILE interaction on the shared test database, exposed by timing, with two candidate
+causes and neither established. Looking instead of theorising found the cause inside a single file,
+and it is not a race.
 
-**NOT FIXED, and the distinction matters.** Nothing was changed in `ask-market` or in whatever
-writes that series. What changed is how long the slow tests held their worker, which is a property
-of scheduling rather than of correctness. The file passes alone. So the honest reading is a latent
-CROSS-FILE interaction on the shared test database that a timing change can expose, and it was
-exposed once by accident rather than found by looking.
+TWO series carry the same name. `ask-market.test.ts` seeds `TEST Widget Price Index` under
+`SOURCE_CODE` at 102 and a SECOND one under `OTHER_SOURCE_CODE` at 530 — deliberately, because the
+attribution test in the same file exists to prove a reader can tell two providers apart. The failing
+assertion then selected with
 
-Two candidate causes, neither established:
+    result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)
 
-- another test file writing a Series observation that this assertion then reads, with the winner
-  decided by worker interleaving;
-- a fixture whose setup is not isolated per file, so a concurrent file's teardown removes or
-  replaces a row mid-assertion.
+which matches BOTH. It was asking an ambiguous question and getting one of its two right answers.
+Nothing was wrong with the answer.
 
-Distinguishing them needs a deliberate run — repeated full suites, or forced single-worker versus
-parallel — rather than another accidental observation. Recorded now because a one-off failure that
-is never written down is how a flake becomes folklore, and because the run that produced it is
-already in this session's history: pretending the two green runs afterwards settle it would be
-choosing the evidence that agrees.
+**THE PRODUCTION SIDE IS THE REAL FINDING.** `findSeriesFactors` in `src/server/domain/askMarket.ts`
+reads its candidates from
+
+    prisma.series.findMany({ where: sourceId ? { sourceId } : undefined, include: { source: ... } })
+
+with NO `orderBy`. So the ORDER in which factors are presented to a user is whatever Postgres hands
+back. Two providers reporting the same indicator can appear in either order, and the same request
+can answer differently between runs. The values and their attributions are correct either way —
+this is a determinism defect, not a wrong-fact defect.
+
+`scripts/recency-audit.ts` classifies that site STRUCTURAL: "arrival-keyed but no local selection —
+orders presentation rather than deciding a winner here." That classification is RIGHT about
+recency and it is exactly where this defect was sitting. Nondeterministic PRESENTATION order is a
+different question the recency audit does not ask, and the STRUCTURAL bucket is where it hides.
+
+FIXED HERE: the test, which now selects by `sourceCode` and separately asserts the name. A test
+that asks an ambiguous question is a defective test whatever the production code does.
+
+NOT FIXED: the ordering itself. Adding an `orderBy` to that query is a V1 product change, and the
+freeze admits reproduced P0/P1 only. Severity is P2 on the evidence available — the output stays
+honest and attributed, and no figure is wrong — so it is recorded rather than slipped in behind a
+test fix. The minimal repair, when the freeze permits, is a deterministic total order on that
+query; `sourceCode` then `externalId` would do, and it needs its own must-not-move controls because
+it changes the order of every multi-source answer.
 
 ## IR-112 — a politeness hedge is read as a prohibited request (reproduced 2026-08-31, P1)
 

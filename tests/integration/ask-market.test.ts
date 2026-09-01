@@ -602,7 +602,19 @@ describeIfDb("askMarket (integration)", () => {
     // operation returned the same payload. A level request is answered with a level.
     const result = await askMarket(`What is the current ${SERIES_NAME}?`);
     expect(result.status).toBe("FACTORS_FOUND");
-    const own = result.seriesFactors.find((f) => f.seriesName === SERIES_NAME)!;
+    // BY SOURCE, not by name, and the difference is a real flake this test produced once.
+    //
+    // TWO series carry `SERIES_NAME` — this suite seeds one under SOURCE_CODE at 102 and a second
+    // under OTHER_SOURCE_CODE at 530, deliberately, because the attribution test below exists to
+    // prove a reader can tell two providers apart. So `find(f => f.seriesName === SERIES_NAME)`
+    // matches BOTH and returns whichever came first, and `askMarket` reads its candidates from a
+    // `series.findMany` carrying no `orderBy` — the order is whatever Postgres hands back.
+    //
+    // It came back 530 once, under load, on 2026-09-01. Nothing was wrong with the answer: the
+    // test asked an ambiguous question and got one of its two right answers. Recorded as IR-113,
+    // together with the production-side ordering nondeterminism, which is NOT fixed here.
+    const own = result.seriesFactors.find((f) => f.sourceCode === SOURCE_CODE)!;
+    expect(own.seriesName).toBe(SERIES_NAME);
     expect(own.kind).toBe("OBSERVATION");
     expect(own.value).toBe(102);
     expect(result.causalFactors).toHaveLength(0);

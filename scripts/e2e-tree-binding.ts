@@ -226,16 +226,31 @@ async function servesLocalBuild(url: string, buildId: string | null): Promise<bo
   }
 }
 
-export async function checkTreeBinding(url: string): Promise<TreeBinding> {
+export async function checkTreeBinding(
+  url: string,
+  /**
+   * Override the local build id instead of reading `.next/BUILD_ID`.
+   *
+   * A seam for the reachability control, and it exists because of how CI failed. The control
+   * originally read the real `.next/BUILD_ID` at module scope; CI runs the suite without building,
+   * the file is absent, and the whole test FILE threw ENOENT. Guarding it with "skip if absent"
+   * would have been worse — the one control proving `BOUND` is reachable would vanish silently in
+   * exactly the environment that matters. Reading a file is trivially correct; the identity
+   * comparison is what needs proving, so that is what the seam exposes.
+   */
+  buildIdOverride?: string,
+): Promise<TreeBinding> {
   const port = portOf(url);
   const headSha = quiet("git", ["rev-parse", "HEAD"]);
   const status = quiet("git", ["--no-optional-locks", "status", "--porcelain"]);
   const newest = newestSource();
-  let localBuildId: string | null = null;
-  try {
-    localBuildId = readFileSync(path.join(".next", "BUILD_ID"), "utf8").trim();
-  } catch {
-    localBuildId = null;
+  let localBuildId: string | null = buildIdOverride ?? null;
+  if (localBuildId === null) {
+    try {
+      localBuildId = readFileSync(path.join(".next", "BUILD_ID"), "utf8").trim();
+    } catch {
+      localBuildId = null;
+    }
   }
   const proc = port === null ? null : listener(port);
 

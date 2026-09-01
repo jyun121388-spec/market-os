@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { beforeAll, describe, expect, it } from "vitest";
 import { checkTreeBinding, compareStartToSource, formatBinding } from "../scripts/e2e-tree-binding";
@@ -197,7 +196,11 @@ describe("a foreign server that starts after this tree's newest write", () => {
  * goes dead again, this is what goes red.
  */
 describe("a listener that serves this checkout's build id", () => {
-  const buildId = readFileSync(".next/BUILD_ID", "utf8").trim();
+  // A synthetic id passed through the override, NOT the real `.next/BUILD_ID`. CI runs this suite
+  // without building, so reading that file made the whole test file throw ENOENT — and skipping
+  // when it is absent would delete this control in the one environment that matters. What needs
+  // proving is the identity comparison, not that readFileSync works.
+  const buildId = "TEST-BUILD-ID-abc123";
   let port = 0;
   const server = createServer((req, res) => {
     if (req.url === `/_next/static/${buildId}/_buildManifest.js`) {
@@ -221,14 +224,14 @@ describe("a listener that serves this checkout's build id", () => {
   );
 
   it("is BOUND, and says which build id proved it", async () => {
-    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, buildId);
     expect(binding.verdict).toBe("BOUND");
     expect(binding.observed.servesLocalBuildId).toBe(true);
     expect(binding.reason).toContain(buildId);
   });
 
   it("drops the not-evidence disclaimer only in this state", async () => {
-    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, buildId);
     expect(formatBinding(binding)).not.toContain("NOT evidence about the current tree");
   });
 

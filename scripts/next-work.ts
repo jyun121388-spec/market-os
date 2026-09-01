@@ -9,6 +9,7 @@
  */
 
 import { scheduleNextWork, evaluateStopSentinel } from "../src/server/evolution/scheduler";
+import { gatherStopEvidence } from "./stop-evidence";
 
 const queue = scheduleNextWork();
 
@@ -28,14 +29,25 @@ for (const [label, items] of [
   console.log();
 }
 
-// Only `queue` is supplied. Every other input is deliberately left undefined so the sentinel
-// reports each unestablished condition as unsatisfied -- unknown is not zero, and asserting a zero
-// here would be the exact failure this module exists to refuse.
-const sentinel = evaluateStopSentinel({ queue });
+// Everything the machine can actually be asked is asked; everything else stays undefined.
+//
+// This used to supply `queue` alone and called that deliberate. It was half right: asserting a zero
+// would indeed be the failure the sentinel exists to refuse, but never GATHERING one meant eight of
+// its nine conditions had never been evaluated against reality, and `MAY STOP` was false by
+// construction rather than by finding. `gatherStopEvidence` establishes what it can prove and
+// reports the rest WITH THE REASON. A subset is safe: `mayStop` needs every condition satisfied, so
+// an absent field can only hold the answer at false. See `scripts/stop-evidence.ts`.
+const busRootFlag = process.argv.indexOf("--bus-root");
+const evidence = gatherStopEvidence(busRootFlag === -1 ? undefined : process.argv[busRootFlag + 1]);
+
+const sentinel = evaluateStopSentinel({ queue, ...evidence.supplied });
 console.log(`MAY STOP: ${sentinel.mayStop}`);
 for (const c of sentinel.conditions) {
   console.log(`  ${c.satisfied ? "yes" : "NO "}  ${c.name} -- ${c.detail}`);
 }
+
+console.log("\nNOT ESTABLISHED (the sentinel is refusing on absence, not on a finding):");
+for (const { field, because } of evidence.unestablished) console.log(`  ${field} -- ${because}`);
 if (sentinel.remaining.length > 0) {
   console.log("\nREMAINING:");
   for (const r of sentinel.remaining) console.log(`  ${r}`);

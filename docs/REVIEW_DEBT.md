@@ -1728,3 +1728,46 @@ than accepting an upstream refusal -- review was right that accepting one proves
 
 `adversarial_resilience` losing its populated refusal is disclosed accurately and is a coverage
 reduction rather than a wrong output.
+
+## IR-114 — the completion sentinel had never been asked a real question
+
+Status: `VERIFIED_WITH_LIMITATION` (2026-09-01). Discovered by wiring, not by review.
+
+`CLAUDE.md` names `evaluateStopSentinel()` in `src/server/evolution/scheduler.ts` as **the only
+normal completion sentinel**. It is carefully written and thoroughly tested, and until this entry
+nothing in the repository could answer it: its only non-test caller, `scripts/next-work.ts`,
+supplied exactly one of its nine inputs and documented that as deliberate.
+
+It was half right. Asserting a zero would indeed be the failure the sentinel exists to refuse — but
+never GATHERING one meant eight conditions had never been evaluated against reality, and `MAY STOP`
+was false by construction rather than by finding. A predicate that cannot vary is not a sentinel.
+
+`scripts/stop-evidence.ts` establishes what the machine can prove and reports the rest with the
+reason. Supplying a subset is safe by construction: `mayStop` needs every condition satisfied, so an
+absent field can only hold the answer at `false`.
+
+### What it found on the first real run
+
+Against the live runtime root (`C:/AI-Projects/market-os/.local/control-bus`):
+
+    no received decision waiting to be consumed -- 11 received decisions.
+    the control-bus watcher is alive to receive one -- Control-bus watcher: STOPPED.
+
+Both were previously "never established". The 11 are `RECEIVED_UNVALIDATED` entries the consumer
+never judged — `RC-GATES-001`, `MARKET-RESUME-002/003`, `MARKET-RC-CONVERGENCE-RESUME-008`,
+`MARKET-GATE-N-REWORK-009`, `MARKET-GATE-O-REWORK-010` and others. They are **not applied on
+sight**: every one predates the current HEAD by a long way and would have to clear the staleness
+check in `CLAUDE.md` first. Recorded as a backlog to judge, not as work to do.
+
+`TRUE_IDLE => WATCHER_REMAINS_ALIVE` says a stopped watcher is a task rather than rest. It has not
+been started here: the watcher is a long-lived local poller with its own lifetime, and this session
+already polls the channel on the operator's own schedule. Starting a second poller is the operator's
+call.
+
+### Limitation
+
+Six of the eight inputs are still not gathered, each listed in `NOT_ATTEMPTED` with its reason.
+`unresolvedFailures` in particular would require running the suite, build and typecheck — a cached
+result is a claim about a past tree, and this module must not turn one into a fact about this one.
+So the sentinel still cannot reach `mayStop: true`; it can now say which of its refusals are
+findings and which are absences, which it could not before.

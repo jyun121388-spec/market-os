@@ -820,15 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2548 / 2548 PASS across 143 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2529 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2560 / 2560 PASS across 144 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2541 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `e25feb4` plus the field
-authority committed on top of it, from one fresh run on that tree. Five controls added to
-`tests/orderReachesOutput.test.ts`: a property read is admitted only when the checker resolves it
-to a declared `PropertySignature` under the generated Prisma client, so a getter or a proxy trap no
-longer passes for an inert read. Corpus unmoved at 34 examined / 16 ORDER_SURVIVES / 18 UNREAD. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `15bf018` plus the stop
+evidence gatherer committed on top of it, from one fresh run on that tree. One new file,
+`tests/stopEvidence.test.ts`. `evaluateStopSentinel()` -- the only normal completion sentinel -- had
+one non-test caller supplying one of its nine inputs, so eight conditions had never been evaluated
+against reality. `scripts/stop-evidence.ts` now establishes what the machine can prove and reports
+the rest WITH THE REASON. Against the live runtime root it immediately found 11 unjudged decisions
+in the durable inbox and a STOPPED watcher -- see `docs/REVIEW_DEBT.md` IR-114. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

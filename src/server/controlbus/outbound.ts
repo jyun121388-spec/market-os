@@ -44,6 +44,7 @@ import {
   type ControlBusState,
   type OutboxEntry,
 } from "./state";
+import { mayPostPublicly } from "../escalation/screen";
 import {
   appendOutboxLog,
   loadState,
@@ -130,6 +131,22 @@ export async function transmitAndCommit(
 ): Promise<OutboundOutcome> {
   const expect = { repository: CONTROL_BUS_REPOSITORY, issueNumber: state.issueNumber };
   const digest = bodyDigest(draft.body);
+
+  // --- screening, BEFORE the transport is touched at all ----------------------------------------
+  //
+  // `CLAUDE.md` says everything outbound passes the screen first, and issue #2 is publicly
+  // readable. That guarantee lived in `post-outbound.ts` and not here, so it held for one CALLER
+  // rather than for the OPERATION — the same one-sided invariant this branch keeps finding, in a
+  // module written two units ago. A second caller, or a refactor of the first, would have posted
+  // unscreened and nothing would have noticed.
+  //
+  // It runs before `find` as well as before `post`: an unscreened body should not reach the
+  // transport at all, not even to be compared against comments already on the issue.
+  const screen = mayPostPublicly(draft.body);
+  if (!screen.allowed) {
+    const where = screen.findings.map((f) => `${f.category} at line ${f.line}`).join(", ");
+    return { status: "REFUSED", reason: `the body did not pass the public screen (${where})` };
+  }
 
   // --- pre-flight, and it is ONLY that -------------------------------------------------------
   //

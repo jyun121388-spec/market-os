@@ -51,7 +51,9 @@ async function main(): Promise<number> {
 
   const body = readFileSync(bodyFile, "utf8");
 
-  // Screening comes first and is not optional. Issue #2 is publicly readable.
+  // A fast-fail, so a body with a secret in it never reaches the store or the network and the
+  // operator sees the finding immediately. It is NOT the guarantee: `transmitAndCommit`
+  // screens again, because the guarantee belongs to the operation and not to this caller.
   const screen = mayPostPublicly(body);
   if (!screen.allowed) {
     console.error("SCREEN REFUSED — nothing was sent");

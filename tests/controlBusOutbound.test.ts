@@ -472,3 +472,90 @@ describe("ownership replaced between taking the write right and reading it back"
     }
   });
 });
+
+/**
+ * THE SCREEN BELONGS TO THE OPERATION, NOT TO ONE CALLER.
+ *
+ * `CLAUDE.md`: "Everything outbound passes `screenPublicComment` first; issue #2 is publicly
+ * readable." It did — in `post-outbound.ts`. The lifecycle that actually posts did not screen at
+ * all, so the guarantee held for the CLI and not for the operation, and a second caller or a
+ * refactor of the first would have published unscreened with nothing to notice. Same one-sided
+ * invariant this branch keeps finding, this time in a module written two units earlier.
+ *
+ * The fixture secrets below are shaped to match the rules and are not real: `ghp_` followed by
+ * filler, and a connection string with an obviously fake password.
+ */
+describe("screening, inside the lifecycle rather than beside it", () => {
+  const ISSUE = 2;
+  const deps: OutboundDeps = {
+    now: () => "2026-09-02T00:00:00.000Z",
+    heartbeatStaleMs: 45_000,
+    nowMs: () => Date.parse("2026-09-02T00:00:00.000Z"),
+    claim: { pid: process.pid, startedAt: "2026-09-02T00:00:00.000Z", nonce: "screen-run" },
+  };
+
+  const attempt = async (body: string) => {
+    const root = mkdtempSync(join(tmpdir(), "control-bus-screen-"));
+    try {
+      writeState(storePaths(root), emptyState(ISSUE));
+      const calls = { find: 0, post: 0, readBack: 0 };
+      const t: OutboundTransport = {
+        find: async () => {
+          calls.find += 1;
+          return null;
+        },
+        post: async () => {
+          calls.post += 1;
+          return { commentId: 5150 };
+        },
+        readBack: async () => {
+          calls.readBack += 1;
+          return { commentId: 5150, body, repository: CONTROL_BUS_REPOSITORY, issueNumber: ISSUE };
+        },
+      };
+      const out = await transmitAndCommit(
+        storePaths(root),
+        emptyState(ISSUE),
+        { protocolId: "ESC-903", kind: "ESCALATION", body, composedAt: deps.now() },
+        t,
+        deps,
+      );
+      const state = JSON.parse(readFileSync(join(root, "state.json"), "utf8")) as ControlBusState;
+      return {
+        out,
+        calls,
+        outbox: state.outbox.length,
+        logged: existsSync(join(root, "outbox.jsonl")),
+      };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  it("refuses a body the screen rejects, before touching the transport", async () => {
+    const { out, calls, outbox, logged } = await attempt(
+      "[ESCALATION][ESC-903]\n\nuse token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA to reproduce",
+    );
+    expect(out.status).toBe("REFUSED");
+    expect(out.status === "REFUSED" && out.reason).toMatch(/public screen/);
+    // Not even `find`. An unscreened body should not reach the network to be compared with
+    // anything, let alone posted.
+    expect(calls).toEqual({ find: 0, post: 0, readBack: 0 });
+    expect(outbox).toBe(0);
+    expect(logged).toBe(false);
+  });
+
+  it("names the category and line, so the finding is actionable without a search", async () => {
+    const { out } = await attempt(
+      "[ESCALATION][ESC-903]\n\nfirst line is fine\npostgres://user:hunter2@db.example/market",
+    );
+    expect(out.status === "REFUSED" && out.reason).toMatch(/CONNECTION_STRING at line 4/);
+  });
+
+  it("still posts a clean body, so the refusal is not unconditional", async () => {
+    const { out, calls, outbox } = await attempt("[ESCALATION][ESC-903]\n\nan ordinary question.");
+    expect(out.status).toBe("COMMITTED");
+    expect(calls).toEqual({ find: 1, post: 1, readBack: 1 });
+    expect(outbox).toBe(1);
+  });
+});

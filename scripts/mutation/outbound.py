@@ -11,6 +11,13 @@ simplification, and every one of them errs towards CLAIMING transmission.
 
 Expected cardinalities, written before the run:
 
+  M-OUT-NO-SCREEN            publish without screening the body
+                             -> 2 red: the refuses-a-rejected-body control and the names-the-finding
+                                control. CLAUDE.md says everything outbound passes the screen first
+                                and issue #2 is publicly readable; the guarantee used to live in the
+                                CLI, which made it a property of one caller rather than of the
+                                operation. The clean-body control must stay GREEN under it.
+
   M-OUT-POST-IS-PROOF        skip the read-back and trust the posted id
                              -> PREDICTED 2, MEASURED 3. The no-read-back control and the mismatch
                                 control were foreseen. The third is the happy path, which asserts
@@ -101,6 +108,12 @@ BINDING_TESTS = [TEST]
 UNRELATED_TESTS = ["tests/evolutionScheduler.test.ts"]
 
 MUTATIONS = [
+    (
+        "M-OUT-NO-SCREEN the lifecycle publishes without screening",
+        OUTBOUND,
+        "  const screen = mayPostPublicly(draft.body);\n  if (!screen.allowed) {",
+        "  const screen = mayPostPublicly(draft.body);\n  if (false) {",
+    ),
     (
         "M-OUT-POST-IS-PROOF a successful POST is treated as a read-back",
         OUTBOUND,

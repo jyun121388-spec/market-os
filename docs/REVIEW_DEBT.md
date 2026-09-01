@@ -2118,3 +2118,26 @@ local edit another checkout has never seen.
 Both corrections belong in that file and it was NOT touched: it is a dirty foreign worktree, which
 the standing review constraints put out of bounds. Recorded here instead, with the measurement
 reproducible by one command.
+
+### IR-117 addendum — the screen belonged to one caller, not to the operation
+
+`CLAUDE.md`: "Everything outbound passes `screenPublicComment` first; issue #2 is publicly
+readable." It did — in `scripts/post-outbound.ts`. `transmitAndCommit`, the only path that actually
+posts, never screened at all. So the guarantee was a property of the CLI rather than of the
+operation, and a second caller, or a refactor of the first, would have published unscreened with
+nothing to notice.
+
+Same one-sided invariant this branch keeps finding, this time in a module written two units earlier
+and found by asking the question of my own code rather than by review.
+
+The screen now runs inside the lifecycle, BEFORE the transport is touched at all — before `find` as
+well as before `post`, because an unscreened body should not reach the network even to be compared
+with comments already on the issue. The CLI keeps its check as a fast-fail, with a comment saying
+plainly that it is not the guarantee: the same shape the lock pre-flight settled into after IR-116.
+
+Three controls: a rejected body refuses with `{find:0, post:0, readBack:0}` and writes nothing; the
+refusal names the category and the line, so the finding is actionable without a search; and a clean
+body still commits, so the refusal is not unconditional. `M-OUT-NO-SCREEN` is ISOLATED at 2, as
+predicted, with the clean-body control staying green under it. Outbound mutations now 11/11.
+
+The fixture secrets are shaped to match the rules and are not real.

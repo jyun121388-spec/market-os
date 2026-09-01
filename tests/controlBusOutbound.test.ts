@@ -37,7 +37,7 @@ describe("committing an outbound message only once it is proven to exist", () =>
     now: () => "2026-09-02T00:00:00.000Z",
     heartbeatStaleMs: 45_000,
     nowMs: () => Date.parse("2026-09-02T00:00:00.000Z"),
-    pid: process.pid,
+    claim: { pid: process.pid, startedAt: "2026-09-02T00:00:00.000Z", nonce: "outbound-run" },
   };
 
   const draft = {
@@ -207,7 +207,7 @@ describe("committing an outbound message only once it is proven to exist", () =>
       writeFileSync(
         join(root, "watcher.lock.json"),
         JSON.stringify({
-          pid: process.pid,
+          claim: { pid: process.pid, startedAt: "2026-09-02T00:00:00.000Z", nonce: "outbound-run" },
           startedAt: new Date(deps.nowMs() - 45_000 * 4).toISOString(),
           nonce: "n",
         }),
@@ -237,5 +237,238 @@ describe("committing an outbound message only once it is proven to exist", () =>
       await transmitAndCommit(storePaths(root), state, draft, t, deps);
       expect(existsSync(join(root, "outbox.jsonl"))).toBe(false);
     });
+  });
+});
+
+/**
+ * THE AWAIT GAP, which is where the serialisation actually lives.
+ *
+ * The first version checked the watcher lock once, went away for a network round trip, and then
+ * wrote the state object it had captured before leaving. Review was right that a snapshot test is
+ * not a serialisation primitive: `store.ts` says in its own header that atomic rename gives content
+ * atomicity and never writer exclusion.
+ *
+ * Two things can happen in that gap and both are exercised here by mutating the store from inside
+ * the fake `readBack` — which is exactly when a real network call would be in flight.
+ */
+describe("what happens while the remote call is in flight", () => {
+  const BODY = "[ESCALATION][ESC-901]\n\nA question.";
+  const ISSUE = 2;
+  const OURS = { pid: process.pid, startedAt: "2026-09-02T00:00:00.000Z", nonce: "ours" };
+
+  const deps: OutboundDeps = {
+    now: () => "2026-09-02T00:00:00.000Z",
+    heartbeatStaleMs: 45_000,
+    nowMs: () => Date.parse("2026-09-02T00:00:00.000Z"),
+    claim: OURS,
+  };
+
+  const draft = {
+    protocolId: "ESC-901",
+    kind: "ESCALATION" as const,
+    body: BODY,
+    composedAt: "2026-09-01T23:59:00.000Z",
+  };
+
+  const ref = {
+    commentId: 777,
+    body: BODY,
+    repository: CONTROL_BUS_REPOSITORY,
+    issueNumber: ISSUE,
+  };
+
+  const withStore = async <T>(fn: (root: string, state: ControlBusState) => Promise<T>) => {
+    const root = mkdtempSync(join(tmpdir(), "control-bus-interleave-"));
+    try {
+      const state = emptyState(ISSUE);
+      writeState(storePaths(root), state);
+      return await fn(root, state);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  const persisted = (root: string) =>
+    JSON.parse(readFileSync(join(root, "state.json"), "utf8")) as ControlBusState;
+
+  /** A transport that runs `duringAwait` at the moment the read-back would be outstanding. */
+  const interleaving = (duringAwait: () => void) => {
+    const calls = { post: 0 };
+    return {
+      calls,
+      transport: {
+        find: async () => null,
+        post: async () => {
+          calls.post += 1;
+          return { commentId: ref.commentId };
+        },
+        readBack: async () => {
+          duringAwait();
+          return ref;
+        },
+      } as OutboundTransport,
+    };
+  };
+
+  const writeLock = (root: string, pid: number, nonce: string) =>
+    writeFileSync(
+      join(root, "watcher.lock.json"),
+      JSON.stringify({ pid, startedAt: "2026-09-02T00:00:00.000Z", nonce }),
+      "utf8",
+    );
+
+  it("writes nothing when a watcher takes ownership during the await", async () => {
+    // Absent at the first check, live and foreign by commit time. The pre-flight cannot see this;
+    // only the commit-time authority can.
+    await withStore(async (root, state) => {
+      const { transport, calls } = interleaving(() => writeLock(root, process.pid, "the-watcher"));
+      const out = await transmitAndCommit(storePaths(root), state, draft, transport, deps);
+
+      expect(out.status).toBe("REFUSED");
+      expect(calls.post, "the comment was posted before ownership changed").toBe(1);
+      expect(persisted(root).outbox, "nothing may be written without authority").toHaveLength(0);
+    });
+  });
+
+  it("does not treat a different lease with the same pid as itself", async () => {
+    // The pid-only shortcut this replaced would accept this: same process, different run. The
+    // nonce is what `acquireLock` already treats as the sufficient identity.
+    await withStore(async (root, state) => {
+      const { transport } = interleaving(() => writeLock(root, OURS.pid, "a-different-lease"));
+      const out = await transmitAndCommit(storePaths(root), state, draft, transport, deps);
+      expect(out.status).toBe("REFUSED");
+      expect(out.status === "REFUSED" && out.reason).toMatch(/ownership changed|live watcher/);
+      expect(persisted(root).outbox).toHaveLength(0);
+    });
+  });
+
+  it("proceeds when the lease that appeared is our own", async () => {
+    // The other side of the same control: if refusing were unconditional, the two above would pass
+    // for the wrong reason and this module could never write at all.
+    await withStore(async (root, state) => {
+      const { transport } = interleaving(() => writeLock(root, OURS.pid, OURS.nonce));
+      const out = await transmitAndCommit(storePaths(root), state, draft, transport, deps);
+      expect(out.status).toBe("COMMITTED");
+      expect(persisted(root).outbox).toHaveLength(1);
+    });
+  });
+
+  it("never regresses state the watcher advanced while we were away", async () => {
+    // A -> B during the await. The captured object still says A; writing it back would silently
+    // undo a cursor advance and a durably stored decision, which is the worse half of the finding.
+    await withStore(async (root, state) => {
+      const { transport } = interleaving(() => {
+        const advanced = persisted(root);
+        advanced.lastRemoteCommentId = 4242;
+        advanced.inbox.push({
+          protocolId: "ESC-INBOUND",
+          githubCommentId: 4242,
+          receivedAt: "2026-09-02T00:04:00.000Z",
+          author: "jyun121388-spec",
+          body: "arrived while we were posting",
+          status: "RECEIVED_UNVALIDATED",
+        });
+        writeState(storePaths(root), advanced);
+      });
+
+      const out = await transmitAndCommit(storePaths(root), state, draft, transport, deps);
+      expect(out.status).toBe("COMMITTED");
+
+      const after = persisted(root);
+      expect(after.lastRemoteCommentId, "the cursor was regressed to the captured snapshot").toBe(
+        4242,
+      );
+      expect(after.inbox.map((e) => e.protocolId)).toEqual(["ESC-INBOUND"]);
+      expect(after.outbox).toHaveLength(1);
+      expect(after.outbox[0].transmission?.commentId).toBe(ref.commentId);
+    });
+  });
+
+  it("adopts rather than re-posts after a refused commit", async () => {
+    // The remote comment exists and the local write was refused. A retry must find it by digest and
+    // record it under authority — never post a second one to compensate.
+    await withStore(async (root, state) => {
+      const blocked = interleaving(() => writeLock(root, OURS.pid, "the-watcher"));
+      expect(
+        (await transmitAndCommit(storePaths(root), state, draft, blocked.transport, deps)).status,
+      ).toBe("REFUSED");
+
+      rmSync(join(root, "watcher.lock.json"));
+      let posts = 0;
+      const retry: OutboundTransport = {
+        find: async () => ref,
+        post: async () => {
+          posts += 1;
+          return { commentId: 999 };
+        },
+        readBack: async () => ref,
+      };
+      const out = await transmitAndCommit(storePaths(root), state, draft, retry, deps);
+
+      expect(out.status).toBe("ADOPTED_EXISTING");
+      expect(posts, "a refused local commit must never cause a second comment").toBe(0);
+      expect(controlBusStanding(persisted(root)).standing("ESC-901")).toBe("OPEN");
+    });
+  });
+});
+
+/**
+ * The window between winning the write right and reading ownership back.
+ *
+ * It is microseconds wide, contains no await, and nothing in the fixtures above could open it — so
+ * `M-AUTH-NO-RECHECK` came back MISSED and the branch guarding it was, in effect, an assertion
+ * about itself. Rather than delete a defence the review explicitly asked for, `store.ts` grew a
+ * seam that fires exactly there, so the branch is exercised for the reason it exists.
+ */
+describe("ownership replaced between taking the write right and reading it back", () => {
+  const ISSUE = 2;
+  const BODY = "[ESCALATION][ESC-902]\n\nA question.";
+  const OURS = { pid: process.pid, startedAt: "2026-09-02T00:00:00.000Z", nonce: "ours" };
+
+  it("fails closed and writes nothing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "control-bus-window-"));
+    try {
+      writeState(storePaths(root), emptyState(ISSUE));
+      const deps: OutboundDeps = {
+        now: () => "2026-09-02T00:00:00.000Z",
+        heartbeatStaleMs: 45_000,
+        nowMs: () => Date.parse("2026-09-02T00:00:00.000Z"),
+        claim: OURS,
+        afterRightTaken: () =>
+          writeFileSync(
+            join(root, "watcher.lock.json"),
+            JSON.stringify({
+              pid: process.pid,
+              startedAt: "2026-09-02T00:00:00.000Z",
+              nonce: "a-successor",
+            }),
+            "utf8",
+          ),
+      };
+      const out = await transmitAndCommit(
+        storePaths(root),
+        emptyState(ISSUE),
+        { protocolId: "ESC-902", kind: "ESCALATION", body: BODY, composedAt: deps.now() },
+        {
+          find: async () => null,
+          post: async () => ({ commentId: 4242 }),
+          readBack: async () => ({
+            commentId: 4242,
+            body: BODY,
+            repository: CONTROL_BUS_REPOSITORY,
+            issueNumber: ISSUE,
+          }),
+        },
+        deps,
+      );
+
+      expect(out.status).toBe("REFUSED");
+      expect(out.status === "REFUSED" && out.reason).toMatch(/ownership changed/);
+      const after = JSON.parse(readFileSync(join(root, "state.json"), "utf8")) as ControlBusState;
+      expect(after.outbox).toHaveLength(0);
+      expect(existsSync(join(root, "outbox.jsonl"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -46,10 +46,13 @@ import {
 } from "./state";
 import {
   appendOutboxLog,
+  loadState,
   lockIsStale,
   processAlive,
   readLock,
+  withCanonicalWriteAuthority,
   writeState,
+  type LockRecord,
   type StorePaths,
 } from "./store";
 
@@ -102,7 +105,16 @@ export interface OutboundDeps {
   /** Injected so the staleness budget is not a fourth copy of 45s. */
   heartbeatStaleMs: number;
   nowMs: () => number;
-  pid: number;
+  /**
+   * THIS run's ownership identity, `(pid, nonce)`.
+   *
+   * A pid on its own was the previous identity and it is not one: pids are recycled, and the store
+   * already treats the nonce as the sufficient condition — a same-pid different-nonce record is a
+   * DIFFERENT lease, not us.
+   */
+  claim: LockRecord;
+  /** Test seam, threaded straight through to the write authority. See . */
+  afterRightTaken?: () => void;
 }
 
 /**
@@ -119,19 +131,32 @@ export async function transmitAndCommit(
   const expect = { repository: CONTROL_BUS_REPOSITORY, issueNumber: state.issueNumber };
   const digest = bodyDigest(draft.body);
 
-  // --- serialisation ---------------------------------------------------------------------------
+  // --- pre-flight, and it is ONLY that -------------------------------------------------------
+  //
+  // A cheap fast-fail so an obviously-live watcher costs no network round trip. It is deliberately
+  // not the guarantee: a check here and a write after an `await` is a snapshot, and a snapshot is
+  // not a serialisation primitive. The guarantee is taken at commit time, under
+  // `withCanonicalWriteAuthority`, where the state is also RELOADED.
   const lock = readLock(paths);
-  if (lock !== null && lock.pid !== deps.pid && processAlive(lock.pid)) {
-    if (!lockIsStale(lock, deps.heartbeatStaleMs, deps.nowMs())) {
-      return {
-        status: "REFUSED",
-        reason: `a live watcher holds the lock (pid ${lock.pid}); refusing to write state out of band`,
-      };
-    }
+  if (
+    lock !== null &&
+    !(lock.pid === deps.claim.pid && lock.nonce === deps.claim.nonce) &&
+    processAlive(lock.pid) &&
+    !lockIsStale(lock, deps.heartbeatStaleMs, deps.nowMs())
+  ) {
+    return {
+      status: "REFUSED",
+      reason: `a live watcher holds the lock (pid ${lock.pid}); refusing before any remote call`,
+    };
   }
 
   // --- idempotency: is this already proven? ------------------------------------------------------
-  const existing = state.outbox.find(
+  //
+  // Read from DISK, not from the state the caller handed in. After the reload-at-commit repair the
+  // caller's object is a photograph that never receives the entry, so checking it made a second
+  // call post again — found by the idempotency control, which is what it is for.
+  const onDisk = loadState(paths, state.issueNumber);
+  const existing = onDisk.outbox.find(
     (e) =>
       e.protocolId === draft.protocolId &&
       e.kind === draft.kind &&
@@ -162,10 +187,15 @@ export async function transmitAndCommit(
 
   const mismatch = describeMismatch(remote, expect, digest);
   if (mismatch !== null) {
-    // Committed WITHOUT proof. The attempt is visible and the id stays closed, which is the point:
-    // a failed read-back must leave a record, not a silence, and must not leave an opening.
-    commit(paths, state, composed);
-    return { status: "REFUSED", reason: mismatch, entry: composed };
+    // Recorded WITHOUT proof. The attempt is visible and the id stays closed, which is the point:
+    // a failed read-back must leave a record, not a silence, and must not leave an opening. If
+    // ownership is gone the record is skipped too — a refusal never writes.
+    const written = commitUnderAuthority(paths, state, composed, deps, expect);
+    return {
+      status: "REFUSED",
+      reason: written.committed ? mismatch : `${mismatch}; and ${written.reason}`,
+      ...(written.committed ? { entry: composed } : {}),
+    };
   }
 
   const proven: OutboxEntry = {
@@ -181,11 +211,21 @@ export async function transmitAndCommit(
   // Belt and braces: the proof must satisfy the same predicate every reader uses, before it is
   // written. A producer that can emit something its own consumer rejects is the split again.
   if (!isTransmitted(proven, expect)) {
-    commit(paths, state, composed);
+    commitUnderAuthority(paths, state, composed, deps, expect);
     return { status: "REFUSED", reason: "the assembled proof did not satisfy isTransmitted" };
   }
 
-  commit(paths, state, proven);
+  const written = commitUnderAuthority(paths, state, proven, deps, expect);
+  if (written.committed && written.reconciled !== null) {
+    // Somebody landed the identical proof while we were away. Not a second entry, and not a
+    // pretence that we wrote this one.
+    return { status: "ALREADY_PROVEN", entry: written.reconciled };
+  }
+  if (!written.committed) {
+    // The comment exists remotely and this machine may not record it. Fail closed: not open, and
+    // NOT re-posted on the next attempt either — `find` will adopt the same comment by digest.
+    return { status: "REFUSED", reason: written.reason };
+  }
   return { status: adopted ? "ADOPTED_EXISTING" : "COMMITTED", entry: proven };
 }
 
@@ -212,11 +252,54 @@ function describeMismatch(
 }
 
 /**
- * Append-only log first, then the authority. The same ordering `commitCycle` enforces, for the same
- * reason: a crash between them costs a re-read, never a claim that outran its evidence.
+ * Append-only log first, then the authority — under proven exclusive ownership, over RELOADED
+ * state.
+ *
+ * Both halves matter and review found both missing. The ordering is `commitCycle`'s, for the same
+ * reason: a crash between them costs a re-read, never a claim that outran its evidence. The reload
+ * is the other half: the state this function was handed was captured BEFORE a network round trip,
+ * and writing it back would regress whatever the watcher advanced meanwhile. Nothing outside the
+ * authority may touch `state.json`.
  */
-function commit(paths: StorePaths, state: ControlBusState, entry: OutboxEntry): void {
-  appendOutboxLog(paths, entry);
-  state.outbox.push(entry);
-  writeState(paths, state);
+function commitUnderAuthority(
+  paths: StorePaths,
+  captured: ControlBusState,
+  entry: OutboxEntry,
+  deps: OutboundDeps,
+  expect: { repository: string; issueNumber: number },
+):
+  | { committed: true; state: ControlBusState; reconciled: OutboxEntry | null }
+  | { committed: false; reason: string } {
+  const result = withCanonicalWriteAuthority(
+    paths,
+    deps.claim,
+    deps.heartbeatStaleMs,
+    deps.nowMs(),
+    () => {
+      // RELOAD. `captured` is a photograph of the state before the await; `fresh` is what is
+      // actually on disk now, cursor and inbox included.
+      const fresh = loadState(paths, captured.issueNumber);
+
+      // Reconcile rather than duplicate: another writer, or an earlier attempt of ours, may have
+      // landed the very same proof while we were away.
+      const already = fresh.outbox.find(
+        (e) =>
+          e.protocolId === entry.protocolId &&
+          e.kind === entry.kind &&
+          bodyDigest(e.body) === bodyDigest(entry.body) &&
+          isTransmitted(e, expect),
+      );
+      if (already) return { fresh, reconciled: already };
+
+      appendOutboxLog(paths, entry);
+      fresh.outbox.push(entry);
+      writeState(paths, fresh);
+      return { fresh, reconciled: null };
+    },
+    deps.afterRightTaken,
+  );
+
+  return result.held
+    ? { committed: true, state: result.value.fresh, reconciled: result.value.reconciled }
+    : { committed: false, reason: result.reason };
 }

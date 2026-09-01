@@ -357,6 +357,90 @@ export function releaseLock(paths: StorePaths, record?: LockRecord): void {
   });
 }
 
+/** What a write attempt under canonical authority produced, or why it produced nothing. */
+export type WriteAuthority<T> = { held: true; value: T } | { held: false; reason: string };
+
+/**
+ * Run `body` while this process PROVABLY holds the right to write canonical state.
+ *
+ * The existing exclusion primitive, exposed rather than duplicated. `outbound.ts` needed it after
+ * review found the hole: it checked the watcher lock ONCE, then went away for a network round trip,
+ * then wrote the state object it had captured before leaving. A snapshot test is not a
+ * serialisation primitive, and the store's own header says so — atomic rename gives content
+ * atomicity, never writer exclusion. Two things could go wrong in that gap and both did on paper: a
+ * watcher acquires ownership mid-flight, and the state it advanced meanwhile is overwritten by the
+ * stale object.
+ *
+ * Three checks, in this order, and the middle one is the only real mutex:
+ *
+ * 1. BEFORE: a live lock held by somebody else refuses immediately. Ownership is `(pid, nonce)`,
+ *    never pid alone — pids are recycled, and `acquireLock` already treats the nonce as the
+ *    sufficient condition. A same-pid different-nonce record is a DIFFERENT lease.
+ * 2. THE TOKEN: `withMutation` `wx`-creates the mutation right. Exactly one racer wins a create.
+ * 3. AFTER, still inside the token: re-read the lock. If it changed identity while we were taking
+ *    the right, ownership was replaced under us and nothing may be written.
+ *
+ * `body` runs only when all three pass, so it is the only place a caller may reload-and-write.
+ */
+export function withCanonicalWriteAuthority<T>(
+  paths: StorePaths,
+  claim: LockRecord,
+  staleAfterMs: number,
+  nowMs: number,
+  body: () => T,
+  /** Test seam: fires after the write right is won and before ownership is re-read. */
+  afterRightTaken?: () => void,
+): WriteAuthority<T> {
+  const ours = (held: LockRecord | null): boolean =>
+    held === null || (held.pid === claim.pid && held.nonce === claim.nonce);
+
+  const before = readLock(paths);
+  if (
+    before !== null &&
+    !ours(before) &&
+    processAlive(before.pid) &&
+    !lockIsStale(before, staleAfterMs, nowMs)
+  ) {
+    return {
+      held: false,
+      reason: `a live watcher holds the lock (pid ${before.pid}, nonce ${before.nonce})`,
+    };
+  }
+
+  const outcome = withMutation(paths, claim, staleAfterMs, nowMs, (): WriteAuthority<T> => {
+    // A seam, and it exists because the branch below was otherwise UNREACHABLE from any control.
+    //
+    // `M-AUTH-NO-RECHECK` came back MISSED: the pre-flight above already refuses anything a test
+    // can arrange, because it runs after the caller's network round trip. The window this re-check
+    // actually guards is between that read and winning the mutation right — microseconds, with no
+    // await in it, and nothing could open it on demand. An unreachable safety branch with a green
+    // suite over it is the shape this project keeps paying for, so the window is made openable
+    // rather than left as an assertion about itself.
+    afterRightTaken?.();
+    const during = readLock(paths);
+    // A lock that vanished is not a failure — nobody owns it, so we continue. Neither is a STALE
+    // foreign lock: refusing on that would let one leftover file block every future write, which is
+    // a deadlock dressed as caution. Only a LIVE foreign lease is a replacement, and it is tested
+    // exactly as the pre-flight tests it.
+    if (
+      during !== null &&
+      !ours(during) &&
+      processAlive(during.pid) &&
+      !lockIsStale(during, staleAfterMs, nowMs)
+    ) {
+      return {
+        held: false,
+        reason:
+          "ownership changed while taking the write right " +
+          `(now pid ${during.pid}, nonce ${during.nonce})`,
+      };
+    }
+    return { held: true, value: body() };
+  });
+
+  return outcome ?? { held: false, reason: "another writer holds the mutation right" };
+}
+
 /** Default staleness horizon for the mutation right, in milliseconds. */
 const HEARTBEAT_STALE_MS = 45_000;
 

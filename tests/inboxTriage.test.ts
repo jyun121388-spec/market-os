@@ -491,7 +491,10 @@ describe("IR-115: exactly one producer of transmission evidence", () => {
 
   it("has one caller of the append-only outbox log, and it is the committer", () => {
     const callers = productionSources()
-      .filter(({ file, text }) => !file.endsWith("store.ts") && text.includes("appendOutboxLog("))
+      .filter(
+        ({ file, text }) =>
+          !file.endsWith("store.ts") && text.includes("appendOutboxLog("),
+      )
       .map((c) => c.file);
     expect(
       callers,

@@ -820,11 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2620 / 2620 PASS across 147 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2601 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2626 / 2626 PASS across 147 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2607 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `71dea50` plus the live
+MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `157c920` plus the
+serialisation repair committed on top of it. Outbound now takes canonical write authority AT COMMIT
+TIME and RELOADS durable state under it, so a watcher acquiring ownership during the network round
+trip cannot be overwritten and nothing it advanced meanwhile is regressed. Ownership is
+`(pid, nonce)`; a pid alone is not an identity. Outbound mutations 10/10 ISOLATED.
+
+Previously at `71dea50` plus the live
 transport committed on top of it. `scripts/gh-transport.ts` and `scripts/post-outbound.ts` drive the
 lifecycle from production, and it has now RUN against the live issue: the transport found the
 comment posted by hand earlier, adopted it rather than duplicating it, and wrote the first real

@@ -47,11 +47,39 @@ Expected cardinalities, written before the run:
                              -> 1 red: the idempotency control, which then posts a second time and
                                 records a second entry for one protocol id.
 
-  M-OUT-IGNORE-LOCK          write state even while a live watcher holds the lock
+  M-OUT-IGNORE-LOCK          skip the PRE-FLIGHT lock check
                              -> 2 red: the lock control and the writes-nothing control. Both
                                 self-skip if `pid + 1` happens not to be a live process, so a zero
                                 here is a skipped control rather than a passing one -- if it comes
                                 back MISSED, check that before believing it.
+
+The last three are the SERIALISATION gate, added after review found that the pre-flight check was
+the only one: a snapshot taken before a network round trip, with the captured state written back
+after it. Both halves of that -- ownership at commit time, and reloading rather than overwriting --
+get their own mutant, and the ownership ones live in `store.ts` because the primitive is exposed
+there rather than duplicated.
+
+  M-AUTH-NO-RECHECK          never re-check ownership once the write right is taken
+                             -> PREDICTED 2, MEASURED 0 on the first run, then 1 after a control was
+                                added for it. The prediction was wrong about WHICH check was doing
+                                the work: the pre-flight inside the authority runs AFTER the
+                                caller's round trip, so it already refuses everything the
+                                interleaving fixtures can arrange. The window this branch guards is
+                                between that read and winning the mutation right -- microseconds,
+                                no await, unopenable from outside. An unreachable safety branch with
+                                a green suite over it is the shape this project keeps paying for, so
+                                the store grew a seam that fires exactly there, rather than the
+                                branch being deleted or left unproven.
+
+  M-AUTH-PID-ONLY            a different lease with the same pid counts as us
+                             -> 1 red: the same-pid-different-lease control. `acquireLock` already
+                                treats the nonce as the sufficient identity; pids are recycled.
+
+  M-OUT-NO-RELOAD            write back the snapshot captured before the await
+                             -> 1 red: the never-regresses control, which advances the cursor and
+                                stores an inbound decision while the post is in flight. This is the
+                                worse half of the finding: it silently undoes durable work and
+                                leaves a green suite behind.
 
     python scripts/mutation/outbound.py
 """
@@ -64,6 +92,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import harness
 
 OUTBOUND = "src/server/controlbus/outbound.ts"
+# The write authority lives in the store, exposed rather than duplicated, so the mutants that
+# bind ownership live where the primitive does.
+STORE = "src/server/controlbus/store.ts"
 TEST = "tests/controlBusOutbound.test.ts"
 
 BINDING_TESTS = [TEST]
@@ -92,13 +123,13 @@ MUTATIONS = [
     (
         "M-OUT-NO-STATE-WRITE the append-only log is written and the authority is not",
         OUTBOUND,
-        "  writeState(paths, state);",
+        "      writeState(paths, fresh);",
         "",
     ),
     (
         "M-OUT-NO-LOG-WRITE the authority is written and the log is not",
         OUTBOUND,
-        "  appendOutboxLog(paths, entry);",
+        "      appendOutboxLog(paths, entry);",
         "",
     ),
     (
@@ -116,9 +147,31 @@ MUTATIONS = [
     (
         "M-OUT-IGNORE-LOCK state is written while a live watcher holds the lock",
         OUTBOUND,
-        "    if (!lockIsStale(lock, deps.heartbeatStaleMs, deps.nowMs())) {",
-        "    if (false) {",
+        "    !lockIsStale(lock, deps.heartbeatStaleMs, deps.nowMs())\n  ) {",
+        "    false\n  ) {",
+    ),
+    (
+        "M-AUTH-NO-RECHECK ownership is never re-checked once the write right is taken",
+        STORE,
+        "      during !== null &&\n"
+        "      !ours(during) &&\n"
+        "      processAlive(during.pid) &&\n"
+        "      !lockIsStale(during, staleAfterMs, nowMs)\n"
+        "    ) {",
+        "      false\n    ) {",
+    ),
+    (
+        "M-AUTH-PID-ONLY a different lease with the same pid counts as us",
+        STORE,
+        "    held === null || (held.pid === claim.pid && held.nonce === claim.nonce);",
+        "    held === null || held.pid === claim.pid;",
+    ),
+    (
+        "M-OUT-NO-RELOAD the captured snapshot is written back instead of current state",
+        OUTBOUND,
+        "      const fresh = loadState(paths, captured.issueNumber);",
+        "      const fresh = captured;",
     ),
 ]
 
-sys.exit(harness([OUTBOUND], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1200))
+sys.exit(harness([OUTBOUND, STORE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1200))

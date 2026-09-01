@@ -2019,3 +2019,53 @@ predicted (2, 1, 3, 2, 1).
 One control caught a bug in its own scan: `endsWith("outbound.ts")` excluded `post-outbound.ts`, the
 very caller it was looking for, so it reported the gap still open. The suffix now names the whole
 path.
+
+## IR-116 — a snapshot is not a serialisation primitive
+
+Status: `VERIFIED` (2026-09-02). Found by review
+(`MARKET-IR115-OUTBOUND-SERIALIZATION-TOCTOU-20260902`), reproduced by reading the code.
+
+`outbound.ts` checked the watcher lock ONCE, went away for `find`/`post`/`readBack`, and then wrote
+the state object captured before it left. Two defects in one gap, and `store.ts` says so in its own
+header: atomic rename gives content atomicity, never writer exclusion.
+
+    TOCTOU           a watcher can acquire ownership after the check and before the commit
+    stale overwrite  whatever that watcher advanced meanwhile is silently regressed
+
+Ownership was also `pid`-only. The store already treats the NONCE as the sufficient identity — a
+same-pid different-nonce record is a different lease — so pid equality was a shortcut past the
+contract the lock rewrite exists to enforce.
+
+### The repair
+
+`withCanonicalWriteAuthority` in `store.ts`, exposing the existing `withMutation` right rather than
+inventing a second lock. Three checks: refuse a live foreign lease before taking the right; win the
+`wx` mutation token; re-read ownership inside it. `body` runs only when all three pass, and outbound
+RELOADS `state.json` inside `body` and appends to THAT, never to the captured object.
+
+A stale foreign lock does not block — refusing on one would let a leftover file deadlock every
+future write, which is caution that costs more than the race.
+
+### Two defects the new controls found in the repair itself
+
+Idempotency read the captured state, which after the reload change is a photograph that never
+receives the entry, so a second call re-posted. It now reads disk, and the commit-time reconcile
+reports when it found an existing proof. And the ownership re-check refused on ANY foreign lock
+including a stale one — the deadlock above, introduced and removed in the same unit.
+
+### The mutant that came back MISSED
+
+`M-AUTH-NO-RECHECK` predicted 2 red and measured 0. The prediction was wrong about which check did
+the work: the pre-flight inside the authority runs AFTER the caller's round trip, so it already
+refuses everything the interleaving fixtures can arrange. The window the re-check guards is between
+that read and winning the token — microseconds, no await, unopenable from outside.
+
+An unreachable safety branch with a green suite over it is this project's recurring shape, so the
+store grew a seam that fires exactly there. The branch is now exercised for the reason it exists,
+and the mutant is ISOLATED at 1.
+
+Interleaving controls, each mutating the store from inside the fake `readBack` — the moment a real
+network call would be outstanding: ownership taken during the await; a different lease with the same
+pid; our own lease reappearing (so refusal is not unconditional); state advanced A to B with the
+cursor and an inbound decision preserved; and a refused commit followed by a retry that ADOPTS the
+existing comment rather than posting a second one. Outbound mutations 10/10 ISOLATED.

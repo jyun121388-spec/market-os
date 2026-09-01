@@ -14,6 +14,7 @@
  * comment on a public issue.
  */
 
+import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,7 +97,12 @@ async function main(): Promise<number> {
     now: () => new Date().toISOString(),
     heartbeatStaleMs: HEARTBEAT_STALE_MS,
     nowMs: () => Date.now(),
-    pid: process.pid,
+    // A fresh lease identity for this run: pid AND nonce, because a pid alone is not an identity.
+    claim: {
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      nonce: randomUUID(),
+    },
   };
 
   const outcome = await transmitAndCommit(

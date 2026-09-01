@@ -100,10 +100,26 @@ export const ORDER_BLIND = new Set(["includes", "length"]);
  *
  * So a property read now needs a `FieldAuthority`, consulted per read, with no default: omitting
  * it is a type error rather than a silent admission.
+ *
+ * ## AND A SAFE READ IS NOT A SAFE USE — THE SAME MISTAKE AT THE OPERATOR BOUNDARY
+ *
+ * Third time, one boundary further out. Proving that `r.value` is a declared field of a generated
+ * row proves the READ. It says nothing about what `>` then does with the value, and JavaScript's
+ * relational operators run ToPrimitive on object operands — `Symbol.toPrimitive`, `valueOf`,
+ * `toString`. This schema has `DateTime`, `Decimal` and `Json` fields, so object-valued generated
+ * fields are not hypothetical, and `Prisma.Decimal.valueOf` is library code rather than an
+ * intrinsic. Reproduced before repairing, with a `valueOf` that records being called:
+ *
+ *     forward   result=true  effects=[convert:A, convert:B]
+ *     reversed  result=true  effects=[convert:C, convert:B]
+ *
+ * `===` and `!==` are a genuinely different operator class: strict equality performs no numeric or
+ * string coercion, so it is not swept up in this and is deliberately not treated as if it were.
  */
 
 /**
- * The authority that says a property read executes no user code.
+ * The authority that says a property read executes no user code, and that its value can be
+ * COMPARED without executing any either. Two questions, because they have two answers.
  *
  * An interface because the real one needs a type checker, and the controls must exercise both
  * answers on shapes no checker in this repository would ever produce.
@@ -113,6 +129,13 @@ export interface FieldAuthority {
   provenance(): string;
   /** Does reading `.field` off `receiver` provably run no user code? */
   isInertRead(receiver: ts.Node, field: string): boolean;
+  /**
+   * Does `.field` hold ONLY primitives, so that `<` `<=` `>` `>=` coerce nothing?
+   *
+   * Separate from `isInertRead` because the two are independent: `Decimal` is an inert read of an
+   * object, and an object operand is exactly what makes a relational operator run code.
+   */
+  isPrimitiveField(receiver: ts.Node, field: string): boolean;
 }
 
 /** Where `prisma/schema.prisma` writes the generated client. The contract is anchored here. */
@@ -125,7 +148,31 @@ export const PRISMA_CLIENT_OUTPUT = "src/generated/prisma";
 export const NO_FIELD_AUTHORITY: FieldAuthority = {
   provenance: () => "none — no property read can be proven inert",
   isInertRead: () => false,
+  isPrimitiveField: () => false,
 };
+
+/**
+ * Types a relational operator can compare without invoking ToPrimitive.
+ *
+ * Spelled out rather than using `ts.TypeFlags.Primitive`, which is an internal alias whose members
+ * TypeScript is free to change: this mask is the actual claim being made, and it should break
+ * visibly if it stops being true rather than silently follow someone else's definition. `Null` and
+ * `Undefined` belong here — `null < "m"` coerces nothing and runs nothing. `Any` and `Unknown`
+ * deliberately do not.
+ */
+const PRIMITIVE_TYPE_FLAGS =
+  ts.TypeFlags.String |
+  ts.TypeFlags.Number |
+  ts.TypeFlags.Boolean |
+  ts.TypeFlags.BigInt |
+  ts.TypeFlags.StringLiteral |
+  ts.TypeFlags.NumberLiteral |
+  ts.TypeFlags.BooleanLiteral |
+  ts.TypeFlags.BigIntLiteral |
+  ts.TypeFlags.Enum |
+  ts.TypeFlags.EnumLiteral |
+  ts.TypeFlags.Null |
+  ts.TypeFlags.Undefined;
 
 /**
  * The real contract, checked rather than assumed.
@@ -163,6 +210,16 @@ export function prismaRowAuthority(checker: ts.TypeChecker): FieldAuthority {
       // An accessor IS user code, which is the entire defect this replaced.
       if (!ts.isPropertySignature(decl)) return false;
       return decl.getSourceFile().fileName.replace(/\\/g, "/").includes(marker);
+    },
+    isPrimitiveField(receiver, field) {
+      const symbol = checker.getTypeAtLocation(receiver).getProperty(field);
+      if (!symbol) return false;
+      const type = checker.getTypeOfSymbolAtLocation(symbol, receiver);
+      // EVERY constituent, because a union is only as safe as its worst member: `Decimal | null`
+      // coerces exactly as hard as `Decimal`. Measured on this schema — `string | null` and the
+      // `SourceTier` string-literal union pass; `Decimal` and `Date` are `Object` and do not.
+      const parts = type.isUnion() ? type.types : [type];
+      return parts.length > 0 && parts.every((p) => (p.flags & PRIMITIVE_TYPE_FLAGS) !== 0);
     },
   };
 }
@@ -210,16 +267,57 @@ export function isProvenOrderIndependentCallback(
     }
     if (ts.isBinaryExpression(e)) {
       const op = e.operatorToken.kind;
-      const comparison =
+      // Strict identity and the logical operators coerce NOTHING. `===`/`!==` compare without
+      // conversion, and `&&`/`||` just select an operand. The read authority is the whole story.
+      const nonCoercing =
         op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
         op === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+        op === ts.SyntaxKind.AmpersandAmpersandToken ||
+        op === ts.SyntaxKind.BarBarToken;
+      if (nonCoercing) return pure(e.left) && pure(e.right);
+
+      // Relational operators call ToPrimitive on an object operand, so BOTH operands must be proven
+      // primitive on top of being proven readable. This is a second, independent authority
+      // question, and answering only the first is what admitted `r.value > 0` on a `Decimal`.
+      const relational =
         op === ts.SyntaxKind.LessThanToken ||
         op === ts.SyntaxKind.LessThanEqualsToken ||
         op === ts.SyntaxKind.GreaterThanToken ||
-        op === ts.SyntaxKind.GreaterThanEqualsToken ||
-        op === ts.SyntaxKind.AmpersandAmpersandToken ||
-        op === ts.SyntaxKind.BarBarToken;
-      return comparison && pure(e.left) && pure(e.right);
+        op === ts.SyntaxKind.GreaterThanEqualsToken;
+      if (relational) {
+        return (
+          pure(e.left) && pure(e.right) && primitiveOperand(e.left) && primitiveOperand(e.right)
+        );
+      }
+      return false;
+    }
+    return false;
+  };
+
+  /**
+   * Can this operand reach a relational operator without anything being converted?
+   *
+   * Fails closed on everything it does not recognise, and it deliberately does NOT recurse the way
+   * `pure` does: a nested relational or logical expression as an operand of another relational
+   * operator is not a shape worth admitting to save.
+   */
+  const primitiveOperand = (e: ts.Node): boolean => {
+    if (
+      ts.isStringLiteral(e) ||
+      ts.isNumericLiteral(e) ||
+      ts.isBigIntLiteral(e) ||
+      e.kind === ts.SyntaxKind.TrueKeyword ||
+      e.kind === ts.SyntaxKind.FalseKeyword ||
+      e.kind === ts.SyntaxKind.NullKeyword
+    ) {
+      return true;
+    }
+    if (ts.isParenthesizedExpression(e)) return primitiveOperand(e.expression);
+    // `!x` is always a boolean whatever `x` was.
+    if (ts.isPrefixUnaryExpression(e)) return e.operator === ts.SyntaxKind.ExclamationToken;
+    if (ts.isPropertyAccessExpression(e)) {
+      if (!ts.isIdentifier(e.expression) || e.expression.text !== element) return false;
+      return authority.isPrimitiveField(e.expression, e.name.text);
     }
     return false;
   };

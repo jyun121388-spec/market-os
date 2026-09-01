@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import * as ts from "typescript";
 import * as fs from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { join } from "node:path";
 import {
   auditOrderReach,
   type FieldAuthority,
@@ -178,6 +181,7 @@ describe("when a short-circuiting predicate may discharge a site", () => {
   const ALL_INERT: FieldAuthority = {
     provenance: () => "test double: every read admitted",
     isInertRead: () => true,
+    isPrimitiveField: () => true,
   };
   const proven = (src: string) => isProvenOrderIndependentCallback(callbackOf(src), ALL_INERT);
 
@@ -263,6 +267,9 @@ describe("when a property read must be proven inert", () => {
   const onlyInert = (fields: string[]): FieldAuthority => ({
     provenance: () => `test double: ${fields.join(", ") || "nothing"}`,
     isInertRead: (_receiver, field) => fields.includes(field),
+    // Reads and comparisons are separate questions; this double answers the read one only, so the
+    // controls below cannot accidentally pass through the operator rule.
+    isPrimitiveField: (_receiver, field) => fields.includes(field),
   });
 
   it("refuses the read when no authority can vouch for it", () => {
@@ -388,5 +395,119 @@ describe("when a property read must be proven inert", () => {
 
   it("names the contract it relied on, so a discharge is never anonymous", () => {
     expect(NO_FIELD_AUTHORITY.provenance()).toMatch(/none/);
+  });
+});
+
+/**
+ * A SAFE READ IS NOT A SAFE USE — the third finding in this unit, one boundary further out.
+ *
+ * Proving `r.value` is a declared field of a generated row proves the READ. It says nothing about
+ * what `>` does with the value, and JavaScript's relational operators run ToPrimitive on object
+ * operands. This schema has `DateTime`, `Decimal` and `Json` fields, so object-valued generated
+ * fields are the normal case rather than a contrived one, and `Prisma.Decimal.valueOf` is library
+ * code. Reproduced before repairing, with a `valueOf` that records being called:
+ *
+ *     forward   result=true  effects=[convert:A, convert:B]
+ *     reversed  result=true  effects=[convert:C, convert:B]
+ *
+ * `===` and `!==` are a different operator class — strict equality performs no coercion — and are
+ * deliberately not swept up in the repair. These controls run against the REAL checker, because
+ * the whole claim is about types the checker resolves.
+ */
+describe("when a relational operator must not convert anything", () => {
+  const dir = mkdtempSync(join(tmpdir(), "order-reach-operator-"));
+  const fixture = join(dir, "fixture.ts");
+  const client = path.resolve(PRISMA_CLIENT_OUTPUT, "client").replace(/\\/g, "/");
+
+  writeFileSync(
+    fixture,
+    [
+      `import type { Etf, Observation, Source } from "${client}";`,
+      "declare const obs: Observation[];",
+      "declare const src: Source[];",
+      "declare const etf: Etf[];",
+      // Every entry is `field <op> operand` so the SHAPE is constant and only the TYPE varies.
+      'export const primitiveString = src.some((r) => r.code < "M");',
+      'export const nullableString = src.some((r) => r.homepage < "m");',
+      'export const stringEnum = src.some((r) => r.tier < "TIER_B");',
+      "export const decimal = obs.some((r) => r.value > 0);",
+      "export const dateTime = obs.some((r) => r.observationDate < r.retrievedAt);",
+      "export const json = obs.some((r) => r.raw > 0);",
+      "export const nullableDecimal = etf.some((r) => r.expenseRatio > 0);",
+      'export const strictEquality = src.some((r) => r.code === "X");',
+      "export const strictOnDecimal = obs.some((r) => r.value !== null);",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const program = ts.createProgram({
+    rootNames: [fixture],
+    options: {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      skipLibCheck: true,
+      noEmit: true,
+    },
+  });
+  const authority = prismaRowAuthority(program.getTypeChecker());
+  const sf = program.getSourceFile(fixture)!;
+
+  const byName = new Map<string, ts.Node>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      let arrow: ts.Node | null = null;
+      const find = (m: ts.Node): void => {
+        if (!arrow && ts.isArrowFunction(m)) arrow = m;
+        ts.forEachChild(m, find);
+      };
+      find(n);
+      if (arrow) byName.set(n.name.text, arrow);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+
+  const proven = (name: string) => {
+    const node = byName.get(name);
+    if (!node) throw new Error(`fixture has no callback named ${name}`);
+    return isProvenOrderIndependentCallback(node, authority);
+  };
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("parsed every fixture case, so a silent miss cannot pass for a refusal", () => {
+    // Without this, a renamed export would make every `proven(...)` throw or — worse under a future
+    // edit — quietly answer false, and a suite of all-false expectations would look healthy.
+    expect(byName.size).toBe(9);
+  });
+
+  it("admits a relational comparison over a primitive generated field", () => {
+    expect(proven("primitiveString"), "string is primitive").toBe(true);
+    expect(proven("nullableString"), "`string | null` coerces nothing").toBe(true);
+    expect(proven("stringEnum"), "a string-literal union is primitive throughout").toBe(true);
+  });
+
+  it("refuses a relational comparison over Decimal, DateTime or Json", () => {
+    // Prisma.Decimal.valueOf is library code; Date has Symbol.toPrimitive; Json is whatever the
+    // source sent. None of these is proven to convert without running something.
+    expect(proven("decimal"), "Decimal.valueOf is user code").toBe(false);
+    expect(proven("dateTime"), "Date conversion is not established by a field read").toBe(false);
+    expect(proven("json"), "an unknown object shape must fail closed").toBe(false);
+  });
+
+  it("refuses a union that is primitive in only one of its arms", () => {
+    // `Decimal | null` coerces exactly as hard as `Decimal`. A union is as safe as its worst arm,
+    // and checking only the first would pass this.
+    expect(proven("nullableDecimal")).toBe(false);
+  });
+
+  it("still admits strict equality, including on a field it refuses to compare relationally", () => {
+    // The discrimination that proves the OPERATOR is what changed and not the field authority:
+    // `r.value` is the same read in both, and only the relational form is refused.
+    expect(proven("strictEquality")).toBe(true);
+    expect(proven("strictOnDecimal"), "`!==` performs no conversion").toBe(true);
+    expect(proven("decimal"), "same field, coercing operator").toBe(false);
   });
 });

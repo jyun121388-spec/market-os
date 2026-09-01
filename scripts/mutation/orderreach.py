@@ -62,6 +62,28 @@ Expected cardinalities, written before the run:
                              -> 1 red: the attack control, via the hand-written plain field. The
                                 other half of the same pair.
 
+The last four are the OPERATOR boundary: a safe read is not a safe use. `< <= > >=` run ToPrimitive
+on an object operand, and this schema's generated rows carry `Decimal`, `DateTime` and `Json`. The
+positive control -- a relational comparison over a genuinely primitive field -- must stay GREEN
+under all of them, or the mutants are only proving that breaking everything breaks everything.
+
+  M-REACH-RELATIONAL-BLIND   treat `<` like `===`, requiring no primitive proof
+                             -> 3 red: the Decimal/DateTime/Json control, the mixed-union control,
+                                and the strict-equality control whose last assertion is that the
+                                SAME field refuses relationally.
+
+  M-REACH-FIELD-ALWAYS-PRIM  every resolvable field counts as primitive
+                             -> 3 red: the same three. Different mechanism, same consequence, which
+                                is why both are mutated rather than one standing in for the other.
+
+  M-REACH-UNION-ANY-ARM      a union passes if ANY arm is primitive rather than every arm
+                             -> 2 red: the mixed-union control via `Decimal | null`, and the
+                                Decimal/DateTime/Json control via `Json`, which IS a union with
+                                primitive arms. Decimal and Date are not unions and stay refused.
+
+  M-REACH-OPERAND-ANY        any property access is accepted as a relational operand
+                             -> 3 red: the same three as the first two.
+
     python scripts/mutation/orderreach.py
 """
 
@@ -126,6 +148,35 @@ MUTATIONS = [
         REACH,
         '      return decl.getSourceFile().fileName.replace(/\\\\/g, "/").includes(marker);',
         "      return marker.length > 0;",
+    ),
+    (
+        "M-REACH-RELATIONAL-BLIND a coercing operator is treated like strict equality",
+        REACH,
+        "      if (relational) {\n"
+        "        return (\n"
+        "          pure(e.left) && pure(e.right) && primitiveOperand(e.left) "
+        "&& primitiveOperand(e.right)\n"
+        "        );\n"
+        "      }",
+        "      if (relational) {\n        return pure(e.left) && pure(e.right);\n      }",
+    ),
+    (
+        "M-REACH-FIELD-ALWAYS-PRIM every resolvable field counts as primitive",
+        REACH,
+        "      return parts.length > 0 && parts.every((p) => (p.flags & PRIMITIVE_TYPE_FLAGS) !== 0);",
+        "      return parts.length > 0;",
+    ),
+    (
+        "M-REACH-UNION-ANY-ARM one primitive arm makes the whole union primitive",
+        REACH,
+        "parts.every((p) => (p.flags & PRIMITIVE_TYPE_FLAGS) !== 0)",
+        "parts.some((p) => (p.flags & PRIMITIVE_TYPE_FLAGS) !== 0)",
+    ),
+    (
+        "M-REACH-OPERAND-ANY any property access is accepted as a relational operand",
+        REACH,
+        "      return authority.isPrimitiveField(e.expression, e.name.text);",
+        "      return true;",
     ),
 ]
 

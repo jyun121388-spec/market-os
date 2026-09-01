@@ -820,12 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2560 / 2560 PASS across 144 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2541 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2565 / 2565 PASS across 144 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2546 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `15bf018` plus the stop
-evidence gatherer committed on top of it, from one fresh run on that tree. One new file,
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `bbf452e` plus the
+operator-boundary repair committed on top of it. Relational operators (`< <= > >=`) run ToPrimitive
+on object operands, and this schema's generated rows carry `Decimal`, `DateTime` and `Json`, so a
+proven-inert READ was still admitting a coercing USE; both now need separate proof. Five controls
+added; order-reach mutations 11/11 ISOLATED. Corpus unmoved at 34 / 16 ORDER_SURVIVES / 18 UNREAD.
+
+Previously at `15bf018` plus the stop evidence gatherer, from one fresh run on that tree. One new file,
 `tests/stopEvidence.test.ts`. `evaluateStopSentinel()` -- the only normal completion sentinel -- had
 one non-test caller supplying one of its nine inputs, so eight conditions had never been evaluated
 against reality. `scripts/stop-evidence.ts` now establishes what the machine can prove and reports

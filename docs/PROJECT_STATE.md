@@ -820,15 +820,15 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2530 / 2530 PASS across 142 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2511 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2534 / 2534 PASS across 142 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2515 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `74c6766` plus the
-nullable-uniqueness correction committed on top of it, from one fresh run on that tree. Three
-controls added to `tests/presentationOrder.test.ts`: PostgreSQL treats NULL as distinct from NULL,
-so a unique key holding a nullable field cannot establish a total order — the trap this schema
-already documents on `Observation.revisionOf`. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `0fc8cb8` plus the
+order-blind narrowing committed on top of it, from one fresh run on that tree. Four controls added
+to `tests/orderReachesOutput.test.ts` binding which operations may discharge a site: only a boolean
+over the whole set or a count, because `find`, `reduce`, `sort`, `Map` and `fromEntries` all carry
+arrival order into their result. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

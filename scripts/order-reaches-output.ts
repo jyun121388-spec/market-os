@@ -18,11 +18,12 @@
  * useful output today is a short list of sites where the nondeterminism demonstrably survives to a
  * caller, plus an honest count of the ones this cannot see.
  *
- *   ORDER_DISCARDED   every use re-sorts, aggregates, reduces to a scalar, or asks a set question
- *                     (`.some`, `.every`, `.find`, `.length`, `Object.fromEntries`, `new Map`,
- *                     `new Set`). Arrival order cannot survive any of those.
- *   ORDER_SURVIVES    the sequence is returned, mapped, spread or pushed onward with its order
- *                     intact — a reader can see it.
+ *   ORDER_DISCARDED   every use is ORDER-BLIND: a boolean over the whole set (`.some`, `.every`,
+ *                     `.includes`) or a count (`.length`). Nothing else qualifies — see
+ *                     `ORDER_BLIND` for why `find`, `reduce`, `sort`, `Map` and `fromEntries` were
+ *                     all removed from this list after review.
+ *   ORDER_SURVIVES    the sequence is returned, mapped, spread or pushed onward, OR consumed by
+ *                     something whose result depends on which row came first.
  *   UNREAD            the binding is used in a way this cannot classify, or not obviously used at
  *                     all in its own function.
  *
@@ -45,24 +46,45 @@ interface Row {
   why: string;
 }
 
-/** Methods and constructors that destroy or replace arrival order. */
-const DISCARDS = new Set([
-  "sort",
-  "toSorted",
-  "reduce",
-  "reduceRight",
-  "some",
-  "every",
+/**
+ * Operations whose observable result CANNOT depend on arrival order.
+ *
+ * Deliberately tiny, and it shrank after review. The first version listed `find`, `findIndex`,
+ * `reduce`, `reduceRight`, `sort`, `toSorted`, `Object.fromEntries`, `Map` and `Set` as discarding,
+ * and every one of those can carry arrival order into its result:
+ *
+ *   find / findIndex   return the FIRST match, so which of several matches you get is the order
+ *   reduce             is order-dependent unless the operation is proven associative-commutative,
+ *                      which nothing here proves
+ *   fromEntries / Map  a duplicate key means last-wins, so which value survives is the order —
+ *   / Set              and their iteration order IS insertion order, which is observable
+ *   sort / toSorted    stable sorts preserve input order among comparator ties, so a partial
+ *                      comparator lets arrival order through
+ *
+ * What is left is genuinely order-blind: a boolean over the whole set, or a count.
+ */
+export const ORDER_BLIND = new Set(["some", "every", "includes", "length"]);
+
+/** Methods that carry order onward, whether by preserving it or by reading position from it. */
+export const PRESERVES = new Set([
+  "map",
+  "filter",
+  "flatMap",
+  "slice",
+  "concat",
+  "forEach",
+  "push",
+  // Order-SENSITIVE rather than order-preserving, and the distinction does not change the verdict:
+  // either way the result can differ because the rows arrived differently.
   "find",
   "findIndex",
-  "includes",
-  "fromEntries",
-  "Map",
-  "Set",
+  "reduce",
+  "reduceRight",
+  "sort",
+  "toSorted",
+  "at",
+  "indexOf",
 ]);
-
-/** Methods that carry order onward. */
-const PRESERVES = new Set(["map", "filter", "flatMap", "slice", "concat", "forEach", "push"]);
 
 /**
  * Built once. `ts.createProgram` over this repository takes seconds and CREATING THE CHECKER makes
@@ -144,10 +166,9 @@ function classifyUses(name: string, scope: ts.Node, decl: ts.Node): { reach: Rea
       // `x.method(...)`
       if (parent && ts.isPropertyAccessExpression(parent) && parent.expression === node) {
         const method = parent.name.text;
-        if (DISCARDS.has(method)) discarded += 1;
+        if (ORDER_BLIND.has(method)) discarded += 1;
         else if (PRESERVES.has(method))
-          survives = survives ?? `\`.${method}()\` carries the order onward`;
-        else if (method === "length") discarded += 1;
+          survives = survives ?? `\`.${method}()\` lets the arrival order reach the result`;
         else unclassified += 1;
         ts.forEachChild(node, visit);
         return;
@@ -160,10 +181,15 @@ function classifyUses(name: string, scope: ts.Node, decl: ts.Node): { reach: Rea
       } else if (parent && ts.isPropertyAssignment(parent) && parent.initializer === node) {
         survives = survives ?? `assigned to \`${parent.name.getText()}\` on a returned object`;
       } else if (parent && ts.isCallExpression(parent)) {
+        // `Object.fromEntries(x)`, `new Map(x)`, `new Set(x)` are NOT discarding: a duplicate key
+        // means last-wins, and iteration order is insertion order. They are order-sensitive.
         const callee = parent.expression.getText();
         const last = callee.split(".").pop() ?? callee;
-        if (DISCARDS.has(last)) discarded += 1;
-        else unclassified += 1;
+        if (ORDER_BLIND.has(last)) discarded += 1;
+        else if (last === "fromEntries" || last === "Map" || last === "Set") {
+          survives =
+            survives ?? `passed to \`${last}\`, where duplicate keys make arrival order decide`;
+        } else unclassified += 1;
       } else if (parent && ts.isForOfStatement(parent) && parent.expression === node) {
         // Iteration order is the arrival order; whether it matters depends on the body, which is
         // beyond this bound. Counted as unclassified rather than assumed either way.
@@ -182,7 +208,7 @@ function classifyUses(name: string, scope: ts.Node, decl: ts.Node): { reach: Rea
   if (unclassified === 0 && discarded > 0) {
     return {
       reach: "ORDER_DISCARDED",
-      why: `every one of ${discarded} use(s) re-sorts, aggregates, or asks a set question`,
+      why: `every one of ${discarded} use(s) is order-blind — a boolean over the whole set, or a count`,
     };
   }
   return {

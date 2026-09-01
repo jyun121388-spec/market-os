@@ -820,11 +820,18 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2634 / 2634 PASS across 148 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2615 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2647 / 2647 PASS across 149 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2628 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `86f37ab` plus ESC-014
+MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `4b8f5b7` plus the ESC-014
+application committed on top of it. `[CHATGPT_DECISION][ESC-014]` chose Option B: the nine measured
+inbound kinds are now durably ingested and exactly one of them, `CHATGPT_DECISION`, may authorise
+anything. `INGESTED != AUTHORITATIVE != APPLIED` is structural — one kind model in
+`transport.ts`, one classifier `isAuthorityBearing`, a `kind` discriminator on every durable row.
+Thirteen controls, mutations 5/5 ISOLATED.
+
+Previously at `86f37ab` plus ESC-014
 committed on top of it. The escalation `CLAUDE.md` recorded as staged-and-unposted since 2026-08-23
 was never staged; it is now asked, posted through the lifecycle as comment 5498131832, and
 `controlBusStanding` reports it OPEN -- the last unexercised branch of the IR-114/115 chain, reached

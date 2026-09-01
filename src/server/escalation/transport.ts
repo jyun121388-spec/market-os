@@ -18,8 +18,71 @@
 
 import { screenPublicComment } from "./screen";
 
-/** The three message kinds the channel carries, and nothing else. */
-export type ProtocolKind = "ESCALATION" | "CHATGPT_DECISION" | "CLAUDE_APPLIED";
+/**
+ * THE ONE KIND MODEL. Three lists, and the split between them is the protocol.
+ *
+ * `[CHATGPT_DECISION][ESC-014]` (Option B) separates DELIVERY from AUTHORITY: the channel's nine
+ * measured inbound kinds are all ingested durably, and exactly one of them may authorise anything.
+ *
+ * The parser used to know three kinds. `scripts/channel-kinds.ts` measured fourteen on the live
+ * issue, so eleven were dropped — including `CHATGPT_VERIFIED`, the largest inbound kind and every
+ * review this session, which reached this repository only because a person read the issue by hand.
+ *
+ * The lists are the single source: the tag pattern is BUILT from them, so a kind cannot be
+ * recognised in one place and unknown in another.
+ */
+
+/** The only kind that may authorise an application. One entry, and widening it is a decision. */
+export const AUTHORITATIVE_KINDS = ["CHATGPT_DECISION"] as const;
+
+/**
+ * Durable, and never startable. Review evidence, directives, status.
+ *
+ * Ingesting these is not a promotion. A `CHATGPT_VERIFIED` saying APPROVED is a record that a
+ * review happened; it is not permission, and the decision that widened ingestion says so in as many
+ * words.
+ */
+export const ADVISORY_INBOUND_KINDS = [
+  "CHATGPT_VERIFIED",
+  "CHATGPT_ARCHITECT_GUIDANCE",
+  "CHATGPT_TASK",
+  "CHATGPT_GUIDANCE",
+  "CHATGPT_CORRECTION",
+  "CHATGPT_REVIEW_GUIDANCE",
+  "CHATGPT_REVIEW_POLICY",
+  "CHATGPT_TRANSPORT_STATUS",
+] as const;
+
+/** Written from here. They come back on every read and are never input. */
+export const OUTBOUND_KINDS = ["ESCALATION", "CLAUDE_APPLIED"] as const;
+
+export type AuthoritativeKind = (typeof AUTHORITATIVE_KINDS)[number];
+export type AdvisoryInboundKind = (typeof ADVISORY_INBOUND_KINDS)[number];
+export type OutboundKind = (typeof OUTBOUND_KINDS)[number];
+export type ProtocolKind = AuthoritativeKind | AdvisoryInboundKind | OutboundKind;
+
+export const ALL_PROTOCOL_KINDS: readonly ProtocolKind[] = [
+  ...AUTHORITATIVE_KINDS,
+  ...ADVISORY_INBOUND_KINDS,
+  ...OUTBOUND_KINDS,
+];
+
+/**
+ * THE authority classifier. Every execution-facing caller asks this and nothing else.
+ *
+ * A boolean function rather than a set membership test at four call sites, because four call sites
+ * is how a rule ends up enforced in three of them. It takes a `string` on purpose: an unknown kind
+ * arriving from durable state or a future tag must reach a definite `false` rather than a type
+ * error, which is what failing closed means here.
+ */
+export function isAuthorityBearing(kind: string): boolean {
+  return (AUTHORITATIVE_KINDS as readonly string[]).includes(kind);
+}
+
+/** Is this a kind the protocol recognises at all? Unknown is durable evidence, never a decision. */
+export function isKnownProtocolKind(kind: string): kind is ProtocolKind {
+  return (ALL_PROTOCOL_KINDS as readonly string[]).includes(kind);
+}
 
 export interface ProtocolMessage {
   kind: ProtocolKind;
@@ -77,8 +140,11 @@ export interface RemoteComment {
  * Ordinary prose after a valid tag is unaffected: the boundary asks for whitespace, and every real
  * message has some.
  */
-const TAG =
-  /^\[(ESCALATION|CHATGPT_DECISION|CLAUDE_APPLIED)\]\[([A-Z0-9][A-Z0-9-]{0,31})\](?:\[([A-Z0-9][A-Z0-9-]{0,31})\])?(?=\s|$)/;
+const TAG = new RegExp(
+  `^\\[(${ALL_PROTOCOL_KINDS.join("|")})\\]` +
+    "\\[([A-Z0-9][A-Z0-9-]{0,31})\\]" +
+    "(?:\\[([A-Z0-9][A-Z0-9-]{0,31})\\])?(?=\\s|$)",
+);
 
 /**
  * Reads a comment's protocol tag, or returns null.

@@ -22,8 +22,8 @@
  */
 
 import { createHash } from "node:crypto";
-import type { ProtocolMessage, RemoteComment } from "../escalation/transport";
-import { parseProtocolMessage } from "../escalation/transport";
+import type { ProtocolKind, ProtocolMessage, RemoteComment } from "../escalation/transport";
+import { isAuthorityBearing, OUTBOUND_KINDS, parseProtocolMessage } from "../escalation/transport";
 
 /** Where a received decision has got to. The watcher may only ever produce the first. */
 export type InboxStatus =
@@ -56,6 +56,13 @@ export type DecisionProvenance =
 
 export interface InboxEntry {
   protocolId: string;
+  /**
+   * WHICH KIND arrived. The discriminator that makes `INGESTED != AUTHORITATIVE` structural.
+   *
+   * Optional only for rows written before ESC-014 widened ingestion. `entryKind` explains why an
+   * absent value reads as `CHATGPT_DECISION` and why that is a fact rather than a guess.
+   */
+  kind?: ProtocolKind;
   githubCommentId: number;
   /** Supplied by the caller so this module stays pure and deterministic under test. */
   receivedAt: string;
@@ -239,17 +246,52 @@ export function ingestComments(
 
     const message: ProtocolMessage | null = parseProtocolMessage(comment);
     if (!message) {
-      // Ordinary prose on a human-readable thread. Recorded as processed so it is not re-parsed
-      // every cycle, but nothing else happens to it.
+      // Two very different things land here and only one of them is nothing.
+      //
+      // Ordinary prose on a human-readable thread is nothing: recorded as processed so it is not
+      // re-parsed every cycle, and otherwise ignored. But a comment that OPENS WITH A TAG this
+      // parser does not know is a protocol message the protocol has not caught up with, and
+      // ESC-014 is explicit that such a thing fails closed WITHOUT disappearing silently. It is
+      // not admitted, it can never be a decision, and it is reported.
+      const unsupported = /^\[([A-Z][A-Z_]*)\]/.exec(comment.body.trimStart());
+      if (unsupported) {
+        skipped.push({
+          commentId: comment.id,
+          reason:
+            `unsupported protocol kind ${unsupported[1]} — visible on the issue, ` +
+            "nothing admitted and nothing authorised",
+        });
+      }
       seenComments.add(comment.id);
       continue;
     }
 
-    if (message.kind !== "CHATGPT_DECISION") {
+    if ((OUTBOUND_KINDS as readonly string[]).includes(message.kind)) {
       // Our own escalations and acknowledgements come back on every read. Marking them processed
       // is what stops the watcher treating its own output as input.
       seenComments.add(comment.id);
       seenProtocols.add(`${message.kind}:${message.id}`);
+      continue;
+    }
+
+    // --- inbound, and every recognised inbound kind is now DURABLE --------------------------------
+    //
+    // Advisory kinds are admitted with their kind recorded and are not deduplicated by protocol id:
+    // a single exchange legitimately carries many `CHATGPT_VERIFIED` comments, one per rework
+    // round, and collapsing them to the first would discard the review history this channel is
+    // mostly made of. Only an authority-bearing kind may be admitted once per id.
+    if (!isAuthorityBearing(message.kind)) {
+      seenComments.add(comment.id);
+      admitted.push({
+        protocolId: message.id,
+        kind: message.kind,
+        githubCommentId: comment.id,
+        receivedAt,
+        author: message.author,
+        ...(message.project ? { project: message.project } : {}),
+        body: message.body,
+        status: "RECEIVED_UNVALIDATED",
+      });
       continue;
     }
 
@@ -268,6 +310,7 @@ export function ingestComments(
     seenProtocols.add(protocolKey);
     admitted.push({
       protocolId: message.id,
+      kind: message.kind,
       githubCommentId: comment.id,
       receivedAt,
       author: message.author,
@@ -325,8 +368,35 @@ export function resolveInboxEntry(
   };
 }
 
-/** Decisions the consumer has not judged yet. This is what turns into startable work. */
+/**
+ * The kind a durable row records, for rows written before the field existed.
+ *
+ * An absent `kind` reads as `CHATGPT_DECISION`, and that is not a default chosen for convenience:
+ * the ingestion that produced those rows admitted NOTHING ELSE — every other kind hit an early
+ * `continue`. So the value is recoverable from the code that wrote them, which is why widening
+ * ingestion does not retroactively rewrite what historical traffic meant.
+ *
+ * A row carrying an unrecognised kind reads as itself and therefore is not authority-bearing.
+ */
+export function entryKind(entry: InboxEntry): string {
+  return entry.kind ?? "CHATGPT_DECISION";
+}
+
+/**
+ * Rows the consumer has not judged yet AND that may authorise something. Startable work.
+ *
+ * The second half is the whole of ESC-014. Widening ingestion without it would have turned every
+ * review comment on the channel — 48 `CHATGPT_VERIFIED` at the time of the decision — into
+ * something the scheduler could pick up, which is precisely what the decision forbids.
+ */
 export function unprocessedDecisions(state: ControlBusState): InboxEntry[] {
+  return state.inbox.filter(
+    (entry) => entry.status === "RECEIVED_UNVALIDATED" && isAuthorityBearing(entryKind(entry)),
+  );
+}
+
+/** Everything durable and unjudged, authority-bearing or not. Evidence, not work. */
+export function unjudgedInbound(state: ControlBusState): InboxEntry[] {
   return state.inbox.filter((entry) => entry.status === "RECEIVED_UNVALIDATED");
 }
 

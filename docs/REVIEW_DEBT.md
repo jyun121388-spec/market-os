@@ -2141,3 +2141,55 @@ body still commits, so the refusal is not unconditional. `M-OUT-NO-SCREEN` is IS
 predicted, with the clean-body control staying green under it. Outbound mutations now 11/11.
 
 The fixture secrets are shaped to match the rules and are not real.
+
+## ESC-014 applied — nine kinds durable, one authoritative
+
+`[CHATGPT_DECISION][ESC-014]` (comment 5498131832 asked; the decision answered it) chose **Option
+B**: widen durable ingestion to the nine measured inbound kinds, leave application authority at
+`CHATGPT_DECISION` alone. This is the first decision this session that arrived through the one kind
+the protocol treats as authoritative, so it is applied as authority rather than on its merits.
+
+### One kind model, one classifier, one discriminator
+
+`transport.ts` now declares `AUTHORITATIVE_KINDS` (one entry), `ADVISORY_INBOUND_KINDS` (eight) and
+`OUTBOUND_KINDS` (two). The tag pattern is BUILT from those lists, so a kind cannot be recognised in
+one place and unknown in another — the parser regex previously hard-coded three names beside a type
+that also listed three, which is two sources for one fact.
+
+`isAuthorityBearing(kind)` is the single classifier every execution-facing caller asks. It takes a
+`string` deliberately: a kind arriving from durable state or a future tag must reach a definite
+`false` rather than a type error, which is what failing closed means here.
+
+`InboxEntry.kind` records what arrived. Without it, widening ingestion would have made every review
+comment on the channel — 48 `CHATGPT_VERIFIED` at the time of the decision — something
+`unprocessedDecisions()` could schedule, which is exactly what the decision forbids.
+
+### Two things that are not defaults
+
+`entryKind()` reads an absent `kind` as `CHATGPT_DECISION`. That is recoverable from the code that
+wrote those rows rather than chosen for convenience: the previous ingestion admitted nothing else —
+every other kind hit an early `continue`. So widening ingestion does not retroactively rewrite what
+historical traffic meant.
+
+Advisory kinds are NOT deduplicated by protocol id. One exchange legitimately carries many reviews,
+one per rework round, and collapsing them to the first would discard the history this channel is
+mostly made of. Only an authority-bearing kind is admitted once per id.
+
+### Unknown kinds fail closed and stay visible
+
+A comment opening with a tag the parser does not know is reported in `skipped` with its kind named.
+Failing closed is required; failing closed INVISIBLY is what the decision forbids, because a
+protocol that has not caught up should be legible. Ordinary prose still says nothing at all.
+
+### Evidence
+
+Thirteen controls holding body, author, project and id constant and varying ONLY the tag: all nine
+parse with exact identity; all nine ingest durably; exactly one is startable; `CHATGPT_VERIFIED`
+stays non-startable whether it says APPROVED or REWORK_REQUIRED; advisory kinds do not dedup;
+decisions still do; outbound is never admitted; an unknown kind is reported and never admitted;
+prose is silent; redelivery admits nothing twice.
+
+Mutations 5/5 ISOLATED. `M-KIND-VERIFIED-AUTHORITATIVE` and `M-KIND-ANY-CHATGPT` came in at 6 red
+against a prediction of 3 and 4 — promoting a kind also moves it onto the deduplicated path, so more
+controls see it. Corrected to what was measured. `M-KIND-DROP-ADVISORY` restores the pre-ESC-014
+behaviour and is caught, so the controls reject going backwards as firmly as going too far forward.

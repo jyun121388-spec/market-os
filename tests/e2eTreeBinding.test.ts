@@ -13,6 +13,25 @@ import { checkTreeBinding, compareStartToSource, formatBinding } from "../script
 
 const at = (iso: string) => new Date(iso);
 
+/**
+ * A listener that started just now — later than every source write in this checkout.
+ *
+ * Injected rather than discovered, because discovery is Windows-only and CI runs on Linux. That is
+ * how CI failed the first time: three controls asserted verdicts a Linux runner can never reach,
+ * since `Get-NetTCPConnection` has no equivalent there and every verdict collapses to UNPROVEN.
+ *
+ * Skipping them on Linux would have deleted the controls in the environment that gates merges.
+ * Injecting separates the two questions instead: DISCOVERY stays platform-specific and is not
+ * claimed to work where it does not, while the DECISION — start order, served identity, what
+ * counts as BOUND — is proven everywhere.
+ */
+const lateStart = () => ({
+  pid: process.pid,
+  exe: process.execPath,
+  commandLine: "synthetic listener for a decision-logic control",
+  started: new Date(),
+});
+
 describe("comparing server start time against the newest source write", () => {
   /**
    * The discriminating pair, reproduced by hand before this test existed: a stub listener on 3000
@@ -118,6 +137,11 @@ describe("what the report is allowed to imply", () => {
     expect(binding.limitations.length).toBeGreaterThanOrEqual(3);
     expect(binding.limitations.join(" ")).toContain("node_modules");
     expect(binding.limitations.join(" ")).toContain("recompiles");
+    // The platform limit has to be DECLARED, because it is the one that makes the check inert
+    // where merges are gated. Discovery is Windows-only; CI is Linux; every verdict there is
+    // UNPROVEN. Saying so in the report is the difference between a known gap and a silent one.
+    expect(binding.limitations.join(" ")).toContain("Windows-only");
+    expect(binding.limitations.join(" ")).toContain("gates nothing there today");
   });
 
   it("says outright that a non-BOUND run is not evidence about the tree", () => {
@@ -167,7 +191,7 @@ describe("a foreign server that starts after this tree's newest write", () => {
   );
 
   it("is refused rather than BOUND, because start order is not identity", async () => {
-    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, lateStart());
     expect(binding.verdict).not.toBe("BOUND");
     expect(binding.verdict).toBe("START_ORDER_COMPATIBLE");
     expect(binding.observed.listenerPid).toBeGreaterThan(0);
@@ -175,7 +199,7 @@ describe("a foreign server that starts after this tree's newest write", () => {
   });
 
   it("prints the not-evidence disclaimer for it", async () => {
-    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`);
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, lateStart());
     expect(formatBinding(binding)).toContain("NOT evidence about the current tree");
   });
 
@@ -224,14 +248,14 @@ describe("a listener that serves this checkout's build id", () => {
   );
 
   it("is BOUND, and says which build id proved it", async () => {
-    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, buildId);
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, lateStart(), buildId);
     expect(binding.verdict).toBe("BOUND");
     expect(binding.observed.servesLocalBuildId).toBe(true);
     expect(binding.reason).toContain(buildId);
   });
 
   it("drops the not-evidence disclaimer only in this state", async () => {
-    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, buildId);
+    const binding = await checkTreeBinding(`http://127.0.0.1:${port}`, lateStart(), buildId);
     expect(formatBinding(binding)).not.toContain("NOT evidence about the current tree");
   });
 

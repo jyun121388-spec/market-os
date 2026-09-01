@@ -229,6 +229,20 @@ async function servesLocalBuild(url: string, buildId: string | null): Promise<bo
 export async function checkTreeBinding(
   url: string,
   /**
+   * Override listener DISCOVERY, which is Windows-only.
+   *
+   * `Get-NetTCPConnection` has no portable equivalent here, so on any other platform the listener
+   * cannot be identified and every verdict is `UNPROVEN` — fail-closed, and correct, but it also
+   * means the DECISION logic would be untested on the Linux runner where CI executes. That is how
+   * CI failed: three controls asserted verdicts that Linux can never reach.
+   *
+   * Injecting the listener separates the two questions. Discovery stays platform-specific and is
+   * not claimed to work anywhere it does not; the decision — start order, served identity, what
+   * counts as BOUND — is proven on every platform. Nothing here fabricates a listener in normal
+   * use: the override is undefined and discovery runs.
+   */
+  listenerOverride?: { pid: number; exe: string | null; commandLine: string | null; started: Date },
+  /**
    * Override the local build id instead of reading `.next/BUILD_ID`.
    *
    * A seam for the reachability control, and it exists because of how CI failed. The control
@@ -252,7 +266,7 @@ export async function checkTreeBinding(
       localBuildId = null;
     }
   }
-  const proc = port === null ? null : listener(port);
+  const proc = listenerOverride ?? (port === null ? null : listener(port));
 
   const observed: TreeBinding["observed"] = {
     url,
@@ -271,6 +285,7 @@ export async function checkTreeBinding(
 
   const limitations = [
     "The command line cannot distinguish this checkout from its sibling worktree: both resolve `next` through the same shared node_modules.",
+    "Listener DISCOVERY is Windows-only. On any other platform no listener is identified and every verdict is UNPROVEN — fail-closed, and inert. CI runs on Linux, so this check gates nothing there today.",
     "A dev server recompiles on change, so starting before a source write does not always mean stale code — but it is never evidence of freshness either.",
     "The served build id ties the listener to this checkout's BUILD, not to its current SOURCE; a stale build still reads STALE only because the start-order comparison runs first.",
     "A dev server serves no build-id path, so dev tops out at START_ORDER_COMPATIBLE and the strict gate refuses it. Closing that needs the server to report its own commit, which needs a product endpoint SR-02's P2 severity does not justify under the V1 freeze.",

@@ -49,12 +49,29 @@ interface Site {
   why: string;
 }
 
+/**
+ * Built once. `ts.createProgram` over this repository takes seconds and CREATING THE CHECKER makes
+ * it slower still, so rebuilding per call turned three controls into 5s timeouts under suite load.
+ * The program is identical every time; only the injected schema varies.
+ */
+let cachedProgram: ts.Program | null = null;
+
 function loadProgram(): ts.Program {
+  if (cachedProgram) return cachedProgram;
   const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
   if (!configPath) throw new Error("tsconfig.json not found");
   const raw = ts.readConfigFile(configPath, ts.sys.readFile);
   const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath));
-  return ts.createProgram({ options: parsed.options, rootNames: parsed.fileNames });
+  const program = ts.createProgram({ options: parsed.options, rootNames: parsed.fileNames });
+  // BINDING IS WHAT SETS `node.parent`, and creating the checker is what binds. Without this line
+  // every parent pointer is undefined, `enclosingName` silently answers "<module scope>" for every
+  // site, and any analysis that walks upward reports the same empty answer everywhere. That
+  // uniformity is the tell: 34 of 34 sites returning one identical reason is a broken tool, not a
+  // finding. The recency audit had a `getTypeChecker()` call it never otherwise used, and this is
+  // what it was for.
+  program.getTypeChecker();
+  cachedProgram = program;
+  return program;
 }
 
 function prismaCall(node: ts.CallExpression): { model: string; method: string } | null {

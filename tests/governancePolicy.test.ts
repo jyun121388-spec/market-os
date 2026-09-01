@@ -471,6 +471,28 @@ describe("Governance — the whole Human Gate queue, replayed by gate id", () =>
   });
 
   /**
+   * HG-010 is outside the engine for a different reason than HG-009, and the difference matters.
+   *
+   * HG-009 asks a human to pick between two security tradeoffs — there is no rule to encode.
+   * HG-010 asks two questions the engine has no standing to answer at all: whether a reproduced
+   * misclassification counts as P1 under the V1 freeze, and whether deleting four legitimate
+   * Korean definition requests is an acceptable price for removing one wrong operation.
+   *
+   * The first is a SEVERITY GRADE, and severity is what decides whether the freeze admits a
+   * change. An engine that graded its own findings would be choosing its own permissions. The
+   * second is a product judgement about recall. Neither is a governed action kind, and inventing
+   * one would produce an answer with nothing behind it.
+   */
+  it("HG-010 IR-110 severity and recall tradeoff — outside what the engine may decide", () => {
+    // Nothing in the governed vocabulary grades a finding or trades recall.
+    const grading = GOVERNED_ACTIONS.filter((kind) => /SEVERITY|GRADE|RECALL|TRADEOFF/.test(kind));
+    expect(grading).toEqual([]);
+    // The nearest representable action is changing frozen V1 product code, which is correctly a
+    // gate — but it gates MAKING the change, not deciding whether the freeze admits it.
+    expect(evaluateAction({ kind: "CREDENTIAL_CHANGE" }).decision).toBe("DEFERRED_HUMAN_GATE");
+  });
+
+  /**
    * The coverage check that keeps this honest. Every gate id in the queue document must appear in
    * this file, so a gate added later cannot sit unreplayed while the suite reports green.
    */

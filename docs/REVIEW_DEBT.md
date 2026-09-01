@@ -303,6 +303,48 @@ refuse `현재가` ("current price"), an ordinary term.
 
 Fixing it is a bounded unit of its own against `koreanCopularMatch`, not a widening of this one.
 
+ADJUDICATED 2026-09-01, zero-cost read-only architecture pass, VERDICT **NO_CHANGE** with a Human
+Gate. Recorded here because the pass closed a question rather than deferring it again.
+
+**FORM ALONE CANNOT DECIDE IT.** The morphology exposes the outer nominative/topic marker and
+finality-conditioned particle attachment, and deliberately treats the remaining host as an opaque
+open-class stem. `오늘주가`, `현재가` and `종합주가` are externally identical: stem length, syllable
+decomposition, final consonant and particle attachment encode nothing about "temporal modifier
+versus lexical compound". So the third option — a morphology heuristic — is not merely unavailable,
+it would convert spelling convention into authorization policy, which is worse than the defect.
+
+**THE ONLY AVAILABLE REPAIR IS A DELIBERATE RECALL LOSS**, and it is now measured rather than
+estimated. Restricting the WHAT branch to DEFINIENDUM analyses would stop recognising every request
+whose only licence is nominative-plus-WHAT — `scripts/ir110-recall-cost.ts`, run against the real
+corpus and the real parser:
+
+    Korean corpus rows                                          249
+    currently AUTHORIZED / DEFINITION                            16
+      carrying positive evidence (뜻 / 의미 / 정의 / (이)란)      12
+      BARE, licensed only by nominative + WHAT copula             4
+
+    DEV-KO-121  기준금리가 뭐야?
+    DEV-KO-129  스태그플레이션이 뭔지 설명해줘
+    DEV-KO-139  물가연동국채가 뭔지 궁금해요
+    DEV-KO-145  헤지펀드가 무엇인지 알려주십시오
+
+Four legitimate definition requests, in the most natural Korean phrasing, deleted to remove one
+misclassification. The architecture pass cited two; measuring it against the corpus gives four, and
+the measured number is the one that goes to the gate.
+
+**SEVERITY, and why it is now a gate rather than a P2.** The pass grades it operationally P1: the
+parser positively authorizes the WRONG operation for a request whose intended operation is
+supported. It does NOT fabricate a price — DEFINITION fails closed at retrieval because no glossary
+store exists — so the user sees an unsupported-definition response rather than a wrong number. The
+V1 freeze admits reproduced P0/P1 only, so whether this counts is a release-authority call, not an
+autonomous one, and it is paired with a second question the same authority must answer: is losing
+bare-copular Korean definition recall acceptable. Raised as **HG-010**.
+
+Controls that must not move if it is ever repaired, verified as currently holding:
+`현재가가 뭐야?` and `종합주가가 뭐야?` still parse; `오늘 주가가 뭐야?` stays refused by two-eojeol
+cardinality; `기준금리는 얼마인가요?` stays CURRENT_OBSERVATION. No temporal-prefix list and no term
+inventory may enter the morphology or the grammar.
+
 ## IR-028 — Ask Market name matching (raised 2026-08-18, deferred by the freeze)
 
 `Apple revenue`, `Apple net income` and `What did Apple report?` all return `NOT_FOUND` against a

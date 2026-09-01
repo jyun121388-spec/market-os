@@ -496,6 +496,46 @@ integrated. Activating real payments is a Human Gate.
 
 ---
 
+## HG-010 — IR-110: is a misclassified Korean request a reproduced P1, and is the only fix's recall loss acceptable?
+
+**Status**: `HUMAN_GATE` · raised 2026-09-01 · severity of the underlying defect is itself part of
+the question · blocks only IR-110
+
+TWO QUESTIONS FOR THE RELEASE AUTHORITY, and they have to be answered together because either
+answer alone decides nothing.
+
+**1. Does IR-110 count as a reproduced P1 under the V1 freeze?** `오늘주가가 뭐야?` — "what is
+today's share price" — is authorized as a DEFINITION with subject `오늘주가`. The parser positively
+authorizes the WRONG operation for a request whose intended operation is supported, which a
+read-only architecture pass graded operationally P1 rather than P2. It does NOT fabricate a price:
+DEFINITION fails closed at retrieval because no glossary store exists, so the reader gets an
+unsupported-definition response. The freeze admits reproduced P0/P1 only, and grading this is a
+release call rather than an autonomous one.
+
+**2. Is the only available repair's recall loss acceptable?** Form alone cannot separate `오늘주가`
+from `현재가` or `종합주가` — the morphology treats the host as an opaque open-class stem, and a
+temporal-prefix list is refused by name in the code because 현재/최근/지금/오늘/현시점 has no end.
+A term inventory would let repository contents decide sentence structure, which the architecture
+forbids. What remains is narrowing the bare-copular DEFINITION to require positive definitional
+evidence, and that deletes four legitimate corpus requests, MEASURED rather than estimated
+(`scripts/ir110-recall-cost.ts`):
+
+    DEV-KO-121  기준금리가 뭐야?
+    DEV-KO-129  스태그플레이션이 뭔지 설명해줘
+    DEV-KO-139  물가연동국채가 뭔지 궁금해요
+    DEV-KO-145  헤지펀드가 무엇인지 알려주십시오
+
+Four real definition requests in the most natural Korean phrasing, removed to fix one
+misclassification. 16 of 249 Korean corpus rows currently parse as DEFINITION; 12 carry positive
+evidence and survive, 4 do not.
+
+**Recommended default if no decision is made**: leave it. That is the architecture pass's verdict
+(NO_CHANGE) and it is what is in force. Nothing is blocked but IR-110 itself.
+
+**What would change the answer**: a Korean compound-constituency analyser with defined reliability
+and fail-closed behaviour, or a governed glossary with an explicitly approved role in parsing.
+Neither exists, and inventing either to close a P2-or-P1 is not proportionate.
+
 ## Not gates
 
 Recorded so they are not mistaken for blockers: choice of test strategy, file layout, naming,

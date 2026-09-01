@@ -3,6 +3,7 @@ import {
   classify,
   countCallsDespiteFailure,
   evidenceSufficient,
+  inconclusiveVerdict,
   withDerivableCadence,
 } from "../scripts/legacy-bypass-readiness";
 import { REQUEST_DEVELOPMENT_CORPUS } from "./fixtures/requestDevelopmentCorpus";
@@ -336,5 +337,47 @@ describe("a cadence needs two distinct dates, not two rows", () => {
   it("does not count a single reading, revised or not", () => {
     expect(withDerivableCadence([{ name: "CPI", dates: [t0] }])).toEqual([]);
     expect(withDerivableCadence([{ name: "CPI", dates: [] }])).toEqual([]);
+  });
+});
+
+/**
+ * IR-111. The verdict line used to end "Seed fixtures for those rows and re-run", unconditionally,
+ * and for at least one row that instruction is FALSE rather than merely unfollowed.
+ *
+ * DEV-EN-215, "What is the mechanism for the policy rate?", names ONE subject. `evidenceSufficient`
+ * backs a mechanism row only on an edge whose BOTH endpoints the request names, and no edge has one
+ * endpoint — so no fixture reaches it. The row is structurally unmeasurable, not unmeasured, and
+ * the old wording sent a reader after nothing.
+ *
+ * The message is exported and asserted rather than left as prose, because a report's honesty is
+ * exactly the kind of thing that silently regresses: the next person tidying the output has no way
+ * to know which half of that sentence was load-bearing.
+ */
+describe("what the INCONCLUSIVE verdict is allowed to instruct", () => {
+  const verdict = inconclusiveVerdict(2);
+
+  it("still says the safety count is a lower bound rather than a clean bill", () => {
+    expect(verdict).toContain("lower bound");
+    expect(verdict).toContain("not a clean bill");
+    expect(verdict).toContain("2 bypass row(s)");
+  });
+
+  it("no longer tells the reader to seed the inconclusive rows", () => {
+    // The exact false imperative, and the shape of it. Both are checked: a reworded version of the
+    // same instruction would be the same defect.
+    expect(verdict).not.toContain("Seed fixtures for those rows and re-run");
+    expect(verdict).not.toMatch(/seed fixtures for those rows/i);
+  });
+
+  it("says outright that some rows are structurally unmeasurable", () => {
+    expect(verdict).toContain("structurally unmeasurable");
+    expect(verdict).toContain("no fixture will ever move them");
+  });
+
+  it("admits the script cannot yet tell the two apart, and cites the finding", () => {
+    // Without this the message would imply a distinction the code does not make, which is the same
+    // class of overclaim as the instruction it replaced.
+    expect(verdict).toContain("does not yet distinguish");
+    expect(verdict).toContain("IR-111");
   });
 });

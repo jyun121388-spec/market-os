@@ -207,6 +207,26 @@ units — the frame list is open-class vocabulary and must not simply be enumera
 
 ## IR-111 — the LEGACY_BYPASS readiness verdict cannot reach CONCLUSIVE (measured 2026-08-31)
 
+PARTIALLY ADDRESSED 2026-09-01, output only. The verdict no longer ends "Seed fixtures for those
+rows and re-run". That imperative was FALSE for DEV-EN-215 rather than merely unfollowed, and a
+false instruction sends a reader after nothing. `inconclusiveVerdict()` is exported and asserted in
+`tests/legacyBypassClassification.test.ts`, so the honesty of the message is a test rather than
+prose somebody may tidy away.
+
+The CLASSIFICATION is unchanged and deliberately so. A read-only architecture pass returned REFRAME
+with the smallest safe repair being output-only, and named the reason: separating "unmeasured" from
+"unmeasurable" needs a NON-AUTHORIZING arity diagnostic from the request grammar, because a refused
+parse carries no authorized subject by contract. Adding one now risks an accidental second
+authority grammar, so it is its own scoped change with grammar-level tests.
+
+Recorded so it is not re-derived: the obvious discriminator does not work. Asking the SHELF how
+many stored names a query mentions cannot separate "unmeasurable in principle" from "not seeded
+yet", because no-stored-name-occurs IS the unseeded state.
+
+DEV-EN-214 remains out of scope and behind a Human Gate: seeding it means storing a real causal
+claim with `mechanism`, `evidence` and a `counterexample`, which `docs/DATA_POLICY.md` governs, and
+it would alter the live shelf that whole-corpus transition matrices are measured against.
+
 `scripts/legacy-bypass-readiness.ts` ends every run with the same instruction: "Seed fixtures for
 those rows and re-run." For one of the two remaining rows that instruction cannot be followed, and
 the verdict is therefore permanently INCONCLUSIVE under the approved rule rather than one fixture

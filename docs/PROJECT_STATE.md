@@ -820,15 +820,15 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2487 / 2487 PASS across 140 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2468 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2491 / 2491 PASS across 140 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2472 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `881afea` plus the SR-02
-tree-binding unit committed on top of it, from one fresh run on that tree. One new file,
-`tests/e2eTreeBinding.test.ts`, with 9 controls over the E2E freshness binding — the STALE
-discriminating pair among them, reproduced by hand against a live listener before it was written
-as a test. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `8f78079` plus the IR-111
+verdict-honesty unit committed on top of it, from one fresh run on that tree. No new file: four
+controls were added to `tests/legacyBypassClassification.test.ts` pinning what the INCONCLUSIVE
+verdict is allowed to instruct, after it was found telling readers to seed a row no fixture can
+reach. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

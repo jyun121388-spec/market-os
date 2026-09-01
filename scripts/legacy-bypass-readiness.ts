@@ -388,6 +388,42 @@ export function evidenceSufficient(
   }
 }
 
+/**
+ * The INCONCLUSIVE verdict text, exported so the claim it makes is testable.
+ *
+ * IR-111: this used to end "Seed fixtures for those rows and re-run", unconditionally, and for at
+ * least one row that instruction is FALSE rather than merely unfollowed.
+ *
+ * `PROBE_INCONCLUSIVE` folds together two different facts. One is an evidence-starved run that
+ * seeding would make measurable. The other is a request that cannot name the evidence shape
+ * measurement requires: DEV-EN-215, "What is the mechanism for the policy rate?", names ONE
+ * subject, and `evidenceSufficient` backs a mechanism row only on an edge whose BOTH endpoints the
+ * request names. No edge has one endpoint. No fixture reaches it — the row is structurally
+ * unmeasurable, not unmeasured, and telling a reader to seed it sends them after nothing.
+ *
+ * THE OBVIOUS DISCRIMINATOR DOES NOT WORK, recorded so nobody re-derives it. Asking the SHELF how
+ * many stored names the query mentions cannot separate "unmeasurable in principle" from "not
+ * seeded yet", because no-stored-name-occurs IS the unseeded state. Separating them soundly needs
+ * a non-authorizing arity diagnostic from the request grammar — a refused parse carries no
+ * authorized subject by contract — and that is its own scoped change with its own grammar-level
+ * tests, not a line in a report.
+ *
+ * So the message stops asserting what the script cannot know. It still says the count is a lower
+ * bound; it no longer says how to clear it.
+ */
+export function inconclusiveVerdict(count: number): string {
+  return (
+    `VERDICT: INCONCLUSIVE — ${count} bypass row(s) proved nothing. The safety count above is a ` +
+    `lower bound, not a clean bill.
+
+` +
+    `Do NOT read that as a fixture queue. Some of those rows are unmeasured and seeding would ` +
+    `clear them; others are structurally unmeasurable, because the request cannot name the ` +
+    `evidence shape this check requires, and no fixture will ever move them. This script does not ` +
+    `yet distinguish the two (IR-111), so inspect a row before seeding for it.`
+  );
+}
+
 async function probeDoor(
   query: string,
   expectedOperation: string,
@@ -495,11 +531,8 @@ async function main() {
       `${bypasses.filter((r) => r.klass === "TRUE_RECOGNITION_GAP").length}`,
   );
   if (inconclusive.length > 0) {
-    console.log(
-      `
-VERDICT: INCONCLUSIVE — ${inconclusive.length} bypass row(s) proved nothing. The safety ` +
-        `count above is a lower bound, not a clean bill. Seed fixtures for those rows and re-run.`,
-    );
+    console.log(`
+${inconclusiveVerdict(inconclusive.length)}`);
   } else {
     console.log(`
 VERDICT: every bypass row was measured against real candidate evidence.`);

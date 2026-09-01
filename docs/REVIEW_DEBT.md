@@ -1986,3 +1986,36 @@ Not done: nothing was posted through this path yet. The live outbox is still emp
 backlog entries remain `NOT_ACTIONABLE (STANDING_UNVERIFIABLE / STALE_REFRESH_REQUIRED)`. The
 difference is that an empty outbox now means nothing has been transmitted, rather than that nothing
 could be.
+
+### IR-115 reached, not merely reachable — the lifecycle has now run
+
+The producer landed with test callers only, which is the same shape one level out: a producer
+nothing invokes leaves `OPEN` exactly as unreachable as no producer at all. `scripts/gh-transport.ts`
+and `scripts/post-outbound.ts` close it, and a control asserts the lifecycle has a production caller
+so the gap cannot silently reopen.
+
+**The one design decision.** `readBack` derives the repository and issue number FROM THE API
+RESPONSE, never from the arguments the transport was constructed with. Echoing them would make every
+binding clause in `isTransmitted` vacuous — the proof would say "this came from the repository we
+asked about" because we told it so. `M-GH-ECHO-COORDINATES` exists for exactly that.
+
+`find` matches by DIGEST, not by protocol tag: this channel carries many comments per id, one per
+rework round, so tag matching would adopt the wrong comment and record a proof describing a body
+that was never sent. It paginates, and it throws rather than answering `null` when it cannot tell —
+a false negative there posts a duplicate.
+
+**Measured, not assumed: GitHub round-trips a comment body byte for byte.** 8135 bytes in, 8135
+out, identical digests, no CRLF translation, no trimmed tail. The whole binding rests on it, and the
+unit tests could not have caught it being false because their transport echoes what it was given.
+
+**It ran.** Against the live issue, `post-outbound.ts` found comment `5497449824` — the report
+posted by hand earlier this session — matched it by digest, and ADOPTED it rather than posting
+again. The durable outbox has its first real entry, `isTransmitted` accepts it, and the judged count
+in the triage's authority moved 8 to 9. That is the difference between reachable and reached.
+
+Nothing was posted: adoption sends nothing. Five mutations, 5/5 ISOLATED, every cardinality as
+predicted (2, 1, 3, 2, 1).
+
+One control caught a bug in its own scan: `endsWith("outbound.ts")` excluded `post-outbound.ts`, the
+very caller it was looking for, so it reported the gap still open. The suffix now names the whole
+path.

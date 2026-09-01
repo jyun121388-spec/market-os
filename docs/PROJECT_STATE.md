@@ -820,11 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2610 / 2610 PASS across 146 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2591 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2620 / 2620 PASS across 147 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2601 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `cbe01b9` plus the IR-115
+MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `71dea50` plus the live
+transport committed on top of it. `scripts/gh-transport.ts` and `scripts/post-outbound.ts` drive the
+lifecycle from production, and it has now RUN against the live issue: the transport found the
+comment posted by hand earlier, adopted it rather than duplicating it, and wrote the first real
+transmission proof. The durable outbox is no longer empty and the judged count moved 8 to 9.
+
+Previously at `cbe01b9` plus the IR-115
 repair committed on top of it. `src/server/controlbus/outbound.ts` is the producer that was missing:
 compose, adopt-or-post, READ BACK, verify the binding, then commit the log and the state in that
 order. `isTransmitted` in `state.ts` is now the one predicate `health()` and the triage both use,

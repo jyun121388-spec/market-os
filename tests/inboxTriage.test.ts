@@ -491,10 +491,7 @@ describe("IR-115: exactly one producer of transmission evidence", () => {
 
   it("has one caller of the append-only outbox log, and it is the committer", () => {
     const callers = productionSources()
-      .filter(
-        ({ file, text }) =>
-          !file.endsWith("store.ts") && text.includes("appendOutboxLog("),
-      )
+      .filter(({ file, text }) => !file.endsWith("store.ts") && text.includes("appendOutboxLog("))
       .map((c) => c.file);
     expect(
       callers,
@@ -520,6 +517,24 @@ describe("IR-115: exactly one producer of transmission evidence", () => {
       .filter(({ text }) => text.includes("transmittedCommentId"))
       .map((l) => l.file);
     expect(leftovers).toEqual([]);
+  });
+
+  it("has a production caller for the lifecycle, not only tests", () => {
+    // The reachability question, asked one level further out than last time. A producer nothing
+    // invokes leaves OPEN exactly as unreachable as no producer at all — the same shape, moved.
+    const callers = productionSources()
+      .filter(
+        ({ file, text }) =>
+          // `endsWith("outbound.ts")` also excluded `post-outbound.ts`, which is the very caller
+          // this is looking for. The suffix has to name the whole path.
+          file !== "src/server/controlbus/outbound.ts" && text.includes("transmitAndCommit("),
+      )
+      .map((c) => c.file);
+    expect(
+      callers,
+      "the outbound lifecycle must be driven from production. If this is empty, OPEN is once again " +
+        "reachable only from a test fixture.",
+    ).toEqual(["scripts/post-outbound.ts"]);
   });
 
   it("no longer reports an empty outbox as unrecordable silence", () => {

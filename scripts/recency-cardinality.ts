@@ -13,8 +13,12 @@
  *     database happened to return ARE NOT CARDINALITY PROOF. They are the thing being audited.
  *
  * The only accepted proof is a uniqueness constraint the `where` predicate pins by literal
- * EQUALITY on every one of its fields. Then at most one row can match, whatever the ordering, and
- * the missing `orderBy` decides nothing.
+ * EQUALITY on every one of its fields, AND which actually applies to every candidate. A TOTAL
+ * index applies unconditionally. A PARTIAL index applies only where its predicate holds, so it
+ * proves nothing alone — it counts only as part of a set whose predicates PARTITION the domain
+ * (`IS NULL` together with `IS NOT NULL` on one column) with every branch fully pinned. See
+ * `proveSingleRow`; an earlier version decided on field presence and merely warned about the
+ * predicate in prose, which review correctly called unsound.
  *
  * There are TWO authorities on uniqueness, and the second was learned the hard way. `schema.prisma`
  * gives `@id`, `@unique`, `@@id`, `@@unique`. MIGRATION DDL gives `CREATE UNIQUE INDEX`, including
@@ -44,7 +48,7 @@ import * as ts from "typescript";
 
 type Verdict = "CARDINALITY_ONE_PROVEN" | "MULTI_CANDIDATE" | "UNPROVEN_FAIL_CLOSED";
 
-interface UniqueKey {
+export interface UniqueKey {
   kind: "@id" | "@unique" | "@@id" | "@@unique" | "MIGRATION_UNIQUE_INDEX";
   fields: string[];
   /** For a PARTIAL index, the SQL predicate it only holds under. */
@@ -161,12 +165,12 @@ interface Relation {
   fk: string[];
 }
 
-interface Schema {
+export interface Schema {
   uniqueKeys: Map<string, UniqueKey[]>;
   relations: Map<string, Relation[]>;
 }
 
-function parseSchema(): Schema {
+export function parseSchema(): Schema {
   const text = ts.sys.readFile("prisma/schema.prisma");
   if (text === undefined) throw new Error("prisma/schema.prisma not readable");
   const uniqueKeys = new Map<string, UniqueKey[]>();
@@ -317,7 +321,7 @@ function equalityFields(
   return { fields, opaque, via };
 }
 
-interface Row {
+export interface Row {
   file: string;
   line: number;
   enclosing: string;
@@ -329,12 +333,23 @@ interface Row {
   citation: string;
 }
 
+/**
+ * The TypeScript program, built once.
+ *
+ * `ts.createProgram` over this repository takes seconds, and the controls call `auditCardinality`
+ * three times with different schemas. Rebuilding it each time made those tests pass alone and time
+ * out under full-suite load — the program is identical every call, only the schema varies.
+ */
+let cachedProgram: ts.Program | null = null;
+
 function loadProgram(): ts.Program {
+  if (cachedProgram) return cachedProgram;
   const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
   if (!configPath) throw new Error("tsconfig.json not found");
   const raw = ts.readConfigFile(configPath, ts.sys.readFile);
   const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath));
-  return ts.createProgram({ options: parsed.options, rootNames: parsed.fileNames });
+  cachedProgram = ts.createProgram({ options: parsed.options, rootNames: parsed.fileNames });
+  return cachedProgram;
 }
 
 function prismaCall(node: ts.CallExpression): { model: string; method: string } | null {
@@ -393,8 +408,74 @@ function selectsOneRow(
   return false;
 }
 
-export function auditCardinality(): Row[] {
-  const schema = parseSchema();
+/**
+ * Does a UNIQUENESS AUTHORITY actually prove at most one row, given what the query pins?
+ *
+ * The first version of this decided on field presence alone —
+ * `keys.find((k) => k.fields.every((f) => fields.has(f)))` — and, when the winner was a PARTIAL
+ * index, appended prose saying it "holds only WHERE …". Review was right that this is unsound: a
+ * warning in a citation is not a proof. A partial index constrains only the rows satisfying its
+ * predicate, so pinning its columns says nothing about a candidate that falls outside it.
+ *
+ * Two things now count, and nothing else does.
+ *
+ * TOTAL INDEX. A non-partial key whose every field is pinned. At most one row, unconditionally.
+ *
+ * UNION OF PARTITIONS. Partial indexes whose predicates PARTITION the domain of one field —
+ * `IS NULL` and `IS NOT NULL` on the same column — where EVERY branch has an index with all its
+ * fields pinned. Then whichever branch a candidate falls into, some index makes it unique, so the
+ * whole domain is covered. That is the real shape in this repository: the identity of a financial
+ * fact cannot be one Prisma `@@unique` because `periodStart` is null for instant concepts, so it is
+ * enforced as two complementary partial indexes.
+ *
+ * Everything else returns null and the caller fails closed. In particular a LONE partial index
+ * never proves anything here: proving the query implies its predicate would need the runtime value,
+ * and `periodStart: fact.periodStart` is exactly the case where that value is unknown statically.
+ * Only `IS NULL` / `IS NOT NULL` partitions are implemented; any other predicate is not understood
+ * and therefore not accepted.
+ */
+function proveSingleRow(keys: UniqueKey[], pinned: Set<string>): string | null {
+  const covers = (k: UniqueKey) => k.fields.every((f) => pinned.has(f));
+
+  const total = keys.find((k) => !k.partial && covers(k));
+  if (total) {
+    return `${total.kind}${total.name ? ` ${total.name}` : ""}(${total.fields.join(", ")}) fully pinned by equality`;
+  }
+
+  // Group the partial indexes by the column their predicate tests.
+  const nullPredicate = /^WHERE\s+"?(\w+)"?\s+IS\s+(NOT\s+)?NULL\s*$/i;
+  const byColumn = new Map<string, { isNull?: UniqueKey; isNotNull?: UniqueKey }>();
+  for (const k of keys) {
+    if (!k.partial) continue;
+    const m = nullPredicate.exec(k.partial);
+    if (!m) continue; // a predicate this cannot read proves nothing
+    const [, column, not] = m;
+    const slot = byColumn.get(column) ?? {};
+    if (not) slot.isNotNull = slot.isNotNull ?? k;
+    else slot.isNull = slot.isNull ?? k;
+    byColumn.set(column, slot);
+  }
+
+  for (const [column, slot] of byColumn) {
+    const { isNull, isNotNull } = slot;
+    if (!isNull || !isNotNull) continue; // half a partition covers half the domain
+    if (!covers(isNull) || !covers(isNotNull)) continue;
+    return (
+      `UNION OF PARTIAL INDEXES over \`${column}\`, both fully pinned: ` +
+      `${isNotNull.name}(${isNotNull.fields.join(", ")}) WHERE NOT NULL and ` +
+      `${isNull.name}(${isNull.fields.join(", ")}) WHERE NULL — the two predicates partition the ` +
+      `domain, so every candidate falls under one of them`
+    );
+  }
+
+  return null;
+}
+
+export function auditCardinality(injected?: Schema): Row[] {
+  // The schema is injectable so a control can WEAKEN an authority and watch the verdict move.
+  // Without a seam the only way to test that is to edit `prisma/schema.prisma`, which would be
+  // editing the thing under test, and the review was explicit that self-proof does not count.
+  const schema = injected ?? parseSchema();
   const uniqueKeys = schema.uniqueKeys;
   const program = loadProgram();
   const rows: Row[] = [];
@@ -426,15 +507,10 @@ export function auditCardinality(): Row[] {
             } else {
               const { fields, opaque, via } = equalityFields(where, pc.model, schema);
               pinned = [...fields].sort();
-              const satisfied = keys.find((k) => k.fields.every((f) => fields.has(f)));
-              if (satisfied) {
+              const proof = proveSingleRow(keys, fields);
+              if (proof) {
                 verdict = "CARDINALITY_ONE_PROVEN";
-                citation =
-                  `${satisfied.kind}${satisfied.name ? ` ${satisfied.name}` : ""}(${satisfied.fields.join(", ")}) fully pinned` +
-                  (via.length > 0 ? `, via ${via.join("; ")}` : " by equality") +
-                  (satisfied.partial
-                    ? ` -- PARTIAL: holds only ${satisfied.partial}, so single-row is proven only for rows satisfying that predicate`
-                    : "");
+                citation = proof + (via.length > 0 ? `, via ${via.join("; ")}` : "");
               } else if (opaque) {
                 verdict = "UNPROVEN_FAIL_CLOSED";
                 citation = opaque;

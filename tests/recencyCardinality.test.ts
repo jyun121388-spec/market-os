@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditCardinality } from "../scripts/recency-cardinality";
+import { auditCardinality, parseSchema, type Schema } from "../scripts/recency-cardinality";
 import { prisma } from "@/server/db/client";
 
 /**
@@ -14,10 +14,27 @@ import { prisma } from "@/server/db/client";
  */
 
 const rows = auditCardinality();
-const at = (file: string, line: number) => {
-  const row = rows.find((r) => r.file === file && r.line === line);
+const rowAt = (set: typeof rows, file: string, line: number) => {
+  const row = set.find((r) => r.file === file && r.line === line);
   if (!row) throw new Error(`no audited site at ${file}:${line} — the audit's scope moved`);
   return row;
+};
+const at = (file: string, line: number) => rowAt(rows, file, line);
+
+/**
+ * A deep-enough copy of the real schema with one authority removed.
+ *
+ * Copied rather than mutated in place, because `parseSchema()` reads the real files and every
+ * other test in this file shares the unweakened result.
+ */
+const weakenSchema = (mutate: (s: Schema) => void): Schema => {
+  const base = parseSchema();
+  const copy: Schema = {
+    uniqueKeys: new Map([...base.uniqueKeys].map(([k, v]) => [k, v.map((x) => ({ ...x }))])),
+    relations: new Map([...base.relations].map(([k, v]) => [k, v.map((x) => ({ ...x }))])),
+  };
+  mutate(copy);
+  return copy;
 };
 
 describe("what counts as proof that only one row can match", () => {
@@ -100,25 +117,110 @@ describe("what counts as proof that only one row can match", () => {
   });
 
   /**
-   * The control that caught this audit being WRONG, kept as a regression.
+   * The partial-index proof, and why field presence was not enough.
    *
-   * `edgar-xbrl/ingest.ts:61` was first reported MULTI_CANDIDATE, because the audit read only
-   * `schema.prisma` and `FinancialFact` declares no `@@unique`. The real database refused the
-   * duplicate. The identity of a fact includes `periodStart`, which is NULL for instant concepts,
-   * and Postgres treats NULL as distinct from NULL in a unique index — so it CANNOT be a Prisma
-   * `@@unique` and is enforced by two partial indexes in migration DDL instead.
+   * Review found the classifier unsound: it chose an authority with
+   * `keys.find((k) => k.fields.every((f) => fields.has(f)))` and, when the winner was PARTIAL,
+   * appended prose saying it "holds only WHERE …". A warning is not a proof. A partial index
+   * constrains only the rows its predicate selects, so pinning its columns says nothing about a
+   * candidate outside it — and `periodStart: fact.periodStart` is exactly a value this cannot
+   * evaluate statically.
    *
-   * So the citation must name the LIVE partial index and its predicate. Naming the old
-   * `..._periodEnd_ac_key` would be a dead citation: the same migration drops it, by shape, in a
-   * DO block. A proof nobody can look up is not a proof.
+   * What makes this site sound is that the two partial indexes PARTITION the domain: every
+   * candidate has `periodStart` either null or not null, and each branch has an index with all its
+   * fields pinned. The citation has to show the union, because showing one index would be the
+   * unsound inference again.
    */
-  it("reads migration DDL as a second uniqueness authority, and cites the live index", () => {
+  it("proves a partial-index site only as a union that partitions the domain", () => {
     const row = at("adapters/edgar-xbrl/ingest.ts", 61);
     expect(row.verdict).toBe("CARDINALITY_ONE_PROVEN");
+    expect(row.citation).toContain("UNION OF PARTIAL INDEXES");
     expect(row.citation).toContain("financial_facts_duration_identity_unique");
-    expect(row.citation).toContain("PARTIAL");
-    expect(row.citation).toContain("IS NOT NULL");
+    expect(row.citation).toContain("financial_facts_instant_identity_unique");
     // The dropped constraint must never be cited as live authority.
+    expect(row.citation).not.toContain("periodEnd_ac_key");
+  });
+
+  /**
+   * Half a partition covers half the domain.
+   *
+   * The fixture keeps ONE of the two complementary indexes — the duration one, `WHERE periodStart
+   * IS NOT NULL` — and nothing else changes. The query still pins every one of its columns, so the
+   * old field-presence rule would still promote it. It must not: an instant fact has a null
+   * `periodStart`, falls outside the index, and is unconstrained.
+   */
+  it("refuses a lone partial index even when the query pins all of its columns", () => {
+    const weakened = weakenSchema((s) => {
+      const keys = s.uniqueKeys.get("financialFact") ?? [];
+      s.uniqueKeys.set(
+        "financialFact",
+        keys.filter((k) => k.name !== "financial_facts_instant_identity_unique"),
+      );
+    });
+    const row = rowAt(auditCardinality(weakened), "adapters/edgar-xbrl/ingest.ts", 61);
+    expect(row.verdict).not.toBe("CARDINALITY_ONE_PROVEN");
+    expect(row.citation).not.toContain("UNION OF PARTIAL INDEXES");
+  });
+
+  /**
+   * The uniqueness mutation the governing task required, and it is not self-proof: the classifier
+   * consumes the schema, so weakening the schema tests the classifier's reasoning rather than an
+   * expected table it also owns.
+   *
+   * Removing `@unique` from `Source.code` breaks TWO proofs at once, and both must move. The
+   * direct one is `source.findFirst({ where: { code } })`. The derived one is the relation
+   * invariant: without a unique `code`, `{ source: { code } }` no longer determines `sourceId`, so
+   * `@@unique(sourceId, externalId)` is no longer pinned either.
+   */
+  it("stops proving cardinality when the uniqueness authority it cited is removed", () => {
+    const weakened = weakenSchema((s) => {
+      const keys = s.uniqueKeys.get("source") ?? [];
+      // BOTH authorities, and finding that out was the point of running it. Removing only the
+      // schema `@unique` changed nothing, because migration DDL declares `sources_code_key` over
+      // the same column and the classifier correctly still proved the site. The two authorities
+      // are genuinely independent, so a mutation that weakens one is not a weakening at all.
+      s.uniqueKeys.set(
+        "source",
+        keys.filter((k) => k.fields.join() !== "code"),
+      );
+    });
+    const after = auditCardinality(weakened);
+
+    const direct = rowAt(after, "verify/shadowRun.ts", 315);
+    expect(direct.verdict).not.toBe("CARDINALITY_ONE_PROVEN");
+
+    for (const [file, line] of [
+      ["domain/macroRegime.ts", 85],
+      ["verify/shadowRun.ts", 401],
+    ] as const) {
+      const derived = rowAt(after, file, line);
+      expect(derived.verdict, `${file}:${line}`).not.toBe("CARDINALITY_ONE_PROVEN");
+    }
+
+    // And the mutation must be targeted: a site that never cited Source.code is unaffected.
+    expect(rowAt(after, "adapters/edgar-xbrl/ingest.ts", 61).verdict).toBe(
+      "CARDINALITY_ONE_PROVEN",
+    );
+  });
+
+  /**
+   * Migration DDL as the second uniqueness authority, and the ordering that keeps it honest.
+   *
+   * `FinancialFact` declares no `@@unique`, so a schema-only audit called this site
+   * MULTI_CANDIDATE and the real database refused to reproduce it. Both indexes that DO constrain
+   * it come from migration SQL. The citation must name only LIVE ones: the same migration drops
+   * `..._periodEnd_ac_key` in a `DO` block that drops by shape, so citing it would be a proof
+   * nobody can look up.
+   */
+  it("reads migration DDL as a second uniqueness authority, and cites only live indexes", () => {
+    const row = at("adapters/edgar-xbrl/ingest.ts", 61);
+    expect(row.verdict).toBe("CARDINALITY_ONE_PROVEN");
+    for (const liveIndex of [
+      "financial_facts_duration_identity_unique",
+      "financial_facts_instant_identity_unique",
+    ]) {
+      expect(row.citation).toContain(liveIndex);
+    }
     expect(row.citation).not.toContain("periodEnd_ac_key");
   });
 });

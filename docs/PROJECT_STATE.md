@@ -820,14 +820,15 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2475 / 2475 PASS across 139 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2456 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2478 / 2478 PASS across 139 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2459 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `6bee44d` plus the
-cardinality unit committed on top of it, from one fresh run on that tree. One new file,
-`tests/recencyCardinality.test.ts`, with 9 controls over the semantic-recency cardinality
-classifier. Date, SHA and what changed are written in one edit, because the last correction here
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `dedc1b0` plus the
+cardinality rework committed on top of it, from one fresh run on that tree.
+`tests/recencyCardinality.test.ts` now carries 12 controls over the semantic-recency cardinality
+classifier: the review's partial-index soundness repair added a union-of-partitions proof, a
+lone-partial refusal and a uniqueness-removal mutation. Date, SHA and what changed are written in one edit, because the last correction here
 was a count revised upward while the date was left alone.
 
 `tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it

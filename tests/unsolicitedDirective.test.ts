@@ -84,16 +84,19 @@ describe("provenance is a label, not a verdict", () => {
   it("records the provenance on the inbox entry, not only in the verdict", () => {
     // Six months later a VALIDATED entry with no provenance cannot say whether anyone asked for
     // it. The status and the provenance answer different questions and are stored separately.
-    const state = { ...emptyState(2), inbox: [entry("MARKET-RESUME-099", "Continue.")] };
+    const row = entry("MARKET-RESUME-099", "Continue.");
+    const state = { ...emptyState(2), inbox: [row] };
     const after = resolveInboxEntry(
       state,
-      "MARKET-RESUME-099",
+      { protocolId: "MARKET-RESUME-099", githubCommentId: row.githubCommentId },
       "VALIDATED",
       "validated",
       "UNSOLICITED_DIRECTIVE",
     );
-    expect(after.inbox[0].provenance).toBe("UNSOLICITED_DIRECTIVE");
-    expect(after.inbox[0].status).toBe("VALIDATED");
+    expect(after.resolved).toBe(true);
+    if (!after.resolved) return;
+    expect(after.state.inbox[0].provenance).toBe("UNSOLICITED_DIRECTIVE");
+    expect(after.state.inbox[0].status).toBe("VALIDATED");
   });
 });
 

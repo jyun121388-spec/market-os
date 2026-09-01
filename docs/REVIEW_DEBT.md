@@ -2193,3 +2193,37 @@ Mutations 5/5 ISOLATED. `M-KIND-VERIFIED-AUTHORITATIVE` and `M-KIND-ANY-CHATGPT`
 against a prediction of 3 and 4 — promoting a kind also moves it onto the deduplicated path, so more
 controls see it. Corrected to what was measured. `M-KIND-DROP-ADVISORY` restores the pre-ESC-014
 behaviour and is caught, so the controls reject going backwards as firmly as going too far forward.
+
+### ESC-014 addendum — the status boundary leaked what the scheduling boundary held
+
+`[CHATGPT_DECISION][MKT-ESC014-STAT-260902-0348]`, carrying the finding from verifier comment 5498756304. Applied as authority; the verifier itself is durable evidence and authorises nothing,
+which is the protocol ESC-014 just established working as intended.
+
+ESC-014 deliberately stopped deduplicating advisory rows by protocol id. `resolveInboxEntry` still
+matched on `entry.protocolId === protocolId`. Harmless while the inbox held one row per exchange,
+and a corruption the moment it did not: resolving a decision stamped every `CHATGPT_VERIFIED` and
+guidance comment on the same exchange `APPLIED` beside it. `unprocessedDecisions` correctly refused
+to schedule them, so the invariant held at the SCHEDULING boundary and leaked at the STATUS
+boundary — one side enforced, one side not, arriving this time as a consequence of my own change.
+
+Two conditions now, and each has a mutant because either alone looks sufficient against a fixture
+that does not attack the other:
+
+    EXACT ROW   `githubCommentId` as well as `protocolId`. GitHub never reuses a comment id, so the
+                reference names one row and cannot fan out.
+    AUTHORITY   the row must be authority-bearing. An advisory row cannot be stamped even when
+                addressed directly and by exact identity.
+
+A miss now returns a REASON rather than an unchanged state that reads like success — a transition
+that hit nothing is the quiet nothing this repository has paid for before. The signature changed to
+`ResolveOutcome`; both callers were updated.
+
+Seven controls, every one built on an exchange that actually contains the aliasing — one decision
+and two advisory rows sharing an id — so nothing passes by avoiding the hazard. The decision moves
+through VALIDATED and APPLIED and neither review moves; a rejection is isolated identically; an
+advisory row named exactly is refused with its kind in the message; a comment id under the wrong
+protocol id is refused.
+
+Mutations 3/3 ISOLATED. `M-ROW-ID-FANOUT` came in at 2 against a prediction of 3: the
+wrong-protocol-id control was wrongly counted, because under id-only matching `ESC-OTHER` still
+finds no row and refuses for the same reason as before. Corrected to what was measured.

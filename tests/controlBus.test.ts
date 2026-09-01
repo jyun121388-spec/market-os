@@ -351,8 +351,15 @@ describe("a decision creates work, and a dead watcher is not rest", () => {
 
   it("stops counting it once the consumer has resolved it", () => {
     const state = { ...emptyState(2), inbox: received };
-    const resolved = resolveInboxEntry(state, "ESC-009", "APPLIED", "lockout kept");
-    expect(unprocessedDecisions(resolved)).toHaveLength(0);
+    // Exact row: the protocol id alone stopped naming one when advisory rows became durable.
+    const outcome = resolveInboxEntry(
+      state,
+      { protocolId: "ESC-009", githubCommentId: received[0].githubCommentId },
+      "APPLIED",
+      "lockout kept",
+    );
+    expect(outcome.resolved).toBe(true);
+    expect(unprocessedDecisions(outcome.state)).toHaveLength(0);
   });
 
   const quiet = {

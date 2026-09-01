@@ -351,20 +351,73 @@ export function ingestComments(
  * whether it answered something we asked. Reading a validated entry six months later without the
  * second field, there is no way to tell which.
  */
+/** The exact durable row a transition names. A protocol id alone no longer identifies one. */
+export interface DecisionRowRef {
+  protocolId: string;
+  /** Assigned by GitHub and never reused. This is what makes the reference exact. */
+  githubCommentId: number;
+}
+
+export type ResolveOutcome =
+  | { resolved: true; state: ControlBusState }
+  | { resolved: false; state: ControlBusState; reason: string };
+
+/**
+ * Move ONE decision row to a judged status.
+ *
+ * It used to match on `entry.protocolId === protocolId` and rewrite every row that shared the id.
+ * That was harmless while the inbox held at most one row per exchange — and ESC-014 ended that
+ * deliberately, because a single exchange carries many `CHATGPT_VERIFIED` and guidance comments and
+ * collapsing them would discard the review history. The moment advisory rows became durable, the
+ * old matcher started stamping them `APPLIED` alongside the decision they merely commented on.
+ *
+ * So the invariant `INGESTED != AUTHORITATIVE != APPLIED` held at the scheduling boundary
+ * (`unprocessedDecisions`) and leaked at the status boundary. One side enforced, one side not —
+ * the shape this branch keeps finding, arriving this time as a consequence of my own change.
+ *
+ * Two conditions now, and both are load-bearing:
+ *
+ *   EXACT ROW      `githubCommentId` as well as `protocolId`. The comment id is assigned by GitHub
+ *                  and never reused, so it names one row and cannot fan out.
+ *   AUTHORITY      the row must be authority-bearing. An advisory row cannot be stamped
+ *                  VALIDATED/APPLIED/REJECTED even when addressed directly and by exact identity.
+ *
+ * A miss RETURNS A REASON rather than silently changing nothing: a transition that hit no row is
+ * exactly the sort of quiet nothing this repository has paid for before.
+ */
 export function resolveInboxEntry(
   state: ControlBusState,
-  protocolId: string,
+  target: DecisionRowRef,
   status: Exclude<InboxStatus, "RECEIVED_UNVALIDATED">,
   note: string,
   provenance?: DecisionProvenance,
-): ControlBusState {
+): ResolveOutcome {
+  const row = state.inbox.find(
+    (entry) =>
+      entry.protocolId === target.protocolId && entry.githubCommentId === target.githubCommentId,
+  );
+  if (!row) {
+    return {
+      resolved: false,
+      state,
+      reason: `no inbox row for comment ${target.githubCommentId} with protocol id ${target.protocolId}`,
+    };
+  }
+  if (!isAuthorityBearing(entryKind(row))) {
+    return {
+      resolved: false,
+      state,
+      reason: `comment ${target.githubCommentId} is ${entryKind(row)}, which is durable evidence and cannot carry a decision status`,
+    };
+  }
   return {
-    ...state,
-    inbox: state.inbox.map((entry) =>
-      entry.protocolId === protocolId
-        ? { ...entry, status, note, ...(provenance ? { provenance } : {}) }
-        : entry,
-    ),
+    resolved: true,
+    state: {
+      ...state,
+      inbox: state.inbox.map((entry) =>
+        entry === row ? { ...entry, status, note, ...(provenance ? { provenance } : {}) } : entry,
+      ),
+    },
   };
 }
 

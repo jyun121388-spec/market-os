@@ -820,11 +820,19 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2647 / 2647 PASS across 149 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2628 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2654 / 2654 PASS across 150 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2635 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `4b8f5b7` plus the ESC-014
+MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `4aca09c` plus the
+exact-row status repair committed on top of it. Widening ingestion left the transition path matching
+on protocol id alone, so resolving a decision stamped every review comment on the same exchange
+beside it: the invariant held at the scheduling boundary and leaked at the status boundary.
+`resolveInboxEntry` now names an exact row (`githubCommentId` + `protocolId`) AND requires it to be
+authority-bearing, and reports a reason rather than silently changing nothing. Seven controls,
+mutations 3/3 ISOLATED.
+
+Previously at `4b8f5b7` plus the ESC-014
 application committed on top of it. `[CHATGPT_DECISION][ESC-014]` chose Option B: the nine measured
 inbound kinds are now durably ingested and exactly one of them, `CHATGPT_DECISION`, may authorise
 anything. `INGESTED != AUTHORITATIVE != APPLIED` is structural — one kind model in

@@ -18,6 +18,23 @@
  * object store may be a branch that was never fetched, and treating "I cannot check" as "it checks
  * out" is how a stale decision gets applied. Absence of evidence is reported as absence.
  *
+ * ## AND IT MECHANISED TWO OF THREE, WHICH IS THIS BRANCH'S SIGNATURE MISTAKE
+ *
+ * The rule quoted above names THREE independent facts — targets this repository, matches an OPEN
+ * id, is not stale — and the first version of this file checked the first and the third. It carried
+ * `protocolId` from input to output without ever asking whether that id was open, so a closed,
+ * superseded or never-open decision earned `STALE_REFRESH_REQUIRED` on the strength of its commit
+ * anchors alone. Reproduced before repairing, against a state whose id is recorded APPLIED:
+ *
+ *     before   STALE_REFRESH_REQUIRED   nearest anchor is 3 commit(s) behind HEAD
+ *     after    NOT_ACTIONABLE           already judged (APPLIED)
+ *
+ * The two questions are now answered separately and combined at the end, because they are genuinely
+ * independent: an id can be open with a current anchor, closed with a stale one, or anything else.
+ * Openness comes from the canonical control-bus state, never from body prose, recency, or the mere
+ * fact that a row is sitting in the inbox — an unjudged row means nobody judged it, which is not
+ * the same as this repository having an outstanding question.
+ *
  *   npx tsx scripts/inbox-triage.ts [--bus-root <dir>] [--json]
  */
 
@@ -25,7 +42,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type Verdict =
+/** What the COMMIT ANCHORS say. Nothing here is a statement about the protocol id. */
+export type AnchorVerdict =
   /** Names a repository that is not this one. Nothing to do here. */
   | "NOT_THIS_REPOSITORY"
   /** Anchored to a commit this repository does not have. Cannot be judged from here. */
@@ -37,14 +55,106 @@ export type Verdict =
   /** Carries no commit anchor at all, so staleness is not a question this can answer. */
   | "NO_ANCHOR";
 
+/** What the CONTROL-BUS STATE says about the protocol id. Nothing here is about commits. */
+export type IdStanding =
+  /** This repository posted an escalation with that id and nothing has closed it. */
+  | "OPEN"
+  /** Validated, applied, rejected, or answered by a `CLAUDE_APPLIED` this repository posted. */
+  | "ALREADY_JUDGED"
+  /** No canonical record either way. Fails closed: unknown is not open. */
+  | "STANDING_UNVERIFIABLE";
+
+/** The two answers combined. This, and only this, says whether anything may happen. */
+export type Disposition =
+  /** Open id, anchored to HEAD. */
+  | "RUNNABLE"
+  /** Open id, anchored behind HEAD: answer `[ESCALATION_REFRESH_REQUIRED]` with the difference. */
+  | "REFRESH_REQUIRED"
+  /** Anything else, for any reason. The reason is in the two components, not flattened away. */
+  | "NOT_ACTIONABLE";
+
 export interface TriageRow {
   protocolId: string;
   receivedAt: string;
   githubCommentId: number | string;
-  verdict: Verdict;
+  anchorVerdict: AnchorVerdict;
+  standing: IdStanding;
+  disposition: Disposition;
   detail: string;
   /** Anchors found in the body, with what the object store says about each. */
   anchors: { sha: string; resolved: boolean; behindHead?: number }[];
+}
+
+/**
+ * Which protocol ids this repository currently has an open question about.
+ *
+ * An interface so the controls can vary the standing while holding the body and anchors identical
+ * — the discrimination the correction is about.
+ */
+export interface OpenIdAuthority {
+  /** The canonical record consulted, reported so a standing is never anonymous. */
+  source(): string;
+  standing(protocolId: string): IdStanding;
+}
+
+/** Knows nothing, so nothing is open. The fail-closed default. */
+export const NO_ID_AUTHORITY: OpenIdAuthority = {
+  source: () => "none — no canonical record of open ids was available",
+  standing: () => "STANDING_UNVERIFIABLE",
+};
+
+/** Statuses that mean the consumer has finished with an entry. */
+const TERMINAL_STATUSES = new Set(["VALIDATED", "APPLIED", "REJECTED"]);
+
+/**
+ * The canonical authority: the control-bus state's own inbox statuses and outbox postings.
+ *
+ * Judged beats open, deliberately. A historical id must not re-enter through a stale inbox row, so
+ * a terminal status anywhere for that id closes it however many unjudged rows also mention it.
+ *
+ * OPEN requires POSITIVE evidence that this repository asked: an `ESCALATION` in the outbox with
+ * that id. A `RECEIVED_UNVALIDATED` row is not that evidence — it means the watcher wrote something
+ * down and nobody judged it, which is a statement about this machine, not about an outstanding
+ * question. On the live state the outbox is empty and no entry carries provenance, so every id
+ * there is `STANDING_UNVERIFIABLE`; that is the honest answer and it is why the earlier confident
+ * `11 STALE_REFRESH_REQUIRED` was over-claiming.
+ */
+export function controlBusStanding(state: {
+  inbox?: { protocolId: string; status: string }[];
+  outbox?: { protocolId: string; kind: string }[];
+}): OpenIdAuthority {
+  const judged = new Set<string>();
+  const asked = new Set<string>();
+  for (const entry of state.inbox ?? []) {
+    if (TERMINAL_STATUSES.has(entry.status)) judged.add(entry.protocolId);
+  }
+  for (const entry of state.outbox ?? []) {
+    if (entry.kind === "CLAUDE_APPLIED") judged.add(entry.protocolId);
+    else if (entry.kind === "ESCALATION") asked.add(entry.protocolId);
+  }
+  return {
+    source: () =>
+      `control-bus state: ${judged.size} judged id(s), ${asked.size} escalation(s) posted from here`,
+    standing: (protocolId) => {
+      if (judged.has(protocolId)) return "ALREADY_JUDGED";
+      if (asked.has(protocolId)) return "OPEN";
+      return "STANDING_UNVERIFIABLE";
+    },
+  };
+}
+
+/**
+ * The combination, kept in one place so neither answer can quietly override the other.
+ *
+ * Only an OPEN id can be actionable at all. A closed or unverifiable one is NOT_ACTIONABLE whatever
+ * its anchors say, which is the whole of the correction: staleness must never promote an id that
+ * had no standing to begin with.
+ */
+export function disposition(anchor: AnchorVerdict, standing: IdStanding): Disposition {
+  if (standing !== "OPEN") return "NOT_ACTIONABLE";
+  if (anchor === "CURRENT") return "RUNNABLE";
+  if (anchor === "STALE_REFRESH_REQUIRED") return "REFRESH_REQUIRED";
+  return "NOT_ACTIONABLE";
 }
 
 export const THIS_REPOSITORY = "jyun121388-spec/market-os";
@@ -116,30 +226,25 @@ export function foreignRepositories(body: string): string[] {
   return [...found];
 }
 
-export function triageEntry(
-  entry: { protocolId: string; receivedAt: string; githubCommentId: number | string; body: string },
+/**
+ * The ANCHOR half, unchanged in behaviour and now clearly only half an answer.
+ *
+ * Extracted so the id half cannot reach in and adjust it, and so a control can vary the standing
+ * while holding this constant.
+ */
+function anchorOf(
+  body: string,
   git: GitOracle,
-): TriageRow {
-  const base = {
-    protocolId: entry.protocolId,
-    receivedAt: entry.receivedAt,
-    githubCommentId: entry.githubCommentId,
-  };
-
-  const foreign = foreignRepositories(entry.body);
+): { verdict: AnchorVerdict; detail: string; anchors: TriageRow["anchors"] } {
+  const foreign = foreignRepositories(body);
   if (foreign.length > 0) {
-    return {
-      ...base,
-      verdict: "NOT_THIS_REPOSITORY",
-      detail: `names ${foreign.join(", ")}`,
-      anchors: [],
-    };
+    return { verdict: "NOT_THIS_REPOSITORY", detail: `names ${foreign.join(", ")}`, anchors: [] };
   }
 
   const head = git.head();
   const seen = new Set<string>();
   const anchors: TriageRow["anchors"] = [];
-  for (const [sha] of entry.body.matchAll(SHA_LIKE)) {
+  for (const [sha] of body.matchAll(SHA_LIKE)) {
     if (seen.has(sha)) continue;
     seen.add(sha);
     if (!git.isCommit(sha)) continue;
@@ -150,16 +255,10 @@ export function triageEntry(
   if (anchors.length === 0) {
     // Every hex run either was not a commit or there were none. Both are "cannot judge", and they
     // are distinguished only in the detail — neither is allowed to read as fine.
-    const hexRuns = [...new Set([...entry.body.matchAll(SHA_LIKE)].map(([s]) => s))];
+    const hexRuns = [...new Set([...body.matchAll(SHA_LIKE)].map(([s]) => s))];
     return hexRuns.length === 0
-      ? {
-          ...base,
-          verdict: "NO_ANCHOR",
-          detail: "no commit-shaped anchor in the body",
-          anchors: [],
-        }
+      ? { verdict: "NO_ANCHOR", detail: "no commit-shaped anchor in the body", anchors: [] }
       : {
-          ...base,
           verdict: "ANCHOR_UNVERIFIABLE",
           detail: `${hexRuns.length} commit-shaped run(s), none present in this object store`,
           anchors: hexRuns.map((sha) => ({ sha, resolved: false })),
@@ -167,13 +266,12 @@ export function triageEntry(
   }
 
   if (anchors.some((a) => a.sha === head || head.startsWith(a.sha))) {
-    return { ...base, verdict: "CURRENT", detail: `anchored to HEAD ${head.slice(0, 8)}`, anchors };
+    return { verdict: "CURRENT", detail: `anchored to HEAD ${head.slice(0, 8)}`, anchors };
   }
 
   const behind = anchors.filter((a) => a.behindHead !== undefined);
   if (behind.length === 0) {
     return {
-      ...base,
       verdict: "ANCHOR_UNVERIFIABLE",
       detail: "anchors resolve but none is an ancestor of HEAD — a divergent line, not a distance",
       anchors,
@@ -181,14 +279,50 @@ export function triageEntry(
   }
   const nearest = Math.min(...behind.map((a) => a.behindHead!));
   return {
-    ...base,
     verdict: "STALE_REFRESH_REQUIRED",
     detail: `nearest anchor is ${nearest} commit(s) behind HEAD`,
     anchors,
   };
 }
 
-export function triageInbox(root: string, git: GitOracle): TriageRow[] | null {
+/**
+ * @param ids the open-id authority. Required, with no default, so a caller that has no canonical
+ *            record has to say so by passing `NO_ID_AUTHORITY` rather than by omission.
+ */
+export function triageEntry(
+  entry: { protocolId: string; receivedAt: string; githubCommentId: number | string; body: string },
+  git: GitOracle,
+  ids: OpenIdAuthority,
+): TriageRow {
+  const anchor = anchorOf(entry.body, git);
+  const standing = ids.standing(entry.protocolId);
+  const detail =
+    standing === "OPEN"
+      ? anchor.detail
+      : standing === "ALREADY_JUDGED"
+        ? `already judged; ${anchor.detail}`
+        : `id standing not established (${ids.source()}); ${anchor.detail}`;
+  return {
+    protocolId: entry.protocolId,
+    receivedAt: entry.receivedAt,
+    githubCommentId: entry.githubCommentId,
+    anchorVerdict: anchor.verdict,
+    standing,
+    disposition: disposition(anchor.verdict, standing),
+    detail,
+    anchors: anchor.anchors,
+  };
+}
+
+/**
+ * @param ids injectable; by default the authority is built from the SAME state file being read, so
+ *            the two halves cannot disagree about which control bus they describe.
+ */
+export function triageInbox(
+  root: string,
+  git: GitOracle,
+  ids?: OpenIdAuthority,
+): TriageRow[] | null {
   const statePath = join(root, "state.json");
   if (!existsSync(statePath)) return null;
   const state = JSON.parse(readFileSync(statePath, "utf8")) as {
@@ -199,10 +333,12 @@ export function triageInbox(root: string, git: GitOracle): TriageRow[] | null {
       body: string;
       status: string;
     }[];
+    outbox?: { protocolId: string; kind: string }[];
   };
+  const authority = ids ?? controlBusStanding(state);
   return state.inbox
     .filter((e) => e.status === "RECEIVED_UNVALIDATED")
-    .map((e) => triageEntry(e, git));
+    .map((e) => triageEntry(e, git, authority));
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {
@@ -214,21 +350,25 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
   } else if (process.argv.includes("--json")) {
     console.log(JSON.stringify(rows, null, 2));
   } else {
-    const counts = new Map<Verdict, number>();
-    for (const r of rows) counts.set(r.verdict, (counts.get(r.verdict) ?? 0) + 1);
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const key = `${r.disposition}  (${r.standing} / ${r.anchorVerdict})`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
     console.log(`${rows.length} unjudged decision(s) under ${root}\n`);
     for (const r of rows) {
       console.log(
-        `  ${r.verdict.padEnd(22)} ${r.protocolId.padEnd(34)} ${r.receivedAt.slice(0, 10)}`,
+        `  ${r.disposition.padEnd(17)} ${r.standing.padEnd(22)} ${r.anchorVerdict.padEnd(22)} ` +
+          `${r.protocolId.padEnd(34)} ${r.receivedAt.slice(0, 10)}`,
       );
       console.log(`      ${r.detail}`);
     }
     console.log();
     for (const [v, n] of [...counts].sort()) console.log(`  ${String(n).padStart(3)}  ${v}`);
     console.log(
-      "\nNothing was applied, resolved or refreshed. UNVERIFIABLE is not CURRENT: an anchor this\n" +
-        "repository does not have may be a branch never fetched here, and 'I cannot check' must\n" +
-        "never read as 'it checks out'.",
+      "\nNothing was applied, resolved or refreshed. Two independent questions: UNVERIFIABLE is not\n" +
+        "CURRENT for a commit anchor, and an unjudged inbox row is not an OPEN id. Neither unknown\n" +
+        "may read as the reassuring answer, and only an OPEN id can be actionable at all.",
     );
   }
 }

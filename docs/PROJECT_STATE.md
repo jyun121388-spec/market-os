@@ -820,14 +820,16 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2576 / 2576 PASS across 145 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2557 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2588 / 2588 PASS across 145 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2569 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `3e2c1bf` plus the inbox
-triage committed on top of it. `scripts/inbox-triage.ts` mechanises the staleness check `CLAUDE.md`
-states and nothing enforced, read-only. All 11 unjudged decisions are `STALE_REFRESH_REQUIRED`,
-162-211 commits behind HEAD; none names a foreign repository and none was applied, resolved or
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `ccff24d` plus the open-id
+correction committed on top of it. `scripts/inbox-triage.ts` mechanises the check `CLAUDE.md` states
+and nothing enforced, read-only, and it now answers BOTH questions the rule names: commit staleness
+and whether the protocol id is open. The earlier `11 STALE_REFRESH_REQUIRED` was over-claiming —
+the outbox records no escalation posted from here, so no id's standing can be established and all 11
+are `NOT_ACTIONABLE (STANDING_UNVERIFIABLE / STALE_REFRESH_REQUIRED)`. Nothing applied, resolved or
 refreshed. Recorded under IR-114.
 
 Previously at `bbf452e` plus the operator-boundary repair committed on top of it. Relational operators (`< <= > >=`) run ToPrimitive

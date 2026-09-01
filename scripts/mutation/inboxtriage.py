@@ -48,6 +48,29 @@ Expected cardinalities, written before the run:
                                    consumed-past-the-real-slug bug the prefix-inside-the-pattern
                                    comment in `inbox-triage.ts` records.
 
+The last four are the OPEN-ID half, added after review reproduced the structural gap: the module's
+own governing rule names three facts and the first version mechanised two, carrying `protocolId`
+from input to output without ever asking whether that id was open. Each control below holds the
+BODY AND ANCHORS IDENTICAL and varies only the standing.
+
+  M-TRIAGE-NO-ID-CHECK          the open-id question is never asked
+                                -> 3 red: judged, unverifiable and no-authority controls. The
+                                   foreign-repository control stays green, because that anchor
+                                   verdict is non-actionable on its own.
+
+  M-TRIAGE-UNKNOWN-IS-OPEN      no canonical record is read as open
+                                -> 3 red: unjudged-row, never-seen and empty-state controls. The
+                                   double-driven controls are unaffected, which is the point of
+                                   having both.
+
+  M-TRIAGE-JUDGED-IS-OPEN       a judged id re-enters as open
+                                -> 2 red: the terminal-status control and the CLAUDE_APPLIED
+                                   control, both of which also posted an ESCALATION for that id.
+                                   Judged has to BEAT open, not merely coexist with it.
+
+  M-TRIAGE-NO-AUTHORITY-OPEN    the fail-closed default admits everything
+                                -> 1 red: the no-authority control.
+
     python scripts/mutation/inboxtriage.py
 """
 
@@ -90,6 +113,32 @@ MUTATIONS = [
         TRIAGE,
         "const SHA_LIKE = /\\b[0-9a-f]{7,40}\\b/g;",
         "const SHA_LIKE = /\\b[0-9a-f]{6,40}\\b/g;",
+    ),
+    (
+        "M-TRIAGE-NO-ID-CHECK the open-id question is never asked",
+        TRIAGE,
+        '  if (standing !== "OPEN") return "NOT_ACTIONABLE";\n',
+        "",
+    ),
+    (
+        "M-TRIAGE-UNKNOWN-IS-OPEN an id with no canonical record is presumed open",
+        TRIAGE,
+        '      return "STANDING_UNVERIFIABLE";\n    },',
+        '      return "OPEN";\n    },',
+    ),
+    (
+        "M-TRIAGE-JUDGED-IS-OPEN a judged id re-enters as open",
+        TRIAGE,
+        '      if (judged.has(protocolId)) return "ALREADY_JUDGED";\n',
+        "",
+    ),
+    (
+        "M-TRIAGE-NO-AUTHORITY-OPEN an unavailable authority is read as open",
+        TRIAGE,
+        '  source: () => "none — no canonical record of open ids was available",\n'
+        '  standing: () => "STANDING_UNVERIFIABLE",',
+        '  source: () => "none — no canonical record of open ids was available",\n'
+        '  standing: () => "OPEN",',
     ),
     (
         "M-TRIAGE-BARE-SLUG any slash-separated pair counts as a repository",

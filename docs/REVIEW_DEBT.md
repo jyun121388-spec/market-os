@@ -1792,3 +1792,36 @@ transport and stays with the operator.
 The governing rule is that `ANCHOR_UNVERIFIABLE` never collapses into `CURRENT`. A commit missing
 from the local object store may be a branch nobody fetched here, and "I cannot check" reading as
 "it checks out" is exactly how a stale decision gets applied. Five mutations, 5/5 ISOLATED.
+
+### IR-114 second addendum — the triage mechanised two of the three facts
+
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-INBOX-TRIAGE-OPEN-ID-20260901]` reproduced a structural gap in
+the commit above, and it is this branch's signature mistake once more. The rule the module quotes
+names THREE independent facts — targets this repository, matches an OPEN id, is not stale — and the
+implementation checked the first and the third. `protocolId` went from input to output untouched.
+
+Reproduced against the committed implementation before repairing, with a state recording the id as
+`APPLIED`:
+
+    before   STALE_REFRESH_REQUIRED   nearest anchor is 3 commit(s) behind HEAD
+    after    NOT_ACTIONABLE           ALREADY_JUDGED / STALE_REFRESH_REQUIRED
+
+The two answers are now produced separately and combined once, because they are independent. Only
+an `OPEN` id can be actionable; staleness never promotes an id that had no standing.
+
+Openness comes from the canonical control-bus state — terminal inbox statuses and outbox postings —
+never from body prose, recency, or the fact that a row is sitting in the inbox. A
+`RECEIVED_UNVALIDATED` row means the watcher wrote something down and nobody judged it, which is a
+statement about this machine rather than about an outstanding question. Judged BEATS open, so a
+historical id cannot re-enter through a stale row.
+
+**The live answer changed, and the previous entry in this file was over-claiming.** The outbox
+records `0 escalations posted from here`, so no id's standing can be established:
+
+    11  NOT_ACTIONABLE  (STANDING_UNVERIFIABLE / STALE_REFRESH_REQUIRED)
+
+Still read-only. Nothing applied, resolved, refreshed or posted. Nine mutations, 9/9 ISOLATED.
+
+The guidance was treated as a review finding independently reproduced, NOT as an authorisation:
+whether a `CHATGPT_ARCHITECT_GUIDANCE` may authorise anything is the open ESC-014 question, and
+correcting one's own read-only script needs no authority beyond the finding being true.

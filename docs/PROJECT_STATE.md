@@ -820,17 +820,20 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2466 / 2466 PASS across 138 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2447 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2475 / 2475 PASS across 139 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2456 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-08-31 on `claude/ask-guardrail-architecture-20260823` at `c6e1e18` plus the
-gate-ownership rework committed on top of it, from one fresh run on that tree. The count moved by
-two across the capability-gate unit and its review rework: `providerCapability.test.ts` gained
-"every gate a cell names is a gate the human-gate queue actually carries" and then "the gate a cell
-names is the gate that owns that provider's verification". Date, SHA and what changed are written
-in one edit, because the last correction here was a count revised upward while the date was left
-alone.
+MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `6bee44d` plus the
+cardinality unit committed on top of it, from one fresh run on that tree. One new file,
+`tests/recencyCardinality.test.ts`, with 9 controls over the semantic-recency cardinality
+classifier. Date, SHA and what changed are written in one edit, because the last correction here
+was a count revised upward while the date was left alone.
+
+`tests/documentedCounts.test.ts` caught this line being stale before a human did, which is what it
+is for: it failed with "PROJECT_STATE says 138 test files; 139 exist" on the run that added the
+file. A documented number nobody re-measures is the failure class this whole section is about, and
+here the suite re-measures it.
 
 PROVENANCE CORRECTION, and the defect is instructive. This line read `2412 / 2412 ... measured
 2026-08-28`, and the count had been revised upward on 2026-08-30 while the DATE was left alone.

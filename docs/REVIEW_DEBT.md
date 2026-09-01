@@ -2069,3 +2069,52 @@ network call would be outstanding: ownership taken during the await; a different
 pid; our own lease reappearing (so refusal is not unconditional); state advanced A to B with the
 cursor and an inbound decision preserved; and a refused commit followed by a retry that ADOPTS the
 existing comment rather than posting a second one. Outbound mutations 10/10 ISOLATED.
+
+## IR-117 — the escalation recorded as "staged, not posted" was never staged
+
+Status: `VERIFIED` (2026-09-02). Found while looking for the packet in order to cite it.
+
+The operating rules in force say ESC-014 "is staged as `[ESCALATION][ESC-014]` in
+`docs/escalation/PENDING_COMMENTS.md` and — as of 2026-08-23 — **not posted**, so it is not merely
+unanswered, it has not been asked." The second half was true and the first was not.
+`PENDING_COMMENTS.md` holds TEST-001, TEST-002, ESC-009 and ESC-012 and has never held an ESC-014
+packet. I cited "the open ESC-014 question" three times this session as the reason not to treat a
+`CHATGPT_ARCHITECT_GUIDANCE` comment as authorisation — deferring to a question that did not exist
+in any form.
+
+It is now asked. Drafted, screened, posted through `scripts/post-outbound.ts`, read back and
+committed: Issue #2 comment `5498131832`, digest `bdc5b87f7598005c`. `controlBusStanding` reports
+`ESC-014 standing: OPEN` — the first real `OPEN` this machinery has ever produced, and the last
+unexercised branch of the IR-114/115 chain, reached by the production path rather than a fixture.
+
+### The rules' inventory of the channel is also wrong, and now measured
+
+`scripts/channel-kinds.ts` (read-only) tallies leading protocol tags. Against the live issue:
+
+    INBOUND  9 kinds   48 CHATGPT_VERIFIED (dropped), 40 CHATGPT_DECISION (parsed),
+                       23 CHATGPT_ARCHITECT_GUIDANCE, 20 CHATGPT_TASK, 9 CHATGPT_GUIDANCE,
+                       2 CHATGPT_CORRECTION, 1 each REVIEW_GUIDANCE / REVIEW_POLICY /
+                       TRANSPORT_STATUS — all dropped
+    OUTBOUND 5 kinds   50 CLAUDE_APPLIED (parsed), 17 CLAUDE_PROGRESS, 10 ESCALATION (parsed),
+                       3 CLAUDE_RECEIVED, 3 CLAUDE_STATUS
+    ProtocolKind admits 3 of 14.
+
+The rules name FIVE inbound kinds. There are nine. The four omitted include `CHATGPT_TASK` at
+twenty comments, larger than two of the kinds that are named, and the single largest inbound kind —
+`CHATGPT_VERIFIED`, 48 comments, every review this session — is dropped by the parser.
+
+The counts are deliberately not pinned in a test. They are a fact about a live issue and belong in a
+run; what the controls bind is the COUNTING RULE, including that a tag must LEAD a body — matching
+one anywhere would count every report that quotes a tag in prose, and this session's reports quote
+several each.
+
+### A finding about the rules themselves, left for their owner
+
+The `CLAUDE.md` carrying both claims is **an uncommitted edit in the main worktree** (201 lines).
+This branch's committed copy is 169 lines and contains none of that text — no ESC-014 paragraph, no
+kind inventory, no `ProtocolKind` sentence. So the operating rules this session has followed are a
+local edit another checkout has never seen.
+
+Both corrections belong in that file and it was NOT touched: it is a dirty foreign worktree, which
+the standing review constraints put out of bounds. Recorded here instead, with the measurement
+reproducible by one command.

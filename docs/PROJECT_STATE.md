@@ -820,11 +820,18 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2626 / 2626 PASS across 147 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2607 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2631 / 2631 PASS across 148 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2612 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `157c920` plus the
+MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `86f37ab` plus ESC-014
+committed on top of it. The escalation `CLAUDE.md` recorded as staged-and-unposted since 2026-08-23
+was never staged; it is now asked, posted through the lifecycle as comment 5498131832, and
+`controlBusStanding` reports it OPEN -- the last unexercised branch of the IR-114/115 chain, reached
+by real machinery. `scripts/channel-kinds.ts` measures what the channel carries: nine inbound kinds,
+not the five the rules name, and `ProtocolKind` admits 3 of 14.
+
+Previously at `157c920` plus the
 serialisation repair committed on top of it. Outbound now takes canonical write authority AT COMMIT
 TIME and RELOADS durable state under it, so a watcher acquiring ownership during the network round
 trip cannot be overwritten and nothing it advanced meanwhile is regressed. Ownership is

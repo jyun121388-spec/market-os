@@ -2264,3 +2264,51 @@ than a regression.
 
 The residual itself is unchanged: reaching it still needs two watchers racing and one suspended past
 its lease mid-operation, and `control-bus:start` refuses while a live lock exists.
+
+## IR-118 — the formatting gate I never ran, and the local one I could not read
+
+Status: `VERIFIED` (2026-09-02). Remote CI run `33547628222`, bound to `bb88ded` on
+`claude/post-rc-followup`, FAILED at `npm run format:check` before lint, typecheck, tests or build
+had a chance to run. Reported by `[CHATGPT_ARCHITECT_GUIDANCE][MARKET-ESC014-CI-FORMAT-20260902]`,
+which under ESC-014 is durable evidence and authorises nothing — and fixing my own broken gate needs
+no authority beyond the failure being real.
+
+**Two causes, and both are the session's recurring shape in my own workflow.**
+
+Every unit ran `prettier --write` over THE FILES IT TOUCHED. That is not the gate; the gate is the
+repository. A file can be left unformatted by a later edit the per-file pass has already gone past,
+which is exactly what happened: a patch script was accidentally re-run twice AFTER its formatting
+pass, each time re-wrapping a `.filter(...)` that Prettier wants on one line. I checked the thing I
+changed, not the thing CI checks.
+
+And running the real gate locally does not help, because it drowns. This checkout has CRLF endings
+and the config wants LF, so `npm run format:check` lists SIXTY-SEVEN files while CI lists ONE. A
+signal buried in sixty-six false positives is not a signal.
+
+### The measurement that settles it
+
+Git is the normaliser: it stores LF and converts on checkout, so what git reports as changed after a
+repository-wide `prettier --write` is exactly what CI objects to. Run against the failing tree it
+reported ONE file — `tests/inboxTriage.test.ts`, 1 insertion / 4 deletions — and so did CI.
+
+Confirmed against the exact bytes rather than the working copy:
+
+    git show HEAD:tests/inboxTriage.test.ts | prettier --check --stdin-filepath ...   -> (stdin)
+    working tree after the fix                                                        -> clean
+
+`scripts/format-gate.ts` is that measurement as a command, so the next unit can ask the question CI
+asks. Its first version died invoking `npx` — a `.cmd` shim on Windows that cannot be exec'd
+directly — which is recorded in the file because it is the same class of local-environment trap.
+
+### What is NOT closed
+
+The fix is committed but **no fresh workflow run is bound to the new SHA**, so the format gate is
+not green, only locally clean. CI reaches this work through `claude/post-rc-followup`, which someone
+advanced to `bb88ded`; advancing it again is the fast-forward this session's permission classifier
+denies. Closure requires a run bound to the new head, and a local green suite does not supersede
+`33547628222`.
+
+Also noted rather than fixed: the guidance asks for a `[CLAUDE_PROGRESS]` note while CI is pending,
+and `CLAUDE_PROGRESS` is not in `OUTBOUND_KINDS`, so the durable outbound path cannot express
+"in progress". The channel has carried 17 of them historically. Widening the outbound list is a
+protocol change no decision authorises, so it is recorded here instead of taken.

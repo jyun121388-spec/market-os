@@ -821,7 +821,9 @@ Open escalations are recorded and never obeyed as a halt.
 
 TESTS
 2657 / 2657 PASS across 151 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2638 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+environment) -- 2638 passing plus 19 pinned `it.fails`. REMOTE CI run 33547628222, bound to
+`bb88ded` on `claude/post-rc-followup`, FAILED at `npm run format:check` on one file; the fix is at
+`8c58213`+1 and no fresh run is bound to it yet. A local green suite does not supersede that run `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
 MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `bb88ded` plus the IR-075

@@ -13,10 +13,20 @@ found".
 
 Expected cardinalities, written before the run:
 
-  M-DISCOVERY-RACE     accept the first observation without the second agreeing
-                       -> MISSED is the honest expectation. The race window is not reachable from
-                          a deterministic test, so this records that the guard rests on reasoning
-                          rather than on a control. Recorded, not rounded up.
+  M-DISCOVERY-FIRSTROW take the first owner rather than requiring exactly one
+                       -> 2 red: the two-distinct-owner control and the unparseable-row control.
+                          This is the Windows defect review found, and the rule is now shared, so
+                          one mutant binds both platforms.
+
+  M-DISCOVERY-RACE     drop the two-observation agreement CHECK from the dispatcher
+                       -> MISSED is the honest expectation. Reaching it needs a socket handoff
+                          between two reads, which is not producible from a deterministic test. The
+                          guard rests on reasoning; recorded, not rounded up.
+
+  M-DISCOVERY-AGREE    make the agreement RULE itself always say yes
+                       -> 2 red. The rule is now an exported pure function, so unlike the
+                          dispatcher wiring above it can be bound by controls: the pid-reuse case
+                          and the missing-observation case both fail.
 
   M-DISCOVERY-SELF     select the current process instead of the socket owner
                        -> 4 red, measured; I predicted 2 and the number is corrected rather than
@@ -51,9 +61,29 @@ UNRELATED_TESTS = ["tests/recencyCardinality.test.ts"]
 
 MUTATIONS = [
     (
+        "M-DISCOVERY-AGREE the agreement rule always says the observations match",
+        DISCOVERY,
+        "  if (a === null || b === null) return false;\n"
+        "  return a.pid === b.pid && a.identityToken === b.identityToken;",
+        "  void a;\n  void b;\n  return true;",
+    ),
+    # M-DISCOVERY-FIRSTROW -- the defect review found on Windows, now a rule shared by both
+    # platforms. Taking the first owner instead of requiring exactly one is how `Select-Object
+    # -First 1` behaved: two distinct owners collapse to whichever the OS listed first, and row
+    # order becomes authority. Expected: 2 red, the two-distinct-owner control and the
+    # unparseable-row control, both of which exist for exactly this.
+    (
+        "M-DISCOVERY-FIRSTROW the first owner is taken instead of requiring exactly one",
+        DISCOVERY,
+        "  if (pids.some((p) => !Number.isInteger(p) || p <= 0)) return null;\n"
+        "  const distinct = new Set(pids);\n"
+        "  return distinct.size === 1 ? [...distinct][0] : null;",
+        "  return pids[0];",
+    ),
+    (
         "M-DISCOVERY-RACE the second observation need not agree with the first",
         DISCOVERY,
-        "  if (first.pid !== second.pid || first.identityToken !== second.identityToken) return null;\n",
+        "  if (!observationsAgree(first, second)) return null;\n",
         "",
     ),
     (

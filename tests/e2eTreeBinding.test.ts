@@ -1,6 +1,10 @@
 import { createServer } from "node:http";
 import { beforeAll, describe, expect, it } from "vitest";
-import { discoverListener } from "../scripts/listener-discovery";
+import {
+  discoverListener,
+  observationsAgree,
+  selectSoleOwner,
+} from "../scripts/listener-discovery";
 import { checkTreeBinding, compareStartToSource, formatBinding } from "../scripts/e2e-tree-binding";
 
 /**
@@ -343,5 +347,63 @@ describe("socket-owner discovery, running the production path", () => {
     // And discovery must stop finding it, which also proves the earlier positive was about THIS
     // socket rather than anything ambient on the machine.
     expect(discoverListener(port)).toBeNull();
+  });
+});
+
+/**
+ * The owner-cardinality rule, exercised without pretending a Linux runner is Windows.
+ *
+ * Windows enumerated LISTEN rows and took `Select-Object -First 1`; Linux collected owners and
+ * required exactly one. Same invariant, enforced on one platform and not the other — review called
+ * it a same-mechanism soundness defect and was right. The rule now lives in one exported function
+ * that BOTH discovery paths call, so these controls bind the Windows decision on any platform.
+ */
+describe("who owns the socket, when more than one row says something", () => {
+  it("accepts several rows that all name the same process", () => {
+    // Normal and not ambiguous: separate v4 and v6 listeners are two rows and one process.
+    expect(selectSoleOwner([4242, 4242, 4242])).toBe(4242);
+    expect(selectSoleOwner([4242])).toBe(4242);
+  });
+
+  it("refuses two distinct owners rather than picking one", () => {
+    // SO_REUSEPORT, or a handoff in progress. "One of these two" is not an identification, and
+    // row order is not authority — which is exactly what the removed `-First 1` made it.
+    expect(selectSoleOwner([4242, 99])).toBeNull();
+    expect(selectSoleOwner([99, 4242])).toBeNull();
+  });
+
+  it("refuses when there is nothing to identify", () => {
+    expect(selectSoleOwner([])).toBeNull();
+  });
+
+  /**
+   * A row it could not read must poison the tally, not be dropped from it.
+   *
+   * Silently discarding an unparseable row is how an ambiguous port comes to look unique: two
+   * owners, one unreadable, and the survivor is returned as if it were the only one.
+   */
+  it("refuses on an unparseable owner instead of ignoring that row", () => {
+    expect(selectSoleOwner([4242, Number.NaN])).toBeNull();
+    expect(selectSoleOwner([4242, 0])).toBeNull();
+    expect(selectSoleOwner([4242, -1])).toBeNull();
+    expect(selectSoleOwner([4242, 1.5])).toBeNull();
+  });
+});
+
+describe("whether two observations describe the same process instance", () => {
+  const a = { pid: 4242, identityToken: "88123456" };
+
+  it("agrees only when the pid AND the start token both match", () => {
+    expect(observationsAgree(a, { ...a })).toBe(true);
+    // Same PID, different start token: the PID was reused between observations.
+    expect(observationsAgree(a, { pid: 4242, identityToken: "99999999" })).toBe(false);
+    // Same token, different PID: not the same process, whatever the coincidence.
+    expect(observationsAgree(a, { pid: 77, identityToken: "88123456" })).toBe(false);
+  });
+
+  it("never agrees when either observation is missing", () => {
+    expect(observationsAgree(a, null)).toBe(false);
+    expect(observationsAgree(null, a)).toBe(false);
+    expect(observationsAgree(null, null)).toBe(false);
   });
 });

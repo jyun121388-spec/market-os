@@ -49,6 +49,40 @@ export interface ListenerIdentity {
   authority: string;
 }
 
+/**
+ * ONE uniqueness rule, applied on both platforms.
+ *
+ * Windows enumerated rows and took the first; Linux collected owners and required exactly one. Same
+ * invariant, enforced in one place and not in the other — so it lives here now, exported so it can
+ * be exercised without pretending a Linux runner is Windows.
+ *
+ * Several LISTEN rows for one port is NORMAL: separate v4 and v6 sockets are two rows and one
+ * process. That is one owner and it passes. Two DISTINCT owners is SO_REUSEPORT or a handoff in
+ * progress, and "one of these two" is not an identification, so it refuses. Anything unparseable
+ * refuses rather than being dropped from the tally, because silently discarding a row it could not
+ * read is how an ambiguous port would look unique.
+ */
+export function selectSoleOwner(pids: readonly number[]): number | null {
+  if (pids.length === 0) return null;
+  if (pids.some((p) => !Number.isInteger(p) || p <= 0)) return null;
+  const distinct = new Set(pids);
+  return distinct.size === 1 ? [...distinct][0] : null;
+}
+
+/**
+ * Do two observations describe the SAME process instance?
+ *
+ * Exported for the same reason: the race check is a rule, and a rule nobody can exercise is a
+ * comment. Compared on the raw start token rather than a derived Date so no arithmetic can drift.
+ */
+export function observationsAgree(
+  a: Pick<ListenerIdentity, "pid" | "identityToken"> | null,
+  b: Pick<ListenerIdentity, "pid" | "identityToken"> | null,
+): boolean {
+  if (a === null || b === null) return false;
+  return a.pid === b.pid && a.identityToken === b.identityToken;
+}
+
 function quiet(cmd: string, args: string[]): string | null {
   try {
     return execFileSync(cmd, args, {
@@ -63,12 +97,29 @@ function quiet(cmd: string, args: string[]): string | null {
 /* ------------------------------------------------------------------ Windows */
 
 function discoverWindows(port: number): ListenerIdentity | null {
+  // ALL listening rows for the port, not the first one. `Select-Object -First 1` stood here and
+  // review was right to call it a same-mechanism soundness defect: Linux already refused an
+  // ambiguous owner while Windows silently took whichever row the OS happened to return. Row order
+  // is not authority.
+  //
   // The port is validated by the caller and interpolated as a bare integer; nothing from the URL
   // reaches the shell as text.
+  const ownersScript =
+    `$rows = @(Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue); ` +
+    `if ($rows.Count -eq 0) { exit 0 }; ` +
+    `[Console]::Out.Write((@($rows | Select-Object -ExpandProperty OwningProcess) -join ","))`;
+  const ownersOut = quiet("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    ownersScript,
+  ]);
+  if (!ownersOut) return null;
+  const owner = selectSoleOwner(ownersOut.split(",").map((x) => Number(x.trim())));
+  if (owner === null) return null;
+
   const script =
-    `$c = Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
-    `if (-not $c) { exit 0 }; ` +
-    `$p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $c.OwningProcess) -ErrorAction SilentlyContinue; ` +
+    `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${owner}" -ErrorAction SilentlyContinue; ` +
     `if (-not $p) { exit 0 }; ` +
     `[Console]::Out.Write(($p | Select-Object ProcessId,ExecutablePath,CommandLine,CreationDate | ConvertTo-Json -Compress))`;
   const out = quiet("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
@@ -80,7 +131,7 @@ function discoverWindows(port: number): ListenerIdentity | null {
       CommandLine: string | null;
       CreationDate: string | null;
     };
-    if (typeof j.ProcessId !== "number") return null;
+    if (typeof j.ProcessId !== "number" || j.ProcessId !== owner) return null;
     // PowerShell renders CIM datetimes as `/Date(1234567890123)/` under ConvertTo-Json.
     const epoch = j.CreationDate ? /\/Date\((\d+)\)\//.exec(j.CreationDate)?.[1] : undefined;
     return {
@@ -224,11 +275,10 @@ function discoverLinux(port: number): ListenerIdentity | null {
   const inodes = listeningInodes(port);
   if (inodes.length === 0) return null;
 
-  const owners = pidsHoldingInodes(new Set(inodes));
-  // Zero owners: the socket exists but no readable process holds it — another user, or it closed
-  // mid-scan. More than one: genuinely ambiguous. Both fail closed.
-  if (owners.size !== 1) return null;
-  const pid = [...owners][0];
+  // The same uniqueness rule Windows now uses. Zero owners means the socket exists but no readable
+  // process holds it — another user, or it closed mid-scan. More than one is genuinely ambiguous.
+  const pid = selectSoleOwner([...pidsHoldingInodes(new Set(inodes))]);
+  if (pid === null) return null;
 
   const start = processStart(pid);
   if (start === null) return null;
@@ -272,6 +322,6 @@ export function discoverListener(port: number): ListenerIdentity | null {
   if (first === null) return null;
   const second = discover(port);
   if (second === null) return null;
-  if (first.pid !== second.pid || first.identityToken !== second.identityToken) return null;
+  if (!observationsAgree(first, second)) return null;
   return first;
 }

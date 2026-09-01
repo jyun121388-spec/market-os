@@ -13,9 +13,16 @@
  * that had not been built yet, and the run was reported as evidence about the current tree. Being
  * able to start a known-fresh server on a free port removes the collision instead of relying on
  * whoever is running this to remember (`SR-02` in the Evolution ledger).
+ *
+ * That override is a convenience and was never a check. `scripts/e2e-tree-binding.ts` now runs
+ * first and states, in the output, whether the process answering on this URL can be tied to this
+ * tree at all — BOUND, STALE, or UNPROVEN. It does not claim more than it can establish, and the
+ * UNPROVEN wording says outright that such a run is not evidence about the tree, so a green result
+ * cannot be quoted as if it were.
  */
 import { chromium } from "playwright";
 import { prisma } from "../src/server/db/client";
+import { checkTreeBinding, formatBinding } from "./e2e-tree-binding";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const TEST_EMAIL = "e2e-walkthrough@example.com";
@@ -46,6 +53,20 @@ async function cleanupTestUser() {
 }
 
 async function main() {
+  // SR-02, before anything else runs. A green walkthrough says nothing about this tree unless the
+  // process answering on BASE_URL can be tied to it, and until now nothing checked. The verdict is
+  // printed whatever it says; `E2E_REQUIRE_TREE_BINDING=1` turns anything short of BOUND into a
+  // refusal, which is what CI should set. Left off by default because the binding is partial and
+  // blocking every local dev run on a signal that cannot prove freshness would be its own lie.
+  const binding = checkTreeBinding(BASE_URL);
+  console.log(formatBinding(binding));
+  console.log("");
+  if (binding.verdict !== "BOUND" && process.env.E2E_REQUIRE_TREE_BINDING === "1") {
+    console.error("REFUSING TO RUN: E2E_REQUIRE_TREE_BINDING=1 and the tree binding is not BOUND.");
+    process.exitCode = 1;
+    return;
+  }
+
   await cleanupTestUser();
 
   // The browser binary location is environment-specific: the cloud dev sandbox ships a

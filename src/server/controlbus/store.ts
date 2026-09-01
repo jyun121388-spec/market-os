@@ -120,9 +120,32 @@ export function commitCycle(
   writeAtomic(paths.state, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-export function appendOutbox(paths: StorePaths, line: object): void {
+/**
+ * The outbound APPEND-ONLY LOG. Advisory, never the authority.
+ *
+ * It was called `appendOutbox`, had no callers at all, and wrote a file no reader consulted while
+ * `health()` and the triage's open-id authority both read `state.outbox` — two independently
+ * mutable records of the same thing, one of them dead (IR-115). Renamed so the role is unmistakable
+ * and given exactly one caller: `outbound.ts` writes this first and the state array second, in that
+ * order, so a crash between them costs a re-read rather than a claim that outran its evidence.
+ *
+ * Do not call it alone. Writing the log without the state reintroduces the split.
+ */
+export function appendOutboxLog(paths: StorePaths, line: object): void {
   ensureRuntimeDir(paths);
   appendFileSync(paths.outbox, `${JSON.stringify(line)}\n`, "utf8");
+}
+
+/**
+ * The authority write, atomic, for callers outside a poll cycle.
+ *
+ * `commitCycle` stays the watcher's path and orders inbox-then-cursor. This is the same atomic
+ * rename for the outbound side, so state reaches disk one way rather than through an ad-hoc
+ * `writeFileSync` that can leave a truncated document.
+ */
+export function writeState(paths: StorePaths, state: object): void {
+  ensureRuntimeDir(paths);
+  writeAtomic(paths.state, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 /** Bounded log. Rotation by truncation, because an unbounded log on a 45-second poll is a leak. */

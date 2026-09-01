@@ -1939,3 +1939,50 @@ a transport change and deserves its own unit; this session posts through `gh` by
 by hand, which satisfies the invariant without satisfying the record.
 
 Twelve mutations, 12/12 ISOLATED.
+
+### IR-115 closed — the producer now exists, and it is the only one
+
+`[CHATGPT_VERIFIED][MARKET-INBOX-TRIAGE-OPEN-ID-20260901]` `REWORK_REQUIRED` asked for the repair
+rather than the disclosure. Done in `src/server/controlbus/outbound.ts`, plus the schema and the
+shared predicate in `state.ts`.
+
+**One canonical record.** `state.outbox` is the authority — it is what `health()` and the triage
+read. `outbox.jsonl` is an append-only advisory log, renamed `appendOutboxLog` so the role cannot be
+misread, and it has exactly one caller. Both are written by one function, log first and state
+second, mirroring `commitCycle`: never let the authority get ahead of the record.
+
+**One predicate.** `isTransmitted(entry, {repository, issueNumber})` binds repository, issue, a
+positive-integer comment id, and a body digest recomputed from the entry's own body on every read.
+A proof cannot be carried to different content, a different issue, or another repository. `health()`
+and `controlBusStanding` both call it; there is no second copy to be the weaker one.
+
+**The order is the argument.**
+
+    compose -> (adopt | post) -> read back -> verify -> commit log -> commit state
+
+Crash windows, each answered rather than hoped about: after compose, nothing durable; after POST,
+nothing durable and a comment now exists remotely, so replay calls `find` FIRST and ADOPTS it rather
+than posting twice; after read-back before commit, the same; after log before state, the authority
+reads as not-yet-open; after commit, a repeat short-circuits on `ALREADY_PROVEN`. Without adoption
+the only crash-safe choices are a duplicate comment or a lost proof.
+
+**Serialisation.** The watcher owns `state.json`. Rather than invent a second lock protocol this
+REFUSES while a live watcher holds the existing lock, and writes nothing at all when it does.
+
+The three tests that had codified the weaker rule went red first, as they were built to. So did the
+IR-115 disclosure controls — they were written to fail the day a producer appeared, and that is
+exactly when they failed. They now pin the other side: exactly ONE caller of the log, exactly ONE
+writer of a proof, and no trace of the bare-comment-id marker they replaced.
+
+Three mutation suites, all ISOLATED: outbound 7/7, inbox-triage 14/14, stop-evidence 6/6. Two
+outbound cardinalities were higher than predicted (3 not 2, 2 not 1) because the happy path asserts
+EXACT transport call counts — counting the calls caught more than checking the outcome.
+
+The harness REFUSED to run three triage mutants whose anchors had drifted, which is the harness
+working. They were realigned, not loosened; two were retired with reasons — the helper one mutated
+no longer exists, and the disclosure one protected a sentence that had become false.
+
+Not done: nothing was posted through this path yet. The live outbox is still empty, so the eleven
+backlog entries remain `NOT_ACTIONABLE (STANDING_UNVERIFIABLE / STALE_REFRESH_REQUIRED)`. The
+difference is that an empty outbox now means nothing has been transmitted, rather than that nothing
+could be.

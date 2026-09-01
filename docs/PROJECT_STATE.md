@@ -820,11 +820,18 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2600 / 2600 PASS across 145 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2581 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2610 / 2610 PASS across 146 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2591 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb.
 
-MEASURED 2026-09-01 on `claude/ask-guardrail-architecture-20260823` at `ccff24d` plus the open-id
+MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `cbe01b9` plus the IR-115
+repair committed on top of it. `src/server/controlbus/outbound.ts` is the producer that was missing:
+compose, adopt-or-post, READ BACK, verify the binding, then commit the log and the state in that
+order. `isTransmitted` in `state.ts` is now the one predicate `health()` and the triage both use,
+binding repository, issue, comment id and a body digest. Three mutation suites all ISOLATED:
+outbound 7/7, inbox-triage 14/14, stop-evidence 6/6.
+
+Previously at `ccff24d` plus the open-id
 correction committed on top of it. `scripts/inbox-triage.ts` mechanises the check `CLAUDE.md` states
 and nothing enforced, read-only, and it now answers BOTH questions the rule names: commit staleness
 and whether the protocol id is open. The earlier `11 STALE_REFRESH_REQUIRED` was over-claiming —

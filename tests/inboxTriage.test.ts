@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
+import { bodyDigest } from "@/server/controlbus/state";
 import {
   controlBusStanding,
   foreignRepositories,
@@ -233,7 +234,22 @@ describe("reading open standing out of the control-bus state", () => {
   it("counts an escalation READ BACK from the remote issue as what makes an id open", () => {
     const a = controlBusStanding({
       inbox: [],
-      outbox: [{ protocolId: "ESC-2", kind: "ESCALATION", transmittedCommentId: 5495740285 }],
+      issueNumber: 2,
+      outbox: [
+        {
+          protocolId: "ESC-2",
+          kind: "ESCALATION",
+          body: "ask",
+          composedAt: "2026-09-01T00:00:00Z",
+          transmission: {
+            repository: THIS_REPOSITORY,
+            issueNumber: 2,
+            commentId: 5495740285,
+            bodyDigest: bodyDigest("ask"),
+            readBackAt: "2026-09-01T00:00:01Z",
+          },
+        },
+      ],
     });
     expect(a.standing("ESC-2")).toBe("OPEN");
   });
@@ -297,13 +313,30 @@ describe("whether an escalation was ever actually sent", () => {
     head: () => HEAD,
   };
 
-  const escalated = (transmittedCommentId?: unknown) =>
+  const BODY = "the escalation body";
+
+  /** A proof for BODY, with any single field bent out of shape. */
+  const proof = (over: Record<string, unknown> = {}) => ({
+    repository: THIS_REPOSITORY,
+    issueNumber: 2,
+    commentId: 5495740285,
+    bodyDigest: bodyDigest(BODY),
+    readBackAt: "2026-09-01T00:00:01Z",
+    ...over,
+  });
+
+  const escalated = (transmission?: Record<string, unknown>) =>
     controlBusStanding({
+      issueNumber: 2,
       inbox: [],
       outbox: [
-        transmittedCommentId === undefined
-          ? { protocolId: "ESC-T", kind: "ESCALATION" }
-          : { protocolId: "ESC-T", kind: "ESCALATION", transmittedCommentId },
+        {
+          protocolId: "ESC-T",
+          kind: "ESCALATION",
+          body: BODY,
+          composedAt: "2026-09-01T00:00:00Z",
+          ...(transmission ? { transmission } : {}),
+        } as never,
       ],
     });
 
@@ -327,26 +360,64 @@ describe("whether an escalation was ever actually sent", () => {
   });
 
   it("accepts one that was read back, and then lets the anchor decide", () => {
-    expect(at(HEAD, escalated(5495740285)).standing).toBe("OPEN");
-    expect(at(HEAD, escalated(5495740285)).disposition).toBe("RUNNABLE");
+    expect(at(HEAD, escalated(proof())).standing).toBe("OPEN");
+    expect(at(HEAD, escalated(proof())).disposition).toBe("RUNNABLE");
     // The two axes stay independent: same standing, older anchor, different disposition.
-    expect(at(OLD, escalated(5495740285)).disposition).toBe("REFRESH_REQUIRED");
+    expect(at(OLD, escalated(proof())).disposition).toBe("REFRESH_REQUIRED");
   });
 
-  it("does not accept a malformed transmission id as a read-back", () => {
-    // `health()` in state.ts tests only for `undefined`. These are the shapes that slip past that
-    // and are still not evidence of anything: a comment id is a positive integer.
-    for (const bad of [0, -1, 1.5, "5495740285", null, true, {}, NaN]) {
-      expect(escalated(bad).standing("ESC-T"), `${String(bad)} is not a read-back`).toBe(
-        "STANDING_UNVERIFIABLE",
-      );
+  it("does not accept a malformed comment id as a read-back", () => {
+    for (const commentId of [0, -1, 1.5, "5495740285", null, true, {}, NaN]) {
+      expect(
+        escalated(proof({ commentId })).standing("ESC-T"),
+        `${String(commentId)} is not a comment id`,
+      ).toBe("STANDING_UNVERIFIABLE");
     }
+  });
+
+  it("does not accept a proof bound to another repository, issue or body", () => {
+    // Each field of the binding, bent one at a time. A bare comment id could be attached to any of
+    // these and the previous rule would have taken it.
+    expect(escalated(proof({ repository: "someone/else" })).standing("ESC-T")).toBe(
+      "STANDING_UNVERIFIABLE",
+    );
+    expect(escalated(proof({ issueNumber: 3 })).standing("ESC-T")).toBe("STANDING_UNVERIFIABLE");
+    expect(escalated(proof({ bodyDigest: bodyDigest("a different body") })).standing("ESC-T")).toBe(
+      "STANDING_UNVERIFIABLE",
+    );
+    // And the intact proof still passes, so the controls above are not all failing for one reason.
+    expect(escalated(proof()).standing("ESC-T")).toBe("OPEN");
+  });
+
+  it("refuses every proof when the state names no canonical issue", () => {
+    const noIssue = controlBusStanding({
+      inbox: [],
+      outbox: [
+        {
+          protocolId: "ESC-T",
+          kind: "ESCALATION",
+          body: BODY,
+          composedAt: "2026-09-01T00:00:00Z",
+          transmission: proof(),
+        } as never,
+      ],
+    });
+    expect(noIssue.standing("ESC-T")).toBe("STANDING_UNVERIFIABLE");
   });
 
   it("still lets a judged id beat a transmitted escalation", () => {
     const a = controlBusStanding({
+      issueNumber: 2,
       inbox: [{ protocolId: "ESC-T", status: "REJECTED" }],
-      outbox: [{ protocolId: "ESC-T", kind: "ESCALATION", transmittedCommentId: 99 }],
+      outbox: [
+        {
+          protocolId: "ESC-T",
+          kind: "ESCALATION",
+          body: BODY,
+          composedAt: "x",
+          transmission: proof(),
+        } as never,
+      ],
     });
     expect(a.standing("ESC-T")).toBe("ALREADY_JUDGED");
   });
@@ -356,8 +427,15 @@ describe("whether an escalation was ever actually sent", () => {
     // required to make something ACTIONABLE, never to stop it being so.
     const a = controlBusStanding({
       inbox: [],
+      issueNumber: 2,
       outbox: [
-        { protocolId: "ESC-T", kind: "ESCALATION", transmittedCommentId: 99 },
+        {
+          protocolId: "ESC-T",
+          kind: "ESCALATION",
+          body: BODY,
+          composedAt: "x",
+          transmission: proof(),
+        } as never,
         { protocolId: "ESC-T", kind: "CLAUDE_APPLIED" },
       ],
     });
@@ -367,9 +445,16 @@ describe("whether an escalation was ever actually sent", () => {
   it("reports how many escalations were composed but never confirmed", () => {
     const a = controlBusStanding({
       inbox: [],
+      issueNumber: 2,
       outbox: [
         { protocolId: "ESC-A", kind: "ESCALATION" },
-        { protocolId: "ESC-B", kind: "ESCALATION", transmittedCommentId: 7 },
+        {
+          protocolId: "ESC-B",
+          kind: "ESCALATION",
+          body: BODY,
+          composedAt: "x",
+          transmission: proof(),
+        } as never,
       ],
     });
     expect(a.source()).toContain("1 escalation(s) read back");
@@ -378,71 +463,70 @@ describe("whether an escalation was ever actually sent", () => {
 });
 
 /**
- * IR-115 — THE AUTHORITY ASKS FOR EVIDENCE NOTHING PRODUCES.
+ * IR-115, NOW CLOSED — and these controls are what noticed.
  *
- * Found by reading my own repair rather than by review. `OPEN` now requires a
- * `transmittedCommentId`, which is the right rule; but `appendOutbox` in `store.ts` has no callers
- * anywhere, and no production code writes `transmittedCommentId` at all — only test fixtures do. So
- * `controlBusStanding` cannot return `OPEN` in production however issue #2 actually behaves.
+ * The previous version of this block asserted that NOTHING wrote the evidence `OPEN` requires:
+ * `appendOutbox` had no callers, no production code set a transmission marker, and so
+ * `controlBusStanding` could be green in tests and structurally unable to say `OPEN` in real
+ * operation. Those controls were written to FAIL the day a producer appeared, rather than to lock
+ * the gap in place, and that is exactly what they did — they were the first thing to go red when
+ * `src/server/controlbus/outbound.ts` landed.
  *
- * That is the `servesLocalBuild` shape again — a branch no real input can reach, with a green suite
- * over it — and this time I introduced it while fixing a review finding.
- *
- * These controls do NOT lock the gap in place. They pin the DISCLOSURE: the day a production writer
- * appears, they fail and say to come back here, because the honest wording changes at that moment.
+ * They now pin the other side of the same property: there must be exactly ONE producer. Two
+ * writers of the same durable record is the split IR-115 was about, arriving from the other end.
  */
-describe("IR-115: whether anything can actually supply the evidence OPEN requires", () => {
+describe("IR-115: exactly one producer of transmission evidence", () => {
   const productionSources = () => {
     const dirs = ["src/server/controlbus", "scripts", "src/server/escalation"];
     const files = dirs.flatMap((dir) =>
       readdirSync(dir)
-        .filter((name) => name.endsWith(".ts") && name !== "inbox-triage.ts")
+        .filter((name) => name.endsWith(".ts"))
         .map((name) => `${dir}/${name}`),
     );
-    // The scan has to be looking at something. An empty list would make both controls below pass
+    // The scan has to be looking at something. An empty list would make every control below pass
     // by finding nothing, which is the vacuous green this project keeps paying for.
     expect(files.length).toBeGreaterThan(10);
-    return files.map((f) => ({ file: f, text: readFileSync(f, "utf8") }));
+    return files.map((file) => ({ file, text: readFileSync(file, "utf8") }));
   };
 
-  it("finds no production caller of appendOutbox, and says so if one appears", () => {
-    const callers = productionSources().filter(
-      ({ file, text }) => !file.endsWith("store.ts") && /\bappendOutbox\s*\(/.test(text),
-    );
+  it("has one caller of the append-only outbox log, and it is the committer", () => {
+    const callers = productionSources()
+      .filter(
+        ({ file, text }) =>
+          !file.endsWith("store.ts") && text.includes("appendOutboxLog("),
+      )
+      .map((c) => c.file);
     expect(
-      callers.map((c) => c.file),
-      "appendOutbox now has a caller — the outbox may be a real record. Re-read IR-115, and update " +
-        "controlBusStanding's disclosure and this control together.",
-    ).toEqual([]);
+      callers,
+      "the outbox log must have exactly one caller. A second one writes the record without the " +
+        "state array beside it, which is the two-independently-mutable-sources split of IR-115.",
+    ).toEqual(["src/server/controlbus/outbound.ts"]);
   });
 
-  it("finds no production writer of transmittedCommentId, and says so if one appears", () => {
-    // Assignment or object-literal shorthand. A mere mention is not a write, and `state.ts` reads
-    // it in `health()`, so matching the identifier alone would fail for the wrong reason.
-    const writers = productionSources().filter(({ text }) =>
-      /transmittedCommentId\s*[:=]\s*[^=]/.test(text),
-    );
+  it("has one writer of a transmission proof, and it is the same file", () => {
+    const writers = productionSources()
+      .filter(({ text }) => text.includes("transmission: {"))
+      .map((w) => w.file);
     expect(
-      writers.map((w) => w.file),
-      "something now writes transmittedCommentId — OPEN may be reachable. Re-read IR-115 and " +
-        "update the disclosure with it.",
-    ).toEqual([]);
+      writers,
+      "a transmission proof may only be assembled where the read-back happens.",
+    ).toEqual(["src/server/controlbus/outbound.ts"]);
   });
 
-  it("says an empty outbox is silence rather than evidence", () => {
-    // The live wording, so the disclosure cannot quietly fall out of the output.
-    expect(controlBusStanding({ inbox: [], outbox: [] }).source()).toContain("IR-115");
-    expect(controlBusStanding({ inbox: [], outbox: [] }).source()).toContain("silence");
+  it("has no trace of the weaker marker it replaced", () => {
+    // `transmittedCommentId` was a bare id: attachable to the wrong body, issue or repository. A
+    // leftover would be a second, weaker marker sitting beside the real one.
+    const leftovers = productionSources()
+      .filter(({ text }) => text.includes("transmittedCommentId"))
+      .map((l) => l.file);
+    expect(leftovers).toEqual([]);
   });
 
-  it("drops the disclosure as soon as the outbox holds anything at all", () => {
-    // Including a queued entry: once something writes the record, an empty outbox stops being
-    // ambiguous and the sentence would be false.
-    const withQueued = controlBusStanding({
-      inbox: [],
-      outbox: [{ protocolId: "ESC-Q", kind: "ESCALATION" }],
-    });
-    expect(withQueued.source()).not.toContain("IR-115");
-    expect(withQueued.standing("ESC-Q")).toBe("STANDING_UNVERIFIABLE");
+  it("no longer reports an empty outbox as unrecordable silence", () => {
+    // The disclosure was true and is not any more; it must not linger as a stale reassurance in the
+    // other direction.
+    const source = controlBusStanding({ issueNumber: 2, inbox: [], outbox: [] }).source();
+    expect(source).not.toContain("IR-115");
+    expect(source).toContain("0 escalation(s) read back");
   });
 });

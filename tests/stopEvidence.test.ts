@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { evaluateStopSentinel, scheduleNextWork } from "@/server/evolution/scheduler";
 import { gatherStopEvidence, HEARTBEAT_STALE_MS } from "../scripts/stop-evidence";
 import { type GitOracle, triageInbox } from "../scripts/inbox-triage";
+import { bodyDigest, CONTROL_BUS_REPOSITORY } from "@/server/controlbus/state";
 
 /**
  * `evaluateStopSentinel()` is named by `CLAUDE.md` as the only normal completion sentinel. It was
@@ -59,6 +60,27 @@ describe("gathering evidence for the stop sentinel", () => {
       "utf8",
     );
 
+  /**
+   * A transmitted escalation, with the full binding rather than a bare comment id.
+   *
+   * The fixtures used to carry `transmittedCommentId` alone. That marker was replaced because an id
+   * can be attached to the wrong body, issue or repository, and these fixtures went red the moment
+   * it was — which is what they are for.
+   */
+  const sent = (protocolId: string, commentId: number) => ({
+    protocolId,
+    kind: "ESCALATION",
+    body: `escalation ${protocolId}`,
+    composedAt: "2026-08-21T00:00:00.000Z",
+    transmission: {
+      repository: CONTROL_BUS_REPOSITORY,
+      issueNumber: 2,
+      commentId,
+      bodyDigest: bodyDigest(`escalation ${protocolId}`),
+      readBackAt: "2026-08-21T00:00:01.000Z",
+    },
+  });
+
   const gather = (root: string, now?: number) =>
     gatherStopEvidence(root, now, HEARTBEAT_STALE_MS, git);
 
@@ -90,11 +112,7 @@ describe("gathering evidence for the stop sentinel", () => {
           row("C", `head \`${HEAD}\``),
           row("D", `head \`${HEAD}\``),
         ],
-        [
-          { protocolId: "A", kind: "ESCALATION", transmittedCommentId: 11 },
-          { protocolId: "C", kind: "ESCALATION", transmittedCommentId: 12 },
-          { protocolId: "C", kind: "CLAUDE_APPLIED" },
-        ],
+        [sent("A", 11), sent("C", 12), { protocolId: "C", kind: "CLAUDE_APPLIED" }],
       );
       const evidence = gather(root);
       expect(evidence.supplied.receivedDecisions).toBe(1);
@@ -115,10 +133,7 @@ describe("gathering evidence for the stop sentinel", () => {
       writeState(
         root,
         [row("A", `head \`${HEAD}\``), row("B", "head \`aaaaaaa\`"), row("C")],
-        [
-          { protocolId: "A", kind: "ESCALATION", transmittedCommentId: 11 },
-          { protocolId: "B", kind: "ESCALATION", transmittedCommentId: 12 },
-        ],
+        [sent("A", 11), sent("B", 12)],
       );
       const rows = triageInbox(root, git)!;
       const actionable = rows.filter((r) => r.disposition !== "NOT_ACTIONABLE").length;
@@ -136,11 +151,7 @@ describe("gathering evidence for the stop sentinel", () => {
       expect(gather(root).supplied.receivedDecisions).toBe(0);
 
       // Same fixture, one field added. If the count did not move, this control proves nothing.
-      writeState(
-        root,
-        [row("A", `head \`${HEAD}\``)],
-        [{ protocolId: "A", kind: "ESCALATION", transmittedCommentId: 11 }],
-      );
+      writeState(root, [row("A", `head \`${HEAD}\``)], [sent("A", 11)]);
       expect(gather(root).supplied.receivedDecisions).toBe(1);
     });
   });

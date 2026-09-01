@@ -39,6 +39,11 @@
  */
 
 import { execFileSync } from "node:child_process";
+import {
+  CONTROL_BUS_REPOSITORY,
+  isTransmitted,
+  type OutboxEntry,
+} from "../src/server/controlbus/state";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -107,19 +112,6 @@ export const NO_ID_AUTHORITY: OpenIdAuthority = {
 const TERMINAL_STATUSES = new Set(["VALIDATED", "APPLIED", "REJECTED"]);
 
 /**
- * Was this outbox entry PROVEN to exist remotely?
- *
- * `OutboxEntry.transmittedCommentId` is the canonical marker and its own doc comment is explicit:
- * "Set once a read-back proves the comment exists remotely. Never set on a successful POST."
- * `state.ts`'s `health()` uses `transmittedCommentId === undefined` as its untransmitted test; this
- * is the same rule and slightly stronger, because a malformed id is not read-back evidence either.
- */
-function transmitted(entry: { transmittedCommentId?: unknown }): boolean {
-  const id = entry.transmittedCommentId;
-  return typeof id === "number" && Number.isInteger(id) && id > 0;
-}
-
-/**
  * The canonical authority: the control-bus state's own inbox statuses and outbox postings.
  *
  * Judged beats open, deliberately. A historical id must not re-enter through a stale inbox row, so
@@ -132,7 +124,7 @@ function transmitted(entry: { transmittedCommentId?: unknown }): boolean {
  * ## AND NEITHER IS A QUEUED ESCALATION, WHICH IS WHERE THIS WAS STILL WRONG
  *
  * The first version accepted any outbox `ESCALATION` as proof of an open question. It is not. An
- * outbox row is composed locally; `transmittedCommentId` is set only after a READ-BACK proves the
+ * outbox row is composed locally; a transmission proof is written only after a READ-BACK proves the
  * comment exists remotely, and never on a successful POST. So a queued, failed or never-sent
  * escalation granted OPEN standing and promoted an incoming decision to `RUNNABLE`. Reproduced
  * against the committed implementation before repairing:
@@ -151,9 +143,15 @@ function transmitted(entry: { transmittedCommentId?: unknown }): boolean {
  * same rule — never let unproven evidence make something actionable — applied to both.
  */
 export function controlBusStanding(state: {
+  issueNumber?: number;
   inbox?: { protocolId: string; status: string }[];
-  outbox?: { protocolId: string; kind: string; transmittedCommentId?: unknown }[];
+  outbox?: (Partial<OutboxEntry> & { protocolId: string; kind: string })[];
 }): OpenIdAuthority {
+  // No canonical issue in the state means no binding target, so nothing can be proven against it.
+  const expect =
+    typeof state.issueNumber === "number"
+      ? { repository: CONTROL_BUS_REPOSITORY, issueNumber: state.issueNumber }
+      : null;
   const judged = new Set<string>();
   const asked = new Set<string>();
   let queued = 0;
@@ -163,20 +161,20 @@ export function controlBusStanding(state: {
   for (const entry of state.outbox ?? []) {
     if (entry.kind === "CLAUDE_APPLIED") judged.add(entry.protocolId);
     else if (entry.kind === "ESCALATION") {
-      if (transmitted(entry)) asked.add(entry.protocolId);
+      // `isTransmitted` is the SHARED predicate, the same one `health()` uses. The local copy this
+      // replaced checked only the comment id, so a proof could have been attached to a different
+      // body, a different issue, or another repository entirely.
+      if (expect !== null && isTransmitted(entry as OutboxEntry, expect))
+        asked.add(entry.protocolId);
       else queued += 1;
     }
   }
   return {
     source: () =>
       `control-bus state: ${judged.size} judged id(s), ${asked.size} escalation(s) read back from ` +
-      `the remote issue, ${queued} composed but never confirmed` +
-      // An empty outbox is ambiguous and the ambiguity matters: it means either "this repository
-      // has never posted" or "nothing records what it posts". On this repository it is the second,
-      // and saying so is the difference between a record and a silence. See IR-115.
-      (asked.size + queued === 0
-        ? " — and no production code writes that record (IR-115), so an empty outbox is silence rather than evidence"
-        : ""),
+      // IR-115 is closed: `outbound.ts` is the producer, so an empty outbox now means nothing has
+      // been transmitted-and-committed yet, which is a fact rather than the silence it used to be.
+      `the remote issue, ${queued} composed but never confirmed`,
     standing: (protocolId) => {
       if (judged.has(protocolId)) return "ALREADY_JUDGED";
       if (asked.has(protocolId)) return "OPEN";
@@ -199,7 +197,13 @@ export function disposition(anchor: AnchorVerdict, standing: IdStanding): Dispos
   return "NOT_ACTIONABLE";
 }
 
-export const THIS_REPOSITORY = "jyun121388-spec/market-os";
+/**
+ * One repository constant, imported rather than repeated.
+ *
+ * This file used to declare its own copy of the slug while `state.ts` had another. Same value, two
+ * places, and the two were consulted by different halves of the same decision.
+ */
+export const THIS_REPOSITORY = CONTROL_BUS_REPOSITORY;
 
 /**
  * `owner/repo`, but ONLY where something in the text makes it a repository coordinate.
@@ -368,6 +372,7 @@ export function triageInbox(
   const statePath = join(root, "state.json");
   if (!existsSync(statePath)) return null;
   const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+    issueNumber?: number;
     inbox: {
       protocolId: string;
       receivedAt: string;
@@ -375,7 +380,7 @@ export function triageInbox(
       body: string;
       status: string;
     }[];
-    outbox?: { protocolId: string; kind: string }[];
+    outbox?: (Partial<OutboxEntry> & { protocolId: string; kind: string })[];
   };
   const authority = ids ?? controlBusStanding(state);
   return state.inbox

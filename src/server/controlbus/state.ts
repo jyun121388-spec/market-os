@@ -21,6 +21,7 @@
  * cannot promote itself past it.
  */
 
+import { createHash } from "node:crypto";
 import type { ProtocolMessage, RemoteComment } from "../escalation/transport";
 import { parseProtocolMessage } from "../escalation/transport";
 
@@ -75,13 +76,78 @@ export interface InboxEntry {
   note?: string;
 }
 
+/**
+ * Proof that an exact composed body exists on an exact remote comment.
+ *
+ * A bare comment id was the previous marker and it is not enough: an id can be attached to the
+ * wrong payload, by a bug, a replay, or an edit after the fact. Every field here is part of the
+ * binding, and `bodyDigest` is the part that makes the proof self-checking — it is recomputed from
+ * the entry's own `body` on every read, so a proof cannot be carried over to different content.
+ */
+export interface TransmissionProof {
+  /** `owner/repo`, so a proof from another repository is not a proof here. */
+  repository: string;
+  /** The canonical issue. Issue #2 is the rendezvous; a comment elsewhere proves nothing. */
+  issueNumber: number;
+  /** Assigned by GitHub, never reused. */
+  commentId: number;
+  /** sha256 of the body AS READ BACK. Must still equal the digest of `body`. */
+  bodyDigest: string;
+  readBackAt: string;
+}
+
 export interface OutboxEntry {
   protocolId: string;
   kind: "ESCALATION" | "CLAUDE_APPLIED";
   body: string;
   composedAt: string;
-  /** Set once a read-back proves the comment exists remotely. Never set on a successful POST. */
-  transmittedCommentId?: number;
+  /**
+   * Set only by a verified read-back. Never on a successful POST, and never by hand.
+   *
+   * Absent means COMPOSED, which is not sent. `isTransmitted` is the only thing that may read this
+   * as evidence, and it checks the whole binding rather than the field's presence.
+   */
+  transmission?: TransmissionProof;
+}
+
+/** `owner/repo` for this control bus. One repository, and every proof is bound to it. */
+export const CONTROL_BUS_REPOSITORY = "jyun121388-spec/market-os";
+
+/**
+ * The one digest, used by whoever records a proof and by whoever checks it.
+ *
+ * Two hand-rolled hashes over the same bytes is the split this whole unit is about, one level down.
+ */
+export function bodyDigest(body: string): string {
+  return createHash("sha256").update(body, "utf8").digest("hex");
+}
+
+/**
+ * Was this entry PROVEN to exist remotely, on the right issue, carrying this exact body?
+ *
+ * The single predicate both sides use. `health()` calls it, and so does the triage's open-id
+ * authority — before this existed they were two hand-written rules over the same field, and the
+ * weaker one decided whether an incoming decision could be acted on.
+ *
+ * Every clause is load-bearing and each has its own control:
+ *
+ *   no proof at all      composed, queued, or a POST whose read-back never happened
+ *   wrong repository     a proof from somewhere else is not a proof here
+ *   wrong issue          the rendezvous is one issue, named in the state
+ *   malformed id         a comment id is a positive integer; `0`, `-1`, `1.5` are not evidence
+ *   digest mismatch      the recorded proof does not describe the body this entry carries
+ */
+export function isTransmitted(
+  entry: OutboxEntry,
+  expect: { repository: string; issueNumber: number },
+  digestOf: (body: string) => string = bodyDigest,
+): boolean {
+  const proof = entry.transmission;
+  if (!proof) return false;
+  if (proof.repository.toLowerCase() !== expect.repository.toLowerCase()) return false;
+  if (proof.issueNumber !== expect.issueNumber) return false;
+  if (!Number.isInteger(proof.commentId) || proof.commentId <= 0) return false;
+  return proof.bodyDigest === digestOf(entry.body);
 }
 
 export type TransportState =
@@ -298,7 +364,15 @@ export function health(input: {
   if (pending.length > 3) return "INBOX_BACKLOG";
   if (pending.length > 0) return "DECISION_PENDING";
 
-  const untransmitted = state.outbox.filter((entry) => entry.transmittedCommentId === undefined);
+  // The same predicate the triage's open-id authority uses. Before it existed these were two
+  // hand-written rules over one field, and the weaker one decided whether a decision was actionable.
+  const untransmitted = state.outbox.filter(
+    (entry) =>
+      !isTransmitted(entry, {
+        repository: CONTROL_BUS_REPOSITORY,
+        issueNumber: state.issueNumber,
+      }),
+  );
   if (untransmitted.length > 3) return "OUTBOX_BACKLOG";
   if (!writeAvailable) return untransmitted.length > 0 ? "WRITE_BLOCKED" : "READ_ONLY";
 

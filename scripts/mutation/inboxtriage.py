@@ -59,7 +59,7 @@ BODY AND ANCHORS IDENTICAL and varies only the standing.
                                    non-actionable on its own.
 
   M-TRIAGE-UNKNOWN-IS-OPEN      no canonical record is read as open
-                                -> 3 when first written, 5 NOW MEASURED. The double-driven controls
+                                -> 3 when first written, then 5, now 7 MEASURED. The double-driven controls
                                    are unaffected, which is the point of having both.
 
   M-TRIAGE-JUDGED-IS-OPEN       a judged id re-enters as open
@@ -76,23 +76,43 @@ BODY AND ANCHORS IDENTICAL and varies only the standing.
                                 -> 1 red: the no-authority control.
 
   M-TRIAGE-QUEUED-IS-SENT       a composed escalation counts as a sent one
-                                -> 3 red: the queued control, the malformed-id control, and the
-                                   composed-but-never-confirmed source line. An outbox row is
-                                   written locally; `transmittedCommentId` is set only after a
-                                   read-back, never on a successful POST, and `CLAUDE.md` says so
+                                -> 5 red: queued, malformed-id, the binding control, the
+                                   no-canonical-issue control and the composed-but-never-confirmed
+                                   source line. An outbox row is written locally; a transmission
+                                   proof is written only after a read-back, and `CLAUDE.md` says so
                                    in as many words -- REMOTE_POST_NOT_CONFIRMED =>
                                    CHATGPT_NOT_YET_NOTIFIED. The positive read-back control must
                                    stay GREEN under it.
 
-  M-TRIAGE-ANY-ID-IS-SENT       any truthy transmission field counts as a read-back
-                                -> 1 red: the malformed-id control alone, since a real comment id
-                                   passes either way. That is the narrowest possible catch and the
-                                   reason the malformed shapes are enumerated rather than implied.
+The four M-BIND mutants below live in `state.ts` rather than here, and the reason is the point of
+IR-115's repair: the binding is now ONE shared predicate that `health()` and this authority both
+call. Mutating the consumer's own copy is not possible any more, because there is no copy. Each
+holds everything else constant and bends exactly one clause of the binding.
 
-  M-TRIAGE-SILENT-EMPTY-OUTBOX  drop the IR-115 disclosure from the reported source
-                                -> 1 red: the silence-not-evidence control. An empty outbox is
-                                   ambiguous — either nothing was ever posted, or nothing records
-                                   what is posted — and on this repository it is the second.
+  M-BIND-NO-REPOSITORY          a proof from another repository is accepted
+                                -> 1 red: the binding control, repository case.
+
+  M-BIND-NO-ISSUE               a proof from another issue is accepted
+                                -> 1 red: the binding control, issue case.
+
+  M-BIND-NO-DIGEST              a proof is accepted without describing this body
+                                -> 1 red: the binding control, digest case. This is the clause that
+                                   makes a proof self-checking, and the reason a bare comment id
+                                   was rejected as evidence.
+
+  M-BIND-ANY-COMMENT-ID         a malformed comment id counts as a read-back
+                                -> 1 red: the malformed-id control.
+
+RETIRED, with reasons rather than deletion:
+
+  M-TRIAGE-ANY-ID-IS-SENT       the local `transmitted()` helper it mutated no longer exists; the
+                                four M-BIND mutants cover the same property at the shared predicate
+                                and cover more of it.
+
+  M-TRIAGE-SILENT-EMPTY-OUTBOX  the IR-115 disclosure it protected was TRUE and is not any more —
+                                `outbound.ts` is now the producer, so an empty outbox means nothing
+                                has been transmitted yet rather than that nothing can be. Keeping
+                                the mutant would have pinned a sentence that had become false.
 
     python scripts/mutation/inboxtriage.py
 """
@@ -105,6 +125,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import harness
 
 TRIAGE = "scripts/inbox-triage.ts"
+# The open-id binding moved into the shared predicate, so the mutants that bind it live here
+# too. Mutating the consumer's own copy would have been mutating a copy that no longer exists.
+STATE = "src/server/controlbus/state.ts"
 TEST = "tests/inboxTriage.test.ts"
 
 BINDING_TESTS = [TEST]
@@ -170,23 +193,32 @@ MUTATIONS = [
     (
         "M-TRIAGE-QUEUED-IS-SENT an escalation that was never read back counts as open",
         TRIAGE,
-        "      if (transmitted(entry)) asked.add(entry.protocolId);\n      else queued += 1;",
+        "      if (expect !== null && isTransmitted(entry as OutboxEntry, expect))\n        asked.add(entry.protocolId);\n      else queued += 1;",
         "      asked.add(entry.protocolId);",
     ),
     (
-        "M-TRIAGE-ANY-ID-IS-SENT any truthy transmission field counts as a read-back",
-        TRIAGE,
-        "  return typeof id === \"number\" && Number.isInteger(id) && id > 0;",
-        "  return Boolean(id);",
+        "M-BIND-NO-REPOSITORY a proof from another repository is accepted",
+        STATE,
+        "  if (proof.repository.toLowerCase() !== expect.repository.toLowerCase()) return false;\n",
+        "",
     ),
     (
-        "M-TRIAGE-SILENT-EMPTY-OUTBOX an empty outbox is reported without its disclosure",
-        TRIAGE,
-        '      (asked.size + queued === 0\n'
-        '        ? " — and no production code writes that record (IR-115), so an empty outbox '
-        'is silence rather than evidence"\n'
-        '        : ""),',
-        '      "",',
+        "M-BIND-NO-ISSUE a proof from another issue is accepted",
+        STATE,
+        "  if (proof.issueNumber !== expect.issueNumber) return false;\n",
+        "",
+    ),
+    (
+        "M-BIND-NO-DIGEST a proof is accepted without describing this body",
+        STATE,
+        "  return proof.bodyDigest === digestOf(entry.body);",
+        "  return true;",
+    ),
+    (
+        "M-BIND-ANY-COMMENT-ID a malformed comment id counts as a read-back",
+        STATE,
+        "  if (!Number.isInteger(proof.commentId) || proof.commentId <= 0) return false;\n",
+        "",
     ),
     (
         "M-TRIAGE-BARE-SLUG any slash-separated pair counts as a repository",
@@ -198,4 +230,4 @@ MUTATIONS = [
     ),
 ]
 
-sys.exit(harness([TRIAGE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=900))
+sys.exit(harness([TRIAGE, STATE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=900))

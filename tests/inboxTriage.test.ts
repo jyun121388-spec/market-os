@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
 import {
   controlBusStanding,
   foreignRepositories,
@@ -373,5 +374,75 @@ describe("whether an escalation was ever actually sent", () => {
     });
     expect(a.source()).toContain("1 escalation(s) read back");
     expect(a.source()).toContain("1 composed but never confirmed");
+  });
+});
+
+/**
+ * IR-115 — THE AUTHORITY ASKS FOR EVIDENCE NOTHING PRODUCES.
+ *
+ * Found by reading my own repair rather than by review. `OPEN` now requires a
+ * `transmittedCommentId`, which is the right rule; but `appendOutbox` in `store.ts` has no callers
+ * anywhere, and no production code writes `transmittedCommentId` at all — only test fixtures do. So
+ * `controlBusStanding` cannot return `OPEN` in production however issue #2 actually behaves.
+ *
+ * That is the `servesLocalBuild` shape again — a branch no real input can reach, with a green suite
+ * over it — and this time I introduced it while fixing a review finding.
+ *
+ * These controls do NOT lock the gap in place. They pin the DISCLOSURE: the day a production writer
+ * appears, they fail and say to come back here, because the honest wording changes at that moment.
+ */
+describe("IR-115: whether anything can actually supply the evidence OPEN requires", () => {
+  const productionSources = () => {
+    const dirs = ["src/server/controlbus", "scripts", "src/server/escalation"];
+    const files = dirs.flatMap((dir) =>
+      readdirSync(dir)
+        .filter((name) => name.endsWith(".ts") && name !== "inbox-triage.ts")
+        .map((name) => `${dir}/${name}`),
+    );
+    // The scan has to be looking at something. An empty list would make both controls below pass
+    // by finding nothing, which is the vacuous green this project keeps paying for.
+    expect(files.length).toBeGreaterThan(10);
+    return files.map((f) => ({ file: f, text: readFileSync(f, "utf8") }));
+  };
+
+  it("finds no production caller of appendOutbox, and says so if one appears", () => {
+    const callers = productionSources().filter(
+      ({ file, text }) => !file.endsWith("store.ts") && /\bappendOutbox\s*\(/.test(text),
+    );
+    expect(
+      callers.map((c) => c.file),
+      "appendOutbox now has a caller — the outbox may be a real record. Re-read IR-115, and update " +
+        "controlBusStanding's disclosure and this control together.",
+    ).toEqual([]);
+  });
+
+  it("finds no production writer of transmittedCommentId, and says so if one appears", () => {
+    // Assignment or object-literal shorthand. A mere mention is not a write, and `state.ts` reads
+    // it in `health()`, so matching the identifier alone would fail for the wrong reason.
+    const writers = productionSources().filter(({ text }) =>
+      /transmittedCommentId\s*[:=]\s*[^=]/.test(text),
+    );
+    expect(
+      writers.map((w) => w.file),
+      "something now writes transmittedCommentId — OPEN may be reachable. Re-read IR-115 and " +
+        "update the disclosure with it.",
+    ).toEqual([]);
+  });
+
+  it("says an empty outbox is silence rather than evidence", () => {
+    // The live wording, so the disclosure cannot quietly fall out of the output.
+    expect(controlBusStanding({ inbox: [], outbox: [] }).source()).toContain("IR-115");
+    expect(controlBusStanding({ inbox: [], outbox: [] }).source()).toContain("silence");
+  });
+
+  it("drops the disclosure as soon as the outbox holds anything at all", () => {
+    // Including a queued entry: once something writes the record, an empty outbox stops being
+    // ambiguous and the sentence would be false.
+    const withQueued = controlBusStanding({
+      inbox: [],
+      outbox: [{ protocolId: "ESC-Q", kind: "ESCALATION" }],
+    });
+    expect(withQueued.source()).not.toContain("IR-115");
+    expect(withQueued.standing("ESC-Q")).toBe("STANDING_UNVERIFIABLE");
   });
 });

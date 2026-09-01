@@ -89,6 +89,11 @@ BODY AND ANCHORS IDENTICAL and varies only the standing.
                                    passes either way. That is the narrowest possible catch and the
                                    reason the malformed shapes are enumerated rather than implied.
 
+  M-TRIAGE-SILENT-EMPTY-OUTBOX  drop the IR-115 disclosure from the reported source
+                                -> 1 red: the silence-not-evidence control. An empty outbox is
+                                   ambiguous — either nothing was ever posted, or nothing records
+                                   what is posted — and on this repository it is the second.
+
     python scripts/mutation/inboxtriage.py
 """
 
@@ -173,6 +178,15 @@ MUTATIONS = [
         TRIAGE,
         "  return typeof id === \"number\" && Number.isInteger(id) && id > 0;",
         "  return Boolean(id);",
+    ),
+    (
+        "M-TRIAGE-SILENT-EMPTY-OUTBOX an empty outbox is reported without its disclosure",
+        TRIAGE,
+        '      (asked.size + queued === 0\n'
+        '        ? " — and no production code writes that record (IR-115), so an empty outbox '
+        'is silence rather than evidence"\n'
+        '        : ""),',
+        '      "",',
     ),
     (
         "M-TRIAGE-BARE-SLUG any slash-separated pair counts as a repository",

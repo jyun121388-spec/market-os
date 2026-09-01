@@ -170,7 +170,13 @@ export function controlBusStanding(state: {
   return {
     source: () =>
       `control-bus state: ${judged.size} judged id(s), ${asked.size} escalation(s) read back from ` +
-      `the remote issue, ${queued} composed but never confirmed`,
+      `the remote issue, ${queued} composed but never confirmed` +
+      // An empty outbox is ambiguous and the ambiguity matters: it means either "this repository
+      // has never posted" or "nothing records what it posts". On this repository it is the second,
+      // and saying so is the difference between a record and a silence. See IR-115.
+      (asked.size + queued === 0
+        ? " — and no production code writes that record (IR-115), so an empty outbox is silence rather than evidence"
+        : ""),
     standing: (protocolId) => {
       if (judged.has(protocolId)) return "ALREADY_JUDGED";
       if (asked.has(protocolId)) return "OPEN";

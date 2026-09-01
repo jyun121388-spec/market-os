@@ -1895,3 +1895,47 @@ Eleven mutations, 11/11 ISOLATED. `tests/stopEvidence.test.ts` is no longer this
 depends on the mutated module, which is the coupling the third addendum introduced on purpose. A
 suite that depends on the mutated module cannot answer whether the mutation broke something it
 should not have.
+
+## IR-115 — the open-id authority asks for evidence nothing in this repository produces
+
+Status: `VERIFIED_WITH_LIMITATION` (2026-09-02). Found by reading my own repair, not by review.
+
+The read-back correction (IR-114, fourth addendum) is right: `OPEN` requires
+`OutboxEntry.transmittedCommentId`, which is set only after a read-back proves the comment exists
+remotely. Then the obvious next question, which I only asked afterwards — **who writes it?**
+
+    appendOutbox            defined in store.ts, called by NOTHING in src, scripts or tests
+    transmittedCommentId    written by NOTHING outside test fixtures
+
+So `controlBusStanding` cannot return `OPEN` in production, however issue #2 actually behaves. The
+branch is unreachable, the suite over it is green, and I introduced it while fixing a review
+finding. That is the `servesLocalBuild` shape a third time on this branch, and the second time this
+session that a predicate was structurally unable to vary — the first being `evaluateStopSentinel`,
+which is what IR-114 exists to fix.
+
+There is a second, related split. `ControlBusState.outbox` is an ARRAY inside `state.json`, which is
+what `health()` and this authority read; `appendOutbox` appends to a separate `outbox.jsonl` FILE.
+The only writer function writes a record neither reader consults.
+
+### What was done, and what deliberately was not
+
+The disclosure is now in the output rather than in a comment. An empty outbox is ambiguous — either
+nothing was ever posted, or nothing records what is posted — and on this repository it is the
+second, so `source()` says:
+
+    control-bus state: 8 judged id(s), 0 escalation(s) read back from the remote issue,
+    0 composed but never confirmed — and no production code writes that record (IR-115), so an
+    empty outbox is silence rather than evidence
+
+Two controls pin that this stays true and, more importantly, **fail the day it stops being true**:
+one asserts no production caller of `appendOutbox`, one asserts no production writer of
+`transmittedCommentId`, and both name IR-115 in their failure message. They do not lock the gap in
+place; they make closing it impossible to do silently. Both refuse to pass on an empty file scan.
+
+The repair itself — recording each outbound post, with read-back, into the durable outbox — is NOT
+done here. It writes `state.json`, which is the crash-safety-critical path `commitCycle` owns and
+orders deliberately, and doing that outside the watcher's cycle would race a running watcher. It is
+a transport change and deserves its own unit; this session posts through `gh` by hand and reads back
+by hand, which satisfies the invariant without satisfying the record.
+
+Twelve mutations, 12/12 ISOLATED.

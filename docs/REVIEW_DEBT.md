@@ -2074,7 +2074,7 @@ existing comment rather than posting a second one. Outbound mutations 10/10 ISOL
 
 Status: `VERIFIED` (2026-09-02). Found while looking for the packet in order to cite it.
 
-The operating rules in force say ESC-014 "is staged as `[ESCALATION][ESC-014]` in
+The operating rules then in force said ESC-014 "is staged as `[ESCALATION][ESC-014]` in
 `docs/escalation/PENDING_COMMENTS.md` and — as of 2026-08-23 — **not posted**, so it is not merely
 unanswered, it has not been asked." The second half was true and the first was not.
 `PENDING_COMMENTS.md` holds TEST-001, TEST-002, ESC-009 and ESC-012 and has never held an ESC-014
@@ -2101,7 +2101,9 @@ unexercised branch of the IR-114/115 chain, reached by the production path rathe
 
 The rules name FIVE inbound kinds. There are nine. The four omitted include `CHATGPT_TASK` at
 twenty comments, larger than two of the kinds that are named, and the single largest inbound kind —
-`CHATGPT_VERIFIED`, 48 comments, every review this session — is dropped by the parser.
+`CHATGPT_VERIFIED`, 48 comments, every review this session — was dropped by the parser at
+the time of this measurement. ESC-014 has since widened durable ingestion to all nine; the
+counts above are the state that motivated the escalation, not the state after it.
 
 The counts are deliberately not pinned in a test. They are a fact about a live issue and belong in a
 run; what the controls bind is the COUNTING RULE, including that a tag must LEAD a body — matching
@@ -2653,7 +2655,7 @@ Gates: 152 files / 2678 pass + 19 expected fail (2697); format, lint, typecheck,
 `next build --webpack` clean. `REMOTE_CI: NONE` — no workflow binds to this branch and nothing older
 is inherited.
 
-### IR-120 closed on the exact tree, by a kind the bus cannot carry
+### IR-120 closed on the exact tree, by a durable advisory kind
 
 `[CHATGPT_VERIFIED][MARKET-IR120-TS-CONFIG-AUTHORITY-20260902-1612]`, comment `IC_kwDOT5Wka88AAAABSFC6Jg`,
 2026-09-02T10:35:05Z. Status `APPROVED`, bounded to application comment `5507510750` on exact
@@ -2668,12 +2670,119 @@ this side did: `REMOTE_CI: NONE`.
 It also names `6f82164` — IR-121 — as a newer child and says explicitly that this approval must not
 be reused for it. Recorded as the boundary it is.
 
-**The kind is the part worth noting.** `CHATGPT_VERIFIED` is one of the four inbound kinds
-`ProtocolKind` does not know, so the durable inbox drops it and it reached this repository only
-because a session read the issue by hand. Whether such a kind may ever authorise an application is
-ESC-014, which IR-117 established was NOT staged in `PENDING_COMMENTS.md` and has since been asked
-for real — issue #2 comment `5498131832`, standing `OPEN`, still unanswered. `CHATGPT_VERIFIED` is
-the largest inbound kind on that issue at 48 comments and the parser admits none of them.
+**The kind.** `CHATGPT_VERIFIED` is durably ingested — it is in `ADVISORY_INBOUND_KINDS` in
+`src/server/escalation/transport.ts` — and it is NOT authority-bearing. `AUTHORITATIVE_KINDS` holds
+`CHATGPT_DECISION` and nothing else. That is ESC-014's answer, and the answer is in the tree.
 
-Nothing here turns on the answer: an approval of work already applied grants no authority, and none
-was taken.
+An approval of work already applied grants no authority in any case, and none was taken. But that is
+the second reason, and leaning on it is how the first one went unchecked — see IR-122, below, which
+is this paragraph's own correction.
+
+## IR-122 — the ledger contradicted the protocol, and I wrote the contradiction
+
+Reported as `[CHATGPT_REVIEW_GUIDANCE][MARKET-IR122-ESC014-LEDGER-SOURCE-AUTHORITY-20260902-2027-KST]`,
+`REWORK_REQUIRED__STALE_REVIEW_LEDGER_CONTRADICTS_CANONICAL_ISSUE_AND_SOURCE`, against exact
+`8f7af1febca1b61546e59b7abcb6c04f6274ff42` — the docs-only commit immediately before this one, and
+mine.
+
+### What the ledger said, and what the tree says
+
+That commit recorded three protocol claims. All three are false:
+
+    ledger claim                                     tree
+    CHATGPT_VERIFIED is a kind ProtocolKind          it is in ADVISORY_INBOUND_KINDS in
+    does not know                                    src/server/escalation/transport.ts
+    the durable inbox drops it                       it is durably ingested, and non-startable
+    ESC-014 is still unanswered                      answered and applied, see below
+
+Every point in the report was verified here before anything was changed, against the source and
+against the issue rather than against the report:
+
+- `[CHATGPT_DECISION][ESC-014]` is issue #2 comment `5498489070`, 2026-09-01T18:26:26Z, Option B —
+  widen durable ingestion to the nine measured inbound kinds, and keep `CHATGPT_DECISION` as the
+  only application authority.
+- `[CLAUDE_APPLIED][ESC-014]` is comment `5498724064`, 18:45:25Z, at non-null SHA `4aca09ce`.
+- `AUTHORITATIVE_KINDS` is exactly `["CHATGPT_DECISION"]`; `ADVISORY_INBOUND_KINDS` holds the other
+  eight, `CHATGPT_VERIFIED` among them.
+- `src/server/controlbus/state.ts` calls rows without a `kind` field the legacy case, _because_
+  ESC-014 widened ingestion — the code documents the same history the ledger denied.
+
+`ESCALATION` for ESC-014 is comment `5498131832`. IR-117 was right that the escalation had never
+been staged and right to post it; what came after — the decision, the application — landed the same
+evening, and my note two days later still described the state IR-117 had left behind.
+
+### How it happened, since that is the transferable part
+
+I did not read `transport.ts`. I copied a sentence out of the operating rules, which were stale, and
+a copied sentence reads exactly like a checked one. This is `EVIDENCE_FABRICATION` with me as the
+author, in the ledger whose purpose is to catch it — and it survived a self-review, a format gate, a
+full suite and a push, because none of those read prose.
+
+`CLAUDE.md`'s own rule covers it exactly: output is a claim, not evidence, including the harness's
+own. It did not occur to me that the rule applies to a document I am _quoting from_ as much as to a
+tool I am reading output from.
+
+### What was NOT changed
+
+No protocol semantics. The report was explicit — do not make the stale prose true by changing the
+code — and there is nothing to change: the production path is already what ESC-014 decided. Nine
+kinds durable, one authoritative, unknown kinds failing closed, `INGESTED != AUTHORITATIVE !=
+APPLIED` structural rather than prose. Those thirteen controls in `tests/esc014InboundKinds.test.ts`
+stay green and untouched.
+
+ESC-014 is **not** review-closed, and this does not close it. There is no `[CHATGPT_VERIFIED][ESC-014]`
+verdict on the issue, and an application is not a verification.
+
+`[CHATGPT_VERIFIED][MARKET-IR120-TS-CONFIG-AUTHORITY-20260902-1612]`, comment `5508217382`, stays
+bounded to exact `5056d779` and approves nothing that descends from it — not IR-121, not this.
+
+### The guard, and why it is not a phrase blacklist
+
+`tests/ledgerProtocolCoherence.test.ts`. Rewording the paragraph would have left a second normative
+source to drift again, so the controls derive what may not be said FROM THE CODE:
+
+- the kind names come from `ALL_PROTOCOL_KINDS`, so a kind added later is covered with nobody
+  remembering to extend a list;
+- "ESC-014 was answered" is derived rather than asserted — advisory kinds exist only because the
+  decision widened ingestion, so while that list is non-empty the docs may not call the question
+  unasked.
+
+Only the PRESENT tense is forbidden. A ledger's value is that it records what was believed, so
+history and reported speech survive: "eleven were dropped" is true and stays, and IR-117's dated
+quotation of the then-current rules stays as a quotation.
+
+Six controls, over `docs/REVIEW_DEBT.md` and `CLAUDE.md`. Two of them exist because the first draft
+could have skipped itself: a CANARY feeding the detector text this file owns, and a separate control
+proving the documents are actually read. They catch different evasions, which the mutants confirm.
+
+Four passages were corrected — and the guard found them, rather than me. Two were in the note the
+report named; the other two it had not mentioned: IR-117's inventory sentence, present-tense and now
+false, and IR-117's quotation of the operating rules, accurate but written as a live claim.
+
+### Mutations 4/4 ISOLATED, every cardinality exactly as predicted
+
+    M-LEDGER-STALE-DROPPED         restore "ProtocolKind does not know ... drops it"    1 red
+    M-LEDGER-STALE-UNASKED         restore "ESC-014 is still unanswered"                1 red
+    M-LEDGER-HISTORY-EXEMPTS-ALL   widen the historical exemption to everything         1 red
+    M-LEDGER-NO-DOCS               scan no documents at all                             1 red
+
+The last two are the interesting pair. Under either, BOTH document scans go green. The canary
+catches the first and cannot see the second; the input control catches the second and cannot see the
+first. Two ways for a guard to stop looking, so two controls.
+
+### IR-122 addendum — the guard failed on the entry that documents it
+
+The first draft flagged this very section: the two-column comparison of the stale claim against the
+tree, and the mutant list quoting both claims verbatim. The instinct was right and applied one step
+too far. Normative claims live in prose; a fenced or indented block is a quotation or a table, and a
+ledger that cannot quote the defect it records is no longer a ledger. Blocks are now stripped before
+the scan.
+
+Stated rather than papered over: a stale claim written INSIDE a block would not be caught. The one
+this exists for was prose, both restoring mutants are prose, and widening the rule would cost the
+ledger the ability to show what it is correcting.
+
+The typecheck caught a second thing. `ADVISORY_INBOUND_KINDS.length === 0` is a TS2367 error,
+because the tuple's length is the literal 8 — the type system already knows the premise the guard
+clause is defending. The clause stays, widened to `readonly string[]`, because it says WHY the rule
+applies; deleting it would leave the derivation implicit.

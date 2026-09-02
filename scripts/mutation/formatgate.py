@@ -3,61 +3,66 @@ answering about the live checkout instead of the revision it names?
 
 WRITE/EDIT TOOL ONLY -- heredocs in this environment eat backslashes.
 
-Four defects, each found after the previous repair, and each leaving a property behind:
+Five defects, each found after the previous repair, each leaving a property behind:
 
-  1. it must measure the gate CI runs, not the files one unit happened to touch;
-  2. it must never write to the tree it measures;
-  3. it must never convert an evaluator error into a pass;
-  4. its answer must be f(rev) -- not f(rev, live index, live ignore, live config).
+  1. measure the gate CI runs, not the files one unit happened to touch;
+  2. never write to the tree being measured;
+  3. never convert an evaluator error into a pass;
+  4. the answer must be f(rev) -- not f(rev, live index, live ignore, live config);
+  5. and the revision's BYTES are its blobs: `git archive` transforms content via `export-subst`,
+     applies checkout line-ending conversion, and cannot extract a symlink on Windows.
 
-Every mutant below breaks exactly one of those and must be caught by a control that reproduces the
-situation, not by an assertion about output text.
+The fifth repair made the gate SMALLER. Prettier's `resolveConfig` and `getFileInfo` were MEASURED
+not to require the file to exist, so only the revision's config-bearing files are written to a
+scratch tree; content comes from `git show`, and enumeration from `git ls-tree` with modes.
 
 Expected cardinalities, written before the run:
 
-  M-FMT-READ-DISK            read the working copy instead of the revision
-                             -> PREDICTED 1, MEASURED 2: the CRLF control and the
-                                dirty-and-committed-offender control.
+  M-FMT-READ-DISK            judge the ACTIVE WORKING COPY instead of the blob
+                             -> 3 red: the CRLF control, the dirty-and-committed-offender control
+                                and the export-subst control.
 
-  M-FMT-WRITE-TREE           write the formatted result back
-                             -> PREDICTED 4, MEASURED 1, then 2 after a control was added for the
-                                gap that number exposed. It writes only where the revision's bytes
-                                are an offender, and every preservation fixture committed clean
-                                content and dirtied it afterwards -- so a writing gate had nothing
-                                to reach for. The original bug's scenario, dirty work over a file
-                                that is ALSO a committed offender, was the missing control.
+  M-FMT-WRITE-TREE           write the formatted result back into the active checkout
+                             -> 3 red: the preservation controls, which hash the whole repository.
 
   M-FMT-FAIL-OPEN            treat an evaluation failure as "not an offence"
-                             -> 3 red, as predicted: unparsable TS, unparsable JSON, and the
-                                both-kinds control.
-                                Each compares against the CANONICAL gate in the same test, so the
-                                catch is a measured disagreement with `prettier --check .`.
+                             -> 3 red: unparsable TS, unparsable JSON, both-kinds. Each compares
+                                against the CANONICAL gate in the same test, so the catch is a
+                                measured disagreement with `prettier --check .`.
 
   M-FMT-NO-OFFENDERS         answer "clean" for everything
-                             -> PREDICTED 5, MEASURED 10. Eight more controls exist than when
-                                that figure was written, and most of them name an offender.
+                             -> 12 red: every control that names an offender.
 
   M-FMT-LIVE-FILESET         enumerate the live index instead of the revision's tree
-                             -> PREDICTED 1, MEASURED 2: the staged-deletion control, where
-                                `git ls-files` no longer lists a file the revision still contains,
-                                plus the rev-binding control.
+                             -> 3 red: staged deletion, staged rename, rev-binding.
 
   M-FMT-LIVE-IGNORE          resolve `.prettierignore` from the active checkout
-                             -> PREDICTED 3, MEASURED 2: the uncommitted-ignore and staged-ignore
-                                controls. The committed-ignore control stays GREEN, and the reason
-                                is worth keeping: in that fixture the committed ignore file is also
-                                the one on disk, so live and revision authority agree and the mutant
-                                is invisible there. Only a DIVERGENCE between them can catch it.
+                             -> 2 red: uncommitted-ignore and staged-ignore. The committed-ignore
+                                control stays GREEN because there the two authorities agree, and
+                                only a DIVERGENCE between them can catch this.
 
   M-FMT-LIVE-CONFIG          resolve Prettier options from the active checkout
-                             -> 1 red: the uncommitted-options control, whose committed file is
-                                clean under the revision's defaults and an offender under a dirty
-                                `singleQuote` config.
+                             -> 1 red: the uncommitted-options control.
 
-  M-FMT-ARCHIVE-CONVERTS     let `git archive` apply the checkout's line-ending conversion
-                             -> 1 red: the autocrlf control. This is defect (1) reappearing inside
-                                the fourth repair: on this machine it turned a clean tree into 423
-                                reported offenders, measured before it was fixed.
+  M-FMT-NO-TOOL-IDENTITY     judge with whatever Prettier happens to be installed
+                             -> PREDICTED 3, MEASURED 4: no-declaration, wrong-version, range-only
+                                and the symlink control, whose fixture also declares a formatter.
+                                The lock-matches control stays GREEN, so "always refuse" cannot
+                                pass for the fix.
+
+  M-FMT-FOLLOW-SYMLINK       judge a symlink as if it were a file
+                             -> 1 red: the symlink control.
+
+RETIRED, with reasons rather than deletion:
+
+  M-FMT-ARCHIVE-BYTES        there is no materialised file left to read instead of the blob. The
+                             property it protected is covered by M-FMT-READ-DISK plus the
+                             export-subst control, which is what made the distinction observable.
+
+  M-FMT-ARCHIVE-CONVERTS     `git archive` is gone, and with it the conversion it applied. It had
+                             already come back MISSED once: after content moved to `git show` the
+                             flag stopped affecting any judged byte, and the honest answer was that
+                             the mutant had stopped testing anything.
 
     python scripts/mutation/formatgate.py
 """
@@ -77,10 +82,11 @@ UNRELATED_TESTS = ["tests/evolutionScheduler.test.ts"]
 
 MUTATIONS = [
     (
-        "M-FMT-READ-DISK the working copy is measured instead of the revision",
+        "M-FMT-READ-DISK the active working copy is judged instead of the blob",
         GATE,
-        "      const source = readFileSync(materialised, \"utf8\");",
-        '      const source = readFileSync((await import("node:path")).join(cwd, path), "utf8");',
+        "      const source = committedFile(path, rev, cwd);\n      if (source === null) {",
+        '      const source = readFileSync((await import("node:path")).join(cwd, path), "utf8");\n'
+        "      if (false) {",
     ),
     (
         "M-FMT-WRITE-TREE the gate writes the formatted result back to the tree",
@@ -93,7 +99,7 @@ MUTATIONS = [
         '        const prettier = await import("prettier");\n'
         "        fs.writeFileSync(\n"
         "          p.join(cwd, path),\n"
-        "          await prettier.format(source, { ...(options ?? {}), filepath: materialised, parser }),\n"
+        "          await prettier.format(source, { ...(options ?? {}), filepath: asked, parser }),\n"
         '          "utf8",\n'
         "        );\n"
         "      }",
@@ -118,26 +124,41 @@ MUTATIONS = [
     (
         "M-FMT-LIVE-FILESET the live index decides which files exist",
         GATE,
-        '  const expected = git(["ls-tree", "-r", "--name-only", "-z", rev], cwd)',
-        '  const expected = git(["ls-files", "-z"], cwd)',
+        '  const entries = git(["ls-tree", "-r", "-z", rev], cwd)\n'
+        '    .split("\\0")\n'
+        "    .filter(Boolean)\n"
+        "    .map((line) => {\n"
+        '      const [meta, path] = line.split("\\t");\n'
+        '      return { mode: meta.split(" ")[0], path };\n'
+        "    });",
+        '  const entries = git(["ls-files", "-z"], cwd)\n'
+        '    .split("\\0")\n'
+        "    .filter(Boolean)\n"
+        '    .map((path) => ({ mode: "100644", path }));',
     ),
     (
         "M-FMT-LIVE-IGNORE the active checkout's ignore file decides what is skipped",
         GATE,
-        '          ignorePath: join(tree, ".prettierignore"),',
-        '          ignorePath: join(cwd, ".prettierignore"),',
+        '    const ignorePath = join(scratch, ".prettierignore");',
+        '    const ignorePath = join(cwd, ".prettierignore");',
     ),
     (
         "M-FMT-LIVE-CONFIG the active checkout's Prettier options judge the revision",
         GATE,
-        "        options = await resolveConfig(materialised);",
+        "        options = await resolveConfig(asked);",
         "        options = await resolveConfig(join(cwd, path));",
     ),
     (
-        "M-FMT-ARCHIVE-CONVERTS the archive applies the checkout's line-ending conversion",
+        "M-FMT-NO-TOOL-IDENTITY the running formatter is assumed to be the revision's",
         GATE,
-        '    execFileSync("git", ["-c", "core.autocrlf=false", "archive", "--format=tar", "-o", tar, rev], {',
-        '    execFileSync("git", ["archive", "--format=tar", "-o", tar, rev], {',
+        "  const identity = formatterIdentity(cwd, rev, running);",
+        "  const identity = { ok: true } as ReturnType<typeof formatterIdentity>;",
+    ),
+    (
+        "M-FMT-FOLLOW-SYMLINK a symlink is judged as if it were a file",
+        GATE,
+        '      if (mode === "120000") {',
+        "      if (false) {",
     ),
 ]
 

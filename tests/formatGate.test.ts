@@ -21,6 +21,29 @@ import { committedFormatFindings } from "../scripts/format-gate";
  * It reads COMMITTED BYTES out of git and never opens anything for writing. These controls prove
  * that by hashing the whole repository before and after.
  */
+/**
+ * A fixture repository has to pin the formatter, or the gate rightly refuses to judge it.
+ *
+ * `FORMAT_RESULT(rev)` includes formatter identity, so a revision with no `package.json` cannot
+ * establish which Prettier its bytes were meant for and comes back `TOOL_IDENTITY`. Writing this
+ * into every fixture is what makes the OTHER controls able to say anything at all — and the
+ * refusal itself gets its own control rather than being engineered away.
+ */
+const RUNNING_PRETTIER = (
+  JSON.parse(
+    readFileSync(createRequire(import.meta.url).resolve("prettier/package.json"), "utf8"),
+  ) as { version: string }
+).version;
+
+function declareFormatter(root: string): void {
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({ name: "fixture", devDependencies: { prettier: RUNNING_PRETTIER } }, null, 2) +
+      "\n",
+    "utf8",
+  );
+}
+
 describe("the format gate leaves the repository exactly as it found it", () => {
   const BADLY_FORMATTED = "export const a = {   b:1,\n     c:2 };\n";
   const WELL_FORMATTED = "export const d = { e: 1, f: 2 };\n";
@@ -59,6 +82,7 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       git(["config", "user.email", "t@example.invalid"], root);
       git(["config", "user.name", "t"], root);
       git(["config", "core.autocrlf", "false"], root);
+      declareFormatter(root);
       build(root);
       return await fn(root);
     } finally {
@@ -187,7 +211,11 @@ describe("the format gate leaves the repository exactly as it found it", () => {
       },
       async (root) => {
         const before = snapshot(root);
-        await expect(committedFormatFindings(join(root, "no-such-directory"))).rejects.toThrow();
+        // It no longer throws here: the formatter-identity check runs first and a directory with
+        // no revision cannot establish one, so the answer is a TOOL_IDENTITY finding. The property
+        // this control is about is unchanged — the error path is fail-CLOSED and writes nothing.
+        const findings = await committedFormatFindings(join(root, "no-such-directory"));
+        expect(findings.length, "an unreadable target must not read as clean").toBeGreaterThan(0);
         expect(snapshot(root)).toEqual(before);
       },
     );
@@ -233,6 +261,7 @@ describe("the format gate fails closed on anything it cannot evaluate", () => {
       git(["config", "user.email", "t@example.invalid"], root);
       git(["config", "user.name", "t"], root);
       git(["config", "core.autocrlf", "false"], root);
+      declareFormatter(root);
       build(root);
       git(["add", "-A"], root);
       git(["commit", "-qm", "fixture"], root);
@@ -353,6 +382,7 @@ describe("the format gate answers for the revision, not for the checkout", () =>
       git(["config", "user.email", "t@example.invalid"], root);
       git(["config", "user.name", "t"], root);
       git(["config", "core.autocrlf", "false"], root);
+      declareFormatter(root);
       build(root);
       return await fn(root);
     } finally {
@@ -494,6 +524,7 @@ describe("the format gate answers for the revision, not for the checkout", () =>
       git(["config", "user.email", "t@example.invalid"], root);
       git(["config", "user.name", "t"], root);
       git(["config", "core.autocrlf", "true"], root);
+      declareFormatter(root);
       writeFileSync(join(root, "lf.ts"), "export const a = { b: 1 };\n", "utf8");
       git(["add", "-A"], root);
       git(["commit", "-qm", "clean with LF"], root);
@@ -517,5 +548,190 @@ describe("the format gate answers for the revision, not for the checkout", () =>
         expect(await committedFormatFindings(root)).toEqual([]);
       },
     );
+  });
+});
+
+/**
+ * THE JUDGE IS PART OF THE REVISION TOO.
+ *
+ * Everything else came from the revision and the Prettier doing the judging did not: whatever was
+ * installed here was used, with nothing checking it is the one the revision pins. Output changes
+ * between majors, so a revision pinning 2.x judged by a local 3.x reports offences that revision
+ * never had — and says nothing about the substitution. Confirmed independently by the read-only
+ * Codex pass, whose verdict was REFRAME on exactly this.
+ */
+describe("the format gate refuses to judge with a formatter the revision did not pin", () => {
+  const git = (args: string[], cwd: string) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+
+  const withRepo = async <T>(
+    build: (root: string) => void,
+    fn: (root: string) => Promise<T>,
+  ): Promise<T> => {
+    const root = mkdtempSync(join(tmpdir(), "format-gate-id-"));
+    try {
+      git(["init", "-q"], root);
+      git(["config", "user.email", "t@example.invalid"], root);
+      git(["config", "user.name", "t"], root);
+      git(["config", "core.autocrlf", "false"], root);
+      build(root);
+      git(["add", "-A"], root);
+      git(["commit", "-qm", "fixture"], root);
+      return await fn(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  const offender = (root: string) =>
+    writeFileSync(join(root, "bad.ts"), "export const a = {   b:1 };\n", "utf8");
+
+  it("reports TOOL_IDENTITY and judges nothing when the revision pins no formatter", async () => {
+    // Fail-closed, and it short-circuits: the offender is NOT also reported, because nothing was
+    // judged. Reporting both would suggest a verdict that was never reached.
+    await withRepo(offender, async (root) => {
+      expect(await committedFormatFindings(root)).toEqual([
+        {
+          path: "package-lock.json",
+          kind: "TOOL_IDENTITY",
+          detail: "revision has neither package-lock.json nor package.json",
+        },
+      ]);
+    });
+  });
+
+  it("reports TOOL_IDENTITY when the revision pins a different version", async () => {
+    await withRepo(
+      (root) => {
+        offender(root);
+        writeFileSync(
+          join(root, "package.json"),
+          JSON.stringify({ name: "f", devDependencies: { prettier: "2.0.0" } }, null, 2) + "\n",
+          "utf8",
+        );
+      },
+      async (root) => {
+        const findings = await committedFormatFindings(root);
+        expect(findings.map((f) => f.kind)).toEqual(["TOOL_IDENTITY"]);
+        expect(findings[0]).toHaveProperty("detail", expect.stringContaining("2.0.0"));
+      },
+    );
+  });
+
+  it("refuses a range with no lock, because a range is not an identity", async () => {
+    // `^3.9.6` is satisfied by versions that format differently. Only an exact match for the floor,
+    // or a lock naming the version, establishes which formatter the revision meant.
+    await withRepo(
+      (root) => {
+        offender(root);
+        writeFileSync(
+          join(root, "package.json"),
+          JSON.stringify({ name: "f", devDependencies: { prettier: "^0.0.1" } }, null, 2) + "\n",
+          "utf8",
+        );
+      },
+      async (root) => {
+        expect((await committedFormatFindings(root)).map((f) => f.kind)).toEqual(["TOOL_IDENTITY"]);
+      },
+    );
+  });
+
+  it("proceeds when the revision's lock names the running version", async () => {
+    // The positive control. Without it, "always refuse" would satisfy the three above.
+    await withRepo(
+      (root) => {
+        offender(root);
+        writeFileSync(
+          join(root, "package.json"),
+          JSON.stringify({ name: "f", devDependencies: { prettier: "^0.0.1" } }, null, 2) + "\n",
+          "utf8",
+        );
+        writeFileSync(
+          join(root, "package-lock.json"),
+          JSON.stringify(
+            { name: "f", packages: { "node_modules/prettier": { version: RUNNING_PRETTIER } } },
+            null,
+            2,
+          ) + "\n",
+          "utf8",
+        );
+      },
+      async (root) => {
+        // The lock outranks the range, so the offender is actually judged.
+        expect((await committedFormatFindings(root)).map((f) => f.path)).toEqual(["bad.ts"]);
+      },
+    );
+  });
+
+  it("judges the blob, not what git archive substituted into the file", async () => {
+    // Codex finding #2. `export-subst` makes `git archive` expand `$Format:...$` placeholders, so
+    // the materialised bytes need not be the committed bytes. Here the placeholder sits inside a
+    // string the revision formats cleanly; expansion inserts a 40-character SHA and pushes the
+    // line past `printWidth`, so a gate reading the archive calls a clean revision an offender.
+    await withRepo(
+      (root) => {
+        declareFormatter(root);
+        writeFileSync(join(root, ".gitattributes"), "subst.ts export-subst\n", "utf8");
+        writeFileSync(
+          join(root, ".prettierrc.json"),
+          JSON.stringify({ printWidth: 60 }, null, 2) + "\n",
+          "utf8",
+        );
+        writeFileSync(join(root, "subst.ts"), 'export const commit = "$Format:%H$";\n', "utf8");
+      },
+      async (root) => {
+        expect(await committedFormatFindings(root)).toEqual([]);
+      },
+    );
+  });
+
+  it("still sees an offender whose RENAME is only staged", async () => {
+    // The decision names rename separately from deletion, and it is a different git path: the
+    // index shows the new name, the revision still contains the old one.
+    await withRepo(
+      (root) => {
+        offender(root);
+        declareFormatter(root);
+      },
+      async (root) => {
+        git(["mv", "bad.ts", "renamed.ts"], root);
+        expect((await committedFormatFindings(root)).map((f) => f.path)).toEqual(["bad.ts"]);
+      },
+    );
+  });
+
+  it("does not follow a symlink out of the materialised tree", async () => {
+    // Codex's third finding: a symlink is the one door left open in an otherwise sealed tree, and
+    // it can point at the active filesystem. Not formatting subject matter either way.
+    //
+    // Its own repository, because the shared builder ends with `git add -A` — which sees a path
+    // that is not on disk and deletes the very index entry this fixture just created. That is why
+    // the first attempt produced no symlink at all and its mutant came back MISSED.
+    const root = mkdtempSync(join(tmpdir(), "format-gate-sym-"));
+    try {
+      git(["init", "-q"], root);
+      git(["config", "user.email", "t@example.invalid"], root);
+      git(["config", "user.name", "t"], root);
+      git(["config", "core.autocrlf", "false"], root);
+      declareFormatter(root);
+      writeFileSync(join(root, "real.ts"), "export const a = 1;\n", "utf8");
+      git(["add", "-A"], root);
+
+      // Plumbing, because Windows will not always create a symlink on disk: the blob holds the
+      // TARGET PATH and mode 120000 is what makes it a link.
+      writeFileSync(join(root, "target.txt"), "real.ts", "utf8");
+      const blob = git(["hash-object", "-w", "target.txt"], root).trim();
+      git(["update-index", "--add", "--cacheinfo", `120000,${blob},link.ts`], root);
+      git(["commit", "-qm", "with a symlink"], root);
+
+      // No early return. A control that quietly skips itself is the vacuity this suite refuses.
+      expect(git(["ls-tree", "-r", "HEAD"], root), "the fixture must commit a symlink").toContain(
+        "120000",
+      );
+      const findings = await committedFormatFindings(root);
+      expect(findings.map((f) => f.kind)).toContain("SYMLINK_NOT_JUDGED");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

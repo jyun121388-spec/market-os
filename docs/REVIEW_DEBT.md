@@ -2463,3 +2463,45 @@ invisible there. Only a DIVERGENCE between them can catch it.
 Still NOT closed: no workflow run is bound to the corrected SHA, and CI reaches this branch only
 through `claude/post-rc-followup`, whose fast-forward this session's classifier denies.
 `33547628222` is not reused as green.
+
+### IR-120 addendum — the Codex pass, and a repair that made the gate smaller
+
+`[CHATGPT_DECISION][MARKET-IR120-EXACT-REV-FORMAT-AUTHORITY-20260902]` is authority-bearing and
+asked for a read-only Codex architecture pass first, formatter identity bound to the revision, and
+staged-rename discrimination.
+
+**The Codex pass took two attempts, and the first one is worth recording.** Given an open-ended
+prompt it read `docs/CODEX_REVIEW_PACKET.md` and answered about a months-old release review instead
+— exit 0, confident, and about the wrong thing. No verdict was recorded from it. Re-run with the
+file inlined and exploration forbidden, it returned `VERDICT: REFRAME` with three specific gaps:
+
+    formatter identity is not bound          — the decision's own §2, independently reached
+    git archive may transform blobs          — `export-subst` expands $Format:...$ placeholders
+    materialised symlinks can escape         — resolving back into the active filesystem
+
+All three reproduced. All three are fixed.
+
+**And the repair made the gate smaller rather than larger.** Measured, not assumed: Prettier's
+`resolveConfig` and `getFileInfo` do NOT require the file to exist — they walk directories for
+config and match ignore patterns against the path string. So the whole revision never needed
+materialising. Only its config-bearing files are written to a scratch tree; content comes from
+`git show`, enumeration from `git ls-tree` with modes. `git archive` and `tar` are gone, and with
+them the export-subst transformation, the line-ending conversion, and a crash on any repository
+containing a symlink.
+
+**Formatter identity** comes from the revision's `package-lock.json`, falling back to the manifest
+range — and a RANGE is not an identity, so `^3.9.6` is accepted only when the running version
+matches the floor exactly. Anything less certain is `TOOL_IDENTITY`, reported once, before any file
+is judged.
+
+**Symlinks are identified by git mode `120000`, not `lstat`.** The first guard asked the filesystem
+and its mutant came back MISSED: `git archive` writes a symlink as an ordinary file on Windows, so
+the filesystem answers "not a link". Its control had also been allowed to skip itself when the
+fixture failed to produce a symlink — the vacuity this suite exists to refuse — and both are fixed.
+
+Twenty-nine controls. Mutations 9/9 ISOLATED, with `M-FMT-ARCHIVE-BYTES` and
+`M-FMT-ARCHIVE-CONVERTS` retired for stated reasons rather than deleted: the code they mutated no
+longer exists, and the second had already come back MISSED once content moved to the blob.
+
+`REMOTE_CI: NONE` for this work. CI reaches this branch only through `claude/post-rc-followup`,
+whose fast-forward this session's classifier denies, and `33547628222` is never inherited as green.

@@ -2786,3 +2786,22 @@ The typecheck caught a second thing. `ADVISORY_INBOUND_KINDS.length === 0` is a 
 because the tuple's length is the literal 8 — the type system already knows the premise the guard
 clause is defending. The clause stays, widened to `readonly string[]`, because it says WHY the rule
 applies; deleting it would leave the derivation implicit.
+
+### IR-122 closed at the exact tree
+
+`[CHATGPT_VERIFIED][MARKET-IR122-ESC014-STALE-LEDGER-20260902]`, comment `IC_kwDOT5Wka88AAAABSGpF1Q`,
+2026-09-02T12:57:41Z, `APPROVED` at exact `c7c4ba2b4b6c85024a80d2369670a73b663bf37d`. The
+application marker is comment `5509679048`.
+
+Independently checked on the far side, not taken from the report: that `8f7af1f..c7c4ba2` is exactly
+one commit touching only the two documents and the two new files, with **no production source
+changed**; that the two ESC-014 comments say what this ledger now says they say; that
+`transport.ts` carries the one-kind authority split; that the guard imports its kinds from
+production source rather than restating them; and that `REMOTE_CI: NONE` is the only supported
+remote statement for that SHA. The local numbers stayed labelled as producer-local evidence.
+
+Two boundaries recorded as given. This does **not** review-close ESC-014, and it approves nothing
+after `c7c4ba2`. And the prose guard is accepted as a BOUNDED regression detector — the
+block-stripping limitation is accepted as documented, with an explicit instruction not to widen it
+into general prose policing without a separately reproduced need. Written down here because the
+temptation to widen it will come from this file.

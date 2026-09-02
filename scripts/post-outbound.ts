@@ -25,7 +25,7 @@ import {
   isTransmitted,
   type ControlBusState,
 } from "../src/server/controlbus/state";
-import { RUNTIME_DIR, storePaths } from "../src/server/controlbus/store";
+import { storePaths } from "../src/server/controlbus/store";
 import { mayPostPublicly } from "../src/server/escalation/screen";
 import { ghTransport } from "./gh-transport";
 
@@ -41,7 +41,9 @@ async function main(): Promise<number> {
   const protocolId = arg("id");
   const kind = arg("kind");
   const bodyFile = arg("body-file");
-  const root = arg("bus-root") ?? RUNTIME_DIR;
+  // Undefined, not the relative name: `storePaths()` resolves the repository's one bus. Passing
+  // `--bus-root` by hand is what kept this correct before, and discipline is not a property.
+  const root = arg("bus-root");
   const confirm = process.argv.includes("--confirm");
 
   if (!protocolId || !bodyFile || (kind !== "ESCALATION" && kind !== "CLAUDE_APPLIED")) {

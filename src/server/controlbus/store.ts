@@ -30,8 +30,13 @@ import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ControlBusState, InboxEntry } from "./state";
 import { emptyState } from "./state";
+import { defaultBusRoot } from "./root";
 
-export const RUNTIME_DIR = ".local/control-bus";
+// The bus's NAME and the rule for turning it into a PLACE live in `./root`, which knows nothing
+// about decisions. Re-exported because every caller has always asked this module for them, and
+// because `applicationPrerequisite.test.ts` — rightly — objects to one file that both reads
+// decisions and spawns a process.
+export { RUNTIME_DIR, repositoryBusRoot } from "./root";
 
 export interface StorePaths {
   root: string;
@@ -42,7 +47,8 @@ export interface StorePaths {
   log: string;
 }
 
-export function storePaths(root: string = RUNTIME_DIR): StorePaths {
+export function storePaths(explicitRoot?: string): StorePaths {
+  const root = explicitRoot ?? defaultBusRoot();
   return {
     root,
     state: join(root, "state.json"),

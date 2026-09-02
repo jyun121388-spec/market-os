@@ -181,8 +181,12 @@ describe("gathering evidence for the stop sentinel", () => {
   });
 
   it("cannot tell a stopped watcher from a wrong runtime root", () => {
-    // The watcher writes its directory relative to ITS cwd. Run from another worktree, the absence
-    // of the directory says nothing about whether a watcher is running.
+    // The absence of a directory is evidence about that DIRECTORY, never about whether a watcher
+    // is running. This comment used to read "the watcher writes its directory relative to ITS cwd",
+    // which described the defect the default root has since lost: the bus is resolved from the
+    // repository now, so a wrong root has to be passed deliberately — as it is here — rather than
+    // arrived at by standing in the wrong worktree. The distinction the control protects is
+    // unchanged; only the easiest way to reach it is gone.
     const evidence = gather(join(tmpdir(), "stop-evidence-does-not-exist"));
     expect(evidence.supplied.controlBusWatcher).toBeUndefined();
     expect(evidence.unestablished.map((u) => u.field)).toContain("controlBusWatcher");

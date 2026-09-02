@@ -2546,3 +2546,109 @@ discovery and takes 4 red, exactly as predicted: the discovery control and all t
 controls.
 
 `REMOTE_CI` unchanged in kind: no workflow binds to this branch, and nothing older is inherited.
+
+`[CLAUDE_APPLIED][MARKET-IR120-TS-CONFIG-AUTHORITY-20260902-1612]` posted as comment `5507510750`
+and read back from the remote. `REMOTE_CI: NONE` stated there as measured — 0 check-runs, 0
+statuses on `5056d779` — not inherited from `33547628222`, which belongs to `bb88ded`.
+
+## IR-121 — one name, two buses: the control bus root was never a place
+
+Found by running `scheduleNextWork()` rather than reasoning about it. Nothing reported this; the
+queue offered `CLUSTER-SEMANTIC_RECENCY`, whose own prediction names "a cache, a build, or a running
+process assumed to match the tree", and the shape turned up one layer down from where it was
+predicted.
+
+`storePaths()` defaulted to `RUNTIME_DIR`, the RELATIVE string `.local/control-bus`, resolved
+against `process.cwd()`. Measured, from the two worktrees this repository actually has:
+
+    from C:/AI-Projects/market-os                  ->  market-os/.local/control-bus   state EXISTS
+    from C:/AI-Projects/market-os-ask-guardrail    ->  guardrail/.local/control-bus   state ABSENT
+
+Every module agreed on what the bus was CALLED. Nothing agreed on where it was.
+
+**Reading** from the wrong side is merely useless: `stop-evidence.ts` reports `receivedDecisions`
+and `controlBusWatcher` as unestablished, which is honest and permanent — those two axes could never
+be established from the worktree where all the work happens, so the sentinel's refusal was
+structural rather than a finding. Its own doc comment recorded the cause as correct behaviour: a run
+from another worktree "legitimately finds nothing". It did find nothing. There was nothing
+legitimate about why.
+
+**Writing** is the hazard. `scripts/control-bus.ts` and `scripts/rc-preflight.ts` call `storePaths()`
+with no root argument and no way to pass one, so starting the watcher from the wrong worktree would
+have created a SECOND durable inbox with its own independently advancing cursor — against "one
+issue, never a second", and against `DURABLE_INBOX_BEFORE_CURSOR_ADVANCE`, which assumes there is
+one cursor to advance. Two of them lose decisions to each other while each looks perfectly healthy.
+`scripts/inbox-triage.ts` carried a fifth hand-written copy of the same relative literal.
+
+It had not fired. No shadow bus exists in either worktree, because every write so far passed
+`--bus-root` by hand. That is discipline, and discipline is not a property — which is the entire
+reason this is written down as a defect rather than as a near miss.
+
+**The repair is one rule both sides obey.** The bus belongs to the REPOSITORY, so
+`repositoryBusRoot()` asks git: `rev-parse --path-format=absolute --git-common-dir` returns the same
+absolute shared `.git` from every worktree, and the bus sits beside it. Explicit roots — tests,
+`--bus-root` — are untouched; only the default changed. It fails CLOSED: if git cannot answer there
+is no fallback to the working directory, because the working directory is what was wrong.
+
+`--path-format=absolute` is load-bearing and must precede the option it governs. Plain
+`--git-common-dir` answers `.git` from the top of the main worktree and an absolute path from
+anywhere else — the same cwd-dependence in a new costume, and invisible to anyone testing from a
+linked worktree, which is exactly where this repository's suite runs.
+
+**Measured effect.** Before, from the guardrail worktree, both bus-derived sentinel fields were
+unestablished. After, the same command establishes `receivedDecisions = 0` and
+`controlBusWatcher = STOPPED` — the first time either has been a finding rather than an absence.
+(`STOPPED` is a true fact now visible, and starting a second poller alongside the existing cadence
+is a human decision, not taken here.)
+
+**A guard caught the first shape of the repair, and the guard was right.**
+`tests/applicationPrerequisite.test.ts` looks for a module that both consumes control-bus decisions
+and performs an effect without going through the application journal; `store.ts` names the
+inbox-entry type, and asking git means spawning a process. The answer to a deliberately shallow
+guard is not an exemption — the resolution moved to `src/server/controlbus/root.ts`, which knows
+nothing about decisions, so the guard's predicate became FALSE rather than excused. It then fired a
+second time on the new file's own comment, which mentioned the type in prose. Also paid rather than
+excused: a shallow check that runs is worth more than a clever one that gets deleted.
+
+**Six controls.** Same-directory-from-a-linked-worktree and same-directory-from-a-subdirectory (a
+real `git worktree add` fixture, not a simulation); absolute from both, which asserts the plain
+git form still has the trap it is guarding against; beside-the-shared-`.git`; fail-closed on an
+unanswerable question, with no root in the result; and an explicit root passing through untouched.
+
+The pre-existing placement control was rewritten, not deleted. It asserted
+`storePaths().root.startsWith(".local/")` — a STRING standing in for the property that the watcher's
+runtime state is gitignored, and the string is precisely what went wrong. It now asks
+`git check-ignore` about the resolved path, which cannot be satisfied by a path that merely begins
+with the right characters.
+
+**Mutations 4/4 ISOLATED, and three of four cardinalities were wrong.**
+
+    M-BUS-CWD-ROOT               predicted 3, measured 4 -- the early return short-circuits the git
+                                 call, so the fail-closed control goes red too; the mutant subsumes
+                                 M-BUS-FALLBACK-ON-ERROR, and only running it said so
+    M-BUS-PER-WORKTREE-GIT-DIR   predicted 2, measured 3 -- the extra is the gitignore control, and
+                                 the reason is WHERE THE SUITE RUNS: under `--git-dir` the root
+                                 lands inside `.git/worktrees/...`, and git reports nothing inside
+                                 the git dir as ignored
+    M-BUS-PLAIN-PATH-FORMAT      predicted 2, measured 3 -- the extra is the SUBDIRECTORY equality
+                                 control; top-vs-subdirectory diverges for the same reason
+                                 main-vs-linked does, so the two equality controls are not redundant
+    M-BUS-FALLBACK-ON-ERROR      predicted 1, measured 1
+
+The cross-worktree equality control does NOT catch the plain relative default. A constant is equal
+to itself, so the control that names the defect cannot catch its most obvious form — which is what
+writing the prediction down before running buys, and what counting the tests that mention it would
+have hidden.
+
+One mutant was deliberately not written: "storePaths ignores its explicit root". Under it the
+fixtures would write through the default root, which after this repair is the real live control bus.
+A mutation that corrupts the production inbox is not a measurement; the property is covered by the
+explicit-root control instead.
+
+**Environment, recorded and not repaired by a product change.** A bare `npx vitest run` in this
+worktree fails 7 tests on a missing `DATABASE_URL`: `.env` is gitignored and so does not exist in a
+linked `git worktree`. The suite was run with `TEST_DATABASE_URL` supplied on the command line.
+
+Gates: 152 files / 2678 pass + 19 expected fail (2697); format, lint, typecheck, `format-gate` and
+`next build --webpack` clean. `REMOTE_CI: NONE` — no workflow binds to this branch and nothing older
+is inherited.

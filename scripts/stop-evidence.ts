@@ -39,13 +39,7 @@
 
 import { existsSync } from "node:fs";
 import type { StopSentinelInput } from "../src/server/evolution/scheduler";
-import {
-  lockIsStale,
-  processAlive,
-  readLock,
-  RUNTIME_DIR,
-  storePaths,
-} from "../src/server/controlbus/store";
+import { lockIsStale, processAlive, readLock, storePaths } from "../src/server/controlbus/store";
 import { type GitOracle, localGit, triageInbox } from "./inbox-triage";
 
 /**
@@ -118,14 +112,18 @@ const NOT_ATTEMPTED: { field: string; because: string }[] = [
 ];
 
 /**
- * @param root      control-bus runtime directory. The watcher writes it relative to ITS cwd, so a
- *                  run from a different worktree legitimately finds nothing — which is reported as
- *                  unestablished rather than as an absence of decisions.
+ * @param root      control-bus runtime directory; defaults to the REPOSITORY's, via `storePaths()`.
+ *                  This parameter used to default to the relative `RUNTIME_DIR`, and this comment
+ *                  used to say that a run from a different worktree "legitimately finds nothing".
+ *                  It did find nothing, and there was nothing legitimate about why: the name
+ *                  resolved against `process.cwd()`, so the sentinel asked a directory that was
+ *                  never the bus and reported the two fields unestablished forever. Reporting an
+ *                  unknown honestly is not the same as being able to know.
  * @param nowMs     injected so staleness is testable without waiting 135 seconds.
  * @param staleMs   heartbeat budget; see `HEARTBEAT_STALE_MS`.
  */
 export function gatherStopEvidence(
-  root: string = RUNTIME_DIR,
+  root: string = storePaths().root,
   nowMs: number = Date.now(),
   staleMs: number = HEARTBEAT_STALE_MS,
   git: GitOracle = localGit(),

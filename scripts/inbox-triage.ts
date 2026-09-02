@@ -44,6 +44,7 @@ import {
   isTransmitted,
   type OutboxEntry,
 } from "../src/server/controlbus/state";
+import { storePaths } from "../src/server/controlbus/store";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -390,7 +391,9 @@ export function triageInbox(
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {
   const flag = process.argv.indexOf("--bus-root");
-  const root = flag === -1 ? ".local/control-bus" : process.argv[flag + 1];
+  // A fifth copy of the relative name used to live here. The bus is a property of the repository,
+  // not of the directory this happens to be invoked from — `storePaths()` is the one rule.
+  const root = flag === -1 ? storePaths().root : process.argv[flag + 1];
   const rows = triageInbox(root, localGit());
   if (rows === null) {
     console.log(`no state.json under ${root} — the inbox has not been read from here`);

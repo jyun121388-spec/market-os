@@ -820,11 +820,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2691 / 2691 PASS across 152 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2672 passing plus 19 pinned `it.fails`. REMOTE CI run 33547628222, bound to
-`bb88ded` on `claude/post-rc-followup`, FAILED at `npm run format:check` on one file; the fix is at
-`8c58213`+1 and no fresh run is bound to it yet. A local green suite does not supersede that run `it.fails`, which are reproduced defects deliberately
-NOT closed and which the total must not quietly absorb.
+2697 / 2697 PASS across 152 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2678 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+NOT closed and which the total must not quietly absorb. REMOTE CI run 33547628222 is bound to
+`bb88ded` on `claude/post-rc-followup` and to nothing on this branch; a local green suite does not
+supersede it, and no run is bound to the current HEAD at all — `REMOTE_CI: NONE`, stated rather
+than inherited.
+
+The `TEST_DATABASE_URL` is not discoverable from this worktree: `.env` is gitignored and therefore
+does not exist in a linked `git worktree`, so a bare `npx vitest run` here fails 7 tests on a
+missing `DATABASE_URL`. That is an environment gap, recorded as one and never repaired by changing
+the product; the suite above was run with the variable supplied on the command line.
 
 MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `bb88ded` plus the IR-075
 premise measurement committed on top of it. The fix that residual NAMED — hold the lock file open,

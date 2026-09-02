@@ -1,6 +1,15 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assessDecision,
@@ -23,6 +32,8 @@ import {
   loadState,
   lockIsStale,
   logLine,
+  repositoryBusRoot,
+  RUNTIME_DIR,
   storePaths,
 } from "@/server/controlbus/store";
 import { parseCommentsPayload, runCycle } from "@/server/controlbus/watch";
@@ -523,8 +534,115 @@ describe("runtime state stays out of the repository", () => {
     logLine(paths, "hello");
     commitCycle(paths, emptyState(2), []);
     expect(existsSync(join(root, "state.json"))).toBe(true);
-    // A watcher polling every 45 seconds must not produce a commit stream. `.local/` is
-    // gitignored, and the default paths point inside it.
-    expect(storePaths().root.startsWith(".local/")).toBe(true);
+
+    // A watcher polling every 45 seconds must not produce a commit stream, so the default root has
+    // to sit somewhere git ignores. This used to be asserted as `startsWith(".local/")`, which was
+    // a string standing in for the fact — and the string is exactly what went wrong, because a
+    // RELATIVE default meant every worktree denoted a different directory under the same name. Ask
+    // git instead: `check-ignore` answers about the resolved path, and it cannot be satisfied by a
+    // path that merely begins with the right characters.
+    const resolved = storePaths().root;
+    expect(isAbsolute(resolved), `${resolved} must be a place, not a name`).toBe(true);
+    expect(() =>
+      execFileSync("git", ["check-ignore", "-q", "--", resolved], {
+        cwd: dirname(resolved),
+        stdio: "ignore",
+      }),
+    ).not.toThrow();
+  });
+});
+
+/**
+ * ONE REPOSITORY, ONE BUS — the property that made `.local/control-bus` a name and not a place.
+ *
+ * The bus root defaulted to a relative string resolved against `process.cwd()`. Measured across the
+ * two worktrees this repository actually has, one name gave two directories: the real bus from
+ * `market-os`, an absent one from `market-os-ask-guardrail`. Reading from the wrong side reports an
+ * empty inbox. WRITING from it — `scripts/control-bus.ts` and `scripts/rc-preflight.ts` accept no
+ * root at all — would have built a second durable inbox with its own cursor, and two cursors lose
+ * decisions to each other while each looks healthy.
+ *
+ * It never fired, because every write so far passed `--bus-root` by hand. These controls are here
+ * because discipline is not a property.
+ */
+describe("the control bus root is a property of the repository, not of the cwd", () => {
+  const git = (args: string[], cwd: string) =>
+    execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+  let repo: string;
+  let linked: string;
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "bus-root-"));
+    git(["init", "-q", "-b", "main"], repo);
+    git(["config", "user.email", "t@example.invalid"], repo);
+    git(["config", "user.name", "t"], repo);
+    git(["config", "core.autocrlf", "false"], repo);
+    writeFileSync(join(repo, "f.txt"), "x\n", "utf8");
+    git(["add", "-A"], repo);
+    git(["commit", "-qm", "root"], repo);
+    linked = join(repo, "..", `${repo.split(/[\\/]/).pop()}-linked`);
+    git(["worktree", "add", "-q", "-b", "side", linked], repo);
+  });
+
+  afterEach(() => {
+    rmSync(linked, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("answers with the same directory from a linked worktree as from the main one", () => {
+    const fromMain = repositoryBusRoot(repo);
+    const fromLinked = repositoryBusRoot(linked);
+    expect("error" in fromMain ? fromMain.error : "").toBe("");
+    expect("error" in fromLinked ? fromLinked.error : "").toBe("");
+    if ("error" in fromMain || "error" in fromLinked) return;
+    // The whole defect in one assertion: two cwds, one bus.
+    expect(fromLinked.root).toBe(fromMain.root);
+  });
+
+  it("answers with the same directory from a subdirectory as from the top", () => {
+    const sub = join(repo, "deep", "deeper");
+    mkdirSync(sub, { recursive: true });
+    const top = repositoryBusRoot(repo);
+    const deep = repositoryBusRoot(sub);
+    if ("error" in top || "error" in deep) throw new Error("git could not answer");
+    expect(deep.root).toBe(top.root);
+  });
+
+  it("resolves absolutely from BOTH worktrees, which the plain git form does not", () => {
+    // `--path-format=absolute` is load-bearing and must precede the option it governs. Without it
+    // git answers `.git` from the main worktree and an absolute path from a linked one — the same
+    // cwd-dependence in a new costume, and it would have passed the equality control above only by
+    // accident of where the test ran.
+    const plainMain = git(["rev-parse", "--git-common-dir"], repo);
+    const plainLinked = git(["rev-parse", "--git-common-dir"], linked);
+    expect(isAbsolute(plainMain), "the trap this guards against must still exist").toBe(false);
+    expect(isAbsolute(plainLinked)).toBe(true);
+
+    for (const cwd of [repo, linked]) {
+      const found = repositoryBusRoot(cwd);
+      if ("error" in found) throw new Error(found.error);
+      expect(isAbsolute(found.root), `${cwd} must yield a place`).toBe(true);
+    }
+  });
+
+  it("puts the bus beside the shared .git, under the runtime directory name", () => {
+    const found = repositoryBusRoot(linked);
+    if ("error" in found) throw new Error(found.error);
+    const common = git(["rev-parse", "--path-format=absolute", "--git-common-dir"], linked);
+    expect(found.root).toBe(join(dirname(common), RUNTIME_DIR));
+  });
+
+  it("fails closed when git cannot answer, and never falls back to the cwd", () => {
+    const found = repositoryBusRoot(join(repo, "no", "such", "directory"));
+    expect("error" in found, "an unanswerable question must not produce a root").toBe(true);
+    expect("root" in found).toBe(false);
+  });
+
+  it("leaves an explicitly supplied root exactly as given", () => {
+    // Tests, `--bus-root`, and every fixture in this file depend on this: the repair changes the
+    // DEFAULT and nothing else.
+    expect(storePaths(root).root).toBe(root);
+    expect(storePaths(root).state).toBe(join(root, "state.json"));
   });
 });

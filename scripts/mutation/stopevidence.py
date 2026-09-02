@@ -28,7 +28,12 @@ Expected cardinalities, written before the run:
 
   M-STOP-ROOT-IS-STOPPED     treat a missing runtime dir as a stopped watcher
                              -> 1 red: the wrong-root control. Absence of the directory is evidence
-                                about the DIRECTORY; the watcher writes it relative to its own cwd.
+                                about the DIRECTORY, never about whether a watcher is running. This
+                                used to add "the watcher writes it relative to its own cwd", which
+                                was true and was itself the defect -- see M-BUS in busroot.py. The
+                                default root comes from the repository now, so a wrong root is
+                                something a caller passes on purpose rather than something a
+                                worktree hands you.
 
   M-STOP-SILENT-GAPS         stop explaining the facts that were not attempted
                              -> 1 red: the accounted-for control. An unlisted gap reads as an

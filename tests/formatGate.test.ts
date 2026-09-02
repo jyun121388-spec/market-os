@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { committedFormatFindings } from "../scripts/format-gate";
+import { committedFormatFindings, pinnedConfigBasenames } from "../scripts/format-gate";
 
 /**
  * The gate must never write. Not to the worktree, not to the index, not to untracked files, and not
@@ -733,5 +733,131 @@ describe("the format gate refuses to judge with a formatter the revision did not
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * TYPESCRIPT CONFIG IS CONFIG, and a hand-written list of config names is how it went missing.
+ *
+ * `CONFIG_BASENAMES` carried `.prettierrc.js|cjs|mjs|json|json5|yaml|yml|toml` and
+ * `prettier.config.js|cjs|mjs` — and none of the SIX TypeScript forms, supported since Prettier
+ * 3.5 while this repository pins 3.9.6. A revision carrying one lost its formatting authority in
+ * the scratch tree and was judged under defaults, silently.
+ *
+ * Adding six strings would have left the same kind of list, one longer. The names now come out of
+ * the PINNED PACKAGE — which also turned up `package.yaml`, missing from the hand-written list too
+ * and unnoticed until the extraction ran. That is the argument for deriving rather than
+ * transcribing, and it is why these controls check the DISCOVERY as well as the outcome.
+ */
+describe("config discovery follows the pinned Prettier, including TypeScript forms", () => {
+  const git = (args: string[], cwd: string) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+
+  const withRepo = async <T>(
+    build: (root: string) => void,
+    fn: (root: string) => Promise<T>,
+  ): Promise<T> => {
+    const root = mkdtempSync(join(tmpdir(), "format-gate-ts-"));
+    try {
+      git(["init", "-q"], root);
+      git(["config", "user.email", "t@example.invalid"], root);
+      git(["config", "user.name", "t"], root);
+      git(["config", "core.autocrlf", "false"], root);
+      declareFormatter(root);
+      build(root);
+      git(["add", "-A"], root);
+      git(["commit", "-qm", "fixture"], root);
+      return await fn(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  it("recovers every config name the pinned Prettier searches for", () => {
+    const discovery = pinnedConfigBasenames();
+    expect("error" in discovery ? discovery.error : "", "discovery must not fail closed here").toBe(
+      "",
+    );
+    if ("error" in discovery) return;
+
+    // All six TypeScript forms, by one shared discovery rule rather than six added strings.
+    for (const name of [
+      ".prettierrc.ts",
+      ".prettierrc.mts",
+      ".prettierrc.cts",
+      "prettier.config.ts",
+      "prettier.config.mts",
+      "prettier.config.cts",
+    ]) {
+      expect(discovery.names.has(name), name).toBe(true);
+    }
+    // And the forms that were already there, so the fix did not trade one omission for another.
+    for (const name of [
+      "package.json",
+      "package.yaml",
+      ".prettierrc",
+      ".prettierrc.json",
+      ".prettierrc.yaml",
+      ".prettierrc.toml",
+      "prettier.config.js",
+      ".prettierignore",
+      ".editorconfig",
+    ]) {
+      expect(discovery.names.has(name), name).toBe(true);
+    }
+  });
+
+  /**
+   * `.ts`, `.mts` and `.cts` each get a revision, because "one shared rule covers them" is a claim
+   * about the rule and these are the measurement of it.
+   */
+  for (const config of ["prettier.config.ts", ".prettierrc.mts", ".prettierrc.cts"]) {
+    it(`carries ${config} from the revision into the judgement`, async () => {
+      // The file is 47 characters wide. Under the revision's committed `printWidth: 20` it must be
+      // reported; if the config were lost, Prettier's default 80 would call it clean.
+      await withRepo(
+        (root) => {
+          const body = config.endsWith(".cts")
+            ? "module.exports = { printWidth: 20 };\n"
+            : "export default { printWidth: 20 };\n";
+          writeFileSync(join(root, config), body, "utf8");
+          writeFileSync(
+            join(root, "wide.ts"),
+            "export const aLongEnoughName = { alpha: 1, beta: 2 };\n",
+            "utf8",
+          );
+        },
+        async (root) => {
+          const findings = await committedFormatFindings(root);
+          // Either the config was honoured — in which case the wide line is an offender — or the
+          // runtime cannot load a TS config, in which case it must say so. Never silently clean.
+          expect(findings.length, `${config} must not be silently ignored`).toBeGreaterThan(0);
+          const about = findings.find((f) => f.path === "wide.ts" || f.path === config);
+          expect(about, `a finding must name ${config} or the file it governs`).toBeDefined();
+        },
+      );
+    });
+  }
+
+  it("gives a LIVE TypeScript config no authority over the revision", async () => {
+    // The revision has no config, so its own defaults apply and the file is clean. A dirty
+    // `prettier.config.ts` demanding a narrow width must not change that answer.
+    await withRepo(
+      (root) => {
+        writeFileSync(
+          join(root, "wide.ts"),
+          "export const aLongEnoughName = { alpha: 1, beta: 2 };\n",
+          "utf8",
+        );
+      },
+      async (root) => {
+        writeFileSync(
+          join(root, "prettier.config.ts"),
+          "export default { printWidth: 20 };\n",
+          "utf8",
+        );
+        expect(await committedFormatFindings(root)).toEqual([]);
+      },
+    );
   });
 });

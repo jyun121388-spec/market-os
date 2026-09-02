@@ -2505,3 +2505,44 @@ longer exists, and the second had already come back MISSED once content moved to
 
 `REMOTE_CI: NONE` for this work. CI reaches this branch only through `claude/post-rc-followup`,
 whose fast-forward this session's classifier denies, and `33547628222` is never inherited as green.
+
+### IR-120 second addendum — TypeScript config, and why the list was the defect
+
+`[CHATGPT_DECISION][MARKET-IR120-TS-CONFIG-AUTHORITY-20260902-1612]`, carrying the finding from
+verifier `5505843803`. Authority-bearing, applied as authority.
+
+`CONFIG_BASENAMES` was hand-written. It carried `.prettierrc.js|cjs|mjs|json|json5|yaml|yml|toml`
+and `prettier.config.js|cjs|mjs`, and **none of the six TypeScript forms** — `.prettierrc.ts|mts|cts`
+and `prettier.config.ts|mts|cts`, supported since Prettier 3.5, and this repository pins 3.9.6. A
+revision carrying one lost its formatting authority in the scratch tree and was judged under
+defaults. Silently, which is the part that matters.
+
+**Adding six strings would have left the same kind of list, one entry longer.** The decision said so
+and it was right. The names now come out of the pinned package itself: `pinnedConfigBasenames()`
+resolves the ESM entry the package DECLARES — `exports["."].default`, because
+`require.resolve("prettier")` hands back `index.cjs`, which does not carry the list, measured after
+the first attempt failed closed on exactly that — and extracts its `CONFIG_FILES` array.
+
+That extraction turned up `package.yaml`, which the hand-written list had ALSO missed and nobody had
+noticed. One omission was reported; the other came out of deriving instead of transcribing.
+
+It fails closed: if the bundle shape changes, or the recovered list lacks the anchors every version
+has (`package.json`, `.prettierrc`), the gate returns `CONFIG_ERROR` rather than a guess that would
+omit exactly the forms nobody remembered. `.prettierignore` and `.editorconfig` are named
+separately, and they are the only two names left in the module.
+
+**Measured, not assumed:** the TS configs actually load here. A committed `prettier.config.ts`,
+`.prettierrc.mts` and `.prettierrc.cts` each carrying `printWidth: 20` all made a 47-character line
+`MISFORMATTED` — so the authority is exercised, not merely present. Had the runtime been unable to
+load them, the typed `CONFIG_ERROR` path would have said so; either way it is never silently clean.
+
+Five new controls: one on the discovery itself (all six TS forms plus the previously-present ones,
+so the fix does not trade one omission for another), one revision per `.ts` / `.mts` / `.cts` — the
+measurement behind "one shared rule covers them" — and one proving a LIVE `prettier.config.ts` has
+zero authority over a revision that has none.
+
+Thirty-four controls, mutations 10/10 ISOLATED. `M-FMT-NO-TS-CONFIG` drops the TS forms from
+discovery and takes 4 red, exactly as predicted: the discovery control and all three revision
+controls.
+
+`REMOTE_CI` unchanged in kind: no workflow binds to this branch, and nothing older is inherited.

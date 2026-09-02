@@ -78,24 +78,80 @@ export type GateFinding =
   /** A symlink: it could resolve outside the revision, so it is not judged. */
   | { path: string; kind: "SYMLINK_NOT_JUDGED" };
 
-/** Basenames that carry Prettier authority. Anything matching is copied out of the revision. */
-const CONFIG_BASENAMES = new Set([
-  ".prettierrc",
-  ".prettierrc.json",
-  ".prettierrc.json5",
-  ".prettierrc.yaml",
-  ".prettierrc.yml",
-  ".prettierrc.toml",
-  ".prettierrc.js",
-  ".prettierrc.cjs",
-  ".prettierrc.mjs",
-  "prettier.config.js",
-  "prettier.config.cjs",
-  "prettier.config.mjs",
-  ".prettierignore",
-  ".editorconfig",
-  "package.json",
-]);
+/**
+ * Authority beyond Prettier's own config search: the ignore file and EditorConfig.
+ *
+ * `CONFIG_FILES` inside the pinned package does not list these — one is not a config file and the
+ * other is only consulted when `editorconfig: true` — so they are named here, and they are the only
+ * two names in this module that are.
+ */
+const EXTRA_AUTHORITY = [".prettierignore", ".editorconfig"];
+
+/**
+ * The config file names the PINNED Prettier actually looks for, read out of the package itself.
+ *
+ * A hand-written list was the defect: it carried `.prettierrc.js|cjs|mjs|json|json5|yaml|yml|toml`
+ * and `prettier.config.js|cjs|mjs` and omitted every TYPESCRIPT form — `.prettierrc.ts|mts|cts` and
+ * `prettier.config.ts|mts|cts`, supported since Prettier 3.5 and this repository pins 3.9.6. A
+ * revision carrying one would have lost its formatting authority in the scratch tree and been
+ * judged under defaults, silently.
+ *
+ * Adding six strings would have left the same kind of list, one entry longer. Extracting from the
+ * installed bundle also turned up `package.yaml`, which the hand-written list had missed too and
+ * nobody had noticed — which is the argument for deriving it rather than transcribing it.
+ *
+ * Fails CLOSED. If the bundle's shape changes and the list cannot be recovered, that is an
+ * unknown, and the gate says so instead of falling back to a guess that would omit exactly the
+ * forms nobody remembered.
+ */
+export function pinnedConfigBasenames(): { names: Set<string> } | { error: string } {
+  const require_ = createRequire(import.meta.url);
+
+  // The ESM entry the package DECLARES, not a guessed filename. `require.resolve("prettier")`
+  // hands back `index.cjs`, which does not carry the list at all — measured, after the first
+  // attempt failed closed for exactly that reason.
+  let bundlePath: string;
+  try {
+    const manifestPath = require_.resolve("prettier/package.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      exports?: { "."?: { default?: string } };
+      main?: string;
+    };
+    const entry = manifest.exports?.["."]?.default ?? manifest.main;
+    if (typeof entry !== "string") {
+      return { error: "the pinned prettier package declares no entry this can read" };
+    }
+    bundlePath = join(dirname(manifestPath), entry);
+  } catch (error) {
+    return {
+      error: `cannot locate the pinned prettier bundle (${(error as Error).message.split("\n")[0]})`,
+    };
+  }
+
+  let bundle: string;
+  try {
+    bundle = readFileSync(bundlePath, "utf8");
+  } catch (error) {
+    return {
+      error: `cannot read the pinned prettier bundle (${(error as Error).message.split("\n")[0]})`,
+    };
+  }
+
+  // `[\s\S]` rather than the `s` flag: this file is compiled below es2018, where that flag is a
+  // syntax error the typechecker rejects.
+  const literal = /CONFIG_FILES\s*=\s*\[([\s\S]*?)\];/.exec(bundle);
+  if (!literal) {
+    return { error: "the pinned prettier does not expose a CONFIG_FILES list this can read" };
+  }
+  const names = [...literal[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+
+  // A floor, not a fallback: if the two names every version has are missing, what was matched is
+  // not the search list, and guessing from here is how the TypeScript forms went missing.
+  if (!names.includes("package.json") || !names.includes(".prettierrc")) {
+    return { error: `recovered ${names.length} config name(s) but not the expected anchors` };
+  }
+  return { names: new Set([...names, ...EXTRA_AUTHORITY]) };
+}
 
 /**
  * Is the Prettier about to run the one this revision pins?
@@ -171,6 +227,13 @@ export async function committedFormatFindings(
     return [{ path: "package-lock.json", kind: "TOOL_IDENTITY", detail: identity.detail }];
   }
 
+  const discovery = pinnedConfigBasenames();
+  if ("error" in discovery) {
+    // Config authority that cannot even be enumerated is UNKNOWN, and unknown is not clean.
+    return [{ path: "prettier", kind: "CONFIG_ERROR", detail: discovery.error }];
+  }
+  const configBasenames = discovery.names;
+
   // Modes as well as names, because GIT is the authority on what a path IS.
   const entries = git(["ls-tree", "-r", "-z", rev], cwd)
     .split("\0")
@@ -185,7 +248,7 @@ export async function committedFormatFindings(
     // Only the revision's config authority is written out, and nothing else is present to be
     // mistaken for it. Copying the live checkout's config here would be the defect in disguise.
     for (const { mode, path } of entries) {
-      if (mode === "120000" || !CONFIG_BASENAMES.has(basename(path))) continue;
+      if (mode === "120000" || !configBasenames.has(basename(path))) continue;
       const content = committedFile(path, rev, cwd);
       if (content === null) continue;
       const target = join(scratch, path);

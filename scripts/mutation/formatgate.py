@@ -50,6 +50,11 @@ Expected cardinalities, written before the run:
                                 The lock-matches control stays GREEN, so "always refuse" cannot
                                 pass for the fix.
 
+  M-FMT-NO-TS-CONFIG         drop the TypeScript config forms from discovery
+                             -> 4 red: the discovery control and the three .ts/.mts/.cts revision
+                                controls. This is the reported defect exactly: the forms vanish and
+                                the revision is judged under defaults, silently.
+
   M-FMT-FOLLOW-SYMLINK       judge a symlink as if it were a file
                              -> 1 red: the symlink control.
 
@@ -153,6 +158,16 @@ MUTATIONS = [
         GATE,
         "  const identity = formatterIdentity(cwd, rev, running);",
         "  const identity = { ok: true } as ReturnType<typeof formatterIdentity>;",
+    ),
+    (
+        "M-FMT-NO-TS-CONFIG TypeScript config forms lose their authority",
+        GATE,
+        "  return { names: new Set([...names, ...EXTRA_AUTHORITY]) };",
+        "  return {\n"
+        "    names: new Set(\n"
+        "      [...names, ...EXTRA_AUTHORITY].filter((n) => !/[.](ts|mts|cts)$/.test(n)),\n"
+        "    ),\n"
+        "  };",
     ),
     (
         "M-FMT-FOLLOW-SYMLINK a symlink is judged as if it were a file",

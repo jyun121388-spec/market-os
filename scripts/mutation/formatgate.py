@@ -1,58 +1,63 @@
-"""M-FMT: can the format gate be talked into writing to the tree, or into calling unknown clean?
+"""M-FMT: can the format gate be talked into writing, into calling unknown clean, or into
+answering about the live checkout instead of the revision it names?
 
 WRITE/EDIT TOOL ONLY -- heredocs in this environment eat backslashes.
 
-Two properties, arrived at through two separate defects in the same file.
+Four defects, each found after the previous repair, and each leaving a property behind:
 
-The first version measured by running `prettier --write .` against the LIVE working tree and asking
-git what changed. It found the right answer and could silently reformat a user's uncommitted work:
-it snapshotted only the NAMES of already-dirty files and excluded them from both the report and the
-restore. A verifier editing the thing it measures is the failure the gate exists to catch.
+  1. it must measure the gate CI runs, not the files one unit happened to touch;
+  2. it must never write to the tree it measures;
+  3. it must never convert an evaluator error into a pass;
+  4. its answer must be f(rev) -- not f(rev, live index, live ignore, live config).
 
-The rewritten version read committed bytes and never wrote -- and still carried
-`catch { continue; }` around the Prettier call. That is fail-OPEN: canonical `prettier --check .`
-exits non-zero when it cannot evaluate a file, so a throw here let the diagnostic report clean about
-a tree CI rejects.
-
-So: read COMMITTED bytes, never write, and never convert an evaluator error into a pass.
+Every mutant below breaks exactly one of those and must be caught by a control that reproduces the
+situation, not by an assertion about output text.
 
 Expected cardinalities, written before the run:
 
-  M-FMT-READ-DISK            read the working copy instead of the committed blob
-                             -> 1 red: the CRLF control. This is the "checkout noise counted as a
-                                committed offender" case, and it is why the real `format:check` is
-                                unreadable on this machine -- 67 files against CI's 1.
+  M-FMT-READ-DISK            read the working copy instead of the revision
+                             -> PREDICTED 1, MEASURED 2: the CRLF control and the
+                                dirty-and-committed-offender control.
 
-  M-FMT-WRITE-TREE           write the formatted result back, as the first version effectively did
+  M-FMT-WRITE-TREE           write the formatted result back
                              -> PREDICTED 4, MEASURED 1, then 2 after a control was added for the
-                                gap that number exposed.
+                                gap that number exposed. It writes only where the revision's bytes
+                                are an offender, and every preservation fixture committed clean
+                                content and dirtied it afterwards -- so a writing gate had nothing
+                                to reach for. The original bug's scenario, dirty work over a file
+                                that is ALSO a committed offender, was the missing control.
 
-                                The prediction assumed the mutant would write in every preservation
-                                fixture. It writes only where the COMMITTED bytes are an offender,
-                                and every fixture committed WELL-formatted content and dirtied it
-                                afterwards -- so a writing gate had nothing to reach for in any of
-                                them. That left the original bug's exact scenario unexercised: a
-                                user's dirty work on top of a file that is ALSO a committed
-                                offender. A control for it was added and the mutant went to 2.
-
-                                The untracked control stays green under it, and that is worth
-                                knowing rather than fixing: an untracked file is not in
-                                `git ls-files`, so the guarantee there comes from never enumerating
-                                it rather than from a check.
-
-  M-FMT-FAIL-OPEN            treat a Prettier evaluation failure as "not an offence"
-                             -> 3 red: the unparsable-TS control, the unparsable-JSON control and
-                                the both-kinds control. Each of those fixtures is checked against
-                                the CANONICAL gate in the same test, so the mutant is caught by a
-                                measured disagreement with `prettier --check .` rather than by an
-                                assertion about this gate alone.
+  M-FMT-FAIL-OPEN            treat an evaluation failure as "not an offence"
+                             -> 3 red, as predicted: unparsable TS, unparsable JSON, and the
+                                both-kinds control.
+                                Each compares against the CANONICAL gate in the same test, so the
+                                catch is a measured disagreement with `prettier --check .`.
 
   M-FMT-NO-OFFENDERS         answer "clean" for everything
-                             -> PREDICTED 4, MEASURED 5 -- the both-kinds control fires too. The
-                                vacuity, offender-plus-clean, dirty-and-committed-offender,
-                                misformatted and both-kinds controls.
-                                Every preservation assertion is about what did NOT happen, so
-                                without these a gate returning an empty list would satisfy them all.
+                             -> PREDICTED 5, MEASURED 10. Eight more controls exist than when
+                                that figure was written, and most of them name an offender.
+
+  M-FMT-LIVE-FILESET         enumerate the live index instead of the revision's tree
+                             -> PREDICTED 1, MEASURED 2: the staged-deletion control, where
+                                `git ls-files` no longer lists a file the revision still contains,
+                                plus the rev-binding control.
+
+  M-FMT-LIVE-IGNORE          resolve `.prettierignore` from the active checkout
+                             -> PREDICTED 3, MEASURED 2: the uncommitted-ignore and staged-ignore
+                                controls. The committed-ignore control stays GREEN, and the reason
+                                is worth keeping: in that fixture the committed ignore file is also
+                                the one on disk, so live and revision authority agree and the mutant
+                                is invisible there. Only a DIVERGENCE between them can catch it.
+
+  M-FMT-LIVE-CONFIG          resolve Prettier options from the active checkout
+                             -> 1 red: the uncommitted-options control, whose committed file is
+                                clean under the revision's defaults and an offender under a dirty
+                                `singleQuote` config.
+
+  M-FMT-ARCHIVE-CONVERTS     let `git archive` apply the checkout's line-ending conversion
+                             -> 1 red: the autocrlf control. This is defect (1) reappearing inside
+                                the fourth repair: on this machine it turned a clean tree into 423
+                                reported offenders, measured before it was fixed.
 
     python scripts/mutation/formatgate.py
 """
@@ -72,47 +77,68 @@ UNRELATED_TESTS = ["tests/evolutionScheduler.test.ts"]
 
 MUTATIONS = [
     (
-        "M-FMT-READ-DISK the working copy is measured instead of the committed bytes",
+        "M-FMT-READ-DISK the working copy is measured instead of the revision",
         GATE,
-        "    const source = committedBytes(path, rev, cwd);\n    if (source === null) continue;",
-        '    const source = (await import("node:fs")).readFileSync(\n'
-        '      (await import("node:path")).join(cwd, path),\n'
-        '      "utf8",\n'
-        "    );",
+        "      const source = readFileSync(materialised, \"utf8\");",
+        '      const source = readFileSync((await import("node:path")).join(cwd, path), "utf8");',
     ),
     (
         "M-FMT-WRITE-TREE the gate writes the formatted result back to the tree",
         GATE,
-        '    if (!formatted) findings.push({ path, kind: "MISFORMATTED" });',
-        "    if (!formatted) {\n"
-        '      findings.push({ path, kind: "MISFORMATTED" });\n'
-        '      const fs = await import("node:fs");\n'
-        '      const p = await import("node:path");\n'
-        '      const prettier = await import("prettier");\n'
-        "      fs.writeFileSync(\n"
-        "        p.join(cwd, path),\n"
-        "        await prettier.format(source, { ...options, filepath: path }),\n"
-        '        "utf8",\n'
-        "      );\n"
-        "    }",
+        '      if (!formatted) findings.push({ path, kind: "MISFORMATTED" });',
+        "      if (!formatted) {\n"
+        '        findings.push({ path, kind: "MISFORMATTED" });\n'
+        '        const fs = await import("node:fs");\n'
+        '        const p = await import("node:path");\n'
+        '        const prettier = await import("prettier");\n'
+        "        fs.writeFileSync(\n"
+        "          p.join(cwd, path),\n"
+        "          await prettier.format(source, { ...(options ?? {}), filepath: materialised, parser }),\n"
+        '          "utf8",\n'
+        "        );\n"
+        "      }",
     ),
     (
         "M-FMT-FAIL-OPEN an evaluation failure is skipped instead of reported",
         GATE,
-        "      findings.push({\n"
-        "        path,\n"
-        '        kind: "EVALUATION_ERROR",\n'
-        '        detail: (error as Error).message.split("\\n")[0],\n'
-        "      });\n"
-        "      continue;",
-        "      void error;\n      continue;",
+        "        findings.push({\n"
+        "          path,\n"
+        '          kind: "EVALUATION_ERROR",\n'
+        '          detail: (error as Error).message.split("\\n")[0],\n'
+        "        });\n"
+        "        continue;",
+        "        void error;\n        continue;",
     ),
     (
-        "M-FMT-NO-OFFENDERS every committed file is reported as clean",
+        "M-FMT-NO-OFFENDERS every file is reported as clean",
         GATE,
-        '    if (!formatted) findings.push({ path, kind: "MISFORMATTED" });\n  }\n\n  return findings;',
-        "    void formatted;\n  }\n\n  return findings;",
+        '      if (!formatted) findings.push({ path, kind: "MISFORMATTED" });\n    }\n\n    return findings;',
+        "      void formatted;\n    }\n\n    return findings;",
+    ),
+    (
+        "M-FMT-LIVE-FILESET the live index decides which files exist",
+        GATE,
+        '  const expected = git(["ls-tree", "-r", "--name-only", "-z", rev], cwd)',
+        '  const expected = git(["ls-files", "-z"], cwd)',
+    ),
+    (
+        "M-FMT-LIVE-IGNORE the active checkout's ignore file decides what is skipped",
+        GATE,
+        '          ignorePath: join(tree, ".prettierignore"),',
+        '          ignorePath: join(cwd, ".prettierignore"),',
+    ),
+    (
+        "M-FMT-LIVE-CONFIG the active checkout's Prettier options judge the revision",
+        GATE,
+        "        options = await resolveConfig(materialised);",
+        "        options = await resolveConfig(join(cwd, path));",
+    ),
+    (
+        "M-FMT-ARCHIVE-CONVERTS the archive applies the checkout's line-ending conversion",
+        GATE,
+        '    execFileSync("git", ["-c", "core.autocrlf=false", "archive", "--format=tar", "-o", tar, rev], {',
+        '    execFileSync("git", ["archive", "--format=tar", "-o", tar, rev], {',
     ),
 ]
 
-sys.exit(harness([GATE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1200))
+sys.exit(harness([GATE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=2400))

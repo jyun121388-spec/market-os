@@ -323,3 +323,199 @@ describe("the format gate fails closed on anything it cannot evaluate", () => {
     );
   });
 });
+
+/**
+ * THE ANSWER MUST BE f(rev), NOT f(rev, LIVE CHECKOUT).
+ *
+ * The previous version read committed BYTES and took everything else from the active checkout: the
+ * file set from `git ls-files` (the live index), the ignore rules and the Prettier options from
+ * disk. Non-destructive and still wrong — it never wrote anything, and it answered about something
+ * other than the revision it named. Three ordinary situations made it disagree with CI, and each
+ * gets a control here.
+ *
+ * The revision is now materialised with `git archive` and Prettier resolves inside that tree, so
+ * enumeration, ignore rules and options are the revision's own because they are the only ones
+ * present.
+ */
+describe("the format gate answers for the revision, not for the checkout", () => {
+  const BADLY_FORMATTED = "export const a = {   b:1,\n     c:2 };\n";
+
+  const git = (args: string[], cwd: string) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+
+  const withRepo = async <T>(
+    build: (root: string) => void,
+    fn: (root: string) => Promise<T>,
+  ): Promise<T> => {
+    const root = mkdtempSync(join(tmpdir(), "format-gate-rev-"));
+    try {
+      git(["init", "-q"], root);
+      git(["config", "user.email", "t@example.invalid"], root);
+      git(["config", "user.name", "t"], root);
+      git(["config", "core.autocrlf", "false"], root);
+      build(root);
+      return await fn(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  /** One committed offender, then whatever the caller wants doing to the live checkout. */
+  const committedOffender = (root: string) => {
+    writeFileSync(join(root, "bad.ts"), BADLY_FORMATTED, "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-qm", "an offender"], root);
+  };
+
+  const paths = (findings: { path: string }[]) => findings.map((f) => f.path);
+
+  it("still sees an offender whose deletion is only staged", async () => {
+    // `git ls-files` would no longer list it. The revision still contains it, and the revision is
+    // what CI checks out.
+    await withRepo(
+      (root) => {
+        committedOffender(root);
+        git(["rm", "-q", "--cached", "bad.ts"], root);
+      },
+      async (root) => {
+        expect(paths(await committedFormatFindings(root))).toEqual(["bad.ts"]);
+      },
+    );
+  });
+
+  it("is not silenced by an uncommitted .prettierignore", async () => {
+    // The clearest case: a file on disk that the revision does not contain must not decide what
+    // the revision means.
+    await withRepo(
+      (root) => {
+        committedOffender(root);
+        writeFileSync(join(root, ".prettierignore"), "bad.ts\n", "utf8");
+      },
+      async (root) => {
+        expect(paths(await committedFormatFindings(root))).toEqual(["bad.ts"]);
+      },
+    );
+  });
+
+  it("is not silenced by a STAGED .prettierignore either", async () => {
+    await withRepo(
+      (root) => {
+        committedOffender(root);
+        writeFileSync(join(root, ".prettierignore"), "bad.ts\n", "utf8");
+        git(["add", ".prettierignore"], root);
+      },
+      async (root) => {
+        expect(paths(await committedFormatFindings(root))).toEqual(["bad.ts"]);
+      },
+    );
+  });
+
+  it("judges by the revision's Prettier options, not by uncommitted ones", async () => {
+    // The committed file uses double quotes with default options, so it is clean at HEAD. A dirty
+    // config demanding single quotes would make it an offender — if the config had any authority.
+    await withRepo(
+      (root) => {
+        writeFileSync(join(root, "q.ts"), 'export const s = "x";\n', "utf8");
+        git(["add", "-A"], root);
+        git(["commit", "-qm", "double quotes, default options"], root);
+        writeFileSync(join(root, ".prettierrc.json"), '{ "singleQuote": true }\n', "utf8");
+      },
+      async (root) => {
+        expect(await committedFormatFindings(root)).toEqual([]);
+      },
+    );
+  });
+
+  it("gives no authority to an untracked config-looking file", async () => {
+    await withRepo(
+      (root) => {
+        committedOffender(root);
+        writeFileSync(join(root, ".prettierrc"), '{ "printWidth": 400 }\n', "utf8");
+        writeFileSync(join(root, "prettier.config.js"), "module.exports = {};\n", "utf8");
+      },
+      async (root) => {
+        expect(paths(await committedFormatFindings(root))).toEqual(["bad.ts"]);
+      },
+    );
+  });
+
+  it("binds to the revision it is asked about, not to HEAD", async () => {
+    // Two commits: the offender exists in the first and is fixed in the second. Asking about each
+    // must give a different answer, which nothing about the live checkout can supply.
+    await withRepo(
+      (root) => {
+        committedOffender(root);
+        writeFileSync(join(root, "bad.ts"), "export const a = { b: 1, c: 2 };\n", "utf8");
+        git(["add", "-A"], root);
+        git(["commit", "-qm", "formatted"], root);
+      },
+      async (root) => {
+        expect(await committedFormatFindings(root, "HEAD")).toEqual([]);
+        expect(paths(await committedFormatFindings(root, "HEAD~1"))).toEqual(["bad.ts"]);
+      },
+    );
+  });
+
+  it("leaves the checkout untouched while doing all of that", async () => {
+    // IR-118's guarantee, re-proved against the materialising implementation rather than assumed
+    // to carry over.
+    await withRepo(
+      (root) => {
+        committedOffender(root);
+        writeFileSync(join(root, ".prettierignore"), "bad.ts\n", "utf8");
+        writeFileSync(join(root, "untracked.ts"), BADLY_FORMATTED, "utf8");
+      },
+      async (root) => {
+        const before = {
+          status: git(["status", "--porcelain"], root),
+          index: git(["ls-files", "-s"], root),
+          ignore: readFileSync(join(root, ".prettierignore"), "utf8"),
+          untracked: readFileSync(join(root, "untracked.ts"), "utf8"),
+        };
+        await committedFormatFindings(root);
+        expect({
+          status: git(["status", "--porcelain"], root),
+          index: git(["ls-files", "-s"], root),
+          ignore: readFileSync(join(root, ".prettierignore"), "utf8"),
+          untracked: readFileSync(join(root, "untracked.ts"), "utf8"),
+        }).toEqual(before);
+      },
+    );
+  });
+
+  it("does not let core.autocrlf turn a clean revision into 423 offenders", async () => {
+    // MEASURED, not imagined. `git archive` applies the same conversions a checkout would, so on
+    // this machine it produced a CRLF tree and the gate reported 423 offenders against CI's zero —
+    // the very first defect in this file, reappearing inside its fourth repair. A checkout
+    // convention is not part of the revision's bytes.
+    const root = mkdtempSync(join(tmpdir(), "format-gate-crlf-"));
+    try {
+      git(["init", "-q"], root);
+      git(["config", "user.email", "t@example.invalid"], root);
+      git(["config", "user.name", "t"], root);
+      git(["config", "core.autocrlf", "true"], root);
+      writeFileSync(join(root, "lf.ts"), "export const a = { b: 1 };\n", "utf8");
+      git(["add", "-A"], root);
+      git(["commit", "-qm", "clean with LF"], root);
+      expect(await committedFormatFindings(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("honours an ignore rule the revision DOES contain", async () => {
+    // Without this, "ignore files have no effect" would satisfy every control above, and the gate
+    // would report offenders CI never sees.
+    await withRepo(
+      (root) => {
+        writeFileSync(join(root, "bad.ts"), BADLY_FORMATTED, "utf8");
+        writeFileSync(join(root, ".prettierignore"), "bad.ts\n", "utf8");
+        git(["add", "-A"], root);
+        git(["commit", "-qm", "committed ignore"], root);
+      },
+      async (root) => {
+        expect(await committedFormatFindings(root)).toEqual([]);
+      },
+    );
+  });
+});

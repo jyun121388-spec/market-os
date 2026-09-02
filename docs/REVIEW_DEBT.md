@@ -2402,3 +2402,64 @@ of the working copy, not a repair, and the gate still reads git so it does not d
 Still NOT closed: no workflow run is bound to the corrected SHA. CI reaches this branch only through
 `claude/post-rc-followup`, whose fast-forward this session's classifier denies. `33547628222` is not
 reused as green.
+
+## IR-120 — non-destructive and still answering the wrong question
+
+Status: `VERIFIED` (2026-09-02). Reported by
+`[CHATGPT_ARCHITECT_GUIDANCE][MARKET-IR120-EXACT-REV-FORMAT-AUTHORITY-20260902]` — durable evidence,
+not authority; correcting a diagnostic of mine that names a revision and answers about something
+else needs none.
+
+Only the BYTES came from the revision. The file set came from `git ls-files` (the live INDEX), and
+the ignore rules and Prettier options came from the live checkout. So the answer was
+`f(committed bytes, live configuration)`, and three ordinary situations make those disagree with CI:
+a staged deletion removes a committed offender from the file set; an uncommitted `.prettierignore`
+hides one; an uncommitted `.prettierrc*` judges committed bytes by rules the revision never had.
+
+Non-destructive and still wrong — it never wrote anything, and it answered about something other
+than the revision it named. That is a fourth distinct defect in one small file, each found only
+after the previous repair.
+
+### The revision is materialised, and Prettier resolves inside it
+
+`git archive` into a temp directory; enumeration, `.prettierignore`, `.prettierrc*` and
+`package.json` are then the revision's own because they are the only ones present. Copying the live
+config into a scratch tree would have been the same defect wearing a disguise, and is explicitly not
+what happens.
+
+`git ls-tree` remains the authority on what the revision contains, cross-checked against what the
+archive produced: a path present in the tree and absent from the archive is reported as
+`MATERIALIZATION_INCOMPLETE`, not skipped. `.gitattributes export-ignore` is how that arises, and a
+silently shorter file list is how a gate stops meaning anything.
+
+Config or plugin authority that cannot be resolved is `CONFIG_ERROR` — a revision whose config names
+a plugin the materialised tree has no `node_modules` for lands there, which is the honest answer
+rather than assuming the live checkout's plugins apply.
+
+### Measured, and it caught defect (1) reappearing inside the fourth repair
+
+`git archive` applies the same conversions a checkout would. On this machine that produced a CRLF
+tree and the gate reported **423 offenders where CI reports none** — the original line-ending defect,
+back again, inside the fix for a different one. `-c core.autocrlf=false` is therefore load-bearing
+and has its own control and its own mutant. A checkout convention is not part of a revision's bytes.
+
+### Evidence
+
+Twenty-two controls. Eight new ones vary only the live checkout while the revision stays fixed:
+staged deletion; uncommitted and staged `.prettierignore`; uncommitted `.prettierrc*`; untracked
+config-looking files; `rev != HEAD` binding across two commits; the IR-118 preservation proof
+re-run against the materialising implementation rather than assumed to carry over; and an
+ignore rule the revision DOES contain, without which "ignore files never apply" would satisfy the
+rest.
+
+Mutations 8/8 ISOLATED. Three reintroduce a live-authority path — `git ls-files`, the live ignore
+file, the live config — and each is caught. `M-FMT-LIVE-IGNORE` came in at 2 against a predicted 3,
+and the reason is kept rather than smoothed over: in the committed-ignore fixture the revision's
+file and the on-disk file are the same, so live and revision authority agree and the mutant is
+invisible there. Only a DIVERGENCE between them can catch it.
+
+`M-FMT-NO-OFFENDERS` rose from 5 to 10 simply because eight more controls now name an offender.
+
+Still NOT closed: no workflow run is bound to the corrected SHA, and CI reaches this branch only
+through `claude/post-rc-followup`, whose fast-forward this session's classifier denies.
+`33547628222` is not reused as green.

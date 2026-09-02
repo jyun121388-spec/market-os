@@ -2652,3 +2652,28 @@ linked `git worktree`. The suite was run with `TEST_DATABASE_URL` supplied on th
 Gates: 152 files / 2678 pass + 19 expected fail (2697); format, lint, typecheck, `format-gate` and
 `next build --webpack` clean. `REMOTE_CI: NONE` — no workflow binds to this branch and nothing older
 is inherited.
+
+### IR-120 closed on the exact tree, by a kind the bus cannot carry
+
+`[CHATGPT_VERIFIED][MARKET-IR120-TS-CONFIG-AUTHORITY-20260902-1612]`, comment `IC_kwDOT5Wka88AAAABSFC6Jg`,
+2026-09-02T10:35:05Z. Status `APPROVED`, bounded to application comment `5507510750` on exact
+`5056d779`: it approves the config-authority repair and nothing that descends from it.
+
+Its independent review agreed the derivation replaced the omission CLASS rather than the six missing
+strings, that discovery fails closed with a typed `CONFIG_ERROR` and no guessed fallback, and that
+`package.yaml` came out of the same derivation. It declined to promote the producer-reported 34
+controls and 10/10 mutations to remote CI, checked the exact SHA itself, and reached the same answer
+this side did: `REMOTE_CI: NONE`.
+
+It also names `6f82164` — IR-121 — as a newer child and says explicitly that this approval must not
+be reused for it. Recorded as the boundary it is.
+
+**The kind is the part worth noting.** `CHATGPT_VERIFIED` is one of the four inbound kinds
+`ProtocolKind` does not know, so the durable inbox drops it and it reached this repository only
+because a session read the issue by hand. Whether such a kind may ever authorise an application is
+ESC-014, which IR-117 established was NOT staged in `PENDING_COMMENTS.md` and has since been asked
+for real — issue #2 comment `5498131832`, standing `OPEN`, still unanswered. `CHATGPT_VERIFIED` is
+the largest inbound kind on that issue at 48 comments and the parser admits none of them.
+
+Nothing here turns on the answer: an approval of work already applied grants no authority, and none
+was taken.

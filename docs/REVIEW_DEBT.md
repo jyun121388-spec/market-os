@@ -3070,3 +3070,58 @@ not read as "nothing is running".
 
 The two controls were rebuilt around a constructed premise (this process, a foreign nonce, the OS's
 own identity) instead of a hoped-for one, so neither can skip itself again.
+
+## IR-124 — a zombie is not a live owner, and only CI could say so
+
+The PR #3 fast-forward was approved and pushed, so remote CI bound to this branch's work for the
+first time this session: run `33812987720` at exact `f04e461`. It failed, on two of my own new
+controls, in a way no local run could produce.
+
+    tests/ownerLease.test.ts > B: acquires once A is PROVEN gone     A must actually be gone
+    tests/ownerLease.test.ts > F: an unrelated process is never disturbed
+
+Both wait for a killed child to disappear from the process table. On Linux it never did.
+
+### Two causes, and they compound
+
+**A killed child becomes a ZOMBIE until its parent reaps it, and `/proc/<pid>/stat` still exists for
+a zombie.** So `processStart` — which treats a readable `/proc` entry as a running process — kept
+answering `startedAt` for a corpse.
+
+**And the wait blocked the event loop.** `waitFor` used `Atomics.wait`, which is cheap and
+synchronous, so Node never processed SIGCHLD and never reaped the child. The zombie persisted for
+the whole fifteen-second budget by construction.
+
+Windows has no zombie state, so every local run passed. This is IR-123's shape again — an
+environment difference masking a defect — but the other way round: there, local RESIDUE hid a
+failure; here, a local platform simply lacks the state.
+
+### The production rule was wrong, not just the test
+
+Reporting a zombie as running is not merely inconvenient for a fixture. A zombie holds no lock,
+polls no issue and writes no cursor; it is a dead process whose exit status has not been collected.
+Under the IR-075 rule an ALIVE owner is never replaceable, so a crashed watcher whose parent had not
+reaped it would have wedged the channel behind a corpse — exactly the availability failure the
+UNKNOWN rule was carefully scoped to avoid.
+
+`parseProcStat` now reports state `Z` (and `X`) as `gone`.
+
+### Factored so a Windows machine can be asked about it
+
+The judgement moved into an exported pure function taking one `/proc` line, because the whole
+problem was that nothing local could reproduce the situation. Four controls run on every platform:
+a running line, a zombie line, a comm field containing spaces AND parentheses (the reason parsing
+starts after the LAST `)`), and a truncated line that must come back `unknown` rather than inventing
+a start time.
+
+`M-OWN-ZOMBIE-IS-ALIVE` drops the state check and reddens the zombie control.
+
+### The wait was fixed too, so the two are independent
+
+`waitFor` now awaits a real timer, which lets the runtime reap. Both fixes stand alone: the zombie
+rule is correct whether or not a test blocks, and the test is correct whether or not the rule
+changes. The suite also went from 340s to 142s, because the blocked loop had been serialising
+everything behind it.
+
+Three versions of that helper now: a spawn-per-poll that was too slow, an `Atomics.wait` that was
+too total, and a timer. Recorded because the middle one looked strictly better than the first.

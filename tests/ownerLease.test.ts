@@ -3,7 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ownerLiveness, processStart, selfIdentity } from "@/server/controlbus/owner";
+import {
+  ownerLiveness,
+  parseProcStat,
+  processStart,
+  selfIdentity,
+} from "@/server/controlbus/owner";
 import type { StartProbe } from "@/server/controlbus/owner";
 import {
   acquireLock,
@@ -49,23 +54,25 @@ function spawnIdleChild(): ChildProcess {
 }
 
 /**
- * A synchronous sleep with no spawn.
+ * Polls, YIELDING between attempts, and the yield is load-bearing.
  *
- * The first version shelled out to `node -e setTimeout` between polls, which cost ~80ms of process
- * creation per 25ms of waiting and timed out control F. `Atomics.wait` blocks this thread on a
- * lock nobody will ever notify, which is exactly the primitive wanted here.
+ * Two earlier versions were wrong in opposite ways. The first shelled out to `node -e setTimeout`
+ * between polls, costing ~80ms of process creation per 25ms of waiting, and timed out control F.
+ * The second used `Atomics.wait`, which is cheap but blocks this thread — so Node never processed
+ * SIGCHLD, a killed child was never reaped, and on Linux it stayed a ZOMBIE with a live
+ * `/proc/<pid>/stat` entry. Controls B and F then waited fifteen seconds for a pid that was never
+ * going to disappear, passed on Windows, and failed on ubuntu. `parseProcStat` now calls a zombie
+ * gone on its own merits; this waits properly as well, so the two are independent.
  */
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function waitFor(predicate: () => boolean, budgetMs = 15_000): boolean {
+async function waitFor(predicate: () => boolean, budgetMs = 15_000): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     if (predicate()) return true;
-    // Deliberately synchronous: these controls are about a filesystem and an OS process table, and
-    // a plain loop keeps the ordering obvious rather than hiding it behind a scheduler.
-    sleepSync(25);
+    await sleep(25);
   }
   return false;
 }
@@ -103,11 +110,11 @@ afterEach(() => {
 });
 
 describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
-  it("A: refuses B while A is alive and A's heartbeat has been silent past eviction", () => {
+  it("A: refuses B while A is alive and A's heartbeat has been silent past eviction", async () => {
     const a = spawnIdleChild();
     expect(a.pid, "the contender must actually have started").toBeGreaterThan(0);
     expect(
-      waitFor(() => "startedAt" in processStart(a.pid!)),
+      await waitFor(() => "startedAt" in processStart(a.pid!)),
       "A must be visible to the OS",
     ).toBe(true);
 
@@ -134,9 +141,9 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
     expect(readLock(paths)?.nonce).toBe(held.nonce);
   }, 60_000);
 
-  it("B: acquires once A is PROVEN gone, so an ordinary crash is not a deadlock", () => {
+  it("B: acquires once A is PROVEN gone, so an ordinary crash is not a deadlock", async () => {
     const a = spawnIdleChild();
-    expect(waitFor(() => "startedAt" in processStart(a.pid!))).toBe(true);
+    expect(await waitFor(() => "startedAt" in processStart(a.pid!))).toBe(true);
 
     const silentSince = new Date(Date.now() - PAST_EVICTION_MS).toISOString();
     writeFileSync(
@@ -146,10 +153,9 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
     );
 
     a.kill();
-    expect(
-      waitFor(() => "gone" in processStart(a.pid!)),
-      "A must actually be gone",
-    ).toBe(true);
+    expect(await waitFor(() => "gone" in processStart(a.pid!)), "A must actually be gone").toBe(
+      true,
+    );
 
     const b: LockRecord = {
       pid: process.pid,
@@ -163,11 +169,11 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
     expect(readLock(paths)?.nonce).toBe("contender-b");
   }, 60_000);
 
-  it("C: refuses the mutation right to a contender while its live holder still has it", () => {
+  it("C: refuses the mutation right to a contender while its live holder still has it", async () => {
     // The same defect one layer down. A real child creates the right itself and keeps running; the
     // stamp is deliberately older than the lease, which used to be the whole test for stealing it.
     const holder = spawnIdleChild();
-    expect(waitFor(() => "startedAt" in processStart(holder.pid!))).toBe(true);
+    expect(await waitFor(() => "startedAt" in processStart(holder.pid!))).toBe(true);
     const holderStart = processStart(holder.pid!);
     if (!("startedAt" in holderStart)) throw new Error("the OS could not describe the holder");
 
@@ -290,14 +296,14 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
     expect(readFileSync(mutationPath, "utf8"), "no shared-state write").toBe(before);
   }, 60_000);
 
-  it("F: an unrelated process is never disturbed by any of this", () => {
+  it("F: an unrelated process is never disturbed by any of this", async () => {
     // The negative control for the prohibition on broad kills. It is spawned, it is uninvolved, and
     // it is still alive after a full refuse-then-acquire sequence.
     const bystander = spawnIdleChild();
-    expect(waitFor(() => "startedAt" in processStart(bystander.pid!))).toBe(true);
+    expect(await waitFor(() => "startedAt" in processStart(bystander.pid!))).toBe(true);
 
     const a = spawnIdleChild();
-    expect(waitFor(() => "startedAt" in processStart(a.pid!))).toBe(true);
+    expect(await waitFor(() => "startedAt" in processStart(a.pid!))).toBe(true);
     const silentSince = new Date(Date.now() - PAST_EVICTION_MS).toISOString();
     writeFileSync(
       paths.lock,
@@ -312,7 +318,7 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
     };
     expect(acquireLock(paths, mine, STALE_MS).acquired).toBe(false);
     a.kill();
-    expect(waitFor(() => "gone" in processStart(a.pid!))).toBe(true);
+    expect(await waitFor(() => "gone" in processStart(a.pid!))).toBe(true);
     expect(acquireLock(paths, mine, STALE_MS).acquired).toBe(true);
 
     expect("startedAt" in processStart(bystander.pid!), "the bystander must be untouched").toBe(
@@ -361,4 +367,40 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
     expect(outcome.acquired).toBe(false);
     expect(outcome.acquired === false && outcome.reason).toMatch(/cannot prove the holder is gone/);
   }, 60_000);
+});
+
+/**
+ * `/proc/<pid>/stat` parsing, controlled on every platform because the surprises live here.
+ *
+ * These run on Windows too. The lines are real shapes rather than invented ones, and the zombie row
+ * is the one a red CI run paid for: on ubuntu, `child.kill()` leaves a zombie until the parent reaps
+ * it, `/proc/<pid>/stat` still exists for a zombie, and controls B and F waited 15 seconds for a pid
+ * that was never going to disappear. Windows has no zombie state, so nothing local could show it.
+ */
+describe("reading a process state out of /proc", () => {
+  const RUNNING =
+    "4242 (node) S 1 4242 4242 0 -1 4194304 1234 0 0 0 10 5 0 0 20 0 11 0 987654 " +
+    "123456789 4096 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 3 0 0 0 0 0";
+  const ZOMBIE = RUNNING.replace("(node) S", "(node) Z");
+
+  it("reads the start time of a running process", () => {
+    expect(parseProcStat(RUNNING, 4242)).toEqual({ startedAt: "987654" });
+  });
+
+  it("calls a ZOMBIE gone, because a corpse owns nothing", () => {
+    // Not a workaround for a slow test: a zombie holds no lock, polls no issue and writes no
+    // cursor. Treating it as a live owner would wedge the channel behind a dead process, which is
+    // the availability failure the UNKNOWN rule was scoped to avoid.
+    expect(parseProcStat(ZOMBIE, 4242)).toEqual({ gone: true });
+  });
+
+  it("survives a comm field containing spaces and parentheses", () => {
+    // The reason parsing starts after the LAST ')'. A process can be named anything.
+    const awkward = RUNNING.replace("(node)", "(my (weird) proc name)");
+    expect(parseProcStat(awkward, 4242)).toEqual({ startedAt: "987654" });
+  });
+
+  it("refuses a line it cannot read rather than inventing a start time", () => {
+    expect(parseProcStat("4242 (node) S 1 2 3", 4242)).toHaveProperty("unknown");
+  });
 });

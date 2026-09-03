@@ -87,6 +87,13 @@ Expected cardinalities, written before the run:
                                 the pre-flight had been migrated. One function, two definitions of
                                 ownership, decided by which side of the mutex you were on.
 
+  M-OWN-ZOMBIE-IS-ALIVE      a zombie /proc entry counts as a running process
+                             -> 1 red: the zombie parsing control. It runs on Windows, which has no
+                                zombie state at all -- that is the point. The situation cost a red
+                                CI run precisely because nothing local could reproduce it, so the
+                                judgement was factored into a pure function that any platform can
+                                be asked about.
+
     python scripts/mutation/ownerlease.py
 """
 
@@ -186,6 +193,12 @@ MUTATIONS = [
         """  if (!record.owner) {
     return {
       state: "GONE",""",
+    ),
+    (
+        "M-OWN-ZOMBIE-IS-ALIVE a zombie /proc entry is read as a running process",
+        OWNER,
+        '  if (state === "Z" || state === "X" || state === "x") {',
+        "  if (false) {",
     ),
 ]
 

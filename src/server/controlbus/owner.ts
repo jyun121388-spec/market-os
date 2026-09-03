@@ -71,12 +71,39 @@ export type StartProbe = (pid: number) => ProcessStart;
  * takeover. Everything the probe cannot establish comes back `unknown`, including an unsupported
  * platform, because "the tool failed" and "the process is dead" must never be the same value.
  */
+/**
+ * One line of `/proc/<pid>/stat`, judged. Exported because it is where the platform's surprises are.
+ *
+ * The comm field can contain spaces AND parentheses, so parsing starts after the LAST ')'. After
+ * that, field 3 overall (index 0 here) is the process STATE and field 22 (index 19) is the start
+ * time in clock ticks since boot.
+ *
+ * **A ZOMBIE IS GONE, and this cost a red CI run to learn.** Controls B and F passed on Windows and
+ * failed on ubuntu: after `child.kill()` the child becomes a zombie until its parent reaps it, and
+ * `/proc/<pid>/stat` still exists for a zombie. The test's synchronous wait blocked Node's event
+ * loop, so SIGCHLD was never processed, the child was never reaped, and the pid never disappeared.
+ * Windows has no zombie state, so nothing local could show it.
+ *
+ * Reporting `gone` here is not a workaround for that test. A zombie holds no lock, polls no issue
+ * and writes no cursor — it is a dead process whose exit status has not been collected. Treating it
+ * as a live owner would wedge the channel behind a corpse, which is exactly the availability
+ * failure the UNKNOWN rule was carefully scoped to avoid.
+ */
+export function parseProcStat(raw: string, pid: number): ProcessStart {
+  const after = raw.slice(raw.lastIndexOf(")") + 2).split(" ");
+  const state = after[0];
+  if (state === "Z" || state === "X" || state === "x") {
+    return { gone: true };
+  }
+  const ticks = after[19];
+  if (!ticks || !/^\d+$/.test(ticks)) return { unknown: `/proc/${pid}/stat had no start time` };
+  return { startedAt: ticks };
+}
+
 export function processStart(pid: number): ProcessStart {
   if (!Number.isInteger(pid) || pid <= 0) return { unknown: `pid ${pid} is not a process id` };
 
   if (process.platform === "linux") {
-    // No spawn: `/proc/<pid>/stat` field 22 is the start time in clock ticks since boot. The comm
-    // field can contain spaces and parentheses, so the split starts after the LAST ')'.
     let raw: string;
     try {
       raw = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -85,11 +112,7 @@ export function processStart(pid: number): ProcessStart {
       if (code === "ENOENT") return { gone: true };
       return { unknown: `cannot read /proc/${pid}/stat (${code ?? "unknown error"})` };
     }
-    const after = raw.slice(raw.lastIndexOf(")") + 2).split(" ");
-    // Field 22 overall; fields 1 and 2 were consumed by pid and comm, so index 19 here.
-    const ticks = after[19];
-    if (!ticks || !/^\d+$/.test(ticks)) return { unknown: `/proc/${pid}/stat had no start time` };
-    return { startedAt: ticks };
+    return parseProcStat(raw, pid);
   }
 
   const command =

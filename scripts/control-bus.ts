@@ -30,6 +30,7 @@ import {
   releaseLock,
   storePaths,
 } from "@/server/controlbus/store";
+import { selfIdentity } from "@/server/controlbus/owner";
 import {
   detectAuthMode,
   ghFetchComments,
@@ -76,6 +77,10 @@ async function watchForever(): Promise<void> {
     startedAt: nowIso(),
     // Distinguishes this run from a recycled pid. Cheap, and pid recycling is fast on Windows.
     nonce: `${process.pid}-${process.hrtime.bigint().toString(36)}`,
+    // IR-075: what the OS says about THIS process, so a successor can prove whether we are still
+    // here rather than inferring it from a lapsed heartbeat. Null when the platform cannot say,
+    // which leaves the record unjudgeable — and unjudgeable blocks takeover rather than inviting it.
+    owner: selfIdentity() ?? undefined,
   };
 
   const outcome = acquireLock(paths, record, HEARTBEAT_MS);

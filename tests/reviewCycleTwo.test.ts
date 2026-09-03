@@ -11,6 +11,7 @@ import {
   releaseLock,
   storePaths,
 } from "@/server/controlbus/store";
+import { processStart, selfIdentity } from "@/server/controlbus/owner";
 import { GOVERNED_ACTIONS } from "@/server/governance/policy";
 import { preflight } from "@/server/release/preflight";
 
@@ -67,10 +68,29 @@ describe("the lock actually excludes", () => {
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
+  // IR-075: a record now carries OS-reported process identity, and only a PROVEN-GONE owner may be
+  // replaced. Read once — on Windows each identity question spawns PowerShell (~450ms measured).
+  const selfOwner = selfIdentity() ?? undefined;
   const rec = (nonce: string, startedAt = new Date().toISOString()) => ({
     pid: process.pid,
     startedAt,
     nonce,
+    owner: selfOwner,
+  });
+
+  /**
+   * A pid the OS reports absent, asserted rather than assumed.
+   *
+   * Several controls below need a holder that is genuinely gone. Before IR-075 they expressed that
+   * as "stale heartbeat", which was the defect: a lapsed lease says nothing about whether the owner
+   * is still running.
+   */
+  const GONE_PID = 2_147_483_647;
+  const gone = (nonce: string, startedAt: string) => ({
+    pid: GONE_PID,
+    startedAt,
+    nonce,
+    owner: { pid: GONE_PID, startedAt: "whenever-it-was" },
   });
 
   it("refuses a second acquisition while the first is held", () => {
@@ -80,11 +100,16 @@ describe("the lock actually excludes", () => {
     expect(acquireLock(paths, rec("B"), 45_000).acquired).toBe(false);
   });
 
-  it("still takes over a lock whose holder stopped heartbeating", () => {
+  it("still takes over a lock whose holder is PROVEN gone", () => {
     // The negative control. An exclusive create that never yields would strand the channel after
     // any crash, which is a worse failure than the one it fixes.
+    //
+    // It said "stopped heartbeating" until IR-075, and that was the defect being asserted as the
+    // feature: a lapsed lease evicted owners that were still running. What unlocks a takeover now
+    // is the process being absent, which is what an ordinary crash actually produces.
+    expect(processStart(GONE_PID), "the fixture premise").toEqual({ gone: true });
     const ancient = new Date(Date.now() - 10 * 60_000).toISOString();
-    writeFileSync(paths.lock, JSON.stringify(rec("dead", ancient)), "utf8");
+    writeFileSync(paths.lock, JSON.stringify(gone("dead", ancient)), "utf8");
     expect(acquireLock(paths, rec("fresh"), 1_000).acquired).toBe(true);
   });
 
@@ -118,7 +143,7 @@ describe("the lock actually excludes", () => {
     // to a name only one caller can have chosen, so exactly one racer wins and the loser never
     // touches what the winner put back.
     const ancient = new Date(Date.now() - 10 * 60_000).toISOString();
-    writeFileSync(paths.lock, JSON.stringify(rec("dead", ancient)), "utf8");
+    writeFileSync(paths.lock, JSON.stringify(gone("dead", ancient)), "utf8");
     expect(acquireLock(paths, rec("B"), 1_000).acquired).toBe(true);
     expect(acquireLock(paths, rec("A"), 1_000).acquired).toBe(false);
     expect(readLock(paths)?.nonce).toBe("B");
@@ -150,7 +175,7 @@ describe("the lock actually excludes", () => {
     // Takeover now happens under an exclusive-create mutation right, and re-reads the record
     // INSIDE it, so a lock that became live while queuing is seen rather than replaced.
     const ancient = new Date(Date.now() - 10 * 60_000).toISOString();
-    writeFileSync(paths.lock, JSON.stringify(rec("dead", ancient)), "utf8");
+    writeFileSync(paths.lock, JSON.stringify(gone("dead", ancient)), "utf8");
     expect(acquireLock(paths, rec("B"), 1_000).acquired).toBe(true);
     // A still believes the stale record is there. It must not win.
     expect(acquireLock(paths, rec("A"), 1_000).acquired).toBe(false);
@@ -172,8 +197,30 @@ describe("the lock actually excludes", () => {
     const owner = rec("OWNER");
     acquireLock(paths, owner, 45_000);
     const orphaned = new Date(Date.now() - 10 * 60_000).toISOString();
-    writeFileSync(`${paths.lock}.mutate`, JSON.stringify({ nonce: "ghost", at: orphaned }), "utf8");
+    writeFileSync(
+      `${paths.lock}.mutate`,
+      JSON.stringify({
+        nonce: "ghost",
+        at: orphaned,
+        // IR-075: the right is reclaimed because its owner is PROVEN GONE, not because the stamp
+        // is old. A crash leaves exactly this — an absent pid — so the ordinary case still clears.
+        owner: { pid: GONE_PID, startedAt: "whenever-it-was" },
+      }),
+      "utf8",
+    );
     expect(heartbeat(paths, owner, new Date().toISOString())).toBe(true);
+  });
+
+  it("does NOT reclaim a mutation right whose owner cannot be judged", () => {
+    // The stated availability residual, pinned so it cannot be softened by accident. A stamp with
+    // no identity — written before IR-075, or on a platform whose probe cannot answer — is
+    // unjudgeable, and time never converts unjudgeable into vacant. The cost is a wedge that needs
+    // a person; the alternative is two authorities, which loses decisions silently.
+    const owner = rec("OWNER");
+    acquireLock(paths, owner, 45_000);
+    const orphaned = new Date(Date.now() - 10 * 60_000).toISOString();
+    writeFileSync(`${paths.lock}.mutate`, JSON.stringify({ nonce: "ghost", at: orphaned }), "utf8");
+    expect(heartbeat(paths, owner, new Date().toISOString())).toBe(false);
   });
 
   it("treats a heartbeat from the future as stale rather than eternal", () => {

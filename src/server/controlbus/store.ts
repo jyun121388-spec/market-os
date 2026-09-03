@@ -31,6 +31,7 @@ import { join } from "node:path";
 import type { ControlBusState, InboxEntry } from "./state";
 import { emptyState } from "./state";
 import { defaultBusRoot } from "./root";
+import { ownerLiveness, processStart, type OwnerIdentity, type StartProbe } from "./owner";
 
 // The bus's NAME and the rule for turning it into a PLACE live in `./root`, which knows nothing
 // about decisions. Re-exported because every caller has always asked this module for them, and
@@ -169,6 +170,14 @@ export interface LockRecord {
   startedAt: string;
   /** Identifies THIS run, so a reused pid cannot impersonate it. */
   nonce: string;
+  /**
+   * What the OS says about the owning process, so ownership can be PROVED rather than assumed.
+   *
+   * Optional because records written before IR-075 do not carry it, and a record that cannot be
+   * judged must fail closed rather than be guessed at — `ownerLiveness` answers `UNKNOWN` for one,
+   * and `UNKNOWN` never permits a takeover.
+   */
+  owner?: OwnerIdentity;
 }
 
 export type LockOutcome =
@@ -241,6 +250,7 @@ export function acquireLock(
   paths: StorePaths,
   record: LockRecord,
   staleAfterMs: number,
+  probe: StartProbe = processStart,
 ): LockOutcome {
   ensureRuntimeDir(paths);
   const serialised = `${JSON.stringify(record, null, 2)}\n`;
@@ -251,41 +261,56 @@ export function acquireLock(
   const nowMs = Date.parse(record.startedAt);
   const held = readLock(paths);
 
-  // An unreadable lock is not necessarily an abandoned one. `wx` creates the directory entry
-  // before the contents land, so a competitor acquiring RIGHT NOW is briefly an empty file — and
-  // the previous version read that as "corrupt, take it over", which let both callers acquire.
+  // An unreadable lock is not an abandoned one, and IR-075 is explicit that it never becomes one
+  // by waiting. `wx` creates the directory entry before the contents land, so a competitor
+  // acquiring RIGHT NOW is briefly an empty file; but a permanently corrupt record is equally
+  // unjudgeable, and the previous version let elapsed time convert it into a takeover.
   //
-  // So an unreadable record backs off while it is still young enough to be mid-write. Its age
-  // comes from the filesystem, since by definition there is no timestamp inside it to read.
-  if (!held && lockWrittenRecently(paths.lock, nowMs)) {
+  // Refusing forever is an availability cost, taken deliberately: manufacturing ownership from an
+  // unreadable record is how two watchers end up writing one cursor. The reason names the recovery.
+  if (!held) {
     return {
       acquired: false,
       heldBy: record,
-      reason: "the lock file was created moments ago and is still being written",
+      reason: lockWrittenRecently(paths.lock, nowMs)
+        ? "the lock file was created moments ago and is still being written"
+        : `the lock at ${paths.lock} cannot be read, so its owner cannot be proved gone; ` +
+          "remove it by hand once you have confirmed no watcher is running",
     };
   }
 
-  if (held && processAlive(held.pid) && !lockIsStale(held, staleAfterMs, nowMs)) {
+  const liveness = ownerLiveness(held.owner, probe);
+  if (liveness.state !== "GONE") {
+    // Heartbeat age is a HEALTH signal and never an ownership proof. IR-075: a watcher suspended
+    // inside its critical section stops writing heartbeats while still owning the channel, and the
+    // old condition — `alive && !stale` — made exactly that case replaceable.
+    const stale = lockIsStale(held, staleAfterMs, nowMs);
     return {
       acquired: false,
       heldBy: held,
-      reason: `watcher pid ${held.pid} is running and its heartbeat is current`,
+      reason:
+        liveness.state === "ALIVE"
+          ? `watcher pid ${held.pid} is still running (${liveness.because})` +
+            (stale
+              ? "; its heartbeat has lapsed, which is a health signal and not an eviction"
+              : "")
+          : `cannot prove the holder is gone: ${liveness.because}`,
     };
   }
 
-  // The holder looks stale or the record is unreadable, so somebody may take over — but only one
-  // somebody, and only under the mutation right.
+  // The owner is PROVEN gone, so somebody may take over — but only one somebody, and only under
+  // the mutation right.
   return (
-    withMutation(paths, record, staleAfterMs, nowMs, () => {
+    withMutation(paths, record, staleAfterMs, nowMs, probe, () => {
       // Re-read INSIDE the right. The holder may have been replaced by a live watcher while we were
       // queuing for it, and acting on the record we read outside is exactly the class of mistake
       // this rewrite exists to end.
       const current = readLock(paths);
-      if (current && processAlive(current.pid) && !lockIsStale(current, staleAfterMs, nowMs)) {
+      if (current && ownerLiveness(current.owner, probe).state !== "GONE") {
         return {
           acquired: false,
           heldBy: current,
-          reason: `watcher pid ${current.pid} took the lock first and its heartbeat is current`,
+          reason: `watcher pid ${current.pid} took the lock first and cannot be proved gone`,
         };
       }
       if (!stillHoldsMutation(paths, record)) {
@@ -317,8 +342,13 @@ export function acquireLock(
  * lost its lock has no business writing the shared cursor, and one that cannot get the mutation
  * right is racing a takeover it should let happen.
  */
-export function heartbeat(paths: StorePaths, record: LockRecord, at: string): boolean {
-  const result = withMutation(paths, record, HEARTBEAT_STALE_MS, Date.parse(at), () => {
+export function heartbeat(
+  paths: StorePaths,
+  record: LockRecord,
+  at: string,
+  probe: StartProbe = processStart,
+): boolean {
+  const result = withMutation(paths, record, HEARTBEAT_STALE_MS, Date.parse(at), probe, () => {
     const held = readLock(paths);
     // Positive ownership. An unreadable record is not "not somebody else's".
     if (!held || held.nonce !== record.nonce) return false;
@@ -350,11 +380,15 @@ export function readLock(paths: StorePaths): LockRecord | null {
  * the reviewer found it as a separate finding from the races, and it is the easiest of the set to
  * trigger because it needs no concurrency at all.
  */
-export function releaseLock(paths: StorePaths, record?: LockRecord): void {
+export function releaseLock(
+  paths: StorePaths,
+  record?: LockRecord,
+  probe: StartProbe = processStart,
+): void {
   if (!existsSync(paths.lock)) return;
   if (!record) return;
 
-  withMutation(paths, record, HEARTBEAT_STALE_MS, Date.now(), () => {
+  withMutation(paths, record, HEARTBEAT_STALE_MS, Date.now(), probe, () => {
     const held = readLock(paths);
     if (!held || held.nonce !== record.nonce) return false;
     if (!stillHoldsMutation(paths, record)) return false;
@@ -396,24 +430,23 @@ export function withCanonicalWriteAuthority<T>(
   body: () => T,
   /** Test seam: fires after the write right is won and before ownership is re-read. */
   afterRightTaken?: () => void,
+  probe: StartProbe = processStart,
 ): WriteAuthority<T> {
   const ours = (held: LockRecord | null): boolean =>
     held === null || (held.pid === claim.pid && held.nonce === claim.nonce);
 
   const before = readLock(paths);
-  if (
-    before !== null &&
-    !ours(before) &&
-    processAlive(before.pid) &&
-    !lockIsStale(before, staleAfterMs, nowMs)
-  ) {
+  // IR-075 here too: the pre-flight refused only a holder that was alive AND current, so a live
+  // owner whose heartbeat had lapsed stopped blocking the canonical write. Ownership decides;
+  // staleness does not.
+  if (before !== null && !ours(before) && ownerLiveness(before.owner, probe).state !== "GONE") {
     return {
       held: false,
       reason: `a live watcher holds the lock (pid ${before.pid}, nonce ${before.nonce})`,
     };
   }
 
-  const outcome = withMutation(paths, claim, staleAfterMs, nowMs, (): WriteAuthority<T> => {
+  const outcome = withMutation(paths, claim, staleAfterMs, nowMs, probe, (): WriteAuthority<T> => {
     // A seam, and it exists because the branch below was otherwise UNREACHABLE from any control.
     //
     // `M-AUTH-NO-RECHECK` came back MISSED: the pre-flight above already refuses anything a test
@@ -536,6 +569,7 @@ function withMutation<T>(
   record: LockRecord,
   staleAfterMs: number,
   nowMs: number,
+  probe: StartProbe,
   body: () => T,
 ): T | null {
   const mutationPath = `${paths.lock}.mutate`;
@@ -546,18 +580,33 @@ function withMutation<T>(
   // "now" made every later `.mutate` file look as though it came from the future, so nothing ever
   // expired, and a single orphaned right would have stopped the watcher permanently. Found by the
   // confirmation review as a lease-timestamp issue; the deadlock was the part that mattered.
-  const stamp = `${JSON.stringify({ nonce: record.nonce, at: new Date(nowMs).toISOString() })}\n`;
+  const stamp = `${JSON.stringify({
+    nonce: record.nonce,
+    at: new Date(nowMs).toISOString(),
+    owner: record.owner,
+  })}\n`;
 
   if (!createExclusive(mutationPath, stamp)) {
-    // Somebody holds it. Take it over only if theirs has expired.
-    let heldAt = Number.NaN;
+    // Somebody holds it. IR-075, one layer down: expiry USED to be the whole test, so a holder
+    // suspended mid-operation lost the right on time alone and two callers could both act. The
+    // right is now taken only from an owner PROVEN gone. An expired lease held by a live process
+    // is a health complaint, not a vacancy.
+    type MutationStamp = { at?: string; owner?: OwnerIdentity };
+    let heldStamp: MutationStamp | null = null;
     try {
-      heldAt = Date.parse((JSON.parse(readFileSync(mutationPath, "utf8")) as { at: string }).at);
+      heldStamp = JSON.parse(readFileSync(mutationPath, "utf8")) as MutationStamp;
     } catch {
-      heldAt = Number.NaN;
+      heldStamp = null;
     }
-    const expired = Number.isNaN(heldAt) || nowMs - heldAt > staleAfterMs;
-    if (!expired) return null;
+    // Unreadable is unjudgeable, and time never converts it into a vacancy either.
+    if (!heldStamp) return null;
+    if (ownerLiveness(heldStamp.owner, probe).state !== "GONE") return null;
+
+    // Elapsed time is still required, so a takeover cannot race a holder that is mid-operation and
+    // about to finish. Both conditions, not either: proven gone AND past its lease.
+    const heldAt = Date.parse(heldStamp.at ?? "");
+    if (!Number.isNaN(heldAt) && nowMs - heldAt <= staleAfterMs) return null;
+
     removeIfPresent(mutationPath);
     if (!createExclusive(mutationPath, stamp)) return null;
   }

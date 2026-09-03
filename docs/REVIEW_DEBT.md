@@ -2805,3 +2805,154 @@ after `c7c4ba2`. And the prose guard is accepted as a BOUNDED regression detecto
 block-stripping limitation is accepted as documented, with an explicit instruction not to widen it
 into general prose policing without a separately reproduced need. Written down here because the
 temptation to widen it will come from this file.
+
+## IR-123 — the CI failure my own control caused, and why every local run missed it
+
+Remote CI run `33665629122` / job `100366534740` at exact `3d8ea939`: one failure, in
+`tests/controlBus.test.ts` > `writes only under the gitignored runtime directory` — the control
+IR-121 had just rewritten. `AssertionError: expected [Function] to not throw an error but
+'Error: spawnSync git ENOENT' was thrown`.
+
+`ENOENT` from `spawnSync` reads as "git is not installed". It was not. Reproduced in a throwaway
+repository before anything was changed:
+
+    git --version from the repo root                      git version 2.53.0.windows.2
+    same call with cwd = a directory that does not exist  spawnSync git ENOENT
+    git -C <existing root> check-ignore on that path      answers correctly
+
+The control passed `cwd: dirname(resolved)` — `<repo>/.local` — and on a CLEAN checkout that
+directory does not exist, because runtime state has never been written. Node reports a missing cwd
+as `ENOENT` on the executable. Every local run passed because this machine's `.local` holds a
+portable PostgreSQL and has existed for weeks.
+
+Classification: `TEST_HARNESS_CWD_NONEXISTENCE`, confirmed by fresh reproduction. No production
+semantics changed — no `process.cwd()` fallback, no second bus root, no eager directory creation,
+no weakened or skipped ignore invariant.
+
+The repair asks from a directory that exists about a path that need not: `git -C <repoRoot>
+check-ignore`. `check-ignore` consults the ignore RULES and never the filesystem, so nothing has to
+be created for it to answer.
+
+**The control depended on local residue, and that is the transferable part.** A new control asks the
+same question in a fixture repository where `.local` has never existed, and asserts both halves — an
+absent bus root is still ignored, and a path the rules do not cover still comes back false. No
+developer's real `.local` is touched to build it.
+
+Two mutants added to `M-BUS`, both 1 red as predicted:
+
+    M-BUS-IGNORE-ALWAYS-TRUE   the ignore question always answers yes
+    M-BUS-IGNORE-CWD-RESIDUE   ask from the runtime directory again — the CI defect itself, and
+                               the main control stays GREEN under it on any machine with residue,
+                               which is exactly why the clean fixture had to exist
+
+## IR-075 closed — a lease timeout was standing in for ownership
+
+Open since the control-bus rewrite, carried for weeks as a "known residual, stated rather than
+papered over", and the statement was honest about the window while being wrong about what could
+close it. Reported again as `[CHATGPT_TASK][MARKET-IR075-LIVE-OWNER-LEASE-TAKEOVER-20260902-2228-KST]`
+with three supplements.
+
+### The defect, in one line
+
+`acquireLock` refused a holder only when `processAlive(held.pid) && !lockIsStale(held, ...)`. Once
+the heartbeat aged past three intervals, a watcher that was **still running** became replaceable.
+A suspended laptop is the ordinary way there: A stops heartbeating inside its critical section, B
+takes the lock, A wakes and carries on, and two processes write one cursor.
+
+`withMutation` had the same shape one layer down — an expired right was removed and re-created
+without asking whether its holder was alive — and an unreadable record became "abandoned" purely
+because time had passed. Three faces of one mistake: **time says something about health and nothing
+about ownership.**
+
+`withCanonicalWriteAuthority`'s pre-flight carried it too, which nobody had reported.
+
+### Identity was MEASURED before it was designed against
+
+The task asked for a measurement rather than a claim. On this machine and for the CI runner:
+
+    win32   Get-Process -Id <pid> .StartTime     ~450ms   2026-09-03T06:11:25.1687167Z
+    win32   Get-CimInstance Win32_Process        ~720ms   distinguishes ABSENT cleanly
+    win32   wmic process ... get CreationDate    ~510ms   works, deprecated, not used
+    linux   /proc/<pid>/stat field 22            no spawn at all
+    any     Date.now() - process.uptime()*1000     ~1ms   REJECTED
+
+The last row is why both sides of every comparison come from the SAME source. The self-reported
+start time disagreed with the OS by ~40ms, and a comparison across the two would fail in a way
+indistinguishable from pid reuse.
+
+So exact process-start identity IS available through the current runtime, on both platforms, with
+**no new dependency** — no native mutex, no advisory-locking package, nothing metered. The safe
+PID-only fallback the task authorised was not needed.
+
+### The rule
+
+`src/server/controlbus/owner.ts`. Ownership is `{ pid, startedAt }`, and liveness has three answers:
+
+    ALIVE    pid running AND start time matches      -> never replaceable
+    GONE     pid absent, or a DIFFERENT process now  -> replaceable
+    UNKNOWN  probe cannot say, or record predates it -> never replaceable
+
+`UNKNOWN` blocking is the deliberate safety-over-availability trade. A corrupt or identity-less
+record now refuses forever and names its recovery in the refusal text, rather than becoming
+stealable at N milliseconds. An ordinary crash still clears immediately, because a dead process is
+a positive answer.
+
+### Availability residual, retained on purpose
+
+A watcher that is wedged but alive holds the channel until a person intervenes, and a lock or
+mutation stamp written before this — or on a platform whose probe cannot answer — is unjudgeable and
+never reclaimed automatically. Both are pinned by controls, including one asserting that an
+unjudgeable orphaned mutation right is NOT reclaimed. The alternative is two authorities, which
+loses decisions silently.
+
+### A–G, with real separate processes
+
+`tests/ownerLease.test.ts`, eight controls. Real children, real OS probe; the lock record is written
+by the harness while the process it names is genuinely running and independently scheduled.
+
+    A  live owner, heartbeat silent past 5x the lease   B refused; lock bytes unchanged
+    B  owner killed and PROVEN absent                   B acquires — not a deadlock
+    C  live child holds an EXPIRED mutation right       contender refused; right unchanged
+    D  same pid, different start identity               GONE, and self answers ALIVE
+    E  unreadable mutation right                        refused; no shared-state write
+    F  uninvolved bystander process                     still alive after refuse-then-acquire
+    G  acquire -> heartbeat -> release                  unchanged
+    +  probe that cannot answer                         UNKNOWN blocks, never permits
+
+Every negative control asserts a WITNESS — the lock or the right, byte for byte — not only a return
+code, so a contender that died early cannot satisfy it vacuously. Each fixture premise is asserted
+too: `processStart(GONE_PID)` must actually answer `gone` before a control leans on it.
+
+Children are killed by handle, never by image name.
+
+### Four controls elsewhere asserted the OLD behaviour and were re-expressed
+
+Not deleted, and worth listing, because each was a correct control for the previous rule:
+
+    controlBus       "takes over a lock whose heartbeat has stopped"
+                     -> "refuses a LIVE holder even when its heartbeat has lapsed", plus a
+                        separate control for the proven-gone takeover
+    controlBus       "takes over an unreadable lock that has been there a while"
+                     -> "never takes over an unreadable lock, however long it has been there",
+                        asserting the refusal names its manual recovery
+    controlBusOutbound "proceeds when the lock is stale rather than live"
+                     -> "proceeds when the lock's owner is PROVEN gone, not merely stale"
+    reviewCycleTwo   "still takes over a lock whose holder stopped heartbeating"
+                     -> "... whose holder is PROVEN gone"
+
+The first of those had been green for weeks while asserting, in its own title, the defect IR-075
+describes.
+
+### Mutations 4/4 ISOLATED, every cardinality exactly as predicted
+
+    M-OWN-LEASE-EVICTS-LIVE      restore `alive && !stale` as the only refusal      4 red
+    M-OWN-RIGHT-TIME-STEAL       steal an expired right from a live holder          1 red
+    M-OWN-CORRUPT-IS-ABANDONED   an old unreadable lock becomes takeable            1 red
+    M-OWN-PID-ONLY-IDENTITY      ignore the recorded start time                     1 red
+
+The first predicts four and gets four, and the control it does NOT turn red is the informative one:
+"refuses a second watcher while the first is running" stays green because there the heartbeat is
+current, so the old rule and the new one agree. A control that cannot distinguish them is not
+evidence about either.
+
+`M-FMT`, `M-BUS` (6/6) and `M-LEDGER` (4/4) re-run green on the same bytes.

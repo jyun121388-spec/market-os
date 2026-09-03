@@ -15,6 +15,7 @@ import {
   type ControlBusState,
 } from "@/server/controlbus/state";
 import { storePaths, writeState } from "@/server/controlbus/store";
+import { processStart } from "@/server/controlbus/owner";
 import { controlBusStanding } from "../scripts/inbox-triage";
 
 /**
@@ -202,14 +203,23 @@ describe("committing an outbound message only once it is proven to exist", () =>
     });
   });
 
-  it("proceeds when the lock is stale rather than live", async () => {
+  it("proceeds when the lock's owner is PROVEN gone, not merely stale", async () => {
+    // IR-075. This control used to say "proceeds when the lock is stale rather than live", and
+    // that was the defect: an expired lease evicted an owner that was still running. What unlocks
+    // the write now is a positive answer about the PROCESS, so the fixture names a pid the real
+    // probe reports absent — asserted first, because a control resting on an unchecked premise is
+    // how this whole class hides.
+    const GONE_PID = 2_147_483_647;
+    expect(processStart(GONE_PID), "the fixture premise").toEqual({ gone: true });
+
     await withStore(async (root, state) => {
       writeFileSync(
         join(root, "watcher.lock.json"),
         JSON.stringify({
-          claim: { pid: process.pid, startedAt: "2026-09-02T00:00:00.000Z", nonce: "outbound-run" },
+          pid: GONE_PID,
           startedAt: new Date(deps.nowMs() - 45_000 * 4).toISOString(),
           nonce: "n",
+          owner: { pid: GONE_PID, startedAt: "whenever-it-was" },
         }),
         "utf8",
       );

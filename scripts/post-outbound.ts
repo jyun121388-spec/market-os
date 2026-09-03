@@ -26,6 +26,7 @@ import {
   type ControlBusState,
 } from "../src/server/controlbus/state";
 import { storePaths } from "../src/server/controlbus/store";
+import { selfIdentity } from "../src/server/controlbus/owner";
 import { mayPostPublicly } from "../src/server/escalation/screen";
 import { ghTransport } from "./gh-transport";
 
@@ -106,6 +107,9 @@ async function main(): Promise<number> {
       pid: process.pid,
       startedAt: new Date().toISOString(),
       nonce: randomUUID(),
+      // IR-075: OS-reported process identity, so a watcher deciding whether this claim is still
+      // held can PROVE it rather than reading a lapsed heartbeat as a vacancy.
+      owner: selfIdentity() ?? undefined,
     },
   };
 

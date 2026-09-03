@@ -57,6 +57,21 @@ Expected cardinalities, written before the run:
                                 plain form is already absolute. Tested only from there, the missing
                                 flag looks like no defect at all.
 
+  M-BUS-IGNORE-ALWAYS-TRUE   the ignore question always answers yes
+                             -> 1 red: the clean-checkout control, whose second half asserts that a
+                                path the ignore rules do NOT cover comes back false. The main
+                                control cannot catch this -- it only ever asks about a path that is
+                                genuinely ignored.
+
+  M-BUS-IGNORE-CWD-RESIDUE   ask git from the runtime directory instead of the repository root
+                             -> 1 red: the clean-checkout control. This IS the defect remote CI run
+                                33665629122 caught and every local run missed, because this
+                                machine's `.local` holds a portable PostgreSQL and has existed for
+                                weeks. The main control stays GREEN under this mutant on any machine
+                                with runtime residue, which is exactly why the clean fixture had to
+                                be built: a control that passes because of what is lying around is
+                                not a control.
+
   M-BUS-FALLBACK-ON-ERROR    on an unanswerable question, fall back to the relative name
                              -> 1 red: the fail-closed control. Falling back to the working
                                 directory when git cannot answer restores exactly the defect, at
@@ -105,6 +120,21 @@ MUTATIONS = [
         '["rev-parse", "--git-common-dir"]',
     ),
     (
+        "M-BUS-IGNORE-ALWAYS-TRUE the ignore question always answers yes",
+        TEST,
+        '''    execFileSync("git", ["-C", repoRoot, "check-ignore", "-q", "--", path], { stdio: "ignore" });
+    return true;''',
+        """    void repoRoot;
+    void path;
+    return true;""",
+    ),
+    (
+        "M-BUS-IGNORE-CWD-RESIDUE the ignore question is asked from the runtime directory",
+        TEST,
+        'execFileSync("git", ["-C", repoRoot, "check-ignore", "-q", "--", path], { stdio: "ignore" });',
+        'execFileSync("git", ["check-ignore", "-q", "--", path], { cwd: dirname(path), stdio: "ignore" });',
+    ),
+    (
         "M-BUS-FALLBACK-ON-ERROR an unanswerable question falls back to the working directory",
         ROOT,
         """      error: `git cannot name the repository from ${cwd} (${(error as Error).message.split("\\n")[0]})`,
@@ -114,4 +144,4 @@ MUTATIONS = [
     ),
 ]
 
-sys.exit(harness([ROOT], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1800))
+sys.exit(harness([ROOT, TEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1800))

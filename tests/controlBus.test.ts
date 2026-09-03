@@ -36,6 +36,7 @@ import {
   RUNTIME_DIR,
   storePaths,
 } from "@/server/controlbus/store";
+import type { ProcessStart, StartProbe } from "@/server/controlbus/owner";
 import { parseCommentsPayload, runCycle } from "@/server/controlbus/watch";
 import { evaluateStopSentinel } from "@/server/evolution/scheduler";
 import { GOVERNED_ACTIONS, evaluateAction } from "@/server/governance/policy";
@@ -421,23 +422,75 @@ describe("a decision creates work, and a dead watcher is not rest", () => {
 });
 
 describe("single instance", () => {
-  const record = (pid: number, startedAt: string) => ({ pid, startedAt, nonce: `${pid}-x` });
+  /**
+   * Records now carry OS-reported process identity (IR-075), and the probe is injected so these
+   * controls stay deterministic and do not spawn PowerShell dozens of times. The controls that
+   * need real OS scheduling live in `tests/ownerLease.test.ts` and use real child processes.
+   */
+  const record = (pid: number, startedAt: string, ownerStart = "OWNER-START") => ({
+    pid,
+    startedAt,
+    nonce: `${pid}-x`,
+    owner: { pid, startedAt: ownerStart },
+  });
+  const probeSaying =
+    (answer: ProcessStart): StartProbe =>
+    () =>
+      answer;
+  const ALIVE = probeSaying({ startedAt: "OWNER-START" });
+  const GONE = probeSaying({ gone: true });
 
-  it("refuses a second watcher while the first is heartbeating", () => {
-    const first = acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000);
+  it("refuses a second watcher while the first is running", () => {
+    const first = acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000, ALIVE);
     expect(first.acquired).toBe(true);
-    const second = acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000);
+    const second = acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000, ALIVE);
     expect(second.acquired).toBe(false);
   });
 
-  it("takes over a lock whose heartbeat has stopped", () => {
-    // The pid may well still be alive — recycled to something unrelated. Heartbeat, not liveness,
-    // is what says whether OUR watcher is running, and a bare pid check gets this confidently
-    // wrong on Windows where recycling is fast.
+  /**
+   * IR-075, the whole of it. This control used to say the opposite — "takes over a lock whose
+   * heartbeat has stopped" — and that WAS the defect: a watcher suspended inside its critical
+   * section stops writing heartbeats while still owning the channel, so lease expiry evicted a
+   * live owner and both processes then wrote one cursor.
+   *
+   * Heartbeat age stays a health signal. It is asserted stale here precisely so the refusal cannot
+   * be explained by the lease still being current.
+   */
+  it("refuses a LIVE holder even when its heartbeat has lapsed", () => {
     const ancient = new Date(Date.parse(NOW) - 10 * 60_000).toISOString();
-    expect(lockIsStale(record(process.pid, ancient), 45_000, Date.parse(NOW))).toBe(true);
-    const outcome = acquireLock(paths, record(process.pid, ancient), 1);
+    const holder = record(process.pid, ancient);
+    expect(lockIsStale(holder, 45_000, Date.parse(NOW)), "the lease must really be expired").toBe(
+      true,
+    );
+    writeFileSync(paths.lock, JSON.stringify(holder), "utf8");
+
+    const outcome = acquireLock(paths, record(process.pid, new Date().toISOString()), 1, ALIVE);
+    expect(outcome.acquired).toBe(false);
+    expect(outcome.acquired === false && outcome.reason).toMatch(/still running/);
+    expect(outcome.acquired === false && outcome.reason).toMatch(/health signal/);
+  });
+
+  it("takes over once the holder's process is PROVEN gone", () => {
+    // The other half, and the reason the refusal above is not a deadlock: an ordinary crash leaves
+    // a pid that is genuinely absent, and that is a positive answer rather than an expired timer.
+    const ancient = new Date(Date.parse(NOW) - 10 * 60_000).toISOString();
+    writeFileSync(paths.lock, JSON.stringify(record(4242, ancient)), "utf8");
+    const outcome = acquireLock(paths, record(process.pid, new Date().toISOString()), 1, GONE);
     expect(outcome.acquired).toBe(true);
+  });
+
+  it("refuses a holder whose identity cannot be judged at all", () => {
+    // A record with no `owner` predates IR-075, and an unsupported platform answers UNKNOWN. Both
+    // mean the same thing: nothing proves the owner is gone, so nothing may replace it.
+    const ancient = new Date(Date.parse(NOW) - 10 * 60_000).toISOString();
+    writeFileSync(
+      paths.lock,
+      JSON.stringify({ pid: process.pid, startedAt: ancient, nonce: "legacy" }),
+      "utf8",
+    );
+    const outcome = acquireLock(paths, record(process.pid, new Date().toISOString()), 1, ALIVE);
+    expect(outcome.acquired).toBe(false);
+    expect(outcome.acquired === false && outcome.reason).toMatch(/cannot prove the holder is gone/);
   });
 
   it("waits out an unreadable lock that was written moments ago", () => {
@@ -451,16 +504,20 @@ describe("single instance", () => {
     );
   });
 
-  it("takes over an unreadable lock that has been there a while", () => {
-    // The other half, and the reason the first is safe to do: a genuinely corrupt record must not
-    // hold the channel shut. Age comes from the filesystem, because by definition there is no
-    // timestamp inside the record to read.
+  it("never takes over an unreadable lock, however long it has been there", () => {
+    // This control asserted the OPPOSITE until IR-075: an old corrupt record was treated as
+    // abandoned, which is time being used as ownership proof with the record's contents missing —
+    // the weakest possible evidence used for the most destructive decision.
+    //
+    // Refusing forever is an availability cost, taken deliberately. The reason has to name the
+    // recovery, or the refusal is just a wedge.
     writeFileSync(paths.lock, "{ corrupt", "utf8");
     const old = Date.now() - 60_000;
     utimesSync(paths.lock, new Date(old), new Date(old));
-    expect(acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000).acquired).toBe(
-      true,
-    );
+    const outcome = acquireLock(paths, record(process.pid, new Date().toISOString()), 45_000, GONE);
+    expect(outcome.acquired).toBe(false);
+    expect(outcome.acquired === false && outcome.reason).toMatch(/cannot be read/);
+    expect(outcome.acquired === false && outcome.reason).toMatch(/by hand/);
   });
 });
 
@@ -529,6 +586,32 @@ describe("the control bus is governed", () => {
   });
 });
 
+/**
+ * Does git ignore this path? Asked FROM a directory that exists, ABOUT a path that need not.
+ *
+ * The `-C` matters and it is not style. The first version of the control below passed
+ * `cwd: dirname(resolved)` — `<repo>/.local` — and on a clean checkout that directory does not
+ * exist, because runtime state has never been written. Node reports a missing cwd as
+ * `spawnSync git ENOENT`, which reads exactly like "git is not installed" and is not: the same
+ * binary had already answered `rev-parse` moments earlier in the same test. Remote CI run
+ * `33665629122` failed on precisely that, while every local run passed, because this machine's
+ * `.local` holds a portable PostgreSQL and has existed for weeks.
+ *
+ * So the control depended on local residue to pass. Reproduced in a throwaway repository before
+ * anything was changed: `git --version` from the repo root succeeds, the identical call with a
+ * non-existent cwd throws ENOENT, and `-C <existing root>` on the same absolute path answers
+ * correctly. `git check-ignore` consults the ignore RULES, never the filesystem, so nothing has to
+ * be created for it to answer.
+ */
+function gitIgnores(repoRoot: string, path: string): boolean {
+  try {
+    execFileSync("git", ["-C", repoRoot, "check-ignore", "-q", "--", path], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("runtime state stays out of the repository", () => {
   it("writes only under the gitignored runtime directory", () => {
     logLine(paths, "hello");
@@ -543,12 +626,37 @@ describe("runtime state stays out of the repository", () => {
     // path that merely begins with the right characters.
     const resolved = storePaths().root;
     expect(isAbsolute(resolved), `${resolved} must be a place, not a name`).toBe(true);
-    expect(() =>
-      execFileSync("git", ["check-ignore", "-q", "--", resolved], {
-        cwd: dirname(resolved),
-        stdio: "ignore",
-      }),
-    ).not.toThrow();
+    // `dirname` twice: the bus root is `<repoRoot>/.local/control-bus`, and the repository root is
+    // the one directory here guaranteed to exist — `repositoryBusRoot` derived it from git.
+    expect(gitIgnores(dirname(dirname(resolved)), resolved), `${resolved} must be ignored`).toBe(
+      true,
+    );
+  });
+
+  /**
+   * The same question on a repository where `.local` has NEVER existed.
+   *
+   * This is the discrimination the CI failure earned. Without it, the control above proves the
+   * ignore rule only on a machine that already happens to have runtime state, which is how a
+   * green local suite and a red remote one disagreed for a day. Built as a throwaway fixture
+   * rather than by touching a developer's real `.local`, which holds a live database.
+   */
+  it("answers about a bus root that has never been created", () => {
+    const repo = mkdtempSync(join(tmpdir(), "ignore-clean-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      writeFileSync(join(repo, ".gitignore"), ".local/\n", "utf8");
+      const busRoot = join(repo, ".local", "control-bus");
+
+      expect(existsSync(dirname(busRoot)), "the fixture must be a CLEAN checkout").toBe(false);
+      expect(gitIgnores(repo, busRoot), "an absent runtime dir is still ignored").toBe(true);
+
+      // And it still discriminates: a path the ignore rules do not cover must come back false, or
+      // the control would pass for a bus root that git would happily commit.
+      expect(gitIgnores(repo, join(repo, "src", "index.ts"))).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 

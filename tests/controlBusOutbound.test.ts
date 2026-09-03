@@ -343,11 +343,18 @@ describe("what happens while the remote call is in flight", () => {
   it("does not treat a different lease with the same pid as itself", async () => {
     // The pid-only shortcut this replaced would accept this: same process, different run. The
     // nonce is what `acquireLock` already treats as the sufficient identity.
+    //
+    // IR-075 made the refusal SAY which state it refused on. This fixture writes a record with a
+    // live pid and no process identity, which is genuinely unjudgeable — and the message used to
+    // call every non-gone holder "a live watcher", asserting more than the evidence supported.
     await withStore(async (root, state) => {
       const { transport } = interleaving(() => writeLock(root, OURS.pid, "a-different-lease"));
       const out = await transmitAndCommit(storePaths(root), state, draft, transport, deps);
       expect(out.status).toBe("REFUSED");
-      expect(out.status === "REFUSED" && out.reason).toMatch(/ownership changed|live watcher/);
+      expect(out.status === "REFUSED" && out.reason).toMatch(
+        /ownership changed|is UNKNOWN|is ALIVE/,
+      );
+      expect(out.status === "REFUSED" && out.reason).toMatch(/a-different-lease|ownership changed/);
       expect(persisted(root).outbox).toHaveLength(0);
     });
   });

@@ -130,29 +130,47 @@ export function selfIdentity(probe: StartProbe = processStart): OwnerIdentity | 
 }
 
 /**
- * Does the recorded owner still hold the machine it claimed?
+ * Does the recorded holder still hold the machine it claimed?
  *
- * A record with no `owner` predates this and cannot be judged: the pid may be alive, but nothing
- * says it is the SAME process, and treating "some process has this pid" as ownership is the pid
- * reuse hazard the nonce was already written to avoid. So it is `UNKNOWN`, which blocks.
+ * Takes the whole record, not just `owner`, and the reason came out of running this against the
+ * live bus. The first version asked only about `owner`, so a record written before IR-075 — no
+ * identity field at all — answered `UNKNOWN` and blocked, even when its pid had been absent for
+ * nine days. That wedged the real control bus on the first outbound post after the repair.
+ *
+ * An ABSENT pid is positive proof of abandonment on its own: a recycled id cannot make a missing
+ * process present, so there is nothing a start time would add. The start time earns its keep only
+ * when the pid IS present, where it separates "our process" from "someone else's, same number".
+ *
+ * So the unjudgeable case is narrower than it first looked, and it is the one that genuinely cannot
+ * be decided: a LIVE pid with no recorded identity. There, "some process has this pid" is not
+ * ownership — it is the reuse hazard the nonce was already written to avoid — and it blocks.
  */
 export function ownerLiveness(
-  owner: OwnerIdentity | undefined,
+  record: { pid: number; owner?: OwnerIdentity } | undefined,
   probe: StartProbe = processStart,
 ): OwnerLiveness {
-  if (!owner) {
-    return { state: "UNKNOWN", because: "the record carries no process identity to compare" };
-  }
-  const start = probe(owner.pid);
-  if ("gone" in start) return { state: "GONE", because: `pid ${owner.pid} is no longer running` };
+  if (!record) return { state: "UNKNOWN", because: "there is no record to judge" };
+  const pid = record.owner?.pid ?? record.pid;
+  const start = probe(pid);
+
+  if ("gone" in start) return { state: "GONE", because: `pid ${pid} is no longer running` };
   if ("unknown" in start) return { state: "UNKNOWN", because: start.unknown };
-  if (start.startedAt !== owner.startedAt) {
+
+  if (!record.owner) {
+    return {
+      state: "UNKNOWN",
+      because:
+        `pid ${pid} is running, but the record carries no process identity — this may be the ` +
+        "original owner or an unrelated process that was given the same id",
+    };
+  }
+  if (start.startedAt !== record.owner.startedAt) {
     return {
       state: "GONE",
       because:
-        `pid ${owner.pid} is running but started at ${start.startedAt}, not ${owner.startedAt} — ` +
+        `pid ${pid} is running but started at ${start.startedAt}, not ${record.owner.startedAt} — ` +
         "the id was reused and this is a different process",
     };
   }
-  return { state: "ALIVE", because: `pid ${owner.pid} is the same process that took the lock` };
+  return { state: "ALIVE", because: `pid ${pid} is the same process that took the lock` };
 }

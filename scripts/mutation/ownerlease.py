@@ -42,6 +42,24 @@ Expected cardinalities, written before the run:
                                 mutant that would look harmless in review and lose a real takeover
                                 after a crash-and-restart.
 
+  M-OWN-LEGACY-LIVE-IS-GONE  a LIVE pid with no recorded identity counts as abandoned
+                             -> PREDICTED 2, MEASURED 3, then 2 once the defect it exposed was
+                                fixed. The two predicted are ownerLease D's legacy half and the
+                                controlBus unjudgeable-identity control. The third was ownerLease C,
+                                and it should not have been reachable: `withMutation` passed the
+                                bare `OwnerIdentity` where a `{ pid, owner }` record was expected,
+                                so every live right-holder took the NO-IDENTITY branch and answered
+                                UNKNOWN instead of ALIVE. It type-checked -- an `OwnerIdentity` is
+                                structurally `{ pid, startedAt }` and excess-property checking does
+                                not apply to a variable -- and C stayed green because UNKNOWN blocks
+                                too. A dead comparison behind a passing control, found by a mutant
+                                aimed at something else. C now asserts ALIVE explicitly.
+
+                                The distinction itself came from running the repair against the real
+                                bus: an ABSENT pid is proof of abandonment with or without a start
+                                time, while a LIVE one without it cannot be told from an unrelated
+                                process that was handed the same number.
+
     python scripts/mutation/ownerlease.py
 """
 
@@ -62,14 +80,16 @@ MUTATIONS = [
     (
         "M-OWN-LEASE-EVICTS-LIVE a lapsed heartbeat evicts a living owner again",
         STORE,
-        "  const liveness = ownerLiveness(held.owner, probe);\n  if (liveness.state !== \"GONE\") {",
-        "  const liveness = ownerLiveness(held.owner, probe);\n"
+        "  const liveness = ownerLiveness(held, probe);\n  if (liveness.state !== \"GONE\") {",
+        "  const liveness = ownerLiveness(held, probe);\n"
         "  if (processAlive(held.pid) && !lockIsStale(held, staleAfterMs, nowMs)) {",
     ),
     (
         "M-OWN-RIGHT-TIME-STEAL an expired mutation right is taken from a live holder",
         STORE,
-        '    if (ownerLiveness(heldStamp.owner, probe).state !== "GONE") return null;',
+        """    if (ownerLiveness({ pid: rightOwner.pid, owner: rightOwner }, probe).state !== "GONE") {
+      return null;
+    }""",
         "    void probe;",
     ),
     (
@@ -109,8 +129,18 @@ MUTATIONS = [
     (
         "M-OWN-PID-ONLY-IDENTITY the recorded start time is ignored, so a pid is an identity",
         OWNER,
-        "  if (start.startedAt !== owner.startedAt) {",
+        "  if (start.startedAt !== record.owner.startedAt) {",
         "  if (false) {",
+    ),
+    (
+        "M-OWN-LEGACY-LIVE-IS-GONE a live pid with no recorded identity counts as abandoned",
+        OWNER,
+        """  if (!record.owner) {
+    return {
+      state: "UNKNOWN",""",
+        """  if (!record.owner) {
+    return {
+      state: "GONE",""",
     ),
 ]
 

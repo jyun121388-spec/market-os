@@ -279,7 +279,7 @@ export function acquireLock(
     };
   }
 
-  const liveness = ownerLiveness(held.owner, probe);
+  const liveness = ownerLiveness(held, probe);
   if (liveness.state !== "GONE") {
     // Heartbeat age is a HEALTH signal and never an ownership proof. IR-075: a watcher suspended
     // inside its critical section stops writing heartbeats while still owning the channel, and the
@@ -306,7 +306,7 @@ export function acquireLock(
       // queuing for it, and acting on the record we read outside is exactly the class of mistake
       // this rewrite exists to end.
       const current = readLock(paths);
-      if (current && ownerLiveness(current.owner, probe).state !== "GONE") {
+      if (current && ownerLiveness(current, probe).state !== "GONE") {
         return {
           acquired: false,
           heldBy: current,
@@ -439,10 +439,14 @@ export function withCanonicalWriteAuthority<T>(
   // IR-075 here too: the pre-flight refused only a holder that was alive AND current, so a live
   // owner whose heartbeat had lapsed stopped blocking the canonical write. Ownership decides;
   // staleness does not.
-  if (before !== null && !ours(before) && ownerLiveness(before.owner, probe).state !== "GONE") {
+  const holder = before !== null && !ours(before) ? ownerLiveness(before, probe) : null;
+  if (holder && holder.state !== "GONE") {
     return {
       held: false,
-      reason: `a live watcher holds the lock (pid ${before.pid}, nonce ${before.nonce})`,
+      // Says WHICH refusal this is. The first version reported every non-GONE holder as "a live
+      // watcher", and the very first outbound post after the repair hit an UNKNOWN one and was
+      // told something untrue about why.
+      reason: `the lock (pid ${before!.pid}, nonce ${before!.nonce}) is ${holder.state}: ${holder.because}`,
     };
   }
 
@@ -600,7 +604,16 @@ function withMutation<T>(
     }
     // Unreadable is unjudgeable, and time never converts it into a vacancy either.
     if (!heldStamp) return null;
-    if (ownerLiveness(heldStamp.owner, probe).state !== "GONE") return null;
+    const rightOwner = heldStamp.owner;
+    if (!rightOwner) return null;
+    // `{ pid, owner }`, not the bare identity. Passing `rightOwner` straight through type-checked —
+    // an `OwnerIdentity` is structurally `{ pid, startedAt }` and excess-property checking does not
+    // apply to a variable — and silently took the no-identity branch, so every live right-holder
+    // answered UNKNOWN and the start-time comparison was dead code here. The control that should
+    // have caught it passed, because UNKNOWN blocks too; the MUTANT found it.
+    if (ownerLiveness({ pid: rightOwner.pid, owner: rightOwner }, probe).state !== "GONE") {
+      return null;
+    }
 
     // Elapsed time is still required, so a takeover cannot race a holder that is mid-operation and
     // about to finish. Both conditions, not either: proven gone AND past its lease.

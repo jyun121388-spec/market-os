@@ -211,6 +211,17 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
 
     expect(outcome.acquired).toBe(false);
     expect(outcome.acquired === false && outcome.reason).toMatch(/mutation right/);
+    // WHY it was refused, not merely that it was. The first version asserted only the refusal, and
+    // a defect in the call — the bare identity passed where a record was expected — made every live
+    // right-holder answer UNKNOWN instead of ALIVE. UNKNOWN blocks too, so the control stayed green
+    // over a dead comparison. The mutant found it; this line is what would have.
+    expect(
+      ownerLiveness({
+        pid: holder.pid!,
+        owner: { pid: holder.pid!, startedAt: holderStart.startedAt },
+      }).state,
+      "the right's holder must be ALIVE, not merely unjudgeable",
+    ).toBe("ALIVE");
     // Two authorities never existed: the right still belongs to the live child, byte for byte.
     expect(readFileSync(mutationPath, "utf8")).toBe(rightBefore);
     expect(readLock(paths)?.nonce, "and the lock was not replaced either").toBe("dead-holder");
@@ -220,13 +231,30 @@ describe("IR-075: a live owner is never evicted by a lapsed lease", () => {
     // The real probe, against this very process: same pid, a start time that is not ours. If
     // identity were pid-only this would answer ALIVE and a successor could never reclaim after
     // recycling; if it ignored the pid it would answer GONE for a living owner.
-    const reused = ownerLiveness({ pid: process.pid, startedAt: "1970-01-01T00:00:00.000Z" });
+    const reused = ownerLiveness({
+      pid: process.pid,
+      owner: { pid: process.pid, startedAt: "1970-01-01T00:00:00.000Z" },
+    });
     expect(reused.state).toBe("GONE");
     expect(reused.because).toMatch(/reused/);
 
     const mine = me();
     expect(mine, "this platform must be able to describe its own process").not.toBeNull();
-    expect(ownerLiveness(mine ?? undefined).state).toBe("ALIVE");
+    expect(ownerLiveness({ pid: process.pid, owner: mine ?? undefined }).state).toBe("ALIVE");
+
+    /**
+     * The two LEGACY cases, and they differ — found by running the repair against the real control
+     * bus, where the first outbound post was refused by a nine-day-old record for a pid that had
+     * been absent the whole time.
+     *
+     * An absent pid is proof of abandonment on its own: a recycled id cannot make a missing process
+     * present, so a start time would add nothing. A LIVE pid with no recorded identity is the case
+     * that genuinely cannot be decided, and only that one blocks.
+     */
+    expect(ownerLiveness({ pid: 2_147_483_647 }).state, "absent pid, no identity").toBe("GONE");
+    const live = ownerLiveness({ pid: process.pid });
+    expect(live.state, "live pid, no identity").toBe("UNKNOWN");
+    expect(live.because).toMatch(/same id/);
   }, 60_000);
 
   it("E: an unreadable mutation right is never stolen on elapsed time", () => {

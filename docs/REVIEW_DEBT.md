@@ -2956,3 +2956,46 @@ current, so the old rule and the new one agree. A control that cannot distinguis
 evidence about either.
 
 `M-FMT`, `M-BUS` (6/6) and `M-LEDGER` (4/4) re-run green on the same bytes.
+
+### IR-075 addendum — two things the first commit got wrong, both found by running it
+
+**The repair wedged the real control bus on its first use.** Posting the completion marker was
+refused: `a live watcher holds the lock (pid 12396, nonce 12396-25g58rewg)`. Probed rather than
+assumed — `processStart(12396)` answers `gone`, and has for nine days. The record was written before
+IR-075, carries no `owner` field, and `ownerLiveness` therefore answered `UNKNOWN`, which blocks.
+
+The documented availability residual, hit in production within minutes, and the first version of the
+rule was drawing the line in the wrong place. **An ABSENT pid is proof of abandonment on its own** —
+a recycled id cannot make a missing process present, so a recorded start time would add nothing
+there. The start time earns its keep only when the pid IS present, to separate our process from an
+unrelated one holding the same number.
+
+So `ownerLiveness` now takes the whole record and answers:
+
+    pid absent                          GONE      with or without a recorded identity
+    pid present, identity matches       ALIVE
+    pid present, identity differs       GONE      reuse
+    pid present, NO recorded identity   UNKNOWN   the genuinely undecidable case, and it blocks
+    probe cannot answer                 UNKNOWN
+
+Every safety property is unchanged: a live pid still never loses the lock to elapsed time. What is
+gone is a wedge with no safety justification.
+
+**And the refusal message was asserting more than the evidence supported.** It called every non-GONE
+holder "a live watcher" — including the UNKNOWN one that had been dead for nine days. It now names
+the state and the reason. That is the same defect as IR-122, in a string literal instead of a
+document, three hours later.
+
+**A mutant then found a dead comparison behind a passing control.** `M-OWN-LEGACY-LIVE-IS-GONE` was
+predicted to redden 2 controls and reddened 3. The extra was ownerLease C, which should not have
+been reachable at all: `withMutation` passed the bare `OwnerIdentity` where a `{ pid, owner }`
+record was expected, so every live right-holder took the no-identity branch and answered UNKNOWN
+rather than ALIVE. It type-checked — `OwnerIdentity` is structurally `{ pid, startedAt }`, and
+excess-property checking does not apply to a variable — and C stayed green, because UNKNOWN blocks
+too. The control was passing for a reason that had nothing to do with what it claimed to test.
+
+Fixed, and C now asserts `ALIVE` explicitly rather than merely asserting the refusal. The mutant
+returns to its predicted 2.
+
+Three findings from one commit, none of them from review: the first from running the thing, the
+second from reading the message it printed, the third from a mutant aimed somewhere else.

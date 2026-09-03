@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,8 @@ import {
   type ControlBusState,
 } from "@/server/controlbus/state";
 import { storePaths, writeState } from "@/server/controlbus/store";
-import { processStart } from "@/server/controlbus/owner";
+import { processStart, selfIdentity } from "@/server/controlbus/owner";
+import { spawn, type ChildProcess } from "node:child_process";
 import { controlBusStanding } from "../scripts/inbox-triage";
 
 /**
@@ -178,27 +179,27 @@ describe("committing an outbound message only once it is proven to exist", () =>
     // The watcher owns state.json. Rather than invent a second lock protocol, this fails closed —
     // and writing out of band is the one thing that could corrupt a poll cycle mid-rename.
     await withStore(async (root, state) => {
+      // A FOREIGN lease that is certainly alive: this process, a different nonce, and the OS's own
+      // identity for it. It used to be `process.pid + 1` guarded by `process.kill(pid, 0)`, which
+      // skipped itself whenever that pid happened to be absent — and worse, measured while
+      // migrating this, `process.kill(28877, 0)` reported ALIVE while both `Get-Process -Id` and
+      // `tasklist` reported no such process. Two independent sources against one, so the signal-0
+      // probe is the one that is wrong on Windows. The premise is now constructed, not hoped for.
       writeFileSync(
         join(root, "watcher.lock.json"),
-        JSON.stringify({ pid: process.pid + 1, startedAt: deps.now(), nonce: "n" }),
+        JSON.stringify({
+          pid: process.pid,
+          startedAt: deps.now(),
+          nonce: "a-foreign-lease",
+          owner: selfIdentity() ?? undefined,
+        }),
         "utf8",
       );
       const { t, calls } = transport();
-      // Only meaningful if that pid is actually alive; otherwise the control proves nothing.
-      let alive = true;
-      try {
-        process.kill(process.pid + 1, 0);
-      } catch {
-        alive = false;
-      }
       const out = await transmitAndCommit(storePaths(root), state, draft, t, deps);
-      if (!alive) {
-        expect(out.status, "a dead pid must not block").not.toBe("REFUSED");
-        return;
-      }
       expect(out.status).toBe("REFUSED");
-      expect(out.status === "REFUSED" && out.reason).toMatch(/live watcher/);
-      expect(calls.post).toBe(0);
+      expect(out.status === "REFUSED" && out.reason).toMatch(/is ALIVE/);
+      expect(calls.post, "nothing may reach the network").toBe(0);
       expect(persisted(root).outbox).toHaveLength(0);
     });
   });
@@ -233,16 +234,14 @@ describe("committing an outbound message only once it is proven to exist", () =>
     await withStore(async (root, state) => {
       writeFileSync(
         join(root, "watcher.lock.json"),
-        JSON.stringify({ pid: process.pid + 1, startedAt: deps.now(), nonce: "n" }),
+        JSON.stringify({
+          pid: process.pid,
+          startedAt: deps.now(),
+          nonce: "a-foreign-lease",
+          owner: selfIdentity() ?? undefined,
+        }),
         "utf8",
       );
-      let alive = true;
-      try {
-        process.kill(process.pid + 1, 0);
-      } catch {
-        alive = false;
-      }
-      if (!alive) return;
       const { t } = transport();
       await transmitAndCommit(storePaths(root), state, draft, t, deps);
       expect(existsSync(join(root, "outbox.jsonl"))).toBe(false);
@@ -575,4 +574,180 @@ describe("screening, inside the lifecycle rather than beside it", () => {
     expect(calls).toEqual({ find: 1, post: 1, readBack: 1 });
     expect(outbox).toBe(1);
   });
+});
+
+/**
+ * THE RECHECK INSIDE THE MUTATION RIGHT, which had kept the pre-IR-075 rule.
+ *
+ * `withCanonicalWriteAuthority` asks about ownership twice: once before competing for the write
+ * right, once after winning it. IR-075 migrated the first to `ownerLiveness` and left the second on
+ * `processAlive(pid) && !lockIsStale(...)`. One function, two definitions of ownership, and which
+ * one applied depended on which side of the mutex you were on — so a foreign watcher that was
+ * genuinely alive, with an OS identity matching its own lock, and a lapsed heartbeat, was written
+ * straight past.
+ *
+ * Found by independent review of `a216636f`, not by this suite, and the `afterRightTaken` seam makes
+ * it reachable on demand — so it was never a theoretical window, only an untested one.
+ *
+ * All three controls use a REAL foreign process where the property depends on one.
+ */
+describe("the post-right recheck uses the same ownership rule as everything else", () => {
+  const ISSUE = 2;
+  const BODY = "[ESCALATION][ESC-903]\n\nA question.";
+  const NOW = "2026-09-02T00:00:00.000Z";
+  const kids: ChildProcess[] = [];
+
+  afterEach(() => {
+    // By handle only. Never by image name.
+    for (const kid of kids.splice(0)) if (kid.exitCode === null) kid.kill();
+  });
+
+  const liveChild = (): ChildProcess => {
+    const kid = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], {
+      stdio: "ignore",
+    });
+    kids.push(kid);
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline && !("startedAt" in processStart(kid.pid!))) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+    return kid;
+  };
+
+  /** Runs the real lifecycle, installing `foreignLock` after the write right is won. */
+  const runWith = async (foreignLock: object | null) => {
+    const root = mkdtempSync(join(tmpdir(), "post-right-"));
+    try {
+      writeState(storePaths(root), emptyState(ISSUE));
+      let bodyCalls = 0;
+      const deps: OutboundDeps = {
+        now: () => NOW,
+        heartbeatStaleMs: 45_000,
+        nowMs: () => Date.parse(NOW),
+        claim: {
+          pid: process.pid,
+          startedAt: NOW,
+          nonce: "ours",
+          owner: selfIdentity() ?? undefined,
+        },
+        afterRightTaken: () => {
+          if (foreignLock) {
+            writeFileSync(join(root, "watcher.lock.json"), JSON.stringify(foreignLock), "utf8");
+          }
+        },
+      };
+      const out = await transmitAndCommit(
+        storePaths(root),
+        emptyState(ISSUE),
+        { protocolId: "ESC-903", kind: "ESCALATION", body: BODY, composedAt: NOW },
+        {
+          find: async () => null,
+          post: async () => {
+            bodyCalls += 1;
+            return { commentId: 4243 };
+          },
+          readBack: async () => ({
+            commentId: 4243,
+            body: BODY,
+            repository: CONTROL_BUS_REPOSITORY,
+            issueNumber: ISSUE,
+          }),
+        },
+        deps,
+      );
+      const state = JSON.parse(readFileSync(join(root, "state.json"), "utf8")) as ControlBusState;
+      const lockBytes = existsSync(join(root, "watcher.lock.json"))
+        ? readFileSync(join(root, "watcher.lock.json"), "utf8")
+        : null;
+      return { out, state, lockBytes, posted: bodyCalls, root };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  it("blocks when the post-right holder is ALIVE with a lapsed heartbeat", async () => {
+    const kid = liveChild();
+    const start = processStart(kid.pid!);
+    if (!("startedAt" in start)) throw new Error("the OS could not describe the foreign process");
+
+    const foreign = {
+      pid: kid.pid,
+      // Far older than the 45s horizon: this is exactly the state the old conjunction let through.
+      startedAt: new Date(Date.parse(NOW) - 45_000 * 10).toISOString(),
+      nonce: "a-live-successor",
+      owner: { pid: kid.pid, startedAt: start.startedAt },
+    };
+    const written = JSON.stringify(foreign);
+
+    const { out, state, lockBytes } = await runWith(foreign);
+
+    expect(out.status).toBe("REFUSED");
+    expect(out.status === "REFUSED" && out.reason).toMatch(/ALIVE/);
+    // The witnesses, not only the verdict: the canonical write never ran, and the foreign lock is
+    // byte-identical to what the successor installed.
+    // `body()` is what appends the outbox entry, so zero entries IS zero invocations — and the
+    // log file it would also have written is absent.
+    expect(state.outbox, "body() must not have been invoked").toHaveLength(0);
+    expect(lockBytes).toBe(written);
+  }, 60_000);
+
+  it("blocks when the post-right holder cannot be judged at all", async () => {
+    // A record with no process identity and a live pid: unjudgeable, and unjudgeable blocks.
+    //
+    // The heartbeat is deliberately LAPSED. The first version stamped it `NOW`, and measurement
+    // showed the discrimination mutant left this control green — under the old conjunction a
+    // current heartbeat refuses too, so the two rules agreed here and the control could not tell
+    // them apart. A control that cannot distinguish the rule from its defect is not evidence about
+    // either, which is the same lesson the lease-eviction mutant taught one layer up.
+    const foreign = {
+      pid: process.pid,
+      startedAt: new Date(Date.parse(NOW) - 45_000 * 10).toISOString(),
+      nonce: "an-unjudgeable-successor",
+    };
+    const written = JSON.stringify(foreign);
+
+    const { out, state, lockBytes } = await runWith(foreign);
+
+    expect(out.status).toBe("REFUSED");
+    expect(out.status === "REFUSED" && out.reason).toMatch(/UNKNOWN/);
+    expect(state.outbox).toHaveLength(0);
+    expect(lockBytes).toBe(written);
+  }, 60_000);
+
+  it("proceeds when the lock vanishes after the right is taken", async () => {
+    // The positive baseline. Without it, "refuse whenever anything is there" would satisfy the two
+    // negatives above and this describe would prove nothing about ownership at all.
+    const { out, state } = await runWith(null);
+    expect(out.status).toBe("COMMITTED");
+    expect(state.outbox, "the canonical write is what appends this").toHaveLength(1);
+  }, 60_000);
+
+  it("proceeds when the post-right holder is OUR OWN lock", async () => {
+    // Same claim, same nonce: not foreign, so ownership never changed and the write continues.
+    const { out, state } = await runWith({
+      pid: process.pid,
+      startedAt: NOW,
+      nonce: "ours",
+      owner: selfIdentity() ?? undefined,
+    });
+    expect(out.status).toBe("COMMITTED");
+    expect(state.outbox).toHaveLength(1);
+  }, 60_000);
+
+  it("proceeds when the post-right holder is PROVEN gone", async () => {
+    // The positive half, so "always refuse" cannot pass for the fix. The premise is asserted, or an
+    // early-dead fixture would satisfy this for the wrong reason.
+    const GONE_PID = 2_147_483_647;
+    expect(processStart(GONE_PID), "the fixture premise").toEqual({ gone: true });
+
+    const { out, state } = await runWith({
+      pid: GONE_PID,
+      startedAt: new Date(Date.parse(NOW) - 45_000 * 10).toISOString(),
+      nonce: "a-dead-successor",
+      owner: { pid: GONE_PID, startedAt: "whenever-it-was" },
+    });
+
+    expect(out.status).toBe("COMMITTED");
+    expect(state.outbox).toHaveLength(1);
+  }, 60_000);
 });

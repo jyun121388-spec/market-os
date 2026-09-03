@@ -25,12 +25,11 @@ import {
   heartbeat,
   loadState,
   logLine,
-  processAlive,
   readLock,
   releaseLock,
   storePaths,
 } from "@/server/controlbus/store";
-import { selfIdentity } from "@/server/controlbus/owner";
+import { ownerLiveness, selfIdentity } from "@/server/controlbus/owner";
 import {
   detectAuthMode,
   ghFetchComments,
@@ -147,7 +146,14 @@ function watcherHealth(
   state: { consecutiveFailures: number } | null,
 ): string {
   if (!lock) return "PROCESS_NOT_FOUND (no lock record)";
-  if (!processAlive(lock.pid)) return `PROCESS_NOT_FOUND (pid ${lock.pid} is gone)`;
+  // Asked of the OS, not of `process.kill(pid, 0)`. Measured on this machine: signal 0
+  // reported pid 28877 ALIVE while `Get-Process -Id` and `tasklist` both reported no such
+  // process — two independent sources against one. A status command built on the losing
+  // probe reports a dead watcher as running, which is the false green this file's own
+  // comment was written to avoid.
+  const liveness = ownerLiveness(lock);
+  if (liveness.state === "GONE") return `PROCESS_NOT_FOUND (${liveness.because})`;
+  if (liveness.state === "UNKNOWN") return `OWNERSHIP_UNKNOWN (${liveness.because})`;
 
   const heartbeatAgeMs = Date.now() - Date.parse(lock.startedAt);
   if (Number.isNaN(heartbeatAgeMs)) return "STALE_HEARTBEAT (unreadable timestamp)";
@@ -163,7 +169,7 @@ function watcherHealth(
 
 function status(): void {
   const lock = readLock(paths);
-  const alive = lock !== null && processAlive(lock.pid);
+  const alive = lock !== null && ownerLiveness(lock).state === "ALIVE";
   const state = existsSync(paths.state) ? loadState(paths, ISSUE) : null;
 
   if (!state) {
@@ -205,9 +211,9 @@ function stop(): void {
     console.log("No watcher lock present; nothing to stop.");
     return;
   }
-  if (!processAlive(lock.pid)) {
+  if (ownerLiveness(lock).state === "GONE") {
     releaseLock(paths);
-    console.log(`Stale lock for pid ${lock.pid} removed.`);
+    console.log(`Stale lock for pid ${lock.pid} removed — its process is gone.`);
     return;
   }
   try {
@@ -226,8 +232,10 @@ function stop(): void {
 
 function start(): void {
   const lock = readLock(paths);
-  if (lock && processAlive(lock.pid)) {
-    console.log(`Watcher already running (pid ${lock.pid}). Nothing to do.`);
+  if (lock && ownerLiveness(lock).state !== "GONE") {
+    console.log(
+      `Watcher lock held by pid ${lock.pid} (${ownerLiveness(lock).state}). Nothing to do.`,
+    );
     return;
   }
   // `__filename` does not exist under ESM, which is how tsx runs this. Deriving it from

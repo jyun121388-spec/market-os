@@ -44,12 +44,11 @@ import {
   type ControlBusState,
   type OutboxEntry,
 } from "./state";
+import { ownerLiveness, type StartProbe } from "./owner";
 import { mayPostPublicly } from "../escalation/screen";
 import {
   appendOutboxLog,
   loadState,
-  lockIsStale,
-  processAlive,
   readLock,
   withCanonicalWriteAuthority,
   writeState,
@@ -116,6 +115,8 @@ export interface OutboundDeps {
   claim: LockRecord;
   /** Test seam, threaded straight through to the write authority. See . */
   afterRightTaken?: () => void;
+  /** Ownership probe, injectable for the same reason the store injects it. */
+  startProbe?: StartProbe;
 }
 
 /**
@@ -154,16 +155,22 @@ export async function transmitAndCommit(
   // not the guarantee: a check here and a write after an `await` is a snapshot, and a snapshot is
   // not a serialisation primitive. The guarantee is taken at commit time, under
   // `withCanonicalWriteAuthority`, where the state is also RELOADED.
+  //
+  // It asks the SAME ownership question as everything else. It used `processAlive(pid) &&
+  // !lockIsStale(...)`, which could not produce an unsafe outcome here — the commit-time authority
+  // still refuses — but it was a THIRD definition of ownership in a codebase that had just been
+  // reduced to one, and the IR-075 verification found the second by noticing exactly that kind of
+  // split. A fast-fail that disagrees with the guarantee is a future defect with a green suite over
+  // it.
   const lock = readLock(paths);
-  if (
-    lock !== null &&
-    !(lock.pid === deps.claim.pid && lock.nonce === deps.claim.nonce) &&
-    processAlive(lock.pid) &&
-    !lockIsStale(lock, deps.heartbeatStaleMs, deps.nowMs())
-  ) {
+  const isOurs = lock !== null && lock.pid === deps.claim.pid && lock.nonce === deps.claim.nonce;
+  const holder = lock !== null && !isOurs ? ownerLiveness(lock, deps.startProbe) : null;
+  if (lock !== null && holder && holder.state !== "GONE") {
     return {
       status: "REFUSED",
-      reason: `a live watcher holds the lock (pid ${lock.pid}); refusing before any remote call`,
+      reason:
+        `the lock (pid ${lock.pid}) is ${holder.state}: ${holder.because}; ` +
+        "refusing before any remote call",
     };
   }
 

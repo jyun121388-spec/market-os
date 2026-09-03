@@ -461,21 +461,23 @@ export function withCanonicalWriteAuthority<T>(
     // rather than left as an assertion about itself.
     afterRightTaken?.();
     const during = readLock(paths);
-    // A lock that vanished is not a failure — nobody owns it, so we continue. Neither is a STALE
-    // foreign lock: refusing on that would let one leftover file block every future write, which is
-    // a deadlock dressed as caution. Only a LIVE foreign lease is a replacement, and it is tested
-    // exactly as the pre-flight tests it.
-    if (
-      during !== null &&
-      !ours(during) &&
-      processAlive(during.pid) &&
-      !lockIsStale(during, staleAfterMs, nowMs)
-    ) {
+    // A lock that vanished is not a failure — nobody owns it, so we continue. Neither is a foreign
+    // lock whose owner is PROVEN GONE: refusing on a leftover file would block every future write,
+    // which is a deadlock dressed as caution.
+    //
+    // What decides is ownership, and it is the SAME question the pre-flight asks. This recheck used
+    // `processAlive(during.pid) && !lockIsStale(...)` until the IR-075 verification found it: only
+    // the pre-flight had been migrated, so one function held two definitions of ownership depending
+    // on which side of the mutex you were on — and the inner one let a genuinely live watcher with a
+    // lapsed heartbeat be written straight past. The `afterRightTaken` seam makes that reachable on
+    // demand, so it was not a theoretical window.
+    const foreign = during !== null && !ours(during) ? ownerLiveness(during, probe) : null;
+    if (during !== null && foreign && foreign.state !== "GONE") {
       return {
         held: false,
         reason:
-          "ownership changed while taking the write right " +
-          `(now pid ${during.pid}, nonce ${during.nonce})`,
+          `ownership changed while taking the write right (now pid ${during.pid}, ` +
+          `nonce ${during.nonce}), and it is ${foreign.state}: ${foreign.because}`,
       };
     }
     return { held: true, value: body() };
@@ -536,14 +538,19 @@ function removeIfPresent(path: string): void {
  *
  * The right is a `wx` create of a second file, which is what makes it a right rather than a hope.
  *
- * **Known residual, stated rather than papered over.** A lease can expire while its holder is
- * paused mid-function, after which a successor legitimately takes the right and both can act. The
- * fencing check narrows the window to the gap between the check and the write; it does not remove
- * it, because check-and-act is two operations and plain files offer no way to make it one.
+ * **IR-075 CLOSED that residual, and this paragraph used to describe the defect as the design.** It
+ * said a lease could expire while its holder was paused mid-function, "after which a successor
+ * legitimately takes the right and both can act". Nothing about that was legitimate — it is the
+ * split brain — and leaving the sentence here would hand the unsafe rule to the next implementer as
+ * guidance.
  *
- * Reaching it needs two watchers racing AND one suspended past the lease mid-operation — and
- * `control-bus:start` refuses while a live lock exists, so it takes deliberate concurrent starts
- * plus a machine suspend. Recorded as IR-075.
+ * The right is now taken only from an owner the OS reports GONE. A holder paused past its lease is
+ * ALIVE, and ALIVE never yields. Elapsed time is still required on top, so a takeover cannot race a
+ * holder that is mid-operation and about to finish: proven gone AND past its lease, never either.
+ *
+ * What remains is an availability cost, deliberately chosen: a wedged-but-live owner, or one whose
+ * identity cannot be judged, holds the right until a person intervenes. `stillHoldsMutation` stays
+ * as fencing for the ordinary case, not as compensation for a rule that lets two callers act.
  *
  * **The fix this comment used to name is DISPROVEN.** It said: hold the lock file open for the
  * process lifetime, because on Windows an open handle cannot be deleted or renamed by another

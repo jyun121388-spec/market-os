@@ -2999,3 +2999,74 @@ returns to its predicted 2.
 
 Three findings from one commit, none of them from review: the first from running the thing, the
 second from reading the message it printed, the third from a mutant aimed somewhere else.
+
+### IR-075 second addendum — the same rule, asked twice, answered differently
+
+`[CHATGPT_VERIFIED][MARKET-IR075-...]` `REWORK_REQUIRED` against `a216636f`, and again against
+`f98685b5`. Both named the same thing and it was real both times.
+
+`withCanonicalWriteAuthority` asks about ownership TWICE: once before competing for the write right,
+once after winning it, with the `afterRightTaken` seam between them. IR-075 migrated the first to
+`ownerLiveness` and left the second on `processAlive(during.pid) && !lockIsStale(...)`.
+
+One function, two definitions of ownership, and which one applied depended on which side of the
+mutex you were standing on. A foreign watcher that was genuinely alive, whose OS identity matched
+its own lock, and whose heartbeat had lapsed, was written straight past — and the `UNKNOWN`
+fail-closed branch was bypassed entirely on that side.
+
+Worse, the comment beside it said so approvingly: "Neither is a STALE foreign lock: refusing on that
+would let one leftover file block every future write." That was the pre-IR-075 rule written down as
+a reason, sitting one line above the code that implemented it.
+
+Repaired to the same `ownerLiveness` authority as everywhere else. Heartbeat age stays health
+metadata and never overrides `ALIVE` or `UNKNOWN`. The leftover-file worry the old comment raised is
+answered by the addendum above rather than by a timer: a leftover lock whose pid is absent is
+`GONE`, and `GONE` continues.
+
+Five controls on the production wiring, using `afterRightTaken` to install the foreign record in the
+exact window:
+
+    foreign ALIVE, matching identity, deliberately stale heartbeat   body() 0 times, lock unchanged
+    foreign UNKNOWN (live pid, no recorded identity)                 body() 0 times, lock unchanged
+    foreign PROVEN GONE                                              write continues
+    the lock vanished after the right was taken                      write continues
+    the post-right holder is OUR OWN lock                            write continues
+
+`body()` is what appends the outbox entry, so zero entries is zero invocations. The three positives
+exist because "refuse whenever anything is there" would satisfy the two negatives on its own.
+
+`M-OWN-DURING-LEASE-RECHECK` restores the exact old conjunction and the live-but-stale control goes
+red for the intended reason.
+
+### And a THIRD definition, found while fixing the second
+
+`transmitAndCommit`'s pre-flight in `outbound.ts` also carried `processAlive && !lockIsStale`. It
+could not produce an unsafe outcome — the commit-time authority still refuses — but a fast-fail that
+disagrees with the guarantee is a future defect with a green suite over it, and the review had just
+found the second definition by noticing exactly that shape. Migrated to the same rule.
+
+### `processAlive` was measurably wrong, in the unsafe direction for reporting
+
+Two controls in the outbound suite used `process.kill(pid, 0)` to establish their premise, and both
+started failing. Rather than adjust them, the disagreement was measured:
+
+    pid 28877   process.kill(pid, 0)   reports ALIVE
+                Get-Process -Id        reports no such process
+                tasklist /FI           reports no matching task
+
+Two independent sources against one, so the signal-0 probe is the one that is wrong on Windows. Its
+own doc comment claimed it "throws if the pid is gone"; measured, it does not.
+
+That primitive was the `alive` half of the pre-IR-075 rule, and it still fed two reporting paths:
+`control-bus.ts` printed `ALIVE_POLLING` for a watcher that no longer exists, and
+`stop-evidence.ts` supplied `controlBusWatcher = ALIVE` to the stop sentinel on the same evidence —
+a false green in the one input whose whole purpose is to refuse false greens. Both migrated to
+`ownerLiveness`.
+
+`stop-evidence` gained a distinction while it was there: an ownership record that cannot be judged
+now leaves the field UNESTABLISHED rather than reporting `STOPPED`. That is this module's own stated
+rule applied to itself — a fact it cannot establish comes back undefined, and "we cannot tell" must
+not read as "nothing is running".
+
+The two controls were rebuilt around a constructed premise (this process, a foreign nonce, the OS's
+own identity) instead of a hoped-for one, so neither can skip itself again.

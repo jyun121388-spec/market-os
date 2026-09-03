@@ -125,6 +125,18 @@ async function main(): Promise<number> {
   if (outcome.status === "REFUSED") {
     console.log(`  ${outcome.reason}`);
     console.log(outcome.entry ? "  the attempt is recorded, without proof" : "  nothing written");
+    // "nothing written" is about the LOCAL STORE, and it read as "nothing was sent". It is not the
+    // same statement: `transmitAndCommit` posts and reads back BEFORE it takes the write authority,
+    // so a refusal at commit time leaves a public comment behind with no durable record of it.
+    //
+    // That is not hypothetical. This exact line printed "nothing written" while comment 5521911820
+    // was already on issue #2, the next run posted the same protocol id again, and the channel got
+    // a duplicate `[CLAUDE_APPLIED]` under a protocol that says exactly one.
+    console.log(
+      "  A COMMENT MAY ALREADY EXIST. The post happens before the write authority is taken, so a\n" +
+        "  refusal here does not mean nothing was sent. Check the issue for this protocol id before\n" +
+        "  running again — a second run will post a duplicate.",
+    );
     return 1;
   }
   console.log(`  comment ${outcome.entry.transmission?.commentId}`);

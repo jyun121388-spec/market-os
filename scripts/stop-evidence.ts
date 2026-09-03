@@ -39,7 +39,8 @@
 
 import { existsSync } from "node:fs";
 import type { StopSentinelInput } from "../src/server/evolution/scheduler";
-import { lockIsStale, processAlive, readLock, storePaths } from "../src/server/controlbus/store";
+import { lockIsStale, readLock, storePaths } from "../src/server/controlbus/store";
+import { ownerLiveness } from "../src/server/controlbus/owner";
 import { type GitOracle, localGit, triageInbox } from "./inbox-triage";
 
 /**
@@ -192,12 +193,31 @@ export function gatherStopEvidence(
       // so a lock file holding pid 0 reads as a live watcher. A real watcher always writes
       // `process.pid`, so this is a malformed record rather than a defect in the store, and the
       // store is frozen product code. The gatherer refuses it here instead.
-      const alive =
-        lock !== null &&
-        lock.pid > 0 &&
-        processAlive(lock.pid) &&
-        !lockIsStale(lock, staleMs, nowMs);
-      supplied.controlBusWatcher = alive ? "ALIVE" : "STOPPED";
+      //
+      // IR-075 replaced `processAlive` here too, and not for tidiness: measured on this machine,
+      // `process.kill(28877, 0)` reported ALIVE while `Get-Process -Id` and `tasklist` both
+      // reported no such process. Two independent sources against one. A sentinel input built on
+      // the losing probe reports a dead watcher as ALIVE, which is the exact false green this
+      // module exists to refuse.
+      //
+      // The heartbeat still has to be current: this field answers "is a watcher POLLING", which is
+      // a health question, not the ownership question the lock asks. A live process that stopped
+      // heartbeating is not receiving decisions, and saying ALIVE about it would be a lie of a
+      // different kind.
+      const owning = lock !== null && lock.pid > 0 ? ownerLiveness(lock) : null;
+      if (owning?.state === "UNKNOWN") {
+        // This module's own rule, applied to itself: a fact it cannot establish comes back
+        // UNDEFINED. An unjudgeable ownership record is not a stopped watcher — it is an unread
+        // one — and answering STOPPED would let the sentinel treat "we cannot tell" as "nothing is
+        // running", which is the shape every other field here is guarded against.
+        unestablished.push({
+          field: "controlBusWatcher",
+          because: owning.because,
+        });
+      } else {
+        const alive = owning?.state === "ALIVE" && !lockIsStale(lock!, staleMs, nowMs);
+        supplied.controlBusWatcher = alive ? "ALIVE" : "STOPPED";
+      }
     }
   }
 

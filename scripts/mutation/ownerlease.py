@@ -60,6 +60,33 @@ Expected cardinalities, written before the run:
                                 time, while a LIVE one without it cannot be told from an unrelated
                                 process that was handed the same number.
 
+                                MEASURED 7 once `controlBusOutbound` joined the binding set, and all
+                                five extras are the same shape: every fixture with a live pid and no
+                                recorded identity flips from a refusal to a continuation. They are
+                                listed rather than summarised because the count alone would look
+                                like a broad mutant, and it is not — it is one rule reached from
+                                seven directions:
+                                  ownership-during-the-await, same-pid-different-lease,
+                                  adopt-after-refused-commit, fails-closed-and-writes-nothing,
+                                  post-right UNKNOWN, ownerLease D, controlBus unjudgeable.
+
+  M-OWN-DURING-LEASE-RECHECK restore the pre-IR075 conjunction in the POST-RIGHT recheck
+                             -> PREDICTED 2, MEASURED 1, then 2 after the control it exposed was
+                                strengthened. Only the post-right ALIVE control went red. The
+                                UNKNOWN control stayed green because its fixture stamped a CURRENT
+                                heartbeat: under the old conjunction a current heartbeat refuses
+                                too, so the two rules agreed there and the control could not tell
+                                them apart. Its heartbeat is now deliberately lapsed.
+
+                                The same lesson as M-OWN-LEASE-EVICTS-LIVE's green control, learned
+                                a second time one layer down: a control that cannot distinguish the
+                                rule from its defect is not evidence about either.
+
+                                Found by independent review rather than by this suite:
+                                `withCanonicalWriteAuthority` asks about ownership twice, and only
+                                the pre-flight had been migrated. One function, two definitions of
+                                ownership, decided by which side of the mutex you were on.
+
     python scripts/mutation/ownerlease.py
 """
 
@@ -73,7 +100,11 @@ from harness import harness
 STORE = "src/server/controlbus/store.ts"
 OWNER = "src/server/controlbus/owner.ts"
 
-BINDING_TESTS = ["tests/ownerLease.test.ts", "tests/controlBus.test.ts"]
+BINDING_TESTS = [
+    "tests/ownerLease.test.ts",
+    "tests/controlBus.test.ts",
+    "tests/controlBusOutbound.test.ts",
+]
 UNRELATED_TESTS = ["tests/evolutionScheduler.test.ts"]
 
 MUTATIONS = [
@@ -131,6 +162,20 @@ MUTATIONS = [
         OWNER,
         "  if (start.startedAt !== record.owner.startedAt) {",
         "  if (false) {",
+    ),
+    (
+        "M-OWN-DURING-LEASE-RECHECK the post-right recheck goes back to the lease conjunction",
+        STORE,
+        """    const foreign = during !== null && !ours(during) ? ownerLiveness(during, probe) : null;
+    if (during !== null && foreign && foreign.state !== "GONE") {""",
+        """    const foreign = during !== null && !ours(during) ? ownerLiveness(during, probe) : null;
+    void foreign;
+    if (
+      during !== null &&
+      !ours(during) &&
+      processAlive(during.pid) &&
+      !lockIsStale(during, staleAfterMs, nowMs)
+    ) {""",
     ),
     (
         "M-OWN-LEGACY-LIVE-IS-GONE a live pid with no recorded identity counts as abandoned",

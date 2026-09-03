@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evaluateStopSentinel, scheduleNextWork } from "@/server/evolution/scheduler";
+import { selfIdentity } from "@/server/controlbus/owner";
 import { gatherStopEvidence, HEARTBEAT_STALE_MS } from "../scripts/stop-evidence";
 import { type GitOracle, triageInbox } from "../scripts/inbox-triage";
 import { bodyDigest, CONTROL_BUS_REPOSITORY } from "@/server/controlbus/state";
@@ -53,10 +54,21 @@ describe("gathering evidence for the stop sentinel", () => {
     status: "RECEIVED_UNVALIDATED",
   });
 
-  const writeLock = (root: string, pid: number, startedAt: string) =>
+  /**
+   * IR-075: a lock record carries the OS's identity for its owner, so liveness can be PROVED. The
+   * probe is the real one here, and `selfIdentity()` is read once — on Windows each question spawns
+   * PowerShell (~450ms measured).
+   */
+  const selfOwner = selfIdentity() ?? undefined;
+  const writeLock = (root: string, pid: number, startedAt: string, owner = selfOwner) =>
     writeFileSync(
       join(root, "watcher.lock.json"),
-      JSON.stringify({ pid, startedAt, nonce: "n" }),
+      JSON.stringify({
+        pid,
+        startedAt,
+        nonce: "n",
+        owner: pid === process.pid ? owner : undefined,
+      }),
       "utf8",
     );
 
@@ -205,12 +217,36 @@ describe("gathering evidence for the stop sentinel", () => {
     });
   });
 
+  it("leaves the watcher UNESTABLISHED when the record cannot be judged", () => {
+    // A record written before IR-075: a live pid and no process identity. Nothing proves it is our
+    // watcher and nothing proves it is not, so this module's own rule applies — undefined, never
+    // STOPPED, because "we cannot tell" must not read as "nothing is running".
+    withRoot((root) => {
+      const now = Date.parse("2026-09-01T12:00:00Z");
+      writeFileSync(
+        join(root, "watcher.lock.json"),
+        JSON.stringify({
+          pid: process.pid,
+          startedAt: new Date(now - 1_000).toISOString(),
+          nonce: "legacy",
+        }),
+        "utf8",
+      );
+      const evidence = gather(root, now);
+      expect(evidence.supplied.controlBusWatcher).toBeUndefined();
+      expect(evidence.unestablished.map((u) => u.field)).toContain("controlBusWatcher");
+    });
+  });
+
   it("reads a dead pid as STOPPED even with a fresh heartbeat", () => {
     withRoot((root) => {
       const now = Date.parse("2026-09-01T12:00:00Z");
       // A pid nothing can be running under, with a heartbeat one second old, so only the liveness
       // half can be answering.
-      writeLock(root, 0x7ffffff0, new Date(now - 1_000).toISOString());
+      writeLock(root, 0x7ffffff0, new Date(now - 1_000).toISOString(), {
+        pid: 0x7ffffff0,
+        startedAt: "whenever-it-was",
+      });
       expect(gather(root, now).supplied.controlBusWatcher).toBe("STOPPED");
 
       // And pid 0 specifically, which MEASURED as alive: `process.kill(0, 0)` addresses the current

@@ -5,10 +5,16 @@ PR #1 are untouched. The 2026-08-18 handoff below is kept and is about a differe
 
 ## Read this first
 
-`P1_UNBOUNDED_CLAUSE_OPENING_CLASS` is **OPEN and blocks this unit's closure**, and the decision it
-waits on is **not an engineering one**. Escalated as `ESC-015` (issue #2 comment 5447598201, posted
-and read back). Do not close the unit by adding a ninth, tenth and eleventh word to
-`CLAUSE_OPENING_TOKENS` — that is the mistake the whole record below is about.
+**Superseded 2026-09-04.** The paragraph below was true on 2026-08-28 and is kept as the record of
+that session. ESC-015 has since been DECIDED (`[CHATGPT_DECISION][ESC-015]` 5448101400 /
+5448672325), APPLIED at `f02301ab` (`[CLAUDE_APPLIED][ESC-015]` 5458898428) and VERIFIED
+`APPROVED_WITH_V1_LIMITATION` (5459023419). Nothing waits on it; the company fact-concept residue
+is a pinned V1 limitation, not an open decision. `docs/PROJECT_STATE.md` is the current truth.
+
+`P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
+closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`
+(issue #2 comment 5447598201, posted and read back). Do not close the unit by adding a ninth, tenth
+and eleventh word to `CLAUSE_OPENING_TOKENS` — that is the mistake the whole record below is about.
 
 Everything independent may continue. The escalation blocks one task, not the project.
 

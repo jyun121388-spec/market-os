@@ -62,26 +62,31 @@ assurance apparatus that measures it.
                                           withdrawn by decision.
     ESC015_UNKNOWN_SECOND_OBJECT          CLOSED. A relation role naming two things refuses,
                                           decided on request text with no repository lookup.
-    P1_UNBOUNDED_CLAUSE_OPENING_CLASS     ESC-015 Option B applied, REWORK_REQUIRED from both
-                                          reviews. The 38-tail matrix measures the `.`
-                                          boundary ONLY: 0 of 38 swallowed there, 28 of 38 at
-                                          `!` and again at `;`, which stay provisional
-                                          because `Yahoo!` and `Smith; Jones` are real names.
-                                          `?` is not in that table and carries its own pinned
-                                          issuer exception.
-                                          THREE THINGS BLOCK CLOSURE. A directive still
-                                          reaches a served SOURCE region at `!` and `;` --
-                                          `Should I buy stock! Reuters published about
-                                          Alpha?` serves source `should i buy stock reuters`.
-                                          10 of 31 ordinary entity suffixes are refused,
-                                          `Corp.` among them. And no threshold fixes the
-                                          second, because `Inc` must join at three letters
-                                          while `CPI` must split at three.
-    WAITING_DECISION                      ESC-015, issue #2 comment 5447598201, posted and
-                                          read back 2026-08-28. Accept-as-known-risk vs
-                                          redesign is not an engineering question, so it is
-                                          not decided here. This blocks THIS unit's closure
-                                          and nothing else.
+    P1_UNBOUNDED_CLAUSE_OPENING_CLASS     CLOSED BY DECISION WITH A PINNED V1 LIMITATION.
+                                          ESC-015 was decided (`[CHATGPT_DECISION][ESC-015]`
+                                          5448101400 then 5448672325: Option B, then the
+                                          whole-request exact-cover redesign), applied at
+                                          `f02301ab` (`[CLAUDE_APPLIED][ESC-015]` 5458898428)
+                                          and independently verified
+                                          `APPROVED_WITH_V1_LIMITATION` (5459023419,
+                                          2026-08-29). Render authority is whole-role
+                                          canonical cover, not substring discovery; source
+                                          and mechanism roles refuse residue.
+                                          THE LIMITATION, verbatim from that verdict: the
+                                          company fact-concept residue is deferred
+                                          fail-closed for V1 until an authoritative
+                                          concept-identity source exists. The pinned failing
+                                          cases in PINNED_DEFECTS.md are that limitation, not
+                                          evidence of closure, and ESC-015 forbids closing
+                                          them by vocabulary. The 38-tail `.`/`!`/`;`
+                                          measurements above are history of how the decision
+                                          was reached and are recorded in REVIEW_DEBT.md.
+    ESC-015 STATUS                        APPROVED_WITH_V1_LIMITATION. Nothing waits on it.
+                                          (This row read `WAITING_DECISION ... comment
+                                          5447598201` until 2026-09-04, twelve days after the
+                                          decision landed -- the stale-evidence defect the
+                                          MARKET-STATE-TRUTH-RECONCILIATION task named, and
+                                          reproduced here before it was changed.)
     CODEX_AVAILABLE                       YES, verified by invocation per model id 2026-08-28
     HUMAN_GATE                            NONE for this unit
 
@@ -820,8 +825,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2741 / 2741 PASS across 155 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2722 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2742 / 2742 PASS across 155 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2723 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI run 33547628222 is bound to
 `bb88ded` on `claude/post-rc-followup` and to nothing on this branch; a local green suite does not
 supersede it, and no run is bound to the current HEAD at all — `REMOTE_CI: NONE`, stated rather

@@ -186,4 +186,36 @@ describe("the ledger cannot contradict the kind model it describes", () => {
       "5056d779",
     );
   });
+
+  /**
+   * MARKET-STATE-TRUTH-RECONCILIATION. `docs/PROJECT_STATE.md` carried a `WAITING_DECISION` row for
+   * ESC-015 twelve days after the decision had landed, been applied and been verified. The row was
+   * a current-status claim that nobody re-read, and it looked exactly like evidence.
+   *
+   * Derived, not listed: an escalation is provably no longer waiting once this repository has
+   * RECORDED its own `[CLAUDE_APPLIED][<id>]` in `docs/escalation/TRANSPORT_STATE.md` — you cannot
+   * apply a decision you are still waiting for. So every id with such a section is an id that
+   * `PROJECT_STATE.md` may not describe as waiting, and adding the next one extends the rule.
+   */
+  it("does not leave a WAITING_DECISION row for an escalation this repository has already applied", () => {
+    const transport = readDoc("docs/escalation/TRANSPORT_STATE.md");
+    const applied = new Set(
+      [...transport.matchAll(/^## .*`\[CLAUDE_APPLIED\]\[([A-Z0-9-]+)\]`/gm)].map((m) => m[1]),
+    );
+    expect(applied.size, "the derivation must have something to derive from").toBeGreaterThan(0);
+
+    const state = readDoc("docs/PROJECT_STATE.md");
+    const offences: string[] = [];
+    for (const line of state.split("\n")) {
+      if (!/^\s+WAITING_DECISION\s/.test(line)) continue;
+      for (const id of applied) {
+        if (line.includes(id)) offences.push(`${id}: ${line.trim().slice(0, 120)}`);
+      }
+    }
+    expect(
+      offences,
+      `PROJECT_STATE.md says these are waiting; TRANSPORT_STATE.md records them as APPLIED:\n  ` +
+        offences.join("\n  "),
+    ).toEqual([]);
+  });
 });

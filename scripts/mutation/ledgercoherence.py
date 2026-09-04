@@ -34,6 +34,12 @@ Expected cardinalities, written before the run:
                                 and the canary cannot see it -- the detector is fine, it is being
                                 handed nothing. Two different ways to skip, so two controls.
 
+  M-LEDGER-WAITING-ROW-RETURNS   put the stale ESC-015 WAITING_DECISION row back
+                             -> 1 red: the applied-escalation control, whose forbidden ids are
+                                DERIVED from the [CLAUDE_APPLIED] sections in TRANSPORT_STATE.md
+                                rather than listed. The row it restores is the exact text that
+                                sat in PROJECT_STATE.md for twelve days after the decision.
+
     python scripts/mutation/ledgercoherence.py
 """
 
@@ -45,6 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import harness
 
 LEDGER = "docs/REVIEW_DEBT.md"
+STATE = "docs/PROJECT_STATE.md"
 TEST = "tests/ledgerProtocolCoherence.test.ts"
 
 BINDING_TESTS = [TEST]
@@ -76,6 +83,13 @@ MUTATIONS = [
         'const DOCS = ["docs/REVIEW_DEBT.md", "CLAUDE.md"];',
         "const DOCS: string[] = [];",
     ),
+    (
+        "M-LEDGER-WAITING-ROW-RETURNS PROJECT_STATE says ESC-015 is still waiting for its decision",
+        STATE,
+        "    ESC-015 STATUS                        APPROVED_WITH_V1_LIMITATION. Nothing waits on it.",
+        "    WAITING_DECISION                      ESC-015, issue #2 comment 5447598201, posted and\n"
+        "                                          read back 2026-08-28. This blocks THIS unit's closure.",
+    ),
 ]
 
-sys.exit(harness([LEDGER, TEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1800))
+sys.exit(harness([LEDGER, STATE, TEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1800))

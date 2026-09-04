@@ -1,0 +1,529 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// M01/M02 groundwork: source registry, normalized observations, and the
+// Claim Ledger (see docs/ARCHITECTURE.md "Claim Ledger" and
+// "Hallucination-resistant pipeline"). Adapters write raw + normalized data;
+// nothing here is written by an LLM directly.
+// ---------------------------------------------------------------------------
+
+enum SourceTier {
+  TIER_S // government / central bank / exchange / official filings / stats agencies
+  TIER_A // major wire services / high-trust primary reporting
+  TIER_B // major financial press
+  TIER_C // general press
+  TIER_D // social / community
+}
+
+model Source {
+  id        String     @id @default(cuid())
+  code      String     @unique // e.g. "FRED", "ECOS", "DART", "SEC_EDGAR"
+  name      String
+  tier      SourceTier
+  homepage  String?
+  createdAt DateTime   @default(now())
+
+  series                 Series[]
+  observations           Observation[]
+  claims                 Claim[]
+  filings                Filing[]
+  eventMentions          EventMention[]
+  financialFacts         FinancialFact[]
+  etfs                   Etf[]
+  realEstateTransactions RealEstateTransaction[]
+  ingestRuns             IngestRun[]
+
+  @@map("sources")
+}
+
+enum IngestRunStatus {
+  SUCCESS // completed, and as complete as the provider says it can be
+  PARTIAL // completed, but knowably incomplete — see `truncated`
+  FAILED // threw before completing
+}
+
+/// Whether a run re-fetched a target's ENTIRE history, or only added to what was already stored.
+///
+/// The distinction decides whether a later success can clear an earlier truncation. A FULL run
+/// that succeeds replaces everything, so a gap left by a previous truncated run is gone. An
+/// INCREMENTAL run only appends, so that gap is still there — and reporting the company as
+/// COMPLETE because the most recent run happened to succeed would be a false claim about data
+/// nobody re-fetched (independent review, `gpt-5.6-terra`, 2026-08-18).
+enum IngestRunMode {
+  FULL // re-fetched the whole history for this target
+  INCREMENTAL // added to what was already stored; earlier gaps persist
+  UNKNOWN // recorded before this distinction existed, or by a caller that cannot say
+}
+
+// A record of one real ingestion run, so completeness is auditable after the fact rather than
+// a console line nobody reads.
+//
+// Every adapter now returns a `truncated` flag and the provider's own claimed total, because
+// each of them was at some point silently storing a partial result (docs/DECISIONS.md,
+// 2026-08-17). A returned flag that nothing persists is barely better than no flag at all: the
+// question an operator actually asks is "is the data I am looking at complete?", and answering
+// it requires knowing what the last run fetched versus what the provider said existed.
+//
+// Written only by the `scripts/ingest-*.ts` entry points — the real run boundary. Direct calls
+// to an ingest function (tests, ad-hoc scripts) deliberately do not record a run.
+model IngestRun {
+  id       String @id @default(cuid())
+  sourceId String
+  source   Source @relation(fields: [sourceId], references: [id])
+  target   String // series id, corp code, or CIK — whatever this run was scoped to
+
+  startedAt  DateTime        @default(now())
+  finishedAt DateTime?
+  status     IngestRunStatus
+
+  /// Whether this run re-fetched everything or only appended. Defaults to UNKNOWN so existing
+  /// rows keep an honest value rather than being retroactively claimed as FULL — a backfill that
+  /// invented certainty about runs nobody observed would be worse than the gap it closed.
+  mode IngestRunMode @default(UNKNOWN)
+
+  inserted  Int @default(0)
+  revised   Int @default(0)
+  unchanged Int @default(0)
+  skipped   Int @default(0) // missing values / concepts the adapter could not use
+
+  /// What the provider itself said the full result contains, when it says so at all.
+  providerTotal Int?
+  /// What this run actually retrieved. A gap against providerTotal is the signal that matters.
+  fetched       Int?
+  requestsMade  Int?
+  truncated     Boolean @default(false)
+
+  /// Error message when status is FAILED. Never a stack trace — no paths or secrets.
+  error String?
+
+  @@index([sourceId, startedAt])
+  @@map("ingest_runs")
+}
+
+// A tracked economic/market variable (e.g. "US 10Y Treasury Yield", "UST10Y").
+model Series {
+  id         String   @id @default(cuid())
+  sourceId   String
+  source     Source   @relation(fields: [sourceId], references: [id])
+  externalId String // the identifier used by the source (e.g. FRED series id "DGS10")
+  name       String
+  unit       String // e.g. "percent", "index", "USD", "KRW_per_USD"
+  frequency  String // e.g. "daily", "weekly", "monthly", "quarterly"
+  createdAt  DateTime @default(now())
+
+  observations Observation[]
+
+  @@unique([sourceId, externalId])
+  @@map("series")
+}
+
+// A single normalized data point. Raw source payload is preserved in `raw`
+// for auditability; normalized fields are what the app reads.
+model Observation {
+  id              String    @id @default(cuid())
+  seriesId        String
+  series          Series    @relation(fields: [seriesId], references: [id])
+  sourceId        String
+  source          Source    @relation(fields: [sourceId], references: [id])
+  observationDate DateTime // the date/period the value describes (not when it was released)
+  releaseDate     DateTime? // when the source published this value, if known
+  value           Decimal   @db.Decimal(20, 6)
+  isPreliminary   Boolean   @default(false)
+  isRevision      Boolean   @default(false)
+  revisionOf      String? // id of the Observation this revises, if any
+  retrievedAt     DateTime  @default(now())
+  raw             Json // untouched source payload for this observation
+  createdAt       DateTime  @default(now())
+
+  conflicts DataConflict[]
+
+  // Revision-chain uniqueness: two distinct revisions of the SAME prior row on the SAME date
+  // (same seriesId/observationDate/revisionOf) are rejected here — revisionOf is non-null for
+  // every real revision, so NULL-not-equal-self semantics don't undermine this one.
+  @@unique([seriesId, observationDate, isRevision, revisionOf])
+  @@index([seriesId, observationDate])
+  @@map("observations")
+}
+
+// NOTE (H3, see docs/DECISIONS.md): a second, PARTIAL unique index —
+// `observations_series_date_original_unique` on (seriesId, observationDate) WHERE
+// isRevision = false — exists at the database level but cannot be expressed in Prisma's schema
+// DSL (no WHERE-clause support for @@unique). It is created by hand-written SQL in
+// prisma/migrations/20260816090000_original_observation_unique/migration.sql, following this
+// project's established workaround for anything `prisma migrate dev` can't express (see
+// docs/DECISIONS.md's earlier "non-interactive migrate" entries). THIS is the constraint that
+// actually guarantees "at most one original observation per series/date" — the @@unique above,
+// while still correct for revision-chain integrity, cannot enforce that on its own because every
+// original row has revisionOf = NULL, and Postgres never considers NULL equal to NULL.
+
+// Recorded when two sources disagree on a value instead of silently picking one.
+// See docs/ARCHITECTURE.md "Data conflict handling".
+model DataConflict {
+  id              String      @id @default(cuid())
+  observationId   String
+  observation     Observation @relation(fields: [observationId], references: [id])
+  conflictingWith Json // { sourceCode, value, observationDate, retrievedAt } for the other source
+  officialSource  String? // source code considered authoritative, if determinable
+  resolved        Boolean     @default(false)
+  resolutionNote  String?
+  createdAt       DateTime    @default(now())
+
+  @@map("data_conflicts")
+}
+
+// ---------------------------------------------------------------------------
+// M05 groundwork: corporate disclosures/filings (OpenDART, later SEC EDGAR).
+// Structurally different from Series/Observation — a filing is a discrete
+// document/event, not a time-series data point.
+// ---------------------------------------------------------------------------
+
+model Filing {
+  id          String   @id @default(cuid())
+  sourceId    String
+  source      Source   @relation(fields: [sourceId], references: [id])
+  corpCode    String // source-specific company identifier (DART corp_code, CIK for EDGAR, ...)
+  corpName    String
+  stockCode   String? // exchange ticker/code, if applicable
+  reportName  String // e.g. "사업보고서 (2026.06)"
+  receiptNo   String // source-specific unique receipt/accession number (DART rcept_no)
+  receiptDate DateTime // date DART/EDGAR received the filing (not a fiscal period)
+  remark      String? // source-specific flag, e.g. DART's `rm` (정정/첨부 등)
+  retrievedAt DateTime @default(now())
+  raw         Json // untouched source payload for this filing
+  createdAt   DateTime @default(now())
+
+  @@unique([sourceId, receiptNo])
+  @@index([sourceId, corpCode])
+  @@map("filings")
+}
+
+// ---------------------------------------------------------------------------
+// M15 groundwork: Company X-Ray — structured financial-statement facts (e.g.
+// SEC EDGAR's XBRL companyfacts API). Distinct from Filing: a Filing is a
+// document/event; a FinancialFact is a single tagged numeric value from
+// inside one (e.g. "Revenues" = $383,285,000,000 for FY2023, accession
+// 0000320193-23-000106). See docs/DECISIONS.md for scope (structured XBRL
+// facts only — filing *text*, e.g. risk factors, is out of scope here).
+// ---------------------------------------------------------------------------
+
+model FinancialFact {
+  id              String    @id @default(cuid())
+  sourceId        String
+  source          Source    @relation(fields: [sourceId], references: [id])
+  corpCode        String // CIK for EDGAR, DART corp_code later
+  taxonomy        String // e.g. "us-gaap"
+  concept         String // e.g. "Revenues", "NetIncomeLoss"
+  unit            String // e.g. "USD"
+  periodStart     DateTime? // null for instant (point-in-time) concepts like Assets
+  periodEnd       DateTime
+  // Nullable because SEC really does return `fy: null, fp: null` on some companyfacts rows
+  // (verified live against data.sec.gov, 2026-08-17). The fact itself is fully sourced; only
+  // the fiscal label is absent. Deriving one from periodEnd would store an inference as if it
+  // were reported data, and dropping the row would silently lose real, sourced history.
+  fiscalYear      Int?
+  fiscalPeriod    String? // "Q1" | "Q2" | "Q3" | "FY", or null when SEC reports none
+  form            String // e.g. "10-K", "10-Q"
+  accessionNumber String // links back to the Filing.receiptNo this value came from
+  filedDate       DateTime
+  value           Decimal   @db.Decimal(24, 4)
+  retrievedAt     DateTime  @default(now())
+  raw             Json // untouched source payload for this fact
+  createdAt       DateTime  @default(now())
+
+  // NOTE: the identity of a fact includes `periodStart`, and that cannot be expressed as a
+  // Prisma `@@unique` here — see the `20260817230000_financial_fact_period_start_identity`
+  // migration for the two partial unique indexes that enforce it at the database level.
+  //
+  // The constraint used to be `@@unique([sourceId, corpCode, concept, unit, periodEnd,
+  // accessionNumber])`, which is wrong: SEC reports a year-to-date figure and a quarterly figure
+  // under the SAME period end and the SAME accession number, distinguished only by `start`. For
+  // Apple's NetIncomeLoss on 2008-06-28 those are $3.698B (nine months) and $1.072B (one
+  // quarter) — a 3.4x difference, and the constraint silently kept whichever arrived first. A
+  // single real ingest discarded 168 facts this way, reporting them as "unchanged".
+  //
+  // `periodStart` is null for instant concepts (Assets, Liabilities), and Postgres treats NULL
+  // as distinct from NULL in a unique index — the same trap as the H3 observation constraint —
+  // so this is two partial indexes rather than one nullable column in the key.
+  @@index([sourceId, corpCode, concept])
+  @@index([sourceId, corpCode, concept, unit, periodEnd, accessionNumber])
+  @@map("financial_facts")
+}
+
+// ---------------------------------------------------------------------------
+// M17 groundwork: ETF X-Ray. Exposure facts only — index, expense ratio,
+// holdings, sector/country/currency exposure. Deliberately NO score/rating/
+// suitability field anywhere in this model: docs/LEGAL_GUARDRAILS.md hard-
+// prohibits a "buy fitness score" or investment-recommendation output, and
+// the schema itself should make that impossible to add by accident (same
+// enforce-via-schema approach as CausalEdge.counterexamples, M13). No
+// ingestion adapter ships with this milestone — see docs/DECISIONS.md: the
+// candidate free holdings sources (ssga.com, ishares.com) are egress-blocked
+// in this dev environment, and issuer holdings files are not a stable,
+// well-documented public API the way FRED/ECOS/DART/EDGAR are.
+// ---------------------------------------------------------------------------
+
+model Etf {
+  id           String   @id @default(cuid())
+  sourceId     String
+  source       Source   @relation(fields: [sourceId], references: [id])
+  ticker       String
+  name         String
+  issuer       String
+  trackedIndex String? // the index this ETF tracks, if applicable
+  expenseRatio Decimal? @db.Decimal(6, 4) // e.g. 0.0945 = 0.0945%
+  asOfDate     DateTime // date this snapshot's facts (expense ratio, holdings) are as of
+  retrievedAt  DateTime @default(now())
+  raw          Json
+  createdAt    DateTime @default(now())
+
+  holdings EtfHolding[]
+
+  @@unique([sourceId, ticker, asOfDate])
+  @@map("etfs")
+}
+
+model EtfHolding {
+  id            String   @id @default(cuid())
+  etfId         String
+  etf           Etf      @relation(fields: [etfId], references: [id])
+  holdingName   String
+  holdingTicker String?
+  weightPct     Decimal  @db.Decimal(8, 5) // percent of fund, e.g. 7.12345
+  sector        String?
+  country       String?
+  currency      String?
+  createdAt     DateTime @default(now())
+
+  @@index([etfId])
+  @@map("etf_holdings")
+}
+
+// ---------------------------------------------------------------------------
+// M18 groundwork: Real Estate Intelligence (Korea). Individual transaction
+// records — 실거래가 (actual transaction price) data shape, matching MOLIT's
+// well-known public dataset. No ingestion adapter ships with this milestone
+// (data.go.kr is egress-blocked in this dev environment) — see
+// docs/DECISIONS.md. Schema + a deterministic median-based analysis module
+// are tested against seeded fixture data.
+// ---------------------------------------------------------------------------
+
+enum RealEstateDealType {
+  SALE // 매매
+  JEONSE // 전세
+  WOLSE // 월세
+}
+
+model RealEstateTransaction {
+  id           String             @id @default(cuid())
+  sourceId     String
+  source       Source             @relation(fields: [sourceId], references: [id])
+  region       String // e.g. "서울특별시 강남구" — dong-level or gu-level, source-dependent
+  propertyType String // e.g. "아파트", "오피스텔" — kept as source-provided text, not an enum
+  dealType     RealEstateDealType
+  areaSqm      Decimal            @db.Decimal(8, 2)
+  price        Decimal            @db.Decimal(16, 2) // KRW 만원 (10,000 KRW) units, per MOLIT convention
+  dealDate     DateTime
+  buildYear    Int?
+  floor        Int?
+  retrievedAt  DateTime           @default(now())
+  raw          Json
+  createdAt    DateTime           @default(now())
+
+  @@index([sourceId, region, dealType, dealDate])
+  @@map("real_estate_transactions")
+}
+
+// ---------------------------------------------------------------------------
+// M19 groundwork: Watchlist. `User` is deliberately minimal (id + createdAt
+// only) — M22 (Auth) adds real auth fields to this SAME table later rather
+// than replacing it; see docs/DECISIONS.md for why this isn't premature
+// scaffolding. Personalization here is limited to information filtering
+// (which items a user tracks), never personalized investment judgment
+// (docs/PRODUCT_SPEC.md "Watchlist").
+// ---------------------------------------------------------------------------
+
+// M23 groundwork: subscription-ready architecture. Two tiers only, no billing entity yet — see
+// docs/DECISIONS.md. Real payment activation remains a Human Gate.
+enum Plan {
+  FREE
+  PRO
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String // "<N>:<r>:<p>:<saltHex>:<hashHex>" — see src/server/domain/auth.ts
+  // H1 (see docs/DECISIONS.md): true only for rows that existed BEFORE the auth migration ran
+  // and were backfilled with a synthetic, unguessable email + a passwordHash sentinel that can
+  // never match a real scrypt hash. signIn() rejects these unconditionally — a legacy row is
+  // never treated as having real, usable credentials. New signups always get false (the
+  // default). This lets pre-auth User rows (and anything FK-referencing them, e.g.
+  // WatchlistItem) survive the upgrade with their data intact, without ever pretending a
+  // fabricated credential is a real one.
+  isLegacyAccount Boolean  @default(false)
+  plan            Plan     @default(FREE)
+  createdAt       DateTime @default(now())
+
+  watchlistItems WatchlistItem[]
+  sessions       Session[]
+
+  @@map("users")
+}
+
+// M22 groundwork: Auth. Opaque bearer-token sessions stored server-side (the
+// session id IS the token) — no JWT/signing-secret needed, since validation
+// is a DB lookup, not a signature check. Simpler and easier to revoke
+// (delete the row) than a self-contained signed token.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+enum WatchlistItemType {
+  COMPANY
+  ETF
+  INDICATOR
+  INDUSTRY
+  THEME
+}
+
+model WatchlistItem {
+  id       String            @id @default(cuid())
+  userId   String
+  user     User              @relation(fields: [userId], references: [id])
+  itemType WatchlistItemType
+  itemRef  String // source-specific identifier: corpCode/ticker/seriesId/free-text theme
+  label    String // display label, e.g. "Apple Inc." or "US 10Y Treasury Yield"
+  addedAt  DateTime          @default(now())
+
+  @@unique([userId, itemType, itemRef])
+  @@index([userId])
+  @@map("watchlist_items")
+}
+
+// ---------------------------------------------------------------------------
+// M07 groundwork: Event Intelligence. Many news/metadata mentions of the same
+// real-world event are clustered into one Event. Clustering is a deterministic
+// keyword/time-window heuristic (src/server/domain/eventClustering.ts) — no
+// LLM is used to decide event membership. News is a detection sensor: only
+// metadata (title/url/timestamp/source) is stored, never full article text
+// (docs/DATA_POLICY.md "News policy").
+// ---------------------------------------------------------------------------
+
+model Event {
+  id                String   @id @default(cuid())
+  topic             String // representative headline, taken from the first mention
+  keywords          String[] // deterministic keyword set used for clustering new mentions
+  firstSeenAt       DateTime
+  latestUpdateAt    DateTime
+  mentionCount      Int      @default(1)
+  distinctTierCount Int      @default(1) // how many distinct source tiers have mentioned this
+  createdAt         DateTime @default(now())
+
+  mentions EventMention[]
+
+  @@index([latestUpdateAt])
+  @@map("events")
+}
+
+model EventMention {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+  sourceId    String?
+  source      Source?  @relation(fields: [sourceId], references: [id])
+  title       String
+  url         String   @unique // dedupes the exact same article being ingested twice
+  publishedAt DateTime
+  retrievedAt DateTime @default(now())
+  raw         Json // source metadata only — never full article body, see docs/DATA_POLICY.md
+  createdAt   DateTime @default(now())
+
+  @@index([eventId])
+  @@map("event_mentions")
+}
+
+// ---------------------------------------------------------------------------
+// M13 groundwork: Economic Causal Graph. Transmission-path edges between
+// economic variables, always confidence-qualified and never presented as
+// confirmed causation from correlation alone (docs/PRODUCT_SPEC.md "Economic
+// Causal Graph"). `counterexamples` is required, not optional — an edge
+// without an acknowledged limitation is not allowed into the schema, which
+// forces epistemic honesty structurally rather than relying on every future
+// caller to remember to add one.
+// ---------------------------------------------------------------------------
+
+enum CausalDirection {
+  POSITIVE // an increase in `fromVariable` tends to increase `toVariable`
+  NEGATIVE // an increase in `fromVariable` tends to decrease `toVariable`
+  AMBIGUOUS // direction is context-dependent; see `conditions`
+}
+
+enum CausalConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model CausalEdge {
+  id              String           @id @default(cuid())
+  fromVariable    String // free-text variable/event name, e.g. "Oil price (WTI)"
+  toVariable      String // e.g. "Headline CPI inflation"
+  direction       CausalDirection
+  confidence      CausalConfidence // deliberately an enum, not a fabricated precise float
+  mechanism       String // the transmission mechanism in plain language
+  evidence        String // why this is believed — established literature/precedent, not a citation-shaped guess
+  lag             String // descriptive, e.g. "1-2 quarters" — not a fabricated precise number
+  conditions      String? // when this relationship holds or is stronger/weaker
+  counterexamples String // REQUIRED: at least one known limitation, exception, or counterexample
+  createdAt       DateTime         @default(now())
+
+  @@index([fromVariable])
+  @@index([toVariable])
+  @@map("causal_edges")
+}
+
+enum ClaimType {
+  FACT
+  CALCULATION
+  INFERENCE
+}
+
+// The Claim Ledger: every material AI-authored (or derived) statement shown
+// to a user is backed by one of these rows. A FACT-typed claim with no
+// source must never render as fact — see docs/ARCHITECTURE.md.
+model Claim {
+  id              String    @id @default(cuid())
+  claimText       String
+  claimType       ClaimType
+  sourceId        String?
+  source          Source?   @relation(fields: [sourceId], references: [id])
+  sourceUrl       String?
+  sourceTimestamp DateTime?
+  retrievedAt     DateTime?
+  evidence        Json? // supporting data: observation ids, calculation inputs, etc.
+  confidence      Float? // 0..1, required for INFERENCE claims
+  conflictStatus  String? // "none" | "DATA_CONFLICT" | ...
+  generatedAt     DateTime  @default(now())
+
+  @@index([claimType])
+  @@map("claims")
+}

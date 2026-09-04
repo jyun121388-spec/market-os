@@ -1,0 +1,338 @@
+/**
+ * Is the server about to be tested actually serving THIS tree?
+ *
+ * SR-02 in the Evolution ledger: "an E2E pass was reported from a server process started before the
+ * fix under test." The lesson recorded with it is that a fresh RESULT was taken as evidence about
+ * fresh CODE without establishing that the process producing it was running that code.
+ *
+ * The existing mitigation is an overridable port, and its own comment is honest about what that is:
+ * a way to avoid the collision instead of relying on whoever runs this to remember. That is a
+ * convenience. It proves nothing about the process on the other end.
+ *
+ * ## WHAT THIS CAN AND CANNOT PROVE, measured rather than assumed
+ *
+ * Three probes were run on this machine before any of this was written.
+ *
+ *   PROCESS IDENTITY IS OBTAINABLE. The listener's PID, executable path, command line and start
+ *   time all come back from `Get-NetTCPConnection` joined to `Win32_Process`. Working directory
+ *   does not — Win32_Process has no cwd.
+ *
+ *   COMMAND LINE DOES NOT DISTINGUISH WORKTREES HERE. `require.resolve("next/package.json")`
+ *   resolves to `C:/AI-Projects/market-os/node_modules`, which this checkout SHARES with the
+ *   sibling worktree. So `next dev` started from either checkout shows the same binary path — and
+ *   the sibling is on a different commit with uncommitted changes, which is exactly the hazard.
+ *
+ *   BUILD_ID ONLY EXISTS FOR A BUILT SERVER. `.next/BUILD_ID` is present, but `npm run dev` does
+ *   not serve it, and dev is what this harness's prerequisites name.
+ *
+ * So a SERVED sentinel — the server attesting its own commit — is the only thing that would settle
+ * it in every mode, and that needs a product endpoint. SR-02 is recorded P2, and `CLAUDE.md` allows
+ * a V1 product change only for a reproduced P0 or P1. This module therefore does NOT claim to prove
+ * the binding. It establishes what is establishable, refuses to call the rest proven, and labels
+ * the run accordingly.
+ *
+ * ## THE SIGNAL IT DOES CHECK
+ *
+ * A server process that STARTED BEFORE the newest source file was last written cannot have been
+ * launched from the current tree. That is SR-02's exact incident shape. It is one-directional
+ * evidence and is treated as such: starting later than every source file does not prove the process
+ * loaded them, because a dev server also recompiles on change. Hence three verdicts, not two.
+ *
+ *   STALE                    started BEFORE a source write. The one thing timestamps prove.
+ *   START_ORDER_COMPATIBLE   started after. COMPATIBLE, and identifying nothing -- a sibling
+ *                            checkout's server started a minute ago satisfies it too.
+ *   BOUND                    the listener SERVES this checkout's build identity.
+ *   UNPROVEN                 the listener could not be identified at all.
+ *
+ * Only BOUND is a pass. Review caught the first version returning BOUND on timestamp order alone,
+ * which promoted a one-way stale discriminator into a two-way identity proof and let a foreign
+ * server started after this tree's newest write satisfy the strict gate while serving something
+ * else. Nothing below infers identity from a command-line path or a shared `node_modules`.
+ *
+ * THE SERVED IDENTITY, and its limit. A production Next server serves
+ * `/_next/static/<BUILD_ID>/_buildManifest.js`, and `BUILD_ID` changes per build, so a 200 from the
+ * LOCAL build id ties the listener to this checkout's build output. It is a build artefact rather
+ * than an endpoint added for the purpose, so the V1 freeze is untouched. It proves the listener
+ * serves THIS BUILD -- not that the build matches the current source, which is why the start-order
+ * comparison still runs and a stale build still reads STALE. `npm run dev` serves no such path, so
+ * dev tops out at START_ORDER_COMPATIBLE and the strict gate refuses it. That is the honest
+ * answer, not a gap to paper over.
+ *
+ *   npx tsx scripts/e2e-tree-binding.ts [--url http://localhost:3000] [--require-binding]
+ */
+
+import { execFileSync } from "node:child_process";
+import { readFileSync, statSync } from "node:fs";
+import * as path from "node:path";
+import * as ts from "typescript";
+import { discoverListener } from "./listener-discovery";
+
+export type BindingVerdict = "BOUND" | "START_ORDER_COMPATIBLE" | "STALE" | "UNPROVEN";
+
+export interface TreeBinding {
+  verdict: BindingVerdict;
+  reason: string;
+  /** Everything observed, recorded whether or not it decided anything. */
+  observed: {
+    url: string;
+    port: number | null;
+    headSha: string | null;
+    dirtyFiles: number | null;
+    newestSourceFile: string | null;
+    newestSourceMtime: string | null;
+    localBuildId: string | null;
+    listenerPid: number | null;
+    listenerExe: string | null;
+    listenerCommandLine: string | null;
+    listenerStarted: string | null;
+    /** null when not asked -- no local build id, or the start order already settled it. */
+    servesLocalBuildId: boolean | null;
+  };
+  /** Stated in the report so a reader is never left to assume the binding is total. */
+  limitations: string[];
+}
+
+function quiet(cmd: string, args: string[]): string | null {
+  try {
+    return execFileSync(cmd, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function portOf(url: string): number | null {
+  try {
+    const u = new URL(url);
+    if (u.port) return Number(u.port);
+    return u.protocol === "https:" ? 443 : 80;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The newest write under the source roots that can change what the server serves.
+ *
+ * `.next` and `node_modules` are excluded deliberately: a build artefact is downstream of the
+ * source, so including it would let a rebuild mask a source edit the server never saw.
+ */
+function newestSource(): { file: string; mtime: Date } | null {
+  const roots = ["src", "prisma"];
+  let best: { file: string; mtime: Date } | null = null;
+  for (const root of roots) {
+    for (const file of ts.sys.readDirectory(root, [".ts", ".tsx", ".prisma", ".sql", ".css"])) {
+      try {
+        const mtime = statSync(file).mtime;
+        if (!best || mtime > best.mtime) best = { file, mtime };
+      } catch {
+        // A file that vanished between listing and stat is not evidence about anything.
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * The decision, separated from the gathering so it can be tested without a live server.
+ *
+ * The STALE case was reproduced by hand first — a stub listener on 3000 read BOUND, then `touch`ing
+ * one file under `src/` flipped the same process to STALE with nothing else changed. Keeping the
+ * comparison pure is what lets that discriminating pair live in the suite instead of in a commit
+ * message.
+ */
+export function compareStartToSource(
+  started: Date | null,
+  newest: { file: string; mtime: Date } | null,
+): { verdict: BindingVerdict; reason: string } {
+  if (started === null) {
+    return {
+      verdict: "UNPROVEN",
+      reason: "the listening process could not be identified, so nothing ties the server to a tree",
+    };
+  }
+  if (newest === null) {
+    return {
+      verdict: "UNPROVEN",
+      reason: "no source files were found to compare against, which is itself suspicious",
+    };
+  }
+  if (started < newest.mtime) {
+    return {
+      verdict: "STALE",
+      reason:
+        `the listening process started ${started.toISOString()}, BEFORE ${newest.file} was last ` +
+        `written ${newest.mtime.toISOString()}. It cannot have been launched from the current tree.`,
+    };
+  }
+  return {
+    verdict: "START_ORDER_COMPATIBLE",
+    reason:
+      `the listening process started ${started.toISOString()}, after the newest source write ` +
+      `(${newest.file}, ${newest.mtime.toISOString()}). That ORDER IS COMPATIBLE with this tree ` +
+      `and identifies nothing: a sibling checkout's server started a minute ago satisfies it too.`,
+  };
+}
+
+/**
+ * Does the listener serve THIS checkout's build? The only positive identity available without
+ * adding a product endpoint.
+ */
+async function servesLocalBuild(url: string, buildId: string | null): Promise<boolean | null> {
+  if (!buildId) return null;
+  try {
+    const target = new URL(`/_next/static/${buildId}/_buildManifest.js`, url).toString();
+    const res = await fetch(target, { method: "GET", signal: AbortSignal.timeout(5000) });
+    return res.ok;
+  } catch {
+    return null;
+  }
+}
+
+export async function checkTreeBinding(
+  url: string,
+  /**
+   * Override listener DISCOVERY, which is Windows-only.
+   *
+   * `Get-NetTCPConnection` has no portable equivalent here, so on any other platform the listener
+   * cannot be identified and every verdict is `UNPROVEN` — fail-closed, and correct, but it also
+   * means the DECISION logic would be untested on the Linux runner where CI executes. That is how
+   * CI failed: three controls asserted verdicts that Linux can never reach.
+   *
+   * Injecting the listener separates the two questions. Discovery stays platform-specific and is
+   * not claimed to work anywhere it does not; the decision — start order, served identity, what
+   * counts as BOUND — is proven on every platform. Nothing here fabricates a listener in normal
+   * use: the override is undefined and discovery runs.
+   */
+  listenerOverride?: { pid: number; exe: string | null; commandLine: string | null; started: Date },
+  /**
+   * Override the local build id instead of reading `.next/BUILD_ID`.
+   *
+   * A seam for the reachability control, and it exists because of how CI failed. The control
+   * originally read the real `.next/BUILD_ID` at module scope; CI runs the suite without building,
+   * the file is absent, and the whole test FILE threw ENOENT. Guarding it with "skip if absent"
+   * would have been worse — the one control proving `BOUND` is reachable would vanish silently in
+   * exactly the environment that matters. Reading a file is trivially correct; the identity
+   * comparison is what needs proving, so that is what the seam exposes.
+   */
+  buildIdOverride?: string,
+): Promise<TreeBinding> {
+  const port = portOf(url);
+  const headSha = quiet("git", ["rev-parse", "HEAD"]);
+  const status = quiet("git", ["--no-optional-locks", "status", "--porcelain"]);
+  const newest = newestSource();
+  let localBuildId: string | null = buildIdOverride ?? null;
+  if (localBuildId === null) {
+    try {
+      localBuildId = readFileSync(path.join(".next", "BUILD_ID"), "utf8").trim();
+    } catch {
+      localBuildId = null;
+    }
+  }
+  const proc = listenerOverride ?? (port === null ? null : discoverListener(port));
+
+  const observed: TreeBinding["observed"] = {
+    url,
+    port,
+    headSha,
+    dirtyFiles: status === null ? null : status.split("\n").filter(Boolean).length,
+    newestSourceFile: newest?.file ?? null,
+    newestSourceMtime: newest?.mtime.toISOString() ?? null,
+    localBuildId,
+    listenerPid: proc?.pid ?? null,
+    listenerExe: proc?.exe ?? null,
+    listenerCommandLine: proc?.commandLine ?? null,
+    listenerStarted: proc?.started?.toISOString() ?? null,
+    servesLocalBuildId: null,
+  };
+
+  const limitations = [
+    "The command line cannot distinguish this checkout from its sibling worktree: both resolve `next` through the same shared node_modules.",
+    "Listener DISCOVERY is implemented for Windows and Linux only, from OS socket-ownership evidence. On any other platform, or when the owner is unreadable, ambiguous, or changes between two observations, no listener is identified and the verdict is UNPROVEN.",
+    "A dev server recompiles on change, so starting before a source write does not always mean stale code — but it is never evidence of freshness either.",
+    "The served build id ties the listener to this checkout's BUILD, not to its current SOURCE; a stale build still reads STALE only because the start-order comparison runs first.",
+    "A dev server serves no build-id path, so dev tops out at START_ORDER_COMPATIBLE and the strict gate refuses it. Closing that needs the server to report its own commit, which needs a product endpoint SR-02's P2 severity does not justify under the V1 freeze.",
+  ];
+
+  if (proc === null || proc.started === null) {
+    return {
+      verdict: "UNPROVEN",
+      reason:
+        process.platform !== "win32"
+          ? "listener identity is only implemented for Windows on this machine; nothing was established"
+          : `no identifiable process is listening on port ${port}, so the server that answers cannot be tied to anything`,
+      observed,
+      limitations,
+    };
+  }
+
+  const decided = compareStartToSource(proc.started, newest);
+  const reason = decided.reason.replace(
+    "the listening process",
+    `the listening process (pid ${proc.pid})`,
+  );
+  if (decided.verdict !== "START_ORDER_COMPATIBLE") {
+    return { verdict: decided.verdict, reason, observed, limitations };
+  }
+
+  // Compatible start order is where identity has to be EARNED rather than assumed. This is the
+  // only positive evidence available without adding a product endpoint.
+  const serves = await servesLocalBuild(url, localBuildId);
+  observed.servesLocalBuildId = serves;
+  if (serves === true) {
+    return {
+      verdict: "BOUND",
+      reason:
+        `${reason} AND the listener serves /_next/static/${localBuildId}/_buildManifest.js, which ` +
+        `is this checkout's build id — so it is serving this build, not a sibling's.`,
+      observed,
+      limitations,
+    };
+  }
+  return {
+    verdict: "START_ORDER_COMPATIBLE",
+    reason:
+      `${reason} No served build identity: ` +
+      (localBuildId === null
+        ? "this checkout has no `.next/BUILD_ID` to ask for."
+        : serves === false
+          ? `the listener does not serve build id ${localBuildId}.`
+          : "the request for it did not complete (a dev server serves no such path)."),
+    observed,
+    limitations,
+  };
+}
+
+export function formatBinding(b: TreeBinding): string {
+  const lines = [`TREE BINDING: ${b.verdict}`, `  ${b.reason}`, "", "  observed:"];
+  for (const [k, v] of Object.entries(b.observed)) {
+    lines.push(`    ${k.padEnd(20)} ${v === null ? "(unavailable)" : String(v)}`);
+  }
+  lines.push("", "  what this does NOT prove:");
+  for (const l of b.limitations) lines.push(`    - ${l}`);
+  if (b.verdict !== "BOUND") {
+    lines.push(
+      "",
+      "  A run under this verdict is NOT evidence about the current tree. Say so wherever its",
+      "  result is quoted.",
+    );
+  }
+  return lines.join("\n");
+}
+
+if (process.argv[1] && process.argv[1].includes("e2e-tree-binding")) {
+  const urlArg = process.argv.indexOf("--url");
+  const url =
+    urlArg >= 0 && process.argv[urlArg + 1]
+      ? process.argv[urlArg + 1]
+      : (process.env.E2E_BASE_URL ?? "http://localhost:3000");
+  void (async () => {
+    const binding = await checkTreeBinding(url);
+    console.log(formatBinding(binding));
+    if (process.argv.includes("--require-binding") && binding.verdict !== "BOUND") {
+      process.exitCode = 1;
+    }
+  })();
+}

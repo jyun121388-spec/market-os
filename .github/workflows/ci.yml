@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: market_os
+          POSTGRES_PASSWORD: market_os_ci
+          POSTGRES_DB: market_os
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Used by migrations, the build and the e2e walkthrough. NOT by the test suite — see the
+      # `npm run test` step, which deliberately runs against a separate database.
+      DATABASE_URL: postgresql://market_os:market_os_ci@localhost:5432/market_os?schema=public
+      TEST_DB_URL: postgresql://market_os:market_os_ci@localhost:5432/market_os_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+
+      # A separate, disposable database for the destructive test suite. The suite deletes rows by
+      # corpCode, sourceId and email, so it must never share a database with anything whose
+      # contents matter — locally that is real ingested SEC data, and mirroring the separation
+      # here keeps CI honest about the same rule.
+      - name: Create and migrate the disposable test database
+        run: |
+          PGPASSWORD=market_os_ci psql -h localhost -U market_os -d market_os \
+            -c 'CREATE DATABASE market_os_test;'
+          DATABASE_URL="$TEST_DB_URL" npx prisma migrate deploy
+
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+
+      - name: Test suite (disposable database only)
+        run: npm run test
+        env:
+          # DATABASE_URL is blanked so the fail-closed guard in vitest.config.mts cannot resolve
+          # to the migrate/build/e2e database, and so a future edit that removes
+          # TEST_DATABASE_URL fails the build rather than quietly targeting it.
+          DATABASE_URL: ""
+          TEST_DATABASE_URL: ${{ env.TEST_DB_URL }}
+
+      - run: npm run build
+
+      # The e2e walkthrough is the only check that exercises the legal guardrail through a real
+      # rendered page rather than through a domain function, and it is the product's highest-risk
+      # surface. Everything above can pass while the guardrail is not actually wired to /ask.
+      - run: npx playwright install --with-deps chromium
+      - name: Start the app and run the end-to-end walkthrough
+        run: |
+          npm run start &
+          # Plain poll rather than a wait-for-port package — one less dependency for one loop.
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:3000/login && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://localhost:3000/login || {
+            echo "app did not become ready within 60s"; exit 1;
+          }
+          npm run e2e
+        env:
+          # `npm run start` serves the production build produced above, so this exercises the
+          # same output that would be deployed rather than a dev-mode render.
+          NODE_ENV: production
+          # /admin is gated on an operator allowlist that FAILS CLOSED when unset. The walkthrough
+          # needs both sides: step [4] signs in as this address and must reach /admin, step [4b]
+          # signs up a second ordinary account and must be turned away. Listing only the first
+          # address is what makes [4b] meaningful.
+          ADMIN_EMAILS: e2e-walkthrough@example.com

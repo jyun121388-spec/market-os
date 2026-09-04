@@ -1,0 +1,7 @@
+node_modules
+.local
+.tmp-test-artifacts
+.next
+src/generated
+prisma/migrations
+package-lock.json

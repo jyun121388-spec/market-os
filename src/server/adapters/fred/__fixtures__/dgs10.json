@@ -1,0 +1,38 @@
+{
+  "observation_start": "2026-08-10",
+  "observation_end": "2026-08-14",
+  "units": "lin",
+  "count": 5,
+  "observations": [
+    {
+      "realtime_start": "2026-08-15",
+      "realtime_end": "9999-12-31",
+      "date": "2026-08-10",
+      "value": "4.22"
+    },
+    {
+      "realtime_start": "2026-08-15",
+      "realtime_end": "9999-12-31",
+      "date": "2026-08-11",
+      "value": "4.20"
+    },
+    {
+      "realtime_start": "2026-08-15",
+      "realtime_end": "9999-12-31",
+      "date": "2026-08-12",
+      "value": "."
+    },
+    {
+      "realtime_start": "2026-08-15",
+      "realtime_end": "9999-12-31",
+      "date": "2026-08-13",
+      "value": "4.24"
+    },
+    {
+      "realtime_start": "2026-08-15",
+      "realtime_end": "9999-12-31",
+      "date": "2026-08-14",
+      "value": "4.25"
+    }
+  ]
+}

@@ -820,8 +820,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2726 / 2726 PASS across 154 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2707 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2741 / 2741 PASS across 155 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2722 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI run 33547628222 is bound to
 `bb88ded` on `claude/post-rc-followup` and to nothing on this branch; a local green suite does not
 supersede it, and no run is bound to the current HEAD at all — `REMOTE_CI: NONE`, stated rather

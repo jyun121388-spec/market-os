@@ -107,10 +107,14 @@ describe("committing an outbound message only once it is proven to exist", () =>
       expect(after.outbox[0].transmission?.bodyDigest).toBe(bodyDigest(BODY));
       expect(controlBusStanding(after).standing("ESC-900")).toBe("OPEN");
 
-      // The append-only log carries the same entry. One writer, both records, log first.
+      // The append-only log carries BOTH records of this publication, in the order they were
+      // made: the intent written under authority before the POST (IR-125), then the proof. One
+      // writer, log first each time.
       const log = readFileSync(join(root, "outbox.jsonl"), "utf8").trim().split("\n");
-      expect(log).toHaveLength(1);
+      expect(log).toHaveLength(2);
       expect(JSON.parse(log[0]).protocolId).toBe("ESC-900");
+      expect(JSON.parse(log[0]).transmission, "the intent carries no proof").toBeUndefined();
+      expect(JSON.parse(log[1]).transmission?.bodyDigest).toBe(bodyDigest(BODY));
     });
   });
 
@@ -326,16 +330,20 @@ describe("what happens while the remote call is in flight", () => {
       "utf8",
     );
 
-  it("writes nothing when a watcher takes ownership during the await", async () => {
-    // Absent at the first check, live and foreign by commit time. The pre-flight cannot see this;
-    // only the commit-time authority can.
+  it("writes no PROOF when a watcher takes ownership during the await", async () => {
+    // Absent at BEGIN, live and foreign by commit time. Since IR-125 the POST happens under a
+    // durable intent written at BEGIN, so what the refused commit leaves is not "nothing" — it is
+    // the intent, naming the digest, and an outcome that says a comment exists unrecorded.
     await withStore(async (root, state) => {
       const { transport, calls } = interleaving(() => writeLock(root, process.pid, "the-watcher"));
       const out = await transmitAndCommit(storePaths(root), state, draft, transport, deps);
 
       expect(out.status).toBe("REFUSED");
-      expect(calls.post, "the comment was posted before ownership changed").toBe(1);
-      expect(persisted(root).outbox, "nothing may be written without authority").toHaveLength(0);
+      expect(out.status === "REFUSED" && out.remoteSideEffect).toBe("POSTED_UNRECORDED");
+      expect(calls.post, "the comment was posted under the intent").toBe(1);
+      const after = persisted(root).outbox;
+      expect(after, "the intent is the record").toHaveLength(1);
+      expect(after[0].transmission, "but never a proof without authority").toBeUndefined();
     });
   });
 
@@ -354,7 +362,7 @@ describe("what happens while the remote call is in flight", () => {
         /ownership changed|is UNKNOWN|is ALIVE/,
       );
       expect(out.status === "REFUSED" && out.reason).toMatch(/a-different-lease|ownership changed/);
-      expect(persisted(root).outbox).toHaveLength(0);
+      expect(persisted(root).outbox.filter((e) => e.transmission)).toHaveLength(0);
     });
   });
 
@@ -481,8 +489,9 @@ describe("ownership replaced between taking the write right and reading it back"
       expect(out.status).toBe("REFUSED");
       expect(out.status === "REFUSED" && out.reason).toMatch(/ownership changed/);
       const after = JSON.parse(readFileSync(join(root, "state.json"), "utf8")) as ControlBusState;
-      expect(after.outbox).toHaveLength(0);
-      expect(existsSync(join(root, "outbox.jsonl"))).toBe(false);
+      // IR-125: the intent written at BEGIN is the one record; it must not have become a proof.
+      expect(after.outbox).toHaveLength(1);
+      expect(after.outbox[0].transmission).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -685,9 +694,12 @@ describe("the post-right recheck uses the same ownership rule as everything else
     expect(out.status === "REFUSED" && out.reason).toMatch(/ALIVE/);
     // The witnesses, not only the verdict: the canonical write never ran, and the foreign lock is
     // byte-identical to what the successor installed.
-    // `body()` is what appends the outbox entry, so zero entries IS zero invocations — and the
-    // log file it would also have written is absent.
-    expect(state.outbox, "body() must not have been invoked").toHaveLength(0);
+    // `body()` is what upgrades the intent to a proof, so "no proven entry" IS zero invocations.
+    // The intent itself is expected to be there: IR-125 writes it at BEGIN, before the POST.
+    expect(
+      state.outbox.filter((e) => e.transmission),
+      "body() must not have been invoked",
+    ).toHaveLength(0);
     expect(lockBytes).toBe(written);
   }, 60_000);
 
@@ -710,7 +722,7 @@ describe("the post-right recheck uses the same ownership rule as everything else
 
     expect(out.status).toBe("REFUSED");
     expect(out.status === "REFUSED" && out.reason).toMatch(/UNKNOWN/);
-    expect(state.outbox).toHaveLength(0);
+    expect(state.outbox.filter((e) => e.transmission)).toHaveLength(0);
     expect(lockBytes).toBe(written);
   }, 60_000);
 

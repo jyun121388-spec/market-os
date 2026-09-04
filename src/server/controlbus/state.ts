@@ -22,6 +22,7 @@
  */
 
 import { createHash } from "node:crypto";
+import type { OwnerIdentity } from "./owner";
 import type { ProtocolKind, ProtocolMessage, RemoteComment } from "../escalation/transport";
 import { isAuthorityBearing, OUTBOUND_KINDS, parseProtocolMessage } from "../escalation/transport";
 
@@ -103,6 +104,29 @@ export interface TransmissionProof {
   readBackAt: string;
 }
 
+/**
+ * A publication IN FLIGHT: written under the canonical write authority BEFORE any remote POST.
+ *
+ * IR-125. The outbound lifecycle took the write authority only at commit, after the network round
+ * trip, so a foreign watcher that arrived during the POST left an externally visible comment with
+ * no local record at all — and the CLI, truthfully describing the local store, printed "nothing
+ * written". This marker is the write-ahead half of the repair: the durable, fenced record that THIS
+ * attempt was authorised to publish THIS exact body, and it exists before the POST does.
+ *
+ * `attemptNonce` is the exclusive in-flight identity — per attempt, not per process, so two
+ * concurrent calls from one process are still two attempts and at most one may proceed. `owner` is
+ * the OS identity of the attempting process, judged by the same `ownerLiveness` rule as the lock:
+ * a marker whose owner is GONE is a crashed attempt and may be taken over; ALIVE or UNKNOWN is a
+ * genuine in-flight publication and blocks. `abandonedAt` is set when an attempt ends without
+ * proof, so a same-process failure never wedges its own retries while the evidence survives.
+ */
+export interface PublicationIntent {
+  attemptNonce: string;
+  owner?: OwnerIdentity;
+  startedAt: string;
+  abandonedAt?: string;
+}
+
 export interface OutboxEntry {
   protocolId: string;
   kind: "ESCALATION" | "CLAUDE_APPLIED";
@@ -115,6 +139,8 @@ export interface OutboxEntry {
    * as evidence, and it checks the whole binding rather than the field's presence.
    */
   transmission?: TransmissionProof;
+  /** See `PublicationIntent`. Never evidence of transmission; `isTransmitted` ignores it. */
+  publication?: PublicationIntent;
 }
 
 /** `owner/repo` for this control bus. One repository, and every proof is bound to it. */

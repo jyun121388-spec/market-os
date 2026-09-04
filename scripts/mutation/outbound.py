@@ -88,6 +88,65 @@ there rather than duplicated.
                                 worse half of the finding: it silently undoes durable work and
                                 leaves a green suite behind.
 
+  ---- IR-125: authority BEFORE the POST ------------------------------------------------------
+
+  The lifecycle used to take the canonical write authority only at commit, after the network.
+  A foreign watcher arriving during the POST left a comment with no local record, and the CLI --
+  truthfully describing the local store -- printed "nothing written". The order is now
+  BEGIN under authority (durable intent) -> find -> POST -> read back -> COMMIT fenced by nonce.
+
+  M-OUT-POST-BEFORE-AUTHORITY  ignore BEGIN's refusal and carry on to the transport
+                             -> PREDICTED 5, MEASURED 6: exactly-once A (foreign live lock at
+                                start: POST called), the refuses-while-a-live-watcher-holds-the-
+                                lock control (same shape), H (a foreign live intent: POST called),
+                                J (both attempts proceed: two POSTs), C (no ALREADY_PROVEN
+                                short-circuit: the transport is touched) -- and C's older twin,
+                                "is idempotent once a proof is durable", which the prediction
+                                simply forgot. The ALREADY_PROVEN answer is delivered THROUGH
+                                BEGIN's refusal path, so ignoring refusals ignores idempotency.
+
+  M-OUT-NO-INFLIGHT-GUARD     a live foreign intent does not block a second attempt
+                             -> 2 red: H and J.
+
+  M-OUT-NO-FENCE              the commit replaces whichever intent is there, not only its own
+                             -> 1 red: the superseded-attempt control. Nothing else reaches a
+                                commit whose intent has changed hands, which is why that control
+                                had to be written.
+
+  M-OUT-AMBIGUOUS-IS-NONE     a transport error after the POST is reported as no side effect
+                             -> 1 red: E. "The tool failed" and "nothing was sent" must never be
+                                the same value -- the incident was that sentence.
+
+  M-OUT-REFUSED-SAYS-NONE     a refused commit after a read-back is reported as no side effect
+                             -> PREDICTED 2, MEASURED 3: I, the ownership-taken-during-the-await
+                                control, and the commit-fence control -- which asserts
+                                POSTED_UNRECORDED after a superseded commit and was written AFTER
+                                this prediction. Recorded as a miss rather than re-predicted.
+
+  M-OUT-INTENT-NOT-DURABLE    BEGIN takes the authority but writes nothing down
+                             -> broad by construction, PREDICTED 14, MEASURED 27 of 37. The
+                                prediction listed the controls that READ the intent back; it
+                                missed that every commit is now fenced on the intent's nonce, so
+                                with no intent on disk NO commit can succeed and every positive
+                                path in both files goes red as well. Still ISOLATED -- the
+                                unrelated file stays green -- and the breadth is the point: the
+                                intent is now load-bearing for every successful publication, not
+                                only for the crash windows it was written for.
+
+  The pre-IR-125 mutants were re-measured against the widened binding set and grew for the same
+  reason: M-OUT-NO-ADOPTION 14 (every crash/ambiguity/race control adopts), M-OUT-NO-RELOAD 21
+  (BEGIN and COMMIT both reload; writing the captured snapshot back erases the intent BEGIN just
+  wrote, so nearly everything fails), M-AUTH-PID-ONLY 10, M-OUT-NO-STATE-WRITE 11,
+  M-OUT-POST-IS-PROOF 9, M-AUTH-NO-RECHECK 3, M-OUT-NO-IDEMPOTENCY 2. Their original predictions
+  in the section above were made against one file and are kept as history, not corrected.
+
+  RETIRED, with reasons:
+
+  M-OUT-IGNORE-LOCK           the pre-flight snapshot it mutated no longer exists; ownership is
+                              decided at BEGIN under the authority itself. Its property is
+                              M-OUT-POST-BEFORE-AUTHORITY.
+  M-AUTH-NO-RECHECK (old)     re-anchored on the IR-075 recheck (`foreign.state !== "GONE"`).
+
     python scripts/mutation/outbound.py
 """
 
@@ -103,8 +162,9 @@ OUTBOUND = "src/server/controlbus/outbound.ts"
 # bind ownership live where the primitive does.
 STORE = "src/server/controlbus/store.ts"
 TEST = "tests/controlBusOutbound.test.ts"
+EXACTLY_ONCE = "tests/outboundExactlyOnce.test.ts"
 
-BINDING_TESTS = [TEST]
+BINDING_TESTS = [TEST, EXACTLY_ONCE]
 UNRELATED_TESTS = ["tests/evolutionScheduler.test.ts"]
 
 MUTATIONS = [
@@ -117,13 +177,13 @@ MUTATIONS = [
     (
         "M-OUT-POST-IS-PROOF a successful POST is treated as a read-back",
         OUTBOUND,
-        "    remote = await transport.readBack(posted.commentId);",
-        "    remote = {\n"
-        "      commentId: posted.commentId,\n"
-        "      body: draft.body,\n"
-        "      repository: CONTROL_BUS_REPOSITORY,\n"
-        "      issueNumber: state.issueNumber,\n"
-        "    };",
+        "      remote = await transport.readBack(posted.commentId);",
+        "      remote = {\n"
+        "        commentId: posted.commentId,\n"
+        "        body: draft.body,\n"
+        "        repository: CONTROL_BUS_REPOSITORY,\n"
+        "        issueNumber: state.issueNumber,\n"
+        "      };",
     ),
     (
         "M-OUT-NO-DIGEST-BINDING the body read back is never compared with the body composed",
@@ -134,44 +194,34 @@ MUTATIONS = [
         "",
     ),
     (
-        "M-OUT-NO-STATE-WRITE the append-only log is written and the authority is not",
+        "M-OUT-NO-STATE-WRITE the proof is logged and the authority is not written",
         OUTBOUND,
-        "      writeState(paths, fresh);",
-        "",
+        "      fresh.outbox[at] = proven;\n      writeState(paths, fresh);",
+        "      fresh.outbox[at] = proven;",
     ),
     (
-        "M-OUT-NO-LOG-WRITE the authority is written and the log is not",
+        "M-OUT-NO-LOG-WRITE the authority is written and the proof is not logged",
         OUTBOUND,
-        "      appendOutboxLog(paths, entry);",
+        "      appendOutboxLog(paths, proven);",
         "",
     ),
     (
         "M-OUT-NO-ADOPTION an existing remote comment is never looked for",
         OUTBOUND,
-        "  const found = await transport.find(draft.protocolId, digest);",
-        "  const found = null;",
+        "    const found = await transport.find(draft.protocolId, digest);",
+        "    const found = null;",
     ),
     (
         "M-OUT-NO-IDEMPOTENCY a durable proof does not short-circuit a repeat",
         OUTBOUND,
-        '  if (existing) return { status: "ALREADY_PROVEN", entry: existing };',
+        '      if (proven) return { ok: false, reason: "already proven", alreadyProven: proven };',
         "",
-    ),
-    (
-        "M-OUT-IGNORE-LOCK state is written while a live watcher holds the lock",
-        OUTBOUND,
-        "    !lockIsStale(lock, deps.heartbeatStaleMs, deps.nowMs())\n  ) {",
-        "    false\n  ) {",
     ),
     (
         "M-AUTH-NO-RECHECK ownership is never re-checked once the write right is taken",
         STORE,
-        "      during !== null &&\n"
-        "      !ours(during) &&\n"
-        "      processAlive(during.pid) &&\n"
-        "      !lockIsStale(during, staleAfterMs, nowMs)\n"
-        "    ) {",
-        "      false\n    ) {",
+        '    if (during !== null && foreign && foreign.state !== "GONE") {',
+        "    if (false) {",
     ),
     (
         "M-AUTH-PID-ONLY a different lease with the same pid counts as us",
@@ -182,9 +232,49 @@ MUTATIONS = [
     (
         "M-OUT-NO-RELOAD the captured snapshot is written back instead of current state",
         OUTBOUND,
+        "      // RELOAD. `captured` is a photograph of the state before the await; `fresh` is what is\n"
+        "      // actually on disk now, cursor and inbox included.\n"
         "      const fresh = loadState(paths, captured.issueNumber);",
         "      const fresh = captured;",
     ),
+    (
+        "M-OUT-POST-BEFORE-AUTHORITY BEGIN's refusal is ignored and the transport is reached",
+        OUTBOUND,
+        "  if (!begun.ok) {\n"
+        '    if (begun.alreadyProven) return { status: "ALREADY_PROVEN", entry: begun.alreadyProven };',
+        "  if (false) {\n"
+        '    if (begun.alreadyProven) return { status: "ALREADY_PROVEN", entry: begun.alreadyProven };',
+    ),
+    (
+        "M-OUT-NO-INFLIGHT-GUARD a live foreign intent does not block a second attempt",
+        OUTBOUND,
+        "      if (inFlight) {",
+        "      if (false) {",
+    ),
+    (
+        "M-OUT-NO-FENCE the commit replaces whichever intent is present",
+        OUTBOUND,
+        "        (e) => sameUnit(e, entry, digest) && e.publication?.attemptNonce === attemptNonce,",
+        "        (e) => sameUnit(e, entry, digest) && e.publication !== undefined,",
+    ),
+    (
+        "M-OUT-AMBIGUOUS-IS-NONE a transport error after the POST reports no side effect",
+        OUTBOUND,
+        '      remoteSideEffect: posted === null && !transportReachedPost(error) ? "NONE" : "UNKNOWN",',
+        '      remoteSideEffect: "NONE",',
+    ),
+    (
+        "M-OUT-REFUSED-SAYS-NONE a refused commit after a read-back reports no side effect",
+        OUTBOUND,
+        '      remoteSideEffect: "POSTED_UNRECORDED",',
+        '      remoteSideEffect: "NONE",',
+    ),
+    (
+        "M-OUT-INTENT-NOT-DURABLE BEGIN takes the authority and writes nothing down",
+        OUTBOUND,
+        "      appendOutboxLog(paths, mine);\n      writeState(paths, fresh);\n      return { ok: true };",
+        "      return { ok: true };",
+    ),
 ]
 
-sys.exit(harness([OUTBOUND, STORE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1200))
+sys.exit(harness([OUTBOUND, STORE], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=3600))

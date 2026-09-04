@@ -124,19 +124,32 @@ async function main(): Promise<number> {
   console.log(`${outcome.status}  ${protocolId}`);
   if (outcome.status === "REFUSED") {
     console.log(`  ${outcome.reason}`);
-    console.log(outcome.entry ? "  the attempt is recorded, without proof" : "  nothing written");
-    // "nothing written" is about the LOCAL STORE, and it read as "nothing was sent". It is not the
-    // same statement: `transmitAndCommit` posts and reads back BEFORE it takes the write authority,
-    // so a refusal at commit time leaves a public comment behind with no durable record of it.
-    //
-    // That is not hypothetical. This exact line printed "nothing written" while comment 5521911820
-    // was already on issue #2, the next run posted the same protocol id again, and the channel got
-    // a duplicate `[CLAUDE_APPLIED]` under a protocol that says exactly one.
-    console.log(
-      "  A COMMENT MAY ALREADY EXIST. The post happens before the write authority is taken, so a\n" +
-        "  refusal here does not mean nothing was sent. Check the issue for this protocol id before\n" +
-        "  running again — a second run will post a duplicate.",
-    );
+    // What the WORLD looks like, from the lifecycle itself — never inferred from the local store.
+    // This line once printed "nothing written" while comment 5521911820 was already on issue #2,
+    // because the store was empty and the POST had happened before the write authority was taken.
+    // IR-125 moved the authority in front of the POST and made every refusal say what it did
+    // remotely, so the operator is told the truth by the operation rather than by a guess.
+    switch (outcome.remoteSideEffect) {
+      case "NONE":
+        console.log(
+          outcome.entry
+            ? "  no remote write; the attempt is recorded locally without proof"
+            : "  no remote write; nothing written",
+        );
+        break;
+      case "POSTED_UNRECORDED":
+        console.log(
+          `  A COMMENT EXISTS REMOTELY (id ${outcome.commentId}) and this machine could not\n` +
+            "  record the proof. Do NOT post again: the next attempt will find and adopt it.",
+        );
+        break;
+      case "UNKNOWN":
+        console.log(
+          "  A POST WAS ATTEMPTED and this run cannot say whether it landed. Do NOT post again\n" +
+            "  by hand: the next attempt checks the issue first and adopts anything it finds.",
+        );
+        break;
+    }
     return 1;
   }
   console.log(`  comment ${outcome.entry.transmission?.commentId}`);

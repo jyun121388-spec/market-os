@@ -3125,3 +3125,122 @@ everything behind it.
 
 Three versions of that helper now: a spawn-per-poll that was too slow, an `Atomics.wait` that was
 too total, and a timer. Recorded because the middle one looked strictly better than the first.
+
+## IR-125 — the outbound path published before it owned the publication
+
+Reported as a hypothesis with the wrong protocol id — "multiple `[CLAUDE_APPLIED][ESC-014]`
+comments" — and checked against the live issue before anything else: there is exactly ONE
+`[CLAUDE_APPLIED][ESC-014]` (`5498724064`). The four duplicates are under
+`MARKET-IR075-LIVE-OWNER-LEASE-TAKEOVER-20260902-2228-KST`. The symptom was real and the id was
+not, which is the ordinary reason to verify a report rather than act on it.
+
+### What the four IR-075 comments actually are, under the repository's identity model
+
+An outbound unit is `(protocolId, kind, sha256(body))`, and `find` keys on `(protocolId, digest)`
+— the kind tag is the first line of the body, so the digest binds the kind. Under that model:
+
+    5521911820   a216636f   ORPHANED: posted, local commit refused, no local record   <- the defect
+    5525272277   f98685b5   a corrected application: different body, different unit
+    5526732920   f04e4614   a corrected application, requested by REWORK_REQUIRED
+    5533199099   3f731149   a corrected application, requested by REWORK_REQUIRED
+
+Three of the four are legitimately distinct events — each answered a `REWORK_REQUIRED` that asked
+for "one corrected `[CLAUDE_APPLIED]`" — and protocol-id-only deduplication would have collapsed
+them wrongly. Exactly one is a defect, and it is the first.
+
+### The defect, reproduced on the exact tree before any change
+
+The lifecycle was:
+
+    screen -> pre-flight SNAPSHOT -> idempotency -> find -> POST -> read back -> AUTHORITY -> proof
+
+The pre-flight said in its own comment that it was only a snapshot; the canonical write authority
+was taken at commit, after the network. A deterministic seam — a live foreign lock installed inside
+`find`, the last await before the POST — gave `status=REFUSED posts=1 outbox=0 log=false`: a comment
+on the issue, and nothing anywhere that knew.
+
+That is how `5521911820` happened. At the time, the pre-flight still used the pre-IR-075
+`processAlive && !lockIsStale` rule while the commit already used `ownerLiveness`; `processAlive`
+answered ALIVE for a pid that had been dead nine days (IR-075 measured it), the lease was stale, the
+snapshot passed, the POST went out, the commit refused. The CLI printed "nothing written" — true of
+the local store — and the operator posted again.
+
+### The repair: authority BEFORE the POST, as a durable, fenced intent
+
+    screen -> BEGIN under authority (durable intent) -> find -> POST -> read back
+           -> COMMIT under authority, fenced by the intent's nonce
+
+The authority cannot be held across the network: the watcher's heartbeat needs the same mutation
+right and EXITS if it cannot get it (`scripts/control-bus.ts:117`). So BEGIN holds it for
+microseconds, writes a `PublicationIntent` — `{ attemptNonce, owner (OS identity), startedAt }` —
+into the outbox entry, releases, and only then touches the transport. If the authority is refused
+at BEGIN, the POST is provably uncalled and the transport is not even queried.
+
+The intent is the transferable publication authorisation. A foreign watcher that takes the LOCK
+after BEGIN does not revoke it: the POST still happens, the commit is refused, and the outcome says
+`remoteSideEffect: "POSTED_UNRECORDED"` with the comment id. The next attempt runs `find` first and
+adopts. Zero duplicates, and never a comment without a local record — the property the incident
+lacked.
+
+### A zero-cost Codex read-only review reframed the first draft, and every finding was real
+
+`codex exec --sandbox read-only`, with the design inlined and exploration forbidden. Verdict
+`REFRAME`, six findings, all incorporated:
+
+1. **A live process would wedge its own retries.** An attempt that returns REFUSED leaves an
+   intent whose owner is this very process, which is ALIVE. Repaired with an in-process registry
+   of EXECUTING attempt nonces: an intent owned by this process blocks only while its attempt is
+   still running. A crashed process takes its registry with it and its intents read GONE by OS
+   identity; every non-success return also marks the intent abandoned where the authority allows.
+2. **Same-process concurrency.** Ownership is per attempt (`attemptNonce`), not per process. Two
+   concurrent calls in one process are two attempts, and control J shows the second is refused at
+   BEGIN.
+3. **The commit was not fenced.** It now compare-and-replaces only the entry whose intent carries
+   its own nonce; an identical independently verified proof is reconciled; anything else is
+   `superseded` and the successor's state is untouched. A control installs the takeover inside
+   `find` and asserts attempt 2 still owns the record afterwards.
+4. **Historical versus continuing authorisation.** Documented as the design, above: the fenced
+   intent IS the transferable authorisation, and a pre-POST snapshot would be a snapshot again.
+5. **Cursor safety.** BEGIN mutates the freshly reloaded state and writes through the same atomic
+   path; a control advances the cursor and failure counter during `find` and asserts both survive.
+6. **Identity key.** `(protocolId, digest)` already binds the kind; a control shows two bodies
+   differing only in the kind tag digest differently, and that CRLF is not LF.
+
+### `remoteSideEffect`: a refusal must say what the WORLD looks like
+
+`NONE` (no POST by this call), `POSTED_UNRECORDED` (posted, read back, commit refused; comment id
+given), `UNKNOWN` (a POST was attempted and this call cannot say). The CLI prints the matching
+sentence and never "nothing written" for anything but `NONE`. An error thrown by `find` before the
+POST earns `NONE` only if the transport tags it `beforePost`; everything else is `UNKNOWN`, because
+"the tool failed" and "nothing was sent" must never be the same value.
+
+### Controls A–J, on the production `transmitAndCommit`
+
+    A  live foreign lock at start          POST uncalled; transport not even queried
+    B  authority obtained                  one publication; ONE entry carrying intent and proof
+    C  retry after durable proof           zero network calls
+    D  crashed after POST, before proof    a real child, killed, proven GONE; restart ADOPTS
+    E  ambiguous POST that landed          UNKNOWN reported; retry adopts; one POST across both
+    F  POST truly did not happen           NONE; retry publishes exactly once
+    G  intent owner GONE                   taken over in place
+    H  intent owner a live child           refused "in flight"; store byte-identical
+    I  the incident, replayed              POSTED_UNRECORDED with id; intent remains, not abandoned
+    I' same process, lock freed            adopts the unrecorded comment; still one entry
+    J  two attempts racing                 exactly one obtains authority; at most one POST
+    +  intent durable before `find`, and the mutation right already released
+    +  cursor and failure counter advanced during the round trip survive BEGIN and COMMIT
+    +  kind bound through the digest; CRLF ≠ LF
+    +  the commit fence
+
+Six existing controls were re-expressed: "outbox empty" was their witness for "the canonical write
+did not run", and an intent is now a legitimate durable record. The witness is "no PROVEN entry".
+The happy path's log now carries two lines — intent, then proof — which is stronger evidence than
+the one line it asserted before.
+
+### The mutation suite had drifted
+
+`scripts/mutation/outbound.py` was last run before IR-075 and two of its anchors no longer existed
+(`M-OUT-IGNORE-LOCK` mutated a pre-flight that is gone; `M-AUTH-NO-RECHECK` targeted the
+pre-IR-075 recheck). It was not in the IR-075 verification's re-run list and so was never noticed —
+a suite that cannot run is a suite that cannot fail. Re-anchored, one mutant retired with its reason,
+six IR-125 mutants added, both test files bound.

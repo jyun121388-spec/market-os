@@ -57,9 +57,37 @@ export type ActionKind =
   | "UNSOURCED_FACT_OUTPUT"
   | "DECLARE_RELEASE_CANDIDATE_READY";
 
+/**
+ * Providers that issue an API key, and the only identities a provider-named action may carry.
+ *
+ * Exactly three, because exactly three of this repository's four providers gate on a key. SEC
+ * EDGAR is free AND keyless — it asks for a User-Agent, not a credential — so it is deliberately
+ * absent, and an action that calls it names no provider and is never blocked on a key it does not
+ * need. Naming it here would create a fact nobody can establish, which is how an environment gap
+ * gets invented rather than measured.
+ */
+export const KEYED_PROVIDERS = ["FRED", "ECOS", "OPENDART"] as const;
+export type KeyedProvider = (typeof KEYED_PROVIDERS)[number];
+
 export interface ActionDescriptor {
   kind: ActionKind;
   detail?: string;
+  /**
+   * The provider this action actually calls, when it calls exactly one.
+   *
+   * Added 2026-09-06 under `[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]`, which
+   * accepted the escalation raised from M11's evidence. `providerKeyAvailable` alone is one
+   * boolean for three providers, and the autonomous boundary must set it to the CONJUNCTION so an
+   * absent ECOS key is never read off a present FRED one. The consequence, once FRED's key existed
+   * and the others did not, was environment-state aliasing: FRED-only work reported
+   * `BLOCKED_PROVIDER_KEY` because of credentials it never touches.
+   *
+   * Optional, and absent means AMBIGUOUS rather than "any". A cluster countermeasure spanning
+   * three adapters genuinely does not call one provider, and labelling it with one would be a
+   * claim about the work rather than a fact about it — so an unnamed action keeps the conjunction,
+   * which is the conservative reading and the one every existing caller already gets.
+   */
+  provider?: KeyedProvider;
   /**
    * Context the engine cannot infer. Absent fields are treated as UNKNOWN and, where a rule
    * depends on one, resolve toward the safer decision rather than the convenient one.
@@ -75,8 +103,27 @@ export interface ActionDescriptor {
     withinDocumentedRateLimit?: boolean;
     /** Whether a usable GitHub credential exists on this machine. */
     credentialsAvailable?: boolean;
-    /** Whether the provider API key this call needs is present in the environment. */
+    /**
+     * Whether the provider API key this call needs is present in the environment.
+     *
+     * The AGGREGATE, kept as the compatibility fallback for an action that names no provider: the
+     * conjunction over every keyed provider, so it is false unless all of them are present. It is
+     * never consulted for a named action — see `providerKeys`.
+     */
     providerKeyAvailable?: boolean;
+    /**
+     * Per-provider key presence, for actions that name the provider they call.
+     *
+     * Presence only. Nothing here is or contains a credential; a `true` means an environment
+     * variable is set, which is all any caller may know without reading a value.
+     *
+     * PARTIAL on purpose, and a missing entry is UNESTABLISHED rather than false — but it is
+     * never treated as available: a named action whose provider has no entry is blocked, on the
+     * same rule as everything else in this engine, that unknown resolves toward the safer answer.
+     * The aggregate is NOT used as a fallback for a named action, because the aggregate is a fact
+     * about three providers and the question is about one.
+     */
+    providerKeys?: Partial<Record<KeyedProvider, boolean>>;
     /** Whether an INCLUDED model still has quota. Never a reason to buy more. */
     includedModelQuotaAvailable?: boolean;
     /**
@@ -180,6 +227,30 @@ interface Rule {
   gate?: GateRequirement;
   /** Lets a rule tighten when context says the precondition is not met. */
   refine?: (action: ActionDescriptor, base: PolicyEvaluation) => PolicyEvaluation;
+}
+
+/**
+ * Is the key THIS action needs present? `true` ready, `false` blocked.
+ *
+ * Two questions, and which one is asked depends on whether the action said what it calls.
+ *
+ *   NAMED    that provider's established fact, and nothing else. Never another provider's fact
+ *            (FRED's key says nothing about ECOS), and never the aggregate (a conjunction over
+ *            three providers cannot answer a question about one — it would reintroduce exactly
+ *            the aliasing this exists to remove, in the direction that blocks real work).
+ *            An identity outside `KEYED_PROVIDERS`, or a provider with no established fact, is
+ *            NOT ready: unknown fails closed.
+ *
+ *   UNNAMED  the aggregate, unchanged, including its documented optimism when nothing was
+ *            supplied. Deliberately not "any key": an action that has not said which provider it
+ *            calls must not be cleared by a credential belonging to a different one, which is the
+ *            same aliasing with its sign flipped.
+ */
+export function providerKeyReady(action: ActionDescriptor): boolean {
+  const named = action.provider;
+  if (named === undefined) return action.context?.providerKeyAvailable !== false;
+  if (!(KEYED_PROVIDERS as readonly string[]).includes(named)) return false;
+  return action.context?.providerKeys?.[named] === true;
 }
 
 const DONE = ["format", "lint", "typecheck", "unit tests", "relevant integration/E2E", "build"];
@@ -457,13 +528,26 @@ const RULES: Record<ActionKind, Rule> = {
     requiredVerification: ["call is within the provider's documented rate limit"],
     refine: (action, base) => {
       // Two independent questions, answered separately and in this order. "Free to call" and
-      // "callable" are not the same claim: FRED, ECOS and OpenDART are all free and all
-      // unreachable here, and recording that as anything other than an execution blocker would
-      // misfile a standing environmental gap as a policy position.
-      const withKey: PolicyEvaluation =
-        action.context?.providerKeyAvailable === false
-          ? { ...base, execution: "BLOCKED_PROVIDER_KEY" }
-          : base;
+      // "callable" are not the same claim: FRED, ECOS and OpenDART are all free, and whether each
+      // is reachable is an environment fact. Recording that as anything other than an execution
+      // blocker would misfile a standing environmental gap as a policy position.
+      //
+      // WHICH key is asked about is `providerKeyReady`'s question, not this one's.
+      const withKey: PolicyEvaluation = providerKeyReady(action)
+        ? base
+        : {
+            ...base,
+            execution: "BLOCKED_PROVIDER_KEY",
+            // The provider is named in the rationale so a reader is never left guessing which
+            // credential is missing — the complaint M11's evidence actually made.
+            rationale:
+              `${base.rationale} ` +
+              (action.provider
+                ? `No established key for ${action.provider}, which is the only provider this ` +
+                  "action calls."
+                : "This action does not say which provider it calls, so it needs a key for every " +
+                  "keyed provider and at least one is absent."),
+          };
       return action.context?.withinDocumentedRateLimit === true
         ? { ...withKey, decision: "AUTO_ALLOWED", requiredVerification: [] }
         : withKey;

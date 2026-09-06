@@ -178,12 +178,70 @@ describe("a finished phase yields the next one without being asked", () => {
    * unsafe — nothing is bypassed, an agent just picks up work it may not be able to finish. The
    * remedy is for the caller to supply what it knows, and this test exists so the behaviour stays
    * a decision instead of becoming a surprise.
+   *
+   * NARROWED 2026-09-06 by `[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]`, and the
+   * comment above is kept because the assertion is unchanged and still holds. What changed is its
+   * REACH: the optimism now applies to an action that does not name a provider. A proposal that
+   * names one — the per-provider capability proposals do, structurally — needs that provider's own
+   * established fact, and an unstated environment establishes nothing, so those are deferred even
+   * here. Strictly less optimism than before, never more, which is the direction that cannot
+   * introduce a false startable.
    */
   it("treats an unstated environment as available, optimistically", () => {
     const stated = scheduleNextWork({ context: { providerKeyAvailable: false } });
     const unstated = scheduleNextWork({ context: {} });
     expect(unstated.actionable.length).toBeGreaterThan(stated.actionable.length);
     expect(unstated.deferred.length).toBeLessThan(stated.deferred.length);
+    // The narrowing, asserted rather than left to the comment: what an unstated environment still
+    // makes actionable is exactly the work that names no provider.
+    for (const work of unstated.actionable) expect(work.proposal.provider).toBeUndefined();
+  });
+
+  /**
+   * A blocked row says WHICH credential is missing.
+   *
+   * Before the granularity repair every provider-blocked item read
+   * `CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY`, and a reader could not tell whether the work was
+   * held by the key it needs or by one it never touches — which is how the aliasing survived three
+   * sessions of reports.
+   */
+  it("carries the provider identity into the governance trace and the reason", () => {
+    const named = proposal("NAMED", ["CALL_FREE_PROVIDER"]);
+    const queue = scheduleNextWork({
+      proposals: [{ ...named, provider: "ECOS" }],
+      context: {
+        verificationGreen: true,
+        providerKeys: { FRED: true, ECOS: false, OPENDART: false },
+        providerKeyAvailable: false,
+      },
+    });
+    expect(queue.actionable).toEqual([]);
+    const [blocked] = queue.deferred;
+    expect(blocked.authority).toBe("BLOCKED_BY_ENVIRONMENT");
+    expect(blocked.governance[0].provider).toBe("ECOS");
+    expect(blocked.blockedBy).toBe("CALL_FREE_PROVIDER(ECOS): BLOCKED_PROVIDER_KEY");
+
+    // The same proposal, named FRED, in the same environment: startable, and the trace stays
+    // honest about which provider answered.
+    const fred = scheduleNextWork({
+      proposals: [{ ...named, provider: "FRED" }],
+      context: {
+        verificationGreen: true,
+        providerKeys: { FRED: true, ECOS: false, OPENDART: false },
+        providerKeyAvailable: false,
+      },
+    });
+    expect(fred.actionable).toHaveLength(1);
+    expect(fred.actionable[0].governance[0].provider).toBe("FRED");
+  });
+
+  it("leaves an unnamed proposal's trace and reason exactly as they were", () => {
+    const queue = scheduleNextWork({
+      proposals: [proposal("UNNAMED", ["CALL_FREE_PROVIDER"])],
+      context: { verificationGreen: true, providerKeyAvailable: false },
+    });
+    expect(queue.deferred[0].governance[0].provider).toBeUndefined();
+    expect(queue.deferred[0].blockedBy).toBe("CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY");
   });
 });
 

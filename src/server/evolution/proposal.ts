@@ -4,7 +4,7 @@ import {
   type CapabilityAxis,
   type ProviderCapabilityProfile,
 } from "../fabric/providerCapability";
-import type { ActionKind } from "../governance/policy";
+import { KEYED_PROVIDERS, type ActionKind, type KeyedProvider } from "../governance/policy";
 import { detectWeaknesses } from "./detect";
 import { BACKFILLED_LEDGER, type LedgerEntry, type WeaknessCategory } from "./ledger";
 
@@ -66,8 +66,33 @@ export interface Proposal {
   requiredVerify: string[];
   /** Which governed actions carrying this out would involve, so the gate is visible up front. */
   requiredGovernance: ActionKind[];
+  /**
+   * The keyed provider this proposal's work actually calls, when it calls exactly one.
+   *
+   * DERIVED, never asserted — the only proposals that carry it are the per-provider capability
+   * ones, where the identity is the profile the proposal was generated from. Cluster
+   * countermeasures deliberately do not: PROVIDER_ASSUMPTION names three adapters in its own
+   * prediction, and SEMANTIC_RECENCY's two recorded instances are `observationIngest` and a stale
+   * dev server, neither of which is a provider. Labelling either would be a claim about the work
+   * rather than a fact about it, and an unnamed action keeps the conservative conjunction
+   * (`[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]`, item 5).
+   */
+  provider?: KeyedProvider;
   /** The gate that blocks it now, where one does. */
   blockedBy?: string;
+}
+
+/**
+ * The profile's source code as a keyed-provider identity, or undefined when it issues no key.
+ *
+ * A total function over whatever the matrix holds, so a provider added later is UNNAMED until
+ * someone adds it to `KEYED_PROVIDERS` deliberately — which fails toward the conjunction, the
+ * safe direction, rather than toward an identity nobody established a fact for.
+ */
+function keyedProviderOf(sourceCode: string): KeyedProvider | undefined {
+  return (KEYED_PROVIDERS as readonly string[]).includes(sourceCode)
+    ? (sourceCode as KeyedProvider)
+    : undefined;
 }
 
 const axesWhere = (
@@ -146,6 +171,10 @@ function verificationDebtProposal(profile: ProviderCapabilityProfile): Proposal 
       "a real ingest followed by a re-ingest, proving idempotency",
     ],
     requiredGovernance: ["CALL_FREE_PROVIDER", "FIX_REPRODUCED_DEFECT"],
+    // Structural, not a label: this proposal exists BECAUSE of one profile and its live-
+    // verification calls exactly that provider. SEC_EDGAR resolves to undefined — it issues no
+    // key, so it is not in `KEYED_PROVIDERS` and must never be blocked on one.
+    provider: keyedProviderOf(profile.sourceCode),
     blockedBy: gates.join(", ") || undefined,
   };
 }

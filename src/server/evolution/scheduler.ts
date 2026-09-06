@@ -3,6 +3,7 @@ import {
   type ActionDescriptor,
   type ActionKind,
   type ExecutionStatus,
+  type KeyedProvider,
   type PolicyDecision,
 } from "../governance/policy";
 import { capabilityGapProposals, clusterProposals, type Proposal } from "./proposal";
@@ -50,6 +51,15 @@ export interface GovernanceTrace {
   action: ActionKind;
   decision: PolicyDecision;
   execution: ExecutionStatus;
+  /**
+   * The provider this action was evaluated against, when it names one.
+   *
+   * Carried into the trace so a blocked row says WHICH credential is missing. Before 2026-09-06 a
+   * reader saw `CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY` and could not tell whether the work was
+   * blocked on the key it needs or on one it never touches — which is the aliasing
+   * `[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` accepted.
+   */
+  provider?: KeyedProvider;
 }
 
 export interface ScheduledWork {
@@ -117,19 +127,31 @@ function authorityOf(decision: PolicyDecision, execution: ExecutionStatus): Exec
  */
 export interface SchedulerContext {
   credentialsAvailable?: boolean;
+  /** The conjunction over every keyed provider. Read only for an action that names none. */
   providerKeyAvailable?: boolean;
+  /**
+   * Per-provider key presence, presence only, for actions that name the provider they call.
+   *
+   * Passed through to `ActionDescriptor.context` untouched — the scheduler contributes no
+   * environment fact of its own, exactly as it contributes no permission of its own.
+   */
+  providerKeys?: Partial<Record<KeyedProvider, boolean>>;
   includedModelQuotaAvailable?: boolean;
   verificationGreen?: boolean;
 }
 
 function classify(proposal: Proposal, context: SchedulerContext): ScheduledWork {
   const governance: GovernanceTrace[] = proposal.requiredGovernance.map((kind) => {
-    const descriptor: ActionDescriptor = { kind, context };
+    // The proposal's provider identity, where it has one, reaches every action it requires. Only
+    // the provider-scoped rules read it; the rest are unaffected, which is why this is a
+    // pass-through rather than a per-action table nobody would keep true.
+    const descriptor: ActionDescriptor = { kind, context, provider: proposal.provider };
     const evaluation = evaluateAction(descriptor);
     return {
       action: kind,
       decision: evaluation.decision,
       execution: evaluation.execution,
+      ...(proposal.provider ? { provider: proposal.provider } : {}),
     };
   });
 
@@ -149,7 +171,10 @@ function classify(proposal: Proposal, context: SchedulerContext): ScheduledWork 
     requiredEvidence: proposal.requiredVerify,
     blockedBy:
       proposal.blockedBy ??
-      (blockedTrace ? `${blockedTrace.action}: ${blockedTrace.execution}` : undefined),
+      (blockedTrace
+        ? `${blockedTrace.action}${blockedTrace.provider ? `(${blockedTrace.provider})` : ""}: ` +
+          blockedTrace.execution
+        : undefined),
     rankReason: `${proposal.systemicWeakness ?? "no cluster"} · ${observedCount(proposal)} observed evidence item(s)`,
   };
 }

@@ -3,6 +3,7 @@ import {
   evaluateAction,
   observeExecution,
   GOVERNED_ACTIONS,
+  KEYED_PROVIDERS,
   type ActionKind,
   type PolicyDecision,
 } from "@/server/governance/policy";
@@ -505,6 +506,134 @@ describe("Governance — the whole Human Gate queue, replayed by gate id", () =>
     const thisFile = readFileSync("tests/governancePolicy.test.ts", "utf8");
     for (const gate of recordedGates) {
       expect(thisFile, `${gate} is recorded but never replayed`).toContain(gate);
+    }
+  });
+});
+
+/**
+ * Per-provider key granularity (`[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]`).
+ *
+ * The defect these bind, reproduced before the repair: `providerKeyAvailable` was one boolean for
+ * three providers, so once FRED's key existed and ECOS's and OpenDART's did not, FRED-only work
+ * reported `BLOCKED_PROVIDER_KEY` because of credentials it never touches. Environment-state
+ * aliasing — and the aggregate has to STAY the conjunction, because the alternative ("any key
+ * present") is the same aliasing pointing the other way, where an absent ECOS key gets cleared by
+ * a present FRED one.
+ */
+describe("a free-provider call is blocked by the key it needs, not by the ones it does not", () => {
+  const FRED_ONLY = {
+    providerKeys: { FRED: true, ECOS: false, OPENDART: false },
+    // The conjunction, which is what the autonomy boundary must supply alongside the map.
+    providerKeyAvailable: false,
+  } as const;
+
+  it("does not block a FRED-named call for the absence of ECOS and OpenDART", () => {
+    const evaluation = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      provider: "FRED",
+      context: FRED_ONLY,
+    });
+    expect(evaluation.execution).toBe("READY");
+    // And still a policy question answered separately from an environment one.
+    expect(evaluation.decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
+  });
+
+  it("keeps the ECOS and OpenDART named calls blocked, and says which key is missing", () => {
+    for (const provider of ["ECOS", "OPENDART"] as const) {
+      const evaluation = evaluateAction({
+        kind: "CALL_FREE_PROVIDER",
+        provider,
+        context: FRED_ONLY,
+      });
+      expect(evaluation.execution, `${provider} should still be blocked`).toBe(
+        "BLOCKED_PROVIDER_KEY",
+      );
+      // The complaint the evidence actually made: a reader could not tell WHICH credential.
+      expect(evaluation.rationale).toContain(provider);
+      // An environment blocker is never a policy refusal, before or after this change.
+      expect(evaluation.decision).not.toBe("DENIED");
+      expect(evaluation.gate).toBeUndefined();
+    }
+  });
+
+  it("still requires the whole conjunction from a call that does not say what it calls", () => {
+    // NOT "any key". An action that never named a provider cannot be cleared by a credential
+    // belonging to a different one, so a present FRED key must not unblock it.
+    expect(evaluateAction({ kind: "CALL_FREE_PROVIDER", context: FRED_ONLY }).execution).toBe(
+      "BLOCKED_PROVIDER_KEY",
+    );
+    expect(
+      evaluateAction({
+        kind: "CALL_FREE_PROVIDER",
+        context: { ...FRED_ONLY, providerKeyAvailable: true },
+      }).execution,
+    ).toBe("READY");
+  });
+
+  it("blocks a named provider whose fact was never established", () => {
+    // Unknown fails closed, and the aggregate is NOT a fallback here: a conjunction over three
+    // providers cannot answer a question about one. Even an aggregate saying every key is present
+    // does not establish the specific fact this action needs.
+    const noMap = evaluateAction({ kind: "CALL_FREE_PROVIDER", provider: "ECOS", context: {} });
+    expect(noMap.execution).toBe("BLOCKED_PROVIDER_KEY");
+    expect(noMap.rationale).toContain("ECOS");
+
+    const partial = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      provider: "OPENDART",
+      context: { providerKeys: { FRED: true }, providerKeyAvailable: true },
+    });
+    expect(partial.execution).toBe("BLOCKED_PROVIDER_KEY");
+  });
+
+  it("refuses an identity it does not recognise", () => {
+    // Fails closed rather than falling through to the aggregate. The type forbids this; a value
+    // arriving from JSON, a fixture or a future provider does not respect the type.
+    const evaluation = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      provider: "BLOOMBERG" as never,
+      context: {
+        providerKeys: { FRED: true, ECOS: true, OPENDART: true },
+        providerKeyAvailable: true,
+      },
+    });
+    expect(evaluation.execution).toBe("BLOCKED_PROVIDER_KEY");
+  });
+
+  it("never reads one provider's key off another's", () => {
+    // The property, stated over the whole matrix of one-key-present environments rather than as
+    // three examples: exactly the named provider is ready, and never any other.
+    for (const present of KEYED_PROVIDERS) {
+      const context = {
+        providerKeys: Object.fromEntries(KEYED_PROVIDERS.map((p) => [p, p === present])),
+        providerKeyAvailable: false,
+      };
+      for (const asked of KEYED_PROVIDERS) {
+        const evaluation = evaluateAction({
+          kind: "CALL_FREE_PROVIDER",
+          provider: asked,
+          context,
+        });
+        expect(evaluation.execution, `${present} present, asked about ${asked}`).toBe(
+          asked === present ? "READY" : "BLOCKED_PROVIDER_KEY",
+        );
+      }
+    }
+  });
+
+  it("leaves every action that is not a free-provider call alone", () => {
+    // The negative control. A provider identity is meaningless to the rest of the table and must
+    // not start gating unrelated work.
+    for (const kind of GOVERNED_ACTIONS) {
+      if (kind === "CALL_FREE_PROVIDER") continue;
+      const bare = evaluateAction({ kind, context: FRED_ONLY });
+      const named = evaluateAction({ kind, provider: "ECOS", context: FRED_ONLY });
+      expect(named.decision, `${kind} changed decision when a provider was named`).toBe(
+        bare.decision,
+      );
+      expect(named.execution, `${kind} changed execution when a provider was named`).toBe(
+        bare.execution,
+      );
     }
   });
 });

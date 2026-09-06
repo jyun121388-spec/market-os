@@ -504,6 +504,21 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+PER-PROVIDER KEY FACTS (2026-09-06, IR-127)
+`ActionDescriptor` carries an optional `provider` drawn from `KEYED_PROVIDERS` (`FRED`, `ECOS`,
+`OPENDART`; SEC EDGAR is free AND keyless, so it names none and is never blocked on a credential
+it does not need). A NAMED free-provider action is answered from that provider's own established
+fact and nothing else — never another provider's, never the aggregate, and an unestablished fact
+or an unrecognised identity fails closed. An UNNAMED action keeps the conjunction unchanged,
+deliberately not "any key", which would be the same aliasing with its sign flipped. The identity
+is DERIVED: only the per-provider capability proposals carry one, from the profile they were
+generated from; the two cluster countermeasures span several adapters and carry none. Blocked
+rows now read `CALL_FREE_PROVIDER(ECOS): BLOCKED_PROVIDER_KEY`. Fifteen controls, five mutants
+all ISOLATED. The live queue did not move — no proposal names FRED, because HG-002 closed every
+FRED cell and `CAP-DEBT-FRED` stopped being generated — but with an ECOS key and HG-003 resolved,
+`CAP-DEBT-ECOS` now becomes startable on its own key while OpenDART stays blocked, which could
+not previously be expressed.
+
 THE AUTONOMY BOUNDARY (2026-09-06, IR-126)
 `npx tsx scripts/next-work.ts` is the canonical queue path and the only non-test caller of the stop
 sentinel. It called `scheduleNextWork()` bare, and the library — deliberately, and pinned — reads an
@@ -869,8 +884,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2766 / 2766 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2747 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2780 / 2780 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2761 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its
@@ -1095,8 +1110,12 @@ All open items are tracked with owner and unblock steps in `docs/HUMAN_GATE_QUEU
    2a. ~~The full tracked-series FRED ingest (M11)~~ **DONE 2026-09-06, measured** — eleven series,
    8 of 8 regime axes with data; see "M11 MEASURED" above. What it exposed is the next question:
    six axes `SEMANTIC_REVISION_UNRESOLVED` until vintages are read into the revision chain, and
-   that ingest shape is provider-key-gated at the engine by one boolean for three providers while
-   FRED's key is present — escalated rather than self-approved (`docs/CURRENT_TASK.md`).
+   that ingest shape was provider-key-gated at the engine by one boolean for three providers while
+   FRED's key was present. Escalated rather than self-approved, DECIDED the same day
+   (`[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]`, Option A) and applied as
+   IR-127: a named action is answered from its own provider's fact. The remaining gate is a
+   different one — the Evolution generator has no rule for a CONDITIONAL capability cell, so
+   FRED's five generate no proposal at all (`docs/CURRENT_TASK.md`).
 2. **ECOS / OpenDART API keys** (HG-003/004, `LIVE_KEY_PENDING`) — user is obtaining both;
    FRED's arrived 2026-09-06 and HG-002 is RESOLVED with FRED `LIVE_VERIFIED`. When each key lands, run `npm run verify:live:<provider>`, then the full sequence
    before classifying it `LIVE_VERIFIED`: compare the real schema against types/parser/DB, test

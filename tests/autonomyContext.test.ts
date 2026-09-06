@@ -283,3 +283,93 @@ describe("the machine probe", () => {
     }
   });
 });
+
+/**
+ * Per-provider granularity at the boundary
+ * (`[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]`).
+ *
+ * IR-126 established the environment and held unknowns closed; it also recorded, as a stated
+ * limitation, that `providerKeyAvailable` is one boolean for three providers. M11's measurement
+ * made that limitation load-bearing. The boundary now supplies BOTH facts, and neither replaces
+ * the other: the map answers a named action, the conjunction answers an unnamed one.
+ */
+describe("the boundary supplies per-provider facts as well as the conjunction", () => {
+  it("establishes both, from presence alone", () => {
+    // A value that cannot occur in prose. The first version of this control used "x" and failed
+    // against the word "exited" — a leak check whose needle appears in ordinary English proves
+    // nothing either way, which is worse than not checking.
+    const SENTINEL = "kEy-Va1ue-Must-Never-Appear-9f3c";
+    const environment = establishEnvironment(probe({ env: { FRED_API_KEY: SENTINEL } }));
+    expect(environment.context.providerKeys).toEqual({
+      FRED: true,
+      ECOS: false,
+      OPENDART: false,
+    });
+    // The aggregate is still the conjunction, and still false. Both are true statements about the
+    // same environment; they answer different questions.
+    expect(environment.context.providerKeyAvailable).toBe(false);
+    // Presence only: no established or unestablished fact carries the value anywhere.
+    for (const fact of [...environment.established, ...environment.unestablished]) {
+      expect(fact.because).not.toContain(SENTINEL);
+      expect(JSON.stringify(fact)).not.toContain(SENTINEL);
+    }
+    expect(JSON.stringify(environment.context)).not.toContain(SENTINEL);
+  });
+
+  it("unlocks a provider on its own key, without waiting for the others", () => {
+    // The defect, at the boundary: ECOS's work was held by OpenDART's absent key. HG-003 resolved
+    // so the gate is not what is being measured here.
+    const { queue } = scheduleAutonomousWork({
+      probe: probe({
+        env: { ECOS_API_KEY: "x" },
+        gateRegister: () => register({ "HG-003": "RESOLVED", "HG-004": "PENDING_USER" }),
+      }),
+    });
+    const ids = queue.actionable.map((w) => w.proposal.id);
+    expect(ids).toContain("CAP-DEBT-ECOS");
+    expect(ids).not.toContain("CAP-DEBT-OPENDART");
+    // And the work that names no provider is still held by the conjunction, which is unchanged.
+    expect(ids).not.toContain("CLUSTER-PROVIDER_ASSUMPTION");
+    expect(ids).not.toContain("CLUSTER-SEMANTIC_RECENCY");
+  });
+
+  it("does not let a present key close a Human Gate", () => {
+    // The two are independent and stay independent: an ECOS key is an environment fact, HG-003 is
+    // a person's decision recorded in the register, and only the register closes it.
+    const { queue, gateDeferrals } = scheduleAutonomousWork({
+      probe: probe({
+        env: { ECOS_API_KEY: "x" },
+        gateRegister: () => register({ "HG-003": "PENDING_USER", "HG-004": "PENDING_USER" }),
+      }),
+    });
+    expect(queue.actionable.map((w) => w.proposal.id)).not.toContain("CAP-DEBT-ECOS");
+    const ecos = queue.deferred.find((w) => w.proposal.id === "CAP-DEBT-ECOS");
+    expect(ecos?.authority).toBe("REQUIRES_HUMAN");
+    expect(ecos?.blockedBy).toContain("HG-003");
+    expect(gateDeferrals.some((d) => d.proposalId === "CAP-DEBT-ECOS")).toBe(true);
+  });
+
+  it("names the provider in the reason when the key is what is missing", () => {
+    // HG-003 resolved, key absent: the remaining blocker is the credential, and it says so.
+    const { queue } = scheduleAutonomousWork({
+      probe: probe({ gateRegister: () => register({ "HG-003": "RESOLVED" }) }),
+    });
+    const ecos = queue.deferred.find((w) => w.proposal.id === "CAP-DEBT-ECOS");
+    expect(ecos?.authority).toBe("BLOCKED_BY_ENVIRONMENT");
+    expect(ecos?.governance.some((t) => t.provider === "ECOS")).toBe(true);
+  });
+
+  it("still holds everything closed when no key is present at all", () => {
+    // The IR-126 property, re-asserted through the new contract: per-provider facts must not have
+    // opened a path that the conjunction used to close.
+    const { queue } = scheduleAutonomousWork({
+      probe: probe({
+        gateRegister: () => register({ "HG-003": "RESOLVED", "HG-004": "RESOLVED" }),
+      }),
+    });
+    expect(queue.actionable).toEqual([]);
+    expect(queueVerdict({ ...scheduleAutonomousWork({ probe: probe() }) }).verdict).toBe(
+      "NO_SAFE_MEANINGFUL_NODE",
+    );
+  });
+});

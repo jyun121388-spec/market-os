@@ -44,6 +44,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { Proposal } from "../src/server/evolution/proposal";
+import { KEYED_PROVIDERS, type KeyedProvider } from "../src/server/governance/policy";
 import {
   scheduleNextWork,
   type NextWorkQueue,
@@ -51,13 +52,19 @@ import {
   type SchedulerContext,
 } from "../src/server/evolution/scheduler";
 
-/** The provider credentials this repository knows, by environment variable NAME. Values are never read past a boolean. */
-export const PROVIDER_KEY_ENV = {
+/**
+ * The provider credentials this repository knows, by environment variable NAME.
+ *
+ * Values are never read past a boolean. The KEYS of this record are `KeyedProvider` — the policy
+ * engine's own identity type, checked by the type system rather than by a comment, so a provider
+ * added to the engine and forgotten here fails to compile instead of failing closed silently.
+ */
+export const PROVIDER_KEY_ENV: Record<KeyedProvider, string> = {
   FRED: "FRED_API_KEY",
   ECOS: "ECOS_API_KEY",
   OPENDART: "DART_API_KEY",
-} as const;
-export type ProviderCode = keyof typeof PROVIDER_KEY_ENV;
+};
+export type ProviderCode = KeyedProvider;
 export type Presence = "PRESENT" | "ABSENT";
 
 export type GithubAuth = "AUTHENTICATED" | "UNAUTHENTICATED" | "UNAVAILABLE";
@@ -74,14 +81,23 @@ export interface EnvironmentProbe {
   githubAuth: () => GithubAuth;
 }
 
+/**
+ * The scheduler facts this module answers with a single boolean.
+ *
+ * `providerKeys` is deliberately NOT one of them: it is a map, it is always establishable (a name
+ * is either set or it is not), and it has no "unknown" encoding to choose. Keeping the table over
+ * the scalars means adding a non-boolean context field can never silently acquire a default.
+ */
+export type ScalarSchedulerFact = Exclude<keyof SchedulerContext, "providerKeys">;
+
 export interface EstablishedFact {
-  field: keyof SchedulerContext;
+  field: ScalarSchedulerFact;
   value: boolean;
   because: string;
 }
 
 export interface UnestablishedFact {
-  field: keyof SchedulerContext;
+  field: ScalarSchedulerFact;
   /** What the scheduler was told instead. Never the permissive reading. */
   supplied: boolean | undefined;
   because: string;
@@ -104,7 +120,7 @@ export interface AutonomyEnvironment {
  * absence means "verify before committing", which is the only honest thing to say about a suite
  * nobody has run. Mapping any of these to `true` is the defect this file exists to refuse.
  */
-export const UNKNOWN_ENCODING: Record<keyof SchedulerContext, boolean | undefined> = {
+export const UNKNOWN_ENCODING: Record<ScalarSchedulerFact, boolean | undefined> = {
   providerKeyAvailable: false,
   credentialsAvailable: false,
   includedModelQuotaAvailable: false,
@@ -137,11 +153,11 @@ export function establishEnvironment(
   const unestablished: UnestablishedFact[] = [];
   const context: SchedulerContext = {};
 
-  const establish = (field: keyof SchedulerContext, value: boolean, because: string) => {
+  const establish = (field: ScalarSchedulerFact, value: boolean, because: string) => {
     established.push({ field, value, because });
     context[field] = value;
   };
-  const cannotEstablish = (field: keyof SchedulerContext, because: string) => {
+  const cannotEstablish = (field: ScalarSchedulerFact, because: string) => {
     const supplied = UNKNOWN_ENCODING[field];
     unestablished.push({ field, supplied, because });
     if (supplied !== undefined) context[field] = supplied;
@@ -153,24 +169,28 @@ export function establishEnvironment(
   // A key that sits in `.env` but was not exported is, for this process, absent — which is also
   // what the adapters would find, so the report and the reality agree.
   const providerKeys = Object.fromEntries(
-    (Object.keys(PROVIDER_KEY_ENV) as ProviderCode[]).map((code) => [
-      code,
-      present(probe.env, PROVIDER_KEY_ENV[code]),
-    ]),
+    KEYED_PROVIDERS.map((code) => [code, present(probe.env, PROVIDER_KEY_ENV[code])]),
   ) as Record<ProviderCode, Presence>;
-  const absent = (Object.keys(providerKeys) as ProviderCode[]).filter(
-    (code) => providerKeys[code] === "ABSENT",
-  );
-  const everyKeyPresent = (Object.keys(providerKeys) as ProviderCode[]).every(
-    (code) => providerKeys[code] === "PRESENT",
-  );
+  const absent = KEYED_PROVIDERS.filter((code) => providerKeys[code] === "ABSENT");
+  const everyKeyPresent = KEYED_PROVIDERS.every((code) => providerKeys[code] === "PRESENT");
+
+  // BOTH facts, always, and each answers a different question. The map answers "may this
+  // FRED-named action run", the aggregate answers "may an action that never said what it calls
+  // run". Supplying only the aggregate is the aliasing
+  // `[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` accepted; supplying only the
+  // map would leave every unnamed action unanswered, which the engine reads as permitted.
+  context.providerKeys = Object.fromEntries(
+    KEYED_PROVIDERS.map((code) => [code, providerKeys[code] === "PRESENT"]),
+  ) as Partial<Record<ProviderCode, boolean>>;
+
   establish(
     "providerKeyAvailable",
     everyKeyPresent,
     everyKeyPresent
       ? "every known provider key is present in the environment (presence only; values not read)"
-      : `absent: ${absent.join(", ")}. The engine takes one boolean for "call a free provider", so ` +
-          "one missing key holds it false; per-provider presence is listed above",
+      : `absent: ${absent.join(", ")}. This is the CONJUNCTION, read only by an action that does ` +
+          "not say which provider it calls; a named action is answered from the per-provider map " +
+          "above and is not held by another provider's absence",
   );
 
   // --- GitHub credential: a positive probe, by exit code -------------------------------------

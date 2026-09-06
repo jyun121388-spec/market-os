@@ -3408,7 +3408,9 @@ and the optimistic pin still passes. The boundary now does three things, each me
    `undefined` for `verificationGreen` — because `false` there is a MEASURED red and turns every
    verify-gated action into DENIED, which would be a claim about a suite nobody ran. Per field, on
    purpose, and a control asserts nothing in the table is `true`.
-3. **Checks named gates against the register.** `providerKeyAvailable` is one boolean for three
+3. **Checks named gates against the register.** (`providerKeyAvailable` was one boolean for three
+   providers when this was written; IR-127 split it the same day, and the paragraph is kept as the
+   record of what IR-126 knew.) One boolean for three
    providers because that is what the engine takes; a FRED key does not make ECOS callable, and no
    key closes a Human Gate. After the scheduler answers, any startable item whose `blockedBy` names
    an `HG-nnn` is looked up in `docs/HUMAN_GATE_QUEUE.md` (first `**Status**` per section, so the
@@ -3516,9 +3518,108 @@ guessed publication lag, which is the class of assumption the matrix exists to r
 ### What this leaves, and why it is asked rather than started
 
 The one unit the evidence points at is reading vintages (the realtime range) into the revision
-chain. The engine defers it: `CALL_FREE_PROVIDER` is gated on a single `providerKeyAvailable` for
+chain. **Superseded the same day by IR-127**, which split the boolean per provider — the gate that
+actually remains is that the generator has no rule for a CONDITIONAL cell. As written: the engine
+defers it, `CALL_FREE_PROVIDER` is gated on a single `providerKeyAvailable` for
 three providers, ECOS and OpenDART are absent, so FRED-only work is `BLOCKED_PROVIDER_KEY` while
 FRED's key is present — the limitation IR-126 recorded in advance. Making that boolean per-provider
 is a scheduler/policy contract change the 2026-09-06 decision said to preserve unless evidence
 showed a defect. The evidence is this section. Posted as
 `[ESCALATION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` with a recommended default, not applied.
+
+## IR-127 — one boolean for three providers, and the work it blocked was not the work it described
+
+`[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` accepted the escalation M11 raised
+and approved Option A. IR-126 had recorded the single `providerKeyAvailable` boolean as a stated
+limitation; HG-002 and M11 turned it into a defect, because for the first time one provider's key
+existed and the others' did not.
+
+### Reproduced before the repair, on the exact committed tree
+
+    A  policy    CALL_FREE_PROVIDER with the conjunction false -> BLOCKED_PROVIDER_KEY, and there
+                 is no way to say WHICH provider the call needs. That absence IS the defect.
+    B  boundary  FRED key only -> providerKeyAvailable false, ACTIONABLE 0 / DEFERRED 4, every row
+                 BLOCKED_PROVIDER_KEY or a gate, nothing anywhere recording that FRED's key exists
+    C  boundary  all three keys -> ACTIONABLE 3
+
+B and C differ only in credentials that B's blocked work never calls. Environment-state aliasing.
+
+### The contract, after
+
+`ActionDescriptor` gains an optional `provider`, drawn from `KEYED_PROVIDERS` — exactly `FRED`,
+`ECOS`, `OPENDART`. SEC EDGAR is deliberately absent: it is free AND keyless, so an action that
+calls it names no provider and is never blocked on a credential it does not need. Naming it would
+invent a fact nobody can establish.
+
+`providerKeyReady()` asks one of two questions, and which one depends on whether the action said
+what it calls:
+
+- **NAMED** — that provider's established fact, and nothing else. Never another provider's fact,
+  and never the aggregate: a conjunction over three cannot answer a question about one. An
+  identity outside the set, or a provider with no established fact, is NOT ready. Unknown fails
+  closed, which is the same rule the rest of the engine already runs on.
+- **UNNAMED** — the aggregate, unchanged, including its documented optimism when nothing was
+  supplied. Deliberately not "any key": an action that never said what it calls must not be cleared
+  by a credential belonging to something else. That is the same aliasing with its sign flipped, and
+  it is the more tempting mistake because it makes more work look startable.
+
+The blocked evaluation now names the provider in its rationale, the scheduler carries the identity
+into `GovernanceTrace`, and a blocked row reads `CALL_FREE_PROVIDER(ECOS): BLOCKED_PROVIDER_KEY`
+instead of leaving a reader to guess.
+
+The identity is DERIVED, never labelled. Only the per-provider capability proposals carry one, and
+theirs is the profile they were generated from. The two cluster countermeasures do not:
+PROVIDER_ASSUMPTION names three adapters in its own prediction, and SEMANTIC_RECENCY's two recorded
+instances are `observationIngest` and a stale dev server, neither of which is a provider. Labelling
+either would be a claim about the work rather than a fact about it.
+
+The boundary supplies BOTH facts from presence-only probes, and neither replaces the other. Every
+IR-126 property survives: unknowns held closed in the engine's own encoding, `verificationGreen`
+still `undefined` rather than a claimed red, and the Human Gate register checked separately.
+
+### One pinned control narrowed, and said so
+
+"treats an unstated environment as available, optimistically" still passes and its assertion is
+unchanged, but its REACH is now smaller: the optimism applies to actions that name no provider. A
+proposal that names one needs that provider's own fact, and an unstated environment establishes
+nothing, so those defer even there. Strictly less optimism, never more — the direction that cannot
+introduce a false startable. The comment was rewritten to say that, because a comment that
+overstates what its assertion proves is the failure this repository keeps catching.
+
+### Controls and mutants
+
+Fifteen controls added across the three binding suites, covering every discrimination the decision
+required. Five mutants, all ISOLATED, unrelated 30/30 green throughout — and three of the five
+cardinality predictions were wrong, all too low:
+
+    M-PKG-LOOKUP-DROPPED        predicted 5, measured 7    ISOLATED
+    M-PKG-UNNAMED-ANY-KEY       predicted 2, measured 2    ISOLATED
+    M-PKG-UNNAMED-ALWAYS-READY  predicted 5, measured 16   ISOLATED
+    M-PKG-NAMED-UNKNOWN-OPEN    predicted 2, measured 3    ISOLATED
+    M-PKG-IDENTITY-SWAPPED      predicted 2, measured 3    ISOLATED
+
+Two things the misses taught, both recorded in the suite's docstring rather than smoothed over:
+
+1. **The gate check is downstream of the key check, and nothing had demonstrated it.** Two mutants
+   unexpectedly reddened "does not let a present key close a Human Gate". `deferOpenGates` only
+   moves items that are startable ON THE ENVIRONMENT, so a wrong environment answer means the gate
+   question is never asked — the item defers as `BLOCKED_BY_ENVIRONMENT` and the gate's own verdict
+   never appears. That ordering is by design and is now observable.
+2. **A big kill count can mean weak discrimination.** `UNNAMED-ALWAYS-READY` reddened 16 controls
+   and is the LEAST informative mutant here: it deletes an invariant that predates this unit and
+   that a dozen controls already covered. The two narrow mutants carry the weight.
+
+### What it changed in the live queue: nothing, and that is the honest result
+
+`ACTIONABLE 0 / DEFERRED 4`, unchanged. No live proposal names FRED — `CAP-DEBT-FRED` stopped being
+generated when HG-002 closed every FRED cell — so there is no FRED-named work for the repair to
+release. What it does release is conditional and real, demonstrated on a fixture register: with an
+ECOS key and HG-003 resolved, `CAP-DEBT-ECOS` becomes startable on its own key without waiting for
+OpenDART, and `CAP-DEBT-OPENDART` stays blocked. Before this unit that was impossible to express.
+
+The FRED-vintage work the escalation was raised about is therefore still not startable, and the
+gate is now localized and different from the one that was reported: not the key contract, but that
+the Evolution generator has no rule for a CONDITIONAL capability cell. It builds proposals from
+NOT_VERIFIED cells (debt) and NOT_SUPPORTED cells (ceiling), and FRED's five CONDITIONAL cells —
+capabilities measured on the wire and absent from what the default query stores — generate nothing
+at all. That is a disjoint, non-gated, credential-free gap, and it is the next node.

@@ -43,16 +43,20 @@ eleven series, 67,846 rows, no truncation, 8 of 8 regime axes with data. It was 
 outside the proposal queue, which is why the sentinel's `orphanedDocumentedWork` stays
 unestablished; it is done now.
 
-**Exact next action.** None startable without a decision, and the decision is asked rather than
-assumed. The queue says `NO_SAFE_MEANINGFUL_NODE`. The evidence points at one unit — reading FRED
-vintages (the realtime range) into the revision chain, which would let six
-`SEMANTIC_REVISION_UNRESOLVED` axes be ordered — and the engine defers it: `CALL_FREE_PROVIDER` is
-gated on a single `providerKeyAvailable` boolean for three providers, ECOS and OpenDART are absent,
-so FRED-only work reads BLOCKED_PROVIDER_KEY while FRED's key sits in the shell. Whether that
-boolean becomes per-provider is a scheduler/policy contract question the 2026-09-06 decision told
-this loop to preserve unless evidence showed a defect; the evidence is now in, and it is posted as
-`[ESCALATION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` with a recommended default. Until it is
-answered, ECOS/OpenDART remain HG-003/004 and nothing else in the queue is startable.
+**That escalation was decided and applied the same day.**
+`[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` approved Option A; IR-127 landed it
+(`docs/REVIEW_DEBT.md`). A free-provider action that names its provider is now answered from that
+provider's own established key fact; one that names none keeps the conjunction. The aliasing is
+gone, and the live queue did not move, because no generated proposal names FRED.
+
+**Exact next action.** The queue still says `NO_SAFE_MEANINGFUL_NODE`, and the gate on the
+FRED-vintage unit is now a different and much smaller one than the escalation reported. The
+Evolution generator builds a proposal from a `NOT_VERIFIED` cell (verification debt) and from a
+`NOT_SUPPORTED` cell (structural ceiling). It has no rule for a `CONDITIONAL` cell — a capability
+measured on the wire and absent from what the default query stores — and FRED has five of them.
+So the one piece of work every measurement this session pointed at generates no proposal at all,
+which is why nothing names FRED. Closing that gap is disjoint from the key contract, needs no
+credential and no provider call, is derived purely from the matrix, and is the next node.
 
 **Before that, 2026-09-01 — a run of audit units, and the pattern in them matters more than any one.**
 `23e716b` → `f1e3293`. No product code changed in ANY of them: V1 is frozen except for a reproduced

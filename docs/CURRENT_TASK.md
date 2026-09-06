@@ -38,14 +38,21 @@ gates against the register. Five mutants, five ISOLATED. The canonical command i
 `npx tsx scripts/next-work.ts`; on this machine it prints `ACTIONABLE 0 / DEFERRED 4` and
 `NO_SAFE_MEANINGFUL_NODE`, which is a statement about the proposal queue.
 
-**Exact next action.** The queue has no startable node; documented work outside it does. The full
-tracked-series FRED ingest (M11: eleven series, five Macro Regime axes at `NOT_TRACKED` /
-`INSUFFICIENT_DATA`) is non-gated now that HG-002 is closed, reversible (the ingest path is
-idempotent, measured), and needs only `FRED_API_KEY` exported in the shell. It is recorded here
-as the next unit rather than scheduled by the engine, because the engine schedules proposals and
-this is a milestone; the sentinel's `orphanedDocumentedWork` stays unestablished for exactly that
-reason. Reading vintages into the revision chain (the realtime range) is a separate ingest shape
-after it.
+**M11 ran the same day and was measured** (`docs/REVIEW_DEBT.md`, "M11 — the full FRED ingest"):
+eleven series, 67,846 rows, no truncation, 8 of 8 regime axes with data. It was documented work
+outside the proposal queue, which is why the sentinel's `orphanedDocumentedWork` stays
+unestablished; it is done now.
+
+**Exact next action.** None startable without a decision, and the decision is asked rather than
+assumed. The queue says `NO_SAFE_MEANINGFUL_NODE`. The evidence points at one unit — reading FRED
+vintages (the realtime range) into the revision chain, which would let six
+`SEMANTIC_REVISION_UNRESOLVED` axes be ordered — and the engine defers it: `CALL_FREE_PROVIDER` is
+gated on a single `providerKeyAvailable` boolean for three providers, ECOS and OpenDART are absent,
+so FRED-only work reads BLOCKED_PROVIDER_KEY while FRED's key sits in the shell. Whether that
+boolean becomes per-provider is a scheduler/policy contract question the 2026-09-06 decision told
+this loop to preserve unless evidence showed a defect; the evidence is now in, and it is posted as
+`[ESCALATION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` with a recommended default. Until it is
+answered, ECOS/OpenDART remain HG-003/004 and nothing else in the queue is startable.
 
 **Before that, 2026-09-01 — a run of audit units, and the pattern in them matters more than any one.**
 `23e716b` → `f1e3293`. No product code changed in ANY of them: V1 is frozen except for a reproduced

@@ -28,7 +28,7 @@ Tracks Codex reviews that are pending, deferred, or resulted in an unresolved di
 | M08       | `releaseDate` unset by every adapter (only `observationDate` is populated)                                     | Still deferred, and 2026-08-17 sharpened why so nobody "fixes" it wrongly. FRED's `realtime_start` looks like the missing release date and is not one: under default parameters FRED answers with the vintage as of today, so every row — including a 1990 observation — comes back stamped with today's date. Mapping it to `releaseDate` would fill a provenance column with a confident, checkable, wrong answer, which is worse than null (docs/DATA_POLICY.md). Real publication dates need an explicit realtime range (1776-07-04..9999-12-31), which returns multiple vintage rows per observation date — a different ingest shape. `scripts/verify-fred-live.ts` reports the distinct `realtime_start` values so the decision rests on evidence rather than on this reasoning           | PENDING            |
 | M08       | No automatic cross-source `DataConflict` detection                                                             | The model and manual-insert path are tested (M02/M07 tests), but no adapter yet compares its own value against another source covering the same real-world variable — needs ≥2 overlapping sources tracked for the same series first                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | PENDING            |
 | M09       | `verifyClaim` doesn't support INFERENCE claims                                                                 | No real INFERENCE producer exists yet (that's M21 Ask Market); FACT and CALCULATION are both supported and tested                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | PENDING            |
-| M11       | 5 of 8 regime axes (Inflation/Liquidity/Risk/USD/Credit) have no ingested data yet                             | **Unblocked 2026-09-06**: HG-002 resolved and FRED live-verified; the remaining step is the full tracked-series ingest, which is ordinary non-gated work now. Was: blocked only on a free FRED_API_KEY (HG-002), not on reachability — api.stlouisfed.org answers from this machine. Series are tracked and computeRegimeSnapshot correctly reports NOT_TRACKED/INSUFFICIENT_DATA rather than fabricating readings. This is the largest visible product gap and the reason FRED is the first key to action                                                                                                                                                                                                                                                                                      | LIVE_KEY_PENDING   |
+| M11       | 5 of 8 regime axes (Inflation/Liquidity/Risk/USD/Credit) have no ingested data yet                             | **Ingested 2026-09-06, measured**: eleven series through the production path, 67,846 rows, no truncation, 8 of 8 axes with data (six `SEMANTIC_REVISION_UNRESOLVED`, two `STALE` by publication lag) — see the M11 section at the end of this file. Was: unblocked the same morning by HG-002; before that blocked only on a free FRED_API_KEY (HG-002), not on reachability — api.stlouisfed.org answers from this machine. Series are tracked and computeRegimeSnapshot correctly reports NOT_TRACKED/INSUFFICIENT_DATA rather than fabricating readings. This is the largest visible product gap and the reason FRED is the first key to action                                                                                                                                              | LIVE_KEY_PENDING   |
 | M12       | Economic Calendar has no consensus/surprise/actual-vs-expected data                                            | Host reachable; still no free consensus source identified, and guessing at FRED release_id mappings without live verification remains rejected as unsafe for financial-calendar data — see DECISIONS.md. The FRED Releases API becomes explorable once HG-002's key lands, but a consensus/expectations feed is a separate question the key does not answer                                                                                                                                                                                                                                                                                                                                                                                                                                     | PENDING            |
 | M13       | No multi-hop causal-path traversal                                                                             | No real consumer needs it yet (that's M21 Ask Market); would be speculative work ahead of a real caller — see DECISIONS.md                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | PENDING            |
 | M14       | Historical Analog Engine is single-series only, untested against real multi-year history                       | Multi-variable regime-state analog deferred as materially more complex for a first version; this dev DB has little real ingested history yet (no FRED_API_KEY — Human Gate) so real-world usage is unverified beyond the algorithm's correctness tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | PENDING            |
@@ -3460,3 +3460,65 @@ plus the register parser on a fixture and on the real file, and a shape-only pro
 and the first time the entry point has given it. Documented work outside the proposal queue (the M11
 full FRED ingest) is recorded in `docs/CURRENT_TASK.md` as the next unit, with the reason the engine
 does not schedule it.
+
+## M11 — the full FRED ingest, measured, and what real data said back (2026-09-06)
+
+Non-gated since HG-002 closed that morning; documented work outside the proposal queue, so the
+engine did not schedule it and `docs/CURRENT_TASK.md` did. `npm run ingest:fred` with the key
+exported (never printed: zero occurrences in the log), production path (`recordIngestRun` +
+`ingestFredSeries`), dev database.
+
+    series      inserted  revised  unchanged  missing   providerTotal  fetched   last obs
+    DGS10          16154        0          0      719          16873    16873   2026-09-03
+    DGS2           12562        0          0      551          13113    13113   2026-09-03
+    DTWEXBGS        5179        0          0      211           5390     5390   2026-08-28
+    CPIAUCSL           0        0        954        1            955      955   2026-07-01   <- idempotent
+    UNRATE           941        2          0        1            944      944   2026-08-01
+    INDPRO          1290        1          0        0           1291     1291   2026-07-01
+    M2SL             811        0          0        0            811      811   2026-07-01
+    WALCL           1238        0          0        0           1238     1238   2026-09-02
+    VIXCLS          9266        0          0      302           9568     9568   2026-09-03
+    BAA10Y         10169        0          0      442          10611    10611   2026-09-03
+    DCOILWTICO     10236        0          0      373          10609    10609   2026-09-01
+
+`fetched == providerTotal` on all eleven: the paging fix's silent-truncation hazard did not occur
+on a single series. Eleven `SUCCESS` rows, mode `FULL`, full accounting.
+
+### The revision chain fired on real data for the first time
+
+A small ingest on 2026-08-16 had left four rows behind: UNRATE 2026-06-01 = 4.1 and 2026-07-01 =
+4.2, INDPRO 2026-07-01 = 103.5 (and one unchanged). Today's vintage carries 4.2, 4.1 and 102.9939.
+Each arrived as a NEW row, `isRevision = true`, `revisionOf` pointing at the original, the original
+kept with its own `retrievedAt`. That is the M08 design doing what it was written for, observed
+rather than fixture-fed. IR-021's replay hazard did not recur — these values had never been seen
+before — and ordering two vintages that HAVE both been seen still needs the provider vintage the
+CONDITIONAL cell points at.
+
+### What Verify says now: 8 of 8 axes, three verdicts, none of them PASS
+
+`npm run verify:shadow` before: 3 axes with data (GROWTH TRUNCATED, INFLATION
+SEMANTIC_REVISION_UNRESOLVED, RATES [ECOS] TRUNCATED). After:
+
+    GROWTH, INFLATION, LIQUIDITY, RISK, CREDIT   SEMANTIC_REVISION_UNRESOLVED   [FRED]
+    RATES                                        SEMANTIC_REVISION_UNRESOLVED   [FRED+ECOS]  cross-source: INSUFFICIENT_EVIDENCE
+    USD, COMMODITY                               STALE  (temporal_integrity)    [FRED]
+
+Six `SEMANTIC_REVISION_UNRESOLVED` is the honest verdict the HG-002 closeout predicted: FRED's
+vintage is real on the wire and absent from what the default query stores, so two readings cannot
+be ordered from what is held. RATES reached the multi-source branch on real data for the first
+time. The two `STALE` readings are correct by `staleness.ts`'s rule — daily cadence by observation
+history, last observation 9 and 5 days old — and are also the structural limitation the matrix
+records as `freshness_semantics: NOT_SUPPORTED`: FRED publishes DTWEXBGS and DCOILWTICO with a lag
+of days, the wire carries no release schedule, and judging by observation date alone cannot tell
+"not yet published" from "not yet fetched". Recorded. Not repaired, because a repair would be a
+guessed publication lag, which is the class of assumption the matrix exists to refuse.
+
+### What this leaves, and why it is asked rather than started
+
+The one unit the evidence points at is reading vintages (the realtime range) into the revision
+chain. The engine defers it: `CALL_FREE_PROVIDER` is gated on a single `providerKeyAvailable` for
+three providers, ECOS and OpenDART are absent, so FRED-only work is `BLOCKED_PROVIDER_KEY` while
+FRED's key is present — the limitation IR-126 recorded in advance. Making that boolean per-provider
+is a scheduler/policy contract change the 2026-09-06 decision said to preserve unless evidence
+showed a defect. The evidence is this section. Posted as
+`[ESCALATION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` with a recommended default, not applied.

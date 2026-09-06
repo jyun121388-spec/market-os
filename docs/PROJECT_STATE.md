@@ -538,6 +538,29 @@ axis computes today — the two US Treasury series are untracked pending FRED (H
 multi-source branch is exercised on a fixture shaped exactly like what RATES becomes once a key
 exists, rather than left untested until it silently starts mattering.
 
+M11 MEASURED (2026-09-06) — the paragraph above describes the world before the key. The full
+tracked-series ingest ran through the production path against the dev database: eleven series,
+67,846 rows inserted, 954 unchanged (CPIAUCSL, idempotent), 3 revised, 2,600 missing markers
+skipped, `fetched == providerTotal` on every series (no truncation), eleven SUCCESS rows with mode
+FULL in `ingest_runs`. The Macro Regime now has **8 of 8 axes with data** (was 3): GROWTH,
+INFLATION, LIQUIDITY, RISK, CREDIT and RATES come back `SEMANTIC_REVISION_UNRESOLVED` — the honest
+verdict while FRED's vintage is CONDITIONAL and not stored, exactly as the HG-002 closeout
+predicted — RATES is now `[FRED+ECOS]` with `cross-source: INSUFFICIENT_EVIDENCE` (the multi-source
+branch reached on real data for the first time), and USD and COMMODITY read `STALE` on
+`temporal_integrity`. The two STALE readings are real by the projection's own rule (DTWEXBGS last
+2026-08-28, DCOILWTICO last 2026-09-01, both daily by observation cadence) and also the
+structural limitation the capability matrix records as `freshness_semantics: NOT_SUPPORTED` —
+FRED publishes both with a lag of days, the wire carries no release schedule, and
+`staleness.ts` judges by observation date alone, so "the provider has not published" and "we have
+not fetched" are indistinguishable from here. Recorded, not repaired.
+
+The revision chain fired on real data for the first time: a small ingest on 2026-08-16 had stored
+UNRATE 2026-06-01 = 4.1, 2026-07-01 = 4.2 and INDPRO 2026-07-01 = 103.5; today's vintage carries
+4.2, 4.1 and 102.9939, and each arrived as a new row with `isRevision = true` and `revisionOf`
+pointing at the original, which was kept. IR-021's replay hazard did not recur because the new
+values were never seen before; ordering two vintages that HAVE both been seen still needs the
+provider vintage the CONDITIONAL cell points at.
+
 All four real v1 output shapes now have adapters, and the shadow run reports four distinct
 verdicts: 8 VERIFIED_WITH_LIMITATION, 5 SEMANTIC_REVISION_UNRESOLVED, 3 STALE, 2 TRUNCATED.
 
@@ -1069,16 +1092,18 @@ All open items are tracked with owner and unblock steps in `docs/HUMAN_GATE_QUEU
    CI, and its own two-SHA attestation. Correctness outranks SHA stability
    (`[CHATGPT_DECISION][MARKET-RESUME-002]` item 4), so the candidate moves rather than the
    findings being deferred.
-   2a. **The full tracked-series FRED ingest** (M11) — non-gated since HG-002 closed; the next unit
-   (`docs/CURRENT_TASK.md`). Five Macro Regime axes read `NOT_TRACKED` / `INSUFFICIENT_DATA` until it
-   runs.
+   2a. ~~The full tracked-series FRED ingest (M11)~~ **DONE 2026-09-06, measured** — eleven series,
+   8 of 8 regime axes with data; see "M11 MEASURED" above. What it exposed is the next question:
+   six axes `SEMANTIC_REVISION_UNRESOLVED` until vintages are read into the revision chain, and
+   that ingest shape is provider-key-gated at the engine by one boolean for three providers while
+   FRED's key is present — escalated rather than self-approved (`docs/CURRENT_TASK.md`).
 2. **ECOS / OpenDART API keys** (HG-003/004, `LIVE_KEY_PENDING`) — user is obtaining both;
    FRED's arrived 2026-09-06 and HG-002 is RESOLVED with FRED `LIVE_VERIFIED`. When each key lands, run `npm run verify:live:<provider>`, then the full sequence
    before classifying it `LIVE_VERIFIED`: compare the real schema against types/parser/DB, test
    nullability, missing fields, revisions, units, dates, timestamps and pagination, fix any
    drift, add regression tests, do a small real ingest, re-ingest for idempotency, verify
-   provenance. FRED specifically would unblock the 5 Macro Regime axes currently reporting
-   `NOT_TRACKED`. Do not treat provider documentation as equivalent to the real API — EDGAR's
+   provenance. (FRED did exactly this on 2026-09-06: the five `NOT_TRACKED` axes now have data.)
+   Do not treat provider documentation as equivalent to the real API — EDGAR's
    documentation was wrong about nullability, and that was the first provider actually checked.
 3. Three named Product/Human Gates remain, unaffected by the above:
    (a) Full free-text LLM-based Ask Market — needs a funded LLM provider/credential decision.

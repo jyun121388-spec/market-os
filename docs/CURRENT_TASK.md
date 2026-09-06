@@ -57,6 +57,13 @@ bounded follow-up for a provider whose capabilities include a measured `CONDITIO
 own vintage now reaches `Observation.releaseDate`, which nothing could write to before, and a real
 CPIAUCSL run stored 71 of them. See `docs/REVIEW_DEBT.md`, IR-130.
 
+`CAP-FOLLOWUP-FRED` is deliberately NOT recorded in `COMPLETED_WORK`, and the queue still offers
+it. That is accurate rather than untidy: its proposed change is to store the conditional shape for
+the provider, and exactly one series of eleven has vintages. The rest is not blocked by the
+environment — the key is there — it is held by a judgement, which is what the escalation below is
+for and what the script's own precondition enforces. Recording it worked would make the queue say
+the work is done when one twelfth of it is.
+
 **Exact next action: none that may be taken without a decision, and three are open.** The run that
 closed the storage half also produced the thing that decides the next one — appending a vintage
 history to a chain that already holds the current value makes the read path serve a superseded

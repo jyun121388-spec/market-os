@@ -311,8 +311,11 @@ const FRED: ProviderCapabilityProfile = {
       "observations[].realtime_start",
       "Present on every row and real: each vintage carries the date it became current. The " +
         "default response collapses to a single vintage stamped with the query date, so the " +
-        "field is only informative when the range is requested. No adapter reads it yet; the " +
-        "provider-vintage contract can now be populated from it.",
+        "field is only informative when the range is requested. Re-measured 2026-09-06 after " +
+        "IR-130: still CONDITIONAL, because the condition is the provider's and has not changed " +
+        "— but an adapter reads it now. `ingestFredSeries({ allVintages: true })` requests the " +
+        "range and stores each vintage's realtime_start as Observation.releaseDate; 71 CPIAUCSL " +
+        "rows carry one. Stored, not yet ordered on (MARKET-REVISION-CHAIN-ORDERING-20260906).",
     ),
     amendment_identity: live(
       "NOT_SUPPORTED",

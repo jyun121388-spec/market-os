@@ -3349,3 +3349,114 @@ The full tracked-series ingest (M11's five regime axes) is ordinary non-gated wo
 next node, not part of a verification closeout. Reading vintages into the revision chain is a
 separate ingest shape, recorded as the follow-up the CONDITIONAL cells point at. ECOS and OpenDART
 remain behind HG-003/004.
+
+## IR-126 — the autonomous entry point asked the scheduler nothing, and reported everything startable
+
+`[CHATGPT_DECISION][MARKET-SCHEDULER-CONTEXT-AUTHORITY-20260906-1133-KST]` named the contradiction:
+session reports said `ACTIONABLE 5 / DEFERRED 0` while establishing that every provider key was
+absent, and the repository's own shadow script and its real-ledger convergence control say `0 / 5`
+under those facts. The decision's hypothesis — a caller-boundary defect, not a scheduler one — was
+tested before anything was edited.
+
+### Reproduced, on the same tree, before editing
+
+    A  npm run evolution:shadow              0 actionable / 4 deferred (was 0/5 before HG-002 closed FRED)
+    B  scheduleNextWork() with no context     4 actionable / 0 deferred — every one AGENT_MAY_PROCEED_AFTER_VERIFY,
+                                              two of them carrying blockedBy: HG-003 / HG-004 at the same time
+    C  npx tsx scripts/next-work.ts           ACTIONABLE 4 / DEFERRED 0, then MAY STOP: false with
+                                              "no startable task" evaluated against that queue
+
+C is the source of every bad report: its output format (`ACTIONABLE n   DEFERRED m`, then
+`== ACTIONABLE ==`) is the one the session transcripts carry, and it called `scheduleNextWork()`
+bare. A read-only zero-cost Codex pass on the same tree reached the same verdict independently and
+found no second path carrying a context-free queue into the sentinel.
+
+### Caller inventory — by the TypeScript language service, not grep
+
+`findReferences` over the project for each export, non-import references only:
+
+    scheduleNextWork      scripts/evolution-shadow.ts:79   context supplied in full (two true, two false)
+                          scripts/autonomy-context.ts:338  the boundary, after this unit (before it: next-work.ts:14, bare)
+                          tests/ ×35 across five files      library controls
+    isWorkExhausted       scripts/evolution-shadow.ts:99   only
+    evaluateStopSentinel  scripts/next-work.ts:80          the ONLY non-test caller of the sentinel
+    src/, .github/        none — the scheduler is shadow-only, as `architectureBoundary` asserts
+
+So there was exactly one decision-bearing surface, and it omitted every environment fact.
+
+### Root cause, and what was not the cause
+
+Not the scheduler: an omitted context is optimistic by design, and `tests/evolutionScheduler.test.ts`
+pins that with the remark that the remedy is for the caller to supply what it knows. Not the policy
+engine: it blocks on an explicit `false` and reads absence as unknown-but-permitted, which is
+documented in `ActionDescriptor`. The defect is that the one surface whose output decides task
+selection AND the completion sentinel behaved like a generic library caller. UNKNOWN was laundered
+into ACTIONABLE at the boundary, and nothing at the boundary could fail.
+
+### The repair: `scripts/autonomy-context.ts`
+
+The library is untouched — its exports are still exactly the three the meta-loop audit enumerates,
+and the optimistic pin still passes. The boundary now does three things, each measured:
+
+1. **Establishes the environment, presence only.** Provider keys per provider by name
+   (`FRED_API_KEY`, `ECOS_API_KEY`, `DART_API_KEY` — never read past a boolean); the GitHub credential
+   by `gh auth status` exit code with stdio ignored, three outcomes each its own result (CLAUDE.md
+   records the probe that conflated two of them); included quota by the `USAGE_LIMIT_PAUSE` line in
+   PROJECT_STATE. `verificationGreen` is deliberately not attempted, for stop-evidence's reason.
+2. **Holds unestablished facts closed, in the engine's own encoding.** `UNKNOWN_ENCODING` maps each
+   field to what the policy reads as "not yet": explicit `false` for the three the engine blocks on,
+   `undefined` for `verificationGreen` — because `false` there is a MEASURED red and turns every
+   verify-gated action into DENIED, which would be a claim about a suite nobody ran. Per field, on
+   purpose, and a control asserts nothing in the table is `true`.
+3. **Checks named gates against the register.** `providerKeyAvailable` is one boolean for three
+   providers because that is what the engine takes; a FRED key does not make ECOS callable, and no
+   key closes a Human Gate. After the scheduler answers, any startable item whose `blockedBy` names
+   an `HG-nnn` is looked up in `docs/HUMAN_GATE_QUEUE.md` (first `**Status**` per section, so the
+   HG-001 addendum and a closed gate's "status at the time" do not overwrite); anything not `RESOLVED`,
+   or not found, or unreadable, defers the item as `REQUIRES_HUMAN`. Gate semantics stay the
+   register's.
+
+`scripts/next-work.ts` consumes it, prints the environment section first, then the queue, then
+`QUEUE VERDICT: NO_SAFE_MEANINGFUL_NODE | STARTABLE_WORK_EXISTS` with the reason — including whether
+the zero is a finding or a fact held closed — and says in the same breath that this is a statement
+about the queue and that "may stop" is the sentinel below.
+
+### One thing the first run on the real tree found in the repair itself
+
+`includedModelQuotaAvailable` came back `false`: PROJECT_STATE contains the string
+`USAGE_LIMIT_PAUSE` — in a sentence describing the convention. A substring match read a mention as
+the marker: presence-as-state, the defect class this unit exists to refuse, committed by this unit.
+The marker is now a LINE (`carriesUsageLimitMarker`), the real document is the fixture for the
+control, and CLAUDE.md's instruction says "at the start of its own line", which is the one place
+code cannot enforce the convention.
+
+### Controls and mutants
+
+`tests/autonomyContext.test.ts`, seventeen controls, every fixture a probe so no control depends on
+this machine's keys, `gh` or documents unless it says so: the eight the decision required (no-key
+environment → 0 actionable and every deferred item with a reason; keys present unlock only
+gate-resolved work and a deployment still needs its human; FRED-only does not flip the boolean and
+names ECOS/OPENDART; unestablished facts held closed with reasons and the encoding table never
+`true`; unknown verification is "verify first"; a gate that cannot be found defers; the verdict is
+about the queue and the sentinel stays false on it; the library's optimism ends at the boundary),
+plus the register parser on a fixture and on the real file, and a shape-only probe of this machine.
+
+`scripts/mutation/autonomycontext.py`, cardinalities predicted before the run, corrected to measured:
+
+    M-AUTOCTX-OMIT               context no longer passed            3 red (predicted 3)   ISOLATED
+    M-AUTOCTX-UNKNOWN-AVAILABLE  unknown credential supplied as true 2 red (predicted 1)   ISOLATED — the
+                                 second is the verdict's reason losing the field it no longer holds closed
+    M-AUTOCTX-ANYKEY             one key is enough                   1 red (predicted 1)   ISOLATED
+    M-AUTOCTX-GATE-IGNORED       gates never checked                 2 red (predicted 2)   ISOLATED
+    M-AUTOCTX-UNKNOWN-GATE       missing gate counts as resolved     1 red (predicted 1)   ISOLATED
+    unrelated (evolutionScheduler 26 + stopEvidence 15)             41/41 green under every mutant
+
+### What the canonical path says now, on this machine
+
+`ACTIONABLE 0 / DEFERRED 4` — the PROVIDER_ASSUMPTION and SEMANTIC_RECENCY clusters
+`BLOCKED_BY_ENVIRONMENT` on `CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY`, `CAP-DEBT-ECOS` on HG-003,
+`CAP-DEBT-OPENDART` on HG-004 — `NO_SAFE_MEANINGFUL_NODE` with every fact established, and
+`MAY STOP: false` on six unestablished counts plus a stopped watcher. Which is the correct answer,
+and the first time the entry point has given it. Documented work outside the proposal queue (the M11
+full FRED ingest) is recorded in `docs/CURRENT_TASK.md` as the next unit, with the reason the engine
+does not schedule it.

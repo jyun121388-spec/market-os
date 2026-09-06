@@ -26,7 +26,28 @@ STATUS as of 2026-08-18:
 
 ## The last thing done
 
-**2026-09-01 — a run of audit units, and the pattern in them matters more than any one.**
+**2026-09-06 — HG-002 closed, then the autonomous entry point was found asking the scheduler
+nothing (IR-126).** Two units, one decision each on the channel. First, the user supplied a free
+FRED key and the whole `RELEASE_READINESS` sequence ran: 59/59 live checks, zero drift, a real
+CPIAUCSL ingest and an idempotent re-ingest, provenance read back, FRED `LIVE_VERIFIED`, all
+fourteen capability cells on live evidence (HG-002 closeout in `docs/REVIEW_DEBT.md`). Second, the
+`ACTIONABLE 5 / DEFERRED 0` reports this file and the channel carried were traced to
+`scripts/next-work.ts` calling `scheduleNextWork()` bare; `scripts/autonomy-context.ts` now
+establishes the environment (presence only), holds unestablished facts closed, and checks named
+gates against the register. Five mutants, five ISOLATED. The canonical command is
+`npx tsx scripts/next-work.ts`; on this machine it prints `ACTIONABLE 0 / DEFERRED 4` and
+`NO_SAFE_MEANINGFUL_NODE`, which is a statement about the proposal queue.
+
+**Exact next action.** The queue has no startable node; documented work outside it does. The full
+tracked-series FRED ingest (M11: eleven series, five Macro Regime axes at `NOT_TRACKED` /
+`INSUFFICIENT_DATA`) is non-gated now that HG-002 is closed, reversible (the ingest path is
+idempotent, measured), and needs only `FRED_API_KEY` exported in the shell. It is recorded here
+as the next unit rather than scheduled by the engine, because the engine schedules proposals and
+this is a milestone; the sentinel's `orphanedDocumentedWork` stays unestablished for exactly that
+reason. Reading vintages into the revision chain (the realtime range) is a separate ingest shape
+after it.
+
+**Before that, 2026-09-01 — a run of audit units, and the pattern in them matters more than any one.**
 `23e716b` → `f1e3293`. No product code changed in ANY of them: V1 is frozen except for a reproduced
 P0/P1, and nothing found here cleared that bar.
 
@@ -102,7 +123,8 @@ re-reading either. Restarted correctly: 2447 pass / 19 expected fail, identical 
 ## The thing done before that
 
 **2026-08-31 — the capability-gate invariant, chosen by RUNNING the scheduler rather than by
-picking.** `scheduleNextWork()` returned 5 actionable / 0 deferred with `CLUSTER-PROVIDER_ASSUMPTION`
+picking.** `scheduleNextWork()` returned 5 actionable / 0 deferred (a BARE call, no environment —
+the library's optimistic reading; with the keys' absence supplied it was 0 / 5, see IR-126) with `CLUSTER-PROVIDER_ASSUMPTION`
 top-ranked (5 observed instances, 4 subsystems, P1, SYSTEMIC) and the only one of the five carrying
 no Human Gate. Its proposed change has two halves; the live-verification half is credential-blocked
 behind HG-002/003/004, and the other half — every NOT_VERIFIED cell names the gate that would clear

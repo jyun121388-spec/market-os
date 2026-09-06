@@ -11,6 +11,11 @@ that session. ESC-015 has since been DECIDED (`[CHATGPT_DECISION][ESC-015]` 5448
 `APPROVED_WITH_V1_LIMITATION` (5459023419). Nothing waits on it; the company fact-concept residue
 is a pinned V1 limitation, not an open decision. `docs/PROJECT_STATE.md` is the current truth.
 
+**2026-09-06.** HG-002 is closed (FRED `LIVE_VERIFIED`, 59/59 live checks, zero drift) and IR-126
+landed: `npx tsx scripts/next-work.ts` is the canonical queue path and establishes the environment
+before asking the scheduler. Both on `claude/ask-guardrail-architecture-20260823`; PR #3 not moved.
+Next unit: the full tracked-series FRED ingest (M11), recorded in `docs/CURRENT_TASK.md`.
+
 `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
 closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`
 (issue #2 comment 5447598201, posted and read back). Do not close the unit by adding a ninth, tenth

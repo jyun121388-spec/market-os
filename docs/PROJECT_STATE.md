@@ -504,6 +504,22 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE AUTONOMY BOUNDARY (2026-09-06, IR-126)
+`npx tsx scripts/next-work.ts` is the canonical queue path and the only non-test caller of the stop
+sentinel. It called `scheduleNextWork()` bare, and the library — deliberately, and pinned — reads an
+unstated environment as available, so with every provider key known absent it printed
+`ACTIONABLE 5 / DEFERRED 0` and fed that queue to the sentinel; the shadow script, which supplies its
+context, said `0 / 5` on the same tree. `scripts/autonomy-context.ts` now establishes the
+environment first (provider keys per provider, GitHub credential by exit code, included quota by
+the `USAGE_LIMIT_PAUSE` line — presence only, no value read), supplies unestablished facts in the
+encoding the policy engine reads as "not yet" (explicit `false`, except `verificationGreen`, whose
+false would be a measured red and so stays undefined), and defers any startable item whose
+`blockedBy` names a gate the register does not record as `RESOLVED`. Exact caller inventory by the
+TypeScript language service: `scheduleNextWork` is called outside tests only from the boundary and
+the shadow script; `evaluateStopSentinel` only from `next-work.ts`; `isWorkExhausted` only from the
+shadow script; nothing in `src/` or `.github/`. Five mutants ISOLATED. On this machine the command
+now prints `ACTIONABLE 0 / DEFERRED 4`, `NO_SAFE_MEANINGFUL_NODE`, and `MAY STOP: false`.
+
 THE FOURTH VERIFY ADAPTER — MACRO REGIME (2026-08-18, shadow)
 Covers the last v1 output shape, and the only one assembled from more than one provider. Against
 the real database both axes with data come back **TRUNCATED** — a verdict no other adapter can
@@ -830,8 +846,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2742 / 2742 PASS across 156 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2723 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2766 / 2766 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2747 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its
@@ -1053,6 +1069,9 @@ All open items are tracked with owner and unblock steps in `docs/HUMAN_GATE_QUEU
    CI, and its own two-SHA attestation. Correctness outranks SHA stability
    (`[CHATGPT_DECISION][MARKET-RESUME-002]` item 4), so the candidate moves rather than the
    findings being deferred.
+   2a. **The full tracked-series FRED ingest** (M11) — non-gated since HG-002 closed; the next unit
+   (`docs/CURRENT_TASK.md`). Five Macro Regime axes read `NOT_TRACKED` / `INSUFFICIENT_DATA` until it
+   runs.
 2. **ECOS / OpenDART API keys** (HG-003/004, `LIVE_KEY_PENDING`) — user is obtaining both;
    FRED's arrived 2026-09-06 and HG-002 is RESOLVED with FRED `LIVE_VERIFIED`. When each key lands, run `npm run verify:live:<provider>`, then the full sequence
    before classifying it `LIVE_VERIFIED`: compare the real schema against types/parser/DB, test

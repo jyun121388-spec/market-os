@@ -5,15 +5,36 @@
  * the first time this was actually run it contradicted a summary written minutes earlier. So this
  * exists to make the queue an OUTPUT rather than a claim.
  *
- *   npx tsx scripts/next-work.ts
+ * It is also the autonomous entry point, and that is a stricter job than "print the queue". This
+ * used to call `scheduleNextWork()` bare and so inherited the library's optimistic reading of an
+ * unstated environment: with every provider key known to be absent it printed `ACTIONABLE 5`, and
+ * then handed that queue to the stop sentinel. The environment is now established first, presence
+ * only, and passed explicitly — see `scripts/autonomy-context.ts` (IR-126).
+ *
+ *   npx tsx scripts/next-work.ts [--bus-root <dir>]
  */
 
-import { scheduleNextWork, evaluateStopSentinel } from "../src/server/evolution/scheduler";
+import { evaluateStopSentinel } from "../src/server/evolution/scheduler";
+import { queueVerdict, scheduleAutonomousWork } from "./autonomy-context";
 import { gatherStopEvidence } from "./stop-evidence";
 
-const queue = scheduleNextWork();
+const schedule = scheduleAutonomousWork();
+const { queue, environment, gateDeferrals } = schedule;
 
-console.log(`ACTIONABLE ${queue.actionable.length}   DEFERRED ${queue.deferred.length}\n`);
+console.log("== ENVIRONMENT (presence only; no value is read past a boolean) ==");
+for (const [provider, presence] of Object.entries(environment.providerKeys)) {
+  console.log(`  ${provider.padEnd(9)} key ${presence}`);
+}
+for (const fact of environment.established) {
+  console.log(`  ${fact.field} = ${fact.value}  -- ${fact.because}`);
+}
+for (const fact of environment.unestablished) {
+  console.log(
+    `  ${fact.field} UNESTABLISHED, supplied as ${String(fact.supplied)}  -- ${fact.because}`,
+  );
+}
+
+console.log(`\nACTIONABLE ${queue.actionable.length}   DEFERRED ${queue.deferred.length}\n`);
 
 for (const [label, items] of [
   ["ACTIONABLE", queue.actionable],
@@ -28,6 +49,22 @@ for (const [label, items] of [
   }
   console.log();
 }
+
+if (gateDeferrals.length > 0) {
+  console.log(
+    "== DEFERRED BY AN OPEN HUMAN GATE (startable on the environment alone; not on the register) ==",
+  );
+  for (const d of gateDeferrals) {
+    console.log(`  ${d.proposalId}  ${d.gates.map((g) => `${g.id}=${g.status}`).join(", ")}`);
+  }
+  console.log();
+}
+
+const verdict = queueVerdict(schedule);
+console.log(`QUEUE VERDICT: ${verdict.verdict} -- ${verdict.because}`);
+console.log(
+  "  (a statement about the QUEUE. Whether the loop may STOP is the sentinel below, which is a different question.)\n",
+);
 
 // Everything the machine can actually be asked is asked; everything else stays undefined.
 //

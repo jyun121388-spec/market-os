@@ -18,7 +18,8 @@ single source of truth for progress.
 
 - **Zero extra AI/API cost.** Never activate paid Anthropic/OpenAI/Google/Bedrock/Vertex usage,
   buy credits, or use a PAYG key. If Max 20x included usage is exhausted, stop and write
-  `USAGE_LIMIT_PAUSE` into `PROJECT_STATE.md`.
+  `USAGE_LIMIT_PAUSE` at the start of its own line in `PROJECT_STATE.md` — a mention in prose is
+  not the marker, and `scripts/autonomy-context.ts` reads it exactly that way (IR-126).
 - **No paid external services** (data, hosting, DB, monitoring, email/SMS, domains) without
   explicit human approval, even "free tier requires a card" cases — treat as HUMAN GATE.
 - **Legal guardrail**: never produce personalized buy/sell recommendations, portfolio advice,
@@ -51,6 +52,14 @@ review, an open escalation, a Human Gate, a blocked dependency, or a long contex
 `scheduleNextWork()` returns `{ actionable, deferred }`. Reinforce it; do not build a second one.
 Before concluding there is nothing to do, RUN IT: a prose summary is not evidence about the queue,
 and the first time it ran it contradicted one written minutes earlier.
+
+RUN IT means `npx tsx scripts/next-work.ts`, which establishes the environment first — provider
+keys, GitHub credential, included quota, presence only — and hands it to the scheduler, then checks
+every startable item's named gate against `docs/HUMAN_GATE_QUEUE.md`. Never a bare
+`scheduleNextWork()`: the library reads an unstated environment as available BY DESIGN, and a bare
+call reported `ACTIONABLE 5 / DEFERRED 0` on a machine where every key was known absent (IR-126).
+`NO_SAFE_MEANINGFUL_NODE` is what that command prints about the QUEUE; it is not "may stop", which
+is the sentinel below and needs more than the queue.
 
 **The only normal completion sentinel** is `evaluateStopSentinel()` in that module: no startable
 task, no unresolved failing check, no blocker advanceable by code, tests, docs or analysis, no

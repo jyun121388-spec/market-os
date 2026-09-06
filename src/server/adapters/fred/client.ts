@@ -32,6 +32,14 @@ export async function fetchFredObservations(
   options?: {
     observationStart?: string;
     observationEnd?: string;
+    /**
+     * The vintage window. Omitted, FRED answers with the single vintage as of today and stamps
+     * every row with today's date (measured 2026-09-06: one distinct `realtime_start` across 954
+     * CPIAUCSL rows). The documented full-history sentinels are 1776-07-04 and 9999-12-31; with
+     * those, one observation date can return several rows, one per vintage.
+     */
+    realtimeStart?: string;
+    realtimeEnd?: string;
     limit?: number;
     offset?: number;
   },
@@ -50,6 +58,12 @@ export async function fetchFredObservations(
   }
   if (options?.observationEnd) {
     url.searchParams.set("observation_end", options.observationEnd);
+  }
+  if (options?.realtimeStart) {
+    url.searchParams.set("realtime_start", options.realtimeStart);
+  }
+  if (options?.realtimeEnd) {
+    url.searchParams.set("realtime_end", options.realtimeEnd);
   }
   if (options?.limit !== undefined) {
     url.searchParams.set("limit", String(options.limit));

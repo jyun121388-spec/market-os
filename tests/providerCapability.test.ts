@@ -164,26 +164,37 @@ describe("what the matrix currently says", () => {
    * Three of four providers have never returned a success response, and no amount of adapter code
    * changes that.
    */
-  it("records that only SEC EDGAR has ever been observed returning data", () => {
+  it("records which providers have been observed returning data: SEC EDGAR and, since HG-002, FRED", () => {
+    // FRED joined on 2026-09-06: 46/46 live contract checks, a real ingest and re-ingest, and a
+    // provenance read-back. ECOS and OpenDART still have never returned a success response.
     for (const profile of PROVIDER_CAPABILITIES) {
       const liveAxes = CAPABILITY_AXES.filter(
         (axis) => profile.axes[axis].provenance === "LIVE_RESPONSE",
       );
-      if (profile.sourceCode === "SEC_EDGAR") {
-        expect(liveAxes.length).toBe(CAPABILITY_AXES.length);
+      if (profile.sourceCode === "SEC_EDGAR" || profile.sourceCode === "FRED") {
+        expect(liveAxes.length, `${profile.sourceCode} must be fully live`).toBe(
+          CAPABILITY_AXES.length,
+        );
       } else {
         expect(liveAxes, `${profile.sourceCode} claims live evidence`).toEqual([]);
       }
     }
   });
 
-  it("keeps FRED's realtime_start honest", () => {
-    // The most tempting cell in the matrix: exactly the field the vintage contract needs, already
-    // declared in fred/types.ts, and never seen in a real response.
+  it("keeps FRED's realtime_start honest, now from evidence rather than restraint", () => {
+    // Until HG-002 this cell was the most tempting in the matrix and was held at NOT_VERIFIED on
+    // principle. It is now CONDITIONAL on measurement: the default response stamps every row with
+    // the query date (one distinct realtime_start across 954 rows), and only the realtime range
+    // returns per-vintage stamps. SUPPORTED would overstate what the ingest actually stores.
     const cell = capabilityOf("FRED", "provider_vintage_time");
-    expect(cell?.state).toBe("NOT_VERIFIED");
+    expect(cell?.state).toBe("CONDITIONAL");
+    expect(cell?.provenance).toBe("LIVE_RESPONSE");
     expect(cell?.field).toBe("observations[].realtime_start");
-    expect(cell?.blockedBy).toBe("HG-002");
+    expect(cell?.blockedBy).toBeUndefined();
+    // The distinction the run measured: history is real, but only through the range.
+    expect(capabilityOf("FRED", "revision_history")?.state).toBe("CONDITIONAL");
+    expect(capabilityOf("FRED", "total_count_evidence")?.state).toBe("SUPPORTED");
+    expect(capabilityOf("FRED", "freshness_semantics")?.state).toBe("NOT_SUPPORTED");
   });
 
   it("distinguishes what SEC can count from what it cannot", () => {
@@ -207,9 +218,23 @@ describe("classifying why a piece of evidence is missing", () => {
   });
 
   it("a provider we have never called is verification debt, with an owner", () => {
-    const gap = classifyEvidenceGap("FRED", "provider_vintage_time", false);
+    // ECOS now plays this part. FRED did until 2026-09-06, when HG-002 resolved and its vintage
+    // axis became CONDITIONAL from measurement — the next control pins what that turned into.
+    const gap = classifyEvidenceGap("ECOS", "provider_vintage_time", false);
     expect(gap.kind).toBe("VERIFICATION_DEBT");
-    expect(gap.blockedBy).toBe("HG-002");
+    expect(gap.blockedBy).toBe("HG-003");
+  });
+
+  it("a provider whose evidence exists only under a request we do not make is a conditional absence", () => {
+    // FRED's vintage stamp is real on the wire (114 rows over 43 dates under the realtime range)
+    // and absent from what the default query returns. That is neither debt nor a defect.
+    const gap = classifyEvidenceGap("FRED", "provider_vintage_time", false);
+    expect(gap.kind).toBe("CONDITIONAL_ABSENCE");
+    expect(gap.blockedBy).toBeUndefined();
+    // And what FRED was measured NOT to have is a structural limitation, not work undone.
+    expect(classifyEvidenceGap("FRED", "preliminary_final_identity", false).kind).toBe(
+      "STRUCTURAL_LIMITATION",
+    );
   });
 
   it("a provider that does publish it makes the absence a property of the record", () => {
@@ -258,9 +283,17 @@ describe("Verify reading the capability matrix", () => {
    * SEC can ever supply, the other is a call we have not made.
    */
   it("separates a permanent provider limitation from work nobody has done", () => {
+    // ECOS is the provider nobody has called. FRED was, until HG-002.
+    const ecos = verify(macroFact("ECOS"));
+    expect(ecos.dimensions.revision_integrity.evidenceGap).toBe("VERIFICATION_DEBT");
+    expect(ecos.dimensions.revision_integrity.rationale).toContain("HG-003");
+
+    // FRED after 2026-09-06: the vintage is real but only under the realtime range, which the
+    // ingest does not request, so a missing vintage on a stored FRED fact is a conditional
+    // absence — not debt (nothing is owed), not a limitation (the provider has it).
     const fred = verify(macroFact("FRED"));
-    expect(fred.dimensions.revision_integrity.evidenceGap).toBe("VERIFICATION_DEBT");
-    expect(fred.dimensions.revision_integrity.rationale).toContain("HG-002");
+    expect(fred.dimensions.revision_integrity.evidenceGap).toBe("CONDITIONAL_ABSENCE");
+    expect(fred.dimensions.revision_integrity.rationale).not.toContain("HG-");
 
     // SEC reaches revision_integrity only without an accession; a bare FACT is that case, and the
     // gap is structural because SEC publishes no per-figure vintage and never will.
@@ -270,7 +303,12 @@ describe("Verify reading the capability matrix", () => {
   });
 
   it("explains a missing total differently for each provider", () => {
+    // FRED publishes `count` on every response (measured: fetched exactly count for DGS10), so a
+    // stored FRED output with no provider total is a property of THAT record, not of FRED.
     expect(verify(macroFact("FRED")).dimensions.data_completeness.evidenceGap).toBe(
+      "DATA_QUALITY_ISSUE",
+    );
+    expect(verify(macroFact("ECOS")).dimensions.data_completeness.evidenceGap).toBe(
       "VERIFICATION_DEBT",
     );
     expect(verify(macroFact("SEC_EDGAR")).dimensions.data_completeness.evidenceGap).toBe(

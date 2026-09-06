@@ -63,13 +63,24 @@ describe("compareVintage", () => {
     expect(decision.rationale).toContain("Retrieval order is not semantic recency");
   });
 
+  /**
+   * Three providers, three different reasons, and the reason must be the right one. SEC publishes
+   * no per-figure vintage. ECOS has never answered (HG-003). FRED — since 2026-09-06 — is known to
+   * publish one (`realtime_start`, real under the realtime range) that the ingest does not yet
+   * store, which is a work item and must not read as either of the other two.
+   */
   it("names why it could not decide, rather than returning a bare verdict", () => {
     const secStyle = vintageUnavailable("SEC_EDGAR", "2026-08-18T00:00:00.000Z");
     expect(compareVintage(secStyle, secStyle).rationale).toContain(
       "the provider does not publish a vintage",
     );
-    const fredStyle = vintageUnavailable("FRED", "2026-08-18T00:00:00.000Z");
-    expect(compareVintage(fredStyle, fredStyle).rationale).toContain("unverified");
+    const ecosStyle = vintageUnavailable("ECOS", "2026-08-18T00:00:00.000Z");
+    expect(compareVintage(ecosStyle, ecosStyle).rationale).toContain("unverified");
+    const fredStyle = vintageUnavailable("FRED", "2026-09-06T00:00:00.000Z");
+    expect(compareVintage(fredStyle, fredStyle).rationale).toContain(
+      "vintage was not captured for at least one value",
+    );
+    expect(compareVintage(fredStyle, fredStyle).rationale).not.toContain("unverified");
   });
 });
 
@@ -77,14 +88,29 @@ describe("provider capability table", () => {
   /**
    * No provider may be recorded as KNOWN for a field nobody has seen in a real response. FRED's
    * `realtime_start` is declared in the client types and is exactly the field this contract wants,
-   * which makes it the most tempting thing in the repo to mark KNOWN — and HG-002 means no live
-   * response has ever been observed.
+   * which made it the most tempting thing in the repo to mark KNOWN while HG-002 was open. The
+   * key arrived on 2026-09-06 and the live response said something more precise than SUPPORTED:
+   * the field is real under the realtime range and collapses to the query date under the default
+   * query the ingest uses. CONDITIONAL, with live provenance, is that finding — and it maps to
+   * UNKNOWN here, not KNOWN, because the record on hand may have been stored either way.
    */
   it("claims KNOWN only where a live response confirmed it", () => {
-    expect(capabilityOf("FRED", "provider_vintage_time")?.state).toBe("NOT_VERIFIED");
+    const fred = capabilityOf("FRED", "provider_vintage_time");
+    expect(fred?.state).toBe("CONDITIONAL");
+    expect(fred?.provenance).toBe("LIVE_RESPONSE");
+    expect(
+      vintageUnavailable("FRED", "2026-09-06T00:00:00.000Z").providerVintageAt.availability,
+    ).toBe("UNKNOWN");
+    for (const code of ["ECOS", "OPENDART"]) {
+      expect(capabilityOf(code, "provider_vintage_time")?.state).toBe("NOT_VERIFIED");
+    }
     for (const profile of PROVIDER_CAPABILITIES) {
-      if (profile.sourceCode === "SEC_EDGAR") continue;
+      // Still true of every provider, live-verified or not: nobody publishes a per-figure vintage
+      // that the default query returns, so no cell may say SUPPORTED.
       expect(profile.axes.provider_vintage_time.state).not.toBe("SUPPORTED");
+      if (profile.axes.provider_vintage_time.state !== "NOT_VERIFIED") {
+        expect(profile.axes.provider_vintage_time.provenance).toBe("LIVE_RESPONSE");
+      }
     }
   });
 

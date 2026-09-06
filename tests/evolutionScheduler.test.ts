@@ -217,7 +217,9 @@ describe("the scheduler cannot do anything", () => {
 });
 
 describe("against the real ledger and capability matrix", () => {
-  it("has converged: nothing startable, five items gated on provider keys", () => {
+  it("has converged: nothing startable, four items gated on provider keys", () => {
+    // Four since 2026-09-06: CAP-DEBT-FRED is no longer generated (HG-002), and CAP-CEILING-FRED
+    // is recorded as worked in COMPLETED_WORK, so it does not appear either.
     const queue = scheduleNextWork({
       context: {
         verificationGreen: true,
@@ -233,7 +235,8 @@ describe("against the real ledger and capability matrix", () => {
     // forever, and a queue that never empties can never make "exhausted" mean anything.
     expect(queue.actionable.length).toBe(0);
     expect(queue.deferred.map((w) => w.proposal.id)).toEqual(
-      expect.arrayContaining(["CAP-DEBT-FRED", "CAP-DEBT-ECOS", "CAP-DEBT-OPENDART"]),
+      // CAP-DEBT-FRED is no longer generated at all since HG-002 (2026-09-06).
+      expect.arrayContaining(["CAP-DEBT-ECOS", "CAP-DEBT-OPENDART"]),
     );
     for (const blocked of queue.deferred) {
       expect(blocked.blockedBy, blocked.proposal.id).toBeTruthy();

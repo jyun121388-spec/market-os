@@ -324,6 +324,22 @@ export const COMPLETED_WORK: CompletedWork[] = [
       "runner and nothing compares the two.",
   },
   {
+    proposalId: "CAP-CEILING-FRED",
+    commit: "recorded with this entry",
+    evidence:
+      "Raised by the generator itself on 2026-09-06 when HG-002 resolved and five FRED cells were " +
+      "measured NOT_SUPPORTED from a live response: no span, no amendment flag, no next-release " +
+      "field on the observations endpoint, no schema version, no provisional flag. Verify already " +
+      "classifies each as STRUCTURAL_LIMITATION (tests/providerCapability.test.ts pins " +
+      "preliminary_final_identity), the vintage absence as CONDITIONAL_ABSENCE and a missing FRED " +
+      "total as DATA_QUALITY_ISSUE, and the shadow run over the real dev database was executed " +
+      "after the matrix changed. Ceiling declared; nothing on our side closes it.",
+    remaining:
+      "A ceiling recorded once can become a ceiling assumed forever: the matrix needs " +
+      "re-measuring when FRED versions its API, and the release calendar lives on a separate " +
+      "endpoint this adapter has never called — a new capability, not a hidden one.",
+  },
+  {
     proposalId: "CAP-CEILING-SEC_EDGAR",
     commit: "4f19eee",
     evidence:

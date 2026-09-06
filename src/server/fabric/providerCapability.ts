@@ -242,105 +242,129 @@ const SEC_EDGAR: ProviderCapabilityProfile = {
 };
 
 /**
- * FRED, ECOS and OpenDART — no success response has ever been observed.
+ * FRED — live-verified 2026-09-06 under HG-002.
  *
- * The keyless verification run on 2026-08-17 reached all three real endpoints and confirmed URL
- * construction, parameter names and the error envelopes the clients branch on. That is real
- * evidence about a narrow thing and none of it is evidence about the success shape, which is
- * precisely where EDGAR's drift was hiding. So every axis below is NOT_VERIFIED — including the
- * ones where the provider plainly has no such concept, because asserting NOT_SUPPORTED from a
- * document is the same error in the opposite direction.
+ * `scripts/verify-fred-live.ts`: 46 of 46 contract checks against the real endpoint, then a
+ * real ingest of CPIAUCSL through the production path (954 rows, 1 missing marker, providerCount
+ * 955, one request, not truncated), a re-ingest (0 inserted, 0 revised, 954 unchanged) and a
+ * provenance read-back (raw stored verbatim, retrievedAt set, releaseDate null on every row,
+ * isPreliminary false). Zero schema drift against `fred/types.ts` — the first provider whose
+ * documented shape survived first contact, which is worth saying because EDGAR's did not.
+ *
+ * Two findings the documentation would not have given:
+ *
+ *   - the DEFAULT response is one vintage stamped with the query date. Every one of 954 rows
+ *     carried `realtime_start = 2026-09-06`, including 1947-01-01. It is not a release date.
+ *   - the REALTIME RANGE is a genuine revision history. CPIAUCSL from 2023-01-01 across
+ *     1776-07-04..9999-12-31 returned 114 rows over 43 dates; 35 dates carry several vintages,
+ *     ordered and non-overlapping, the latest open-ended at 9999-12-31, and the first vintage of
+ *     2023-01-01 is stamped 2023-02-14 — the month after the period, which is when the BLS
+ *     published it. Four vintages of that one month: 300.536 -> 300.356 -> 300.456 -> 300.420.
+ *
+ * So several axes are CONDITIONAL rather than SUPPORTED: the evidence exists and the endpoint
+ * returns it, but only when the realtime range is requested, and the ingest path does not request
+ * it (M08 keeps `releaseDate` null for that reason). That is the honest shape of the capability —
+ * present on the wire, absent from what is stored.
  */
 const FRED: ProviderCapabilityProfile = {
   sourceCode: "FRED",
   standing:
-    "No success response ever observed (HG-002). The error path and URL construction were " +
-    "live-verified; the data shape is adapter declaration only.",
+    "Live-verified 2026-09-06 (HG-002): 46/46 contract checks, real ingest and re-ingest of " +
+    "CPIAUCSL idempotent, provenance read back. Zero drift against fred/types.ts. Revision " +
+    "history is real but only through the realtime range, which the ingest does not request.",
   axes: {
-    observation_time: unverified(
+    observation_time: live(
+      "SUPPORTED",
       "observations[].date",
-      "Declared in fred/types.ts as the period the value describes, explicitly not the release " +
-        "time. Whether a real response honours that distinction is unconfirmed.",
-      "HG-002",
+      "The period the value describes: YYYY-MM-DD on every row, strictly ascending and unique " +
+        "within a query, 1947-01-01 onward for CPIAUCSL. Independent of the vintage stamp.",
     ),
-    period_start: unverified(
+    period_start: live(
+      "NOT_SUPPORTED",
       null,
-      "A FRED observation is expected to be an instant with no span, so there may be nothing to " +
-        "support. Recorded as unverified rather than unsupported: we have not seen a response.",
-      "HG-002",
+      "No span field on the wire. A FRED observation is an instant: one `date` per row, and " +
+        "the 46-check run saw no start/end pair on any of 16,873 DGS10 rows.",
     ),
-    period_end: unverified(
+    period_end: live(
+      "SUPPORTED",
       "observations[].date",
-      "The same field as observation_time if the observation is an instant.",
-      "HG-002",
+      "The instant itself. Same field as observation_time, measured on every row.",
     ),
-    source_release_time: unverified(
+    source_release_time: live(
+      "CONDITIONAL",
+      "observations[].realtime_start (first vintage, realtime range only)",
+      "Under default parameters realtime_start is the QUERY date on every row and is not a " +
+        "release time. Under the realtime range the first vintage's realtime_start is the " +
+        "publication date (2023-01-01 CPI first known 2023-02-14). The ingest uses the default " +
+        "and stores releaseDate null (M08), so the evidence is on the wire, not in the store.",
+    ),
+    provider_revision_identity: live(
+      "CONDITIONAL",
+      "realtime_start / realtime_end pair",
+      "A version identifier when the realtime range is requested: vintages of one date are " +
+        "ordered, non-overlapping and the latest is open-ended at 9999-12-31 (114 rows, 43 " +
+        "dates, 35 revised). Under the default query the pair is identical on every row and " +
+        "identifies only the query.",
+    ),
+    provider_vintage_time: live(
+      "CONDITIONAL",
       "observations[].realtime_start",
-      "Declared in fred/types.ts as 'first date this vintage was known to FRED'. Whether that is " +
-        "a release time or a vintage time is exactly what a live response would settle.",
-      "HG-002",
+      "Present on every row and real: each vintage carries the date it became current. The " +
+        "default response collapses to a single vintage stamped with the query date, so the " +
+        "field is only informative when the range is requested. No adapter reads it yet; the " +
+        "provider-vintage contract can now be populated from it.",
     ),
-    provider_revision_identity: unverified(
-      "realtime_start/realtime_end pair",
-      "The pair may function as a version identifier. Unconfirmed, and no adapter reads it.",
-      "HG-002",
-    ),
-    provider_vintage_time: unverified(
-      "observations[].realtime_start",
-      "The single most valuable unverified field in the system: it is exactly the evidence the " +
-        "provider-vintage contract needs, it is already declared, and no adapter reads it. " +
-        "Marking it SUPPORTED on the strength of the documentation is the specific mistake this " +
-        "matrix exists to prevent.",
-      "HG-002",
-    ),
-    amendment_identity: unverified(
+    amendment_identity: live(
+      "NOT_SUPPORTED",
       null,
-      "No amendment concept identified in the documented shape.",
-      "HG-002",
-      "PROVIDER_DOCUMENTATION",
+      "No amendment or restatement flag on the wire; a revision is a further vintage of the " +
+        "same date with a different value, distinguishable only by realtime_start.",
     ),
-    pagination_evidence: unverified(
+    pagination_evidence: live(
+      "SUPPORTED",
       "limit / offset",
-      "Declared optional in fred/types.ts because their presence in a real response is " +
-        "unconfirmed. The client sends explicit limit/offset and pages until it holds `count` " +
-        "rows, so a documented-but-absent field cannot silently truncate.",
-      "HG-002",
+      "Both present and numeric on every response; the requested limit is honoured; 16,873 " +
+        "DGS10 rows came over 4 requests with no duplicate dates across page boundaries.",
     ),
-    total_count_evidence: unverified(
+    total_count_evidence: live(
+      "SUPPORTED",
       "count",
-      "Declared as total matching observations. If real, FRED would be the only provider that " +
-        "makes completeness provable rather than merely undetected.",
-      "HG-002",
+      "The query total, not the page size: fetched exactly `count` rows for DGS10, and for " +
+        "CPIAUCSL count 955 = 954 stored + 1 missing marker. Completeness is provable here.",
     ),
-    freshness_semantics: unverified(
+    freshness_semantics: live(
+      "NOT_SUPPORTED",
       null,
-      "FRED publishes release calendars through a separate endpoint this adapter does not call.",
-      "HG-002",
-      "PROVIDER_DOCUMENTATION",
+      "The observations endpoint states nothing about when the next value is due. FRED " +
+        "publishes release calendars through a separate releases endpoint this adapter does " +
+        "not call; that would be a new capability, not a hidden one.",
     ),
-    revision_history: unverified(
-      "realtime_start/realtime_end",
-      "The realtime pair is the documented mechanism for retrieving prior vintages, which would " +
-        "make FRED the one provider with genuine revision history.",
-      "HG-002",
+    revision_history: live(
+      "CONDITIONAL",
+      "realtime_start / realtime_end (realtime range)",
+      "Genuine and observed: 2023-01-01 CPI carries four vintages 300.536 -> 300.356 -> " +
+        "300.456 -> 300.420, each superseding the last. Reachable only by requesting the " +
+        "realtime range, which the ingest path does not; stored data holds the latest vintage.",
     ),
-    source_provenance: unverified(
-      "series_id + date",
-      "Sufficient to identify which series a value belongs to; not sufficient to identify which " +
-        "version of it.",
-      "HG-002",
+    source_provenance: live(
+      "CONDITIONAL",
+      "series_id + date (+ realtime_start for the version)",
+      "series_id and date identify the value; the vintage is identified only when the range is " +
+        "requested. Every stored row keeps the raw wire record verbatim, so the default stamp " +
+        "is preserved even where it carries no per-row information.",
     ),
-    schema_version_metadata: unverified(
+    schema_version_metadata: live(
+      "NOT_SUPPORTED",
       null,
-      "No version stamp identified in the documented shape.",
-      "HG-002",
-      "PROVIDER_DOCUMENTATION",
+      'No version stamp on the wire. `units` is present but is the transformation code ("lin" ' +
+        "= levels), not a schema version and not a measurement unit — the adapter's declared " +
+        "unit comes from TRACKED_FRED_SERIES.",
     ),
-    preliminary_final_identity: unverified(
+    preliminary_final_identity: live(
+      "NOT_SUPPORTED",
       null,
-      "FRED publishes provisional figures that are later revised, and the realtime pair is how a vintage is addressed — but nothing identifies a provisional FLAG. Observation.isPreliminary exists in the schema and no adapter has ever set it (IR-041).",
-      "HG-002",
-      "PROVIDER_DOCUMENTATION",
+      "No provisional flag on the wire. A preliminary figure is simply an earlier vintage; " +
+        "Observation.isPreliminary stays false on all 954 ingested rows (IR-041 unchanged).",
     ),
   },
 };

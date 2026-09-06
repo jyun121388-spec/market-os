@@ -283,7 +283,17 @@ CI will then run against the pushed head.
 
 ## HG-002 — FRED API key
 
-**Status**: `PENDING_USER` · marker `LIVE_KEY_PENDING`
+**Status**: `RESOLVED` · closed 2026-09-06
+
+The user supplied a free key and it was placed in the gitignored `.env` only — never committed,
+never printed, never echoed into a log or an audit row (checked: zero occurrences in the live logs
+and in `ingest_runs.error`). The whole sequence below then ran the same day: 59/59 contract checks,
+zero drift, a real CPIAUCSL ingest through the production path, an idempotent re-ingest and a
+provenance read-back. FRED is `LIVE_VERIFIED` in `docs/RELEASE_READINESS.md`; its fourteen
+capability cells carry `LIVE_RESPONSE` provenance; the scheduler no longer generates
+`CAP-DEBT-FRED`. Kept below as written, for the record of what was blocked and why.
+
+**Status at the time**: `PENDING_USER` · marker `LIVE_KEY_PENDING`
 
 **Issue**: `api.stlouisfed.org` is reachable from this machine, but the FRED adapter has never
 been run against a real response. Its shape was written from documentation, and the SEC EDGAR

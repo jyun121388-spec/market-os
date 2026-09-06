@@ -13,7 +13,12 @@ import { prisma } from "../src/server/db/client";
 async function main() {
   for (const series of TRACKED_FRED_SERIES) {
     const result = await recordIngestRun(
-      { sourceCode: "FRED", target: series.seriesId },
+      // FULL, and now said rather than assumed: `fetchAllFredObservations` is called with no
+      // observation range, so every run re-fetches the series' entire history. Measured on
+      // 2026-09-06 -- CPIAUCSL came back from 1947-01-01 with providerCount 955 = 954 stored + 1
+      // missing marker. Before this line the run was recorded as UNKNOWN, which is the honest
+      // default for a caller that has not looked; this caller has.
+      { sourceCode: "FRED", target: series.seriesId, mode: "FULL" },
       async () => {
         const r = await ingestFredSeries(series);
         return {

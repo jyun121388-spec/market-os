@@ -161,11 +161,13 @@ describe("scheduler ranking is defensible against what the findings turned out t
   });
 
   it("does not let one caller's completion erase another's", () => {
-    const withExtra = scheduleNextWork({ context, completed: ["CAP-DEBT-FRED"] });
+    // CAP-DEBT-ECOS rather than -FRED: FRED stopped being proposed on 2026-09-06 (HG-002), and
+    // a control that names an item the generator no longer emits would pass for nothing.
+    const withExtra = scheduleNextWork({ context, completed: ["CAP-DEBT-ECOS"] });
     const live = new Set(
       [...withExtra.actionable, ...withExtra.deferred].map((w) => w.proposal.id),
     );
-    expect(live.has("CAP-DEBT-FRED")).toBe(false);
+    expect(live.has("CAP-DEBT-ECOS")).toBe(false);
     // And the recorded completions survive the narrow argument.
     for (const done of COMPLETED_WORK) expect(live.has(done.proposalId)).toBe(false);
   });

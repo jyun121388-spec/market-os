@@ -24,7 +24,7 @@ to avoid.
 WHY M-CAPGATE-WRONGGATE EXISTS, recorded because it is a review finding rather than foresight.
 The first version of this suite shipped with only a nonexistent-id mutant, and independent review
 pointed out what that does not prove: `HG-007` is production deployment, `HG-008` is payment
-activation, both are real, both occur in the register, and neither owns FRED's live response. The
+activation, both are real, both occur in the register, and neither owns ECOS's live response. The
 existence test passed them. Occurrence was never the claim. Reproduced before repairing -- both
 ids returned shape=true, inRegister=true -- and the semantic control was added to close it.
 
@@ -37,6 +37,13 @@ Expected cardinalities, written before the run so a surprise cannot be reinterpr
 
 The first is the load-bearing one: it is the only mutant that isolates ownership from existence,
 and if it ever produces 2 reds the existence test has started doing ownership's job by accident.
+
+RE-ANCHORED 2026-09-06 (HG-002 closeout). The mutants stood on FRED's period_end cell, which
+became `live(...)` when the key arrived, so the anchor no longer occurred anywhere in the file and
+the harness reported ANCHOR DRIFT for all three. They now stand on ECOS's period_end -- the one
+single-line `unverified(...)` cell in the ECOS block, which is what makes the anchor unique among
+fourteen "HG-003" occurrences. The cardinalities above are the claim about the CONTROLS, not about
+the provider, and are unchanged. Re-measured after the move: see the run log in REVIEW_DEBT.
 
     python scripts/mutation/capabilitygate.py [ID ...]
 """
@@ -59,17 +66,15 @@ UNRELATED_TESTS = [
 
 MUTATIONS = [
     # M-CAPGATE-WRONGGATE -- the review finding, made load-bearing. `HG-007` is production
-    # deployment: a real gate, present in the register, owning nothing about FRED. Shape passes and
+    # deployment: a real gate, present in the register, owning nothing about ECOS. Shape passes and
     # existence passes, so ONE red is the whole point. Two reds would mean the existence test had
     # quietly started deciding ownership, and the isolation this mutant exists to prove would be
     # gone without anything failing.
     (
         "M-CAPGATE-WRONGGATE a cell names a real gate that owns something else",
         CAPABILITY,
-        '      "The same field as observation_time if the observation is an instant.",\n'
-        '      "HG-002",',
-        '      "The same field as observation_time if the observation is an instant.",\n'
-        '      "HG-007",',
+        '    period_end: unverified("TIME", "The same field, read as the period it names.", "HG-003"),',
+        '    period_end: unverified("TIME", "The same field, read as the period it names.", "HG-007"),',
     ),
     # M-CAPGATE-UNDOCUMENTED -- `HG-999` passes the shape rule, so shape must NOT be the thing that
     # fires. Existence and ownership both fail on it, which is honest rather than isolated: an id
@@ -77,10 +82,8 @@ MUTATIONS = [
     (
         "M-CAPGATE-UNDOCUMENTED a cell names a well-shaped gate that does not exist",
         CAPABILITY,
-        '      "The same field as observation_time if the observation is an instant.",\n'
-        '      "HG-002",',
-        '      "The same field as observation_time if the observation is an instant.",\n'
-        '      "HG-999",',
+        '    period_end: unverified("TIME", "The same field, read as the period it names.", "HG-003"),',
+        '    period_end: unverified("TIME", "The same field, read as the period it names.", "HG-999"),',
     ),
     # M-CAPGATE-SHAPE -- a gate that is not an id at all, so all three claims are genuinely
     # violated by one edit and three reds is the honest number. Stated in advance so a future run
@@ -88,10 +91,8 @@ MUTATIONS = [
     (
         "M-CAPGATE-SHAPE a gate that is prose rather than an id",
         CAPABILITY,
-        '      "The same field as observation_time if the observation is an instant.",\n'
-        '      "HG-002",',
-        '      "The same field as observation_time if the observation is an instant.",\n'
-        '      "needs a credential",',
+        '    period_end: unverified("TIME", "The same field, read as the period it names.", "HG-003"),',
+        '    period_end: unverified("TIME", "The same field, read as the period it names.", "needs a credential"),',
     ),
     # M-CAPGATE-REGISTER -- delete the guard that requires the register to contain any gate at all.
     # Without it, a register that failed to parse would make every membership check pass vacuously,

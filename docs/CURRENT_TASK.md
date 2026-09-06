@@ -18,9 +18,9 @@ STATUS as of 2026-08-18:
 - Shadow layers implemented: Reality Fabric projection, Verify, Governance policy engine,
   Evolution ledger and detector — plus the provider-vintage contract that ties them together.
 
-- Provider capability matrix covers 14 axes × 4 providers = 56 cells. Only SEC_EDGAR has live
-  evidence; FRED, ECOS and OpenDART are entirely NOT_VERIFIED behind HG-002/003/004, which is 42 of
-  the 56. Counted 2026-08-31 by running the matrix. This line said 13, and the suite has asserted
+- Provider capability matrix covers 14 axes × 4 providers = 56 cells. SEC_EDGAR and (since
+  2026-09-06, HG-002) FRED have live evidence on every axis; ECOS and OpenDART are entirely
+  NOT_VERIFIED behind HG-003/004, which is 28 of the 56 (was 42 before FRED's key arrived). Counted 2026-08-31 by running the matrix. This line said 13, and the suite has asserted
   14 for as long as the fourteenth axis has existed — a documented number nobody re-measured, which
   is the failure class the "last thing learned" section at the bottom of this file is about.
 
@@ -520,7 +520,9 @@ tiebreak. See `docs/PROJECT_STATE.md` for what each layer gained.
    TRACKED, and `src/server/domain/sourceAuthority.ts` is REFERENCED — by `askMarket.ts` and
    `candidateEnvelope.ts`, with its own mutation suite. It was wired, which is what this item
    asked for.
-2. **If a FRED key has arrived** (HG-002), this is the highest-value work available and it closes
+2. **DONE 2026-09-06 — the FRED key arrived** (HG-002 RESOLVED). The sequence below ran in
+   full; see `docs/RELEASE_READINESS.md` (FRED row) and `docs/REVIEW_DEBT.md` (HG-002 closeout).
+   Kept as written for the record. It was the highest-value work available and it closed
    two things at once. Live-verify the adapter the way EDGAR was verified — real endpoint, real
    response shape against the declared TypeScript types, then a real ingest followed by a
    re-ingest for idempotency, using `scripts/verify-fred-live.ts`. Then check what

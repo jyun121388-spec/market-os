@@ -181,7 +181,8 @@ Live provider verification (docs/RELEASE_READINESS.md "Data adapters"):
   financial facts, then a re-ingest confirming 0 inserted / all unchanged. (The earlier
   "1000 filings, 1099 facts" figures were themselves the symptom of two defects — see items 5
   and 17 below.)
-- **FRED / ECOS / OpenDART: `LIVE_KEY_PENDING`** (HG-002/003/004). All three hosts are
+- **FRED: `LIVE_VERIFIED` (2026-09-06, HG-002 resolved)** — see `docs/RELEASE_READINESS.md`
+  for the full sequence. **ECOS / OpenDART: `LIVE_KEY_PENDING`** (HG-003/004). Both hosts are
   reachable; each needs a free API key the user registers for. `scripts/verify-{fred,ecos,dart}
 -live.ts` are written and wired to `npm run verify:live:*`, built on the same harness as the
   EDGAR check. **The existence of a verification script is not verification** — none of the
@@ -365,10 +366,14 @@ Propagated through all four layers in shadow only:
   blockers rather than policy positions. Two invariants are now enforced across the whole table by
   test: an execution blocker never coincides with `DENIED`, and never raises a gate.
 
-FRED is where this becomes actionable. `realtime_start`/`realtime_end` are exactly the fields the
-contract wants, they are already declared in `fred/types.ts`, and no adapter reads them — so the
-capability table records them `NOT_VERIFIED` and a test forbids upgrading that to `KNOWN` without a
-live response. One key (HG-002) closes the largest open item in this design.
+FRED is where this became actionable, and on 2026-09-06 it was measured. `realtime_start` /
+`realtime_end` are real: under the realtime range CPIAUCSL 2023-01-01 carries four vintages
+(300.536 → 300.356 → 300.456 → 300.420), ordered, non-overlapping, the latest open-ended. Under the
+DEFAULT query every row is stamped with the query date — one distinct `realtime_start` across 954
+rows — so the ingest path, which uses the default, stores the latest vintage and no release date
+(M08). The capability table records the axis `CONDITIONAL` with live provenance; the
+provider-vintage contract can now be populated from the range in a separate ingest shape. HG-002
+is closed; no adapter reads the vintage yet.
 
 PROVIDER CAPABILITY MATRIX (2026-08-18, shadow)
 `src/server/fabric/providerCapability.ts` — what each source can actually tell us, on 13 axes,
@@ -381,9 +386,9 @@ The rule that gives it value is enforced by test: **`SUPPORTED` and `NOT_SUPPORT
 SUPPORTED from one, and worse in effect — it closes an inquiry instead of opening it. Every
 `NOT_VERIFIED` must also name the gate that would clear it, so the matrix doubles as a work list.
 
-Current standing: SEC_EDGAR has live evidence on all 13 axes (6 SUPPORTED, 3 NOT_SUPPORTED, 4
-CONDITIONAL); FRED, ECOS and OpenDART have live evidence on none, and every axis reads
-NOT_VERIFIED behind HG-002/003/004. SEC's cells carry counts rather than adjectives — 912 of 1431
+Current standing (re-measured 2026-09-06 by running the matrix): 28 NOT_VERIFIED, 11 SUPPORTED,
+9 NOT_SUPPORTED, 8 CONDITIONAL across 56 cells. SEC_EDGAR and FRED have live evidence on every
+axis; ECOS and OpenDART have live evidence on none, every axis NOT_VERIFIED behind HG-003/004. SEC's cells carry counts rather than adjectives — 912 of 1431
 facts have a period start and 519 do not; 86 filings and 17 facts carry a `/A` suffix.
 `total_count_evidence` is CONDITIONAL because filings can be counted and facts cannot, which makes
 fact completeness **permanently unconfirmable** rather than merely unconfirmed.
@@ -825,12 +830,17 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2742 / 2742 PASS across 155 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+2742 / 2742 PASS across 156 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
 environment) -- 2723 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
-NOT closed and which the total must not quietly absorb. REMOTE CI run 33547628222 is bound to
-`bb88ded` on `claude/post-rc-followup` and to nothing on this branch; a local green suite does not
-supersede it, and no run is bound to the current HEAD at all — `REMOTE_CI: NONE`, stated rather
-than inherited.
+NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
+`101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
+the last commit before this unit, bound through PR #3 after the approved fast-forward; its
+fifteen configured steps — checkout, Node 22, `npm ci`, Prisma generate and migrate, disposable
+PostgreSQL, format, lint, typecheck, the deterministic suite, build, Playwright and the browser
+E2E walkthrough — are all terminal success. That run belongs to that SHA only; whether a run is
+bound to the CURRENT HEAD is read from GitHub at report time and never inherited. (This paragraph
+said `REMOTE_CI: NONE` from 2026-09-03 until this unit — true when written, stale for two days,
+and corrected here rather than in a standalone commit, per the standing instruction.)
 
 The `TEST_DATABASE_URL` is not discoverable from this worktree: `.env` is gitignored and therefore
 does not exist in a linked `git worktree`, so a bare `npx vitest run` here fails 7 tests on a
@@ -1043,8 +1053,8 @@ All open items are tracked with owner and unblock steps in `docs/HUMAN_GATE_QUEU
    CI, and its own two-SHA attestation. Correctness outranks SHA stability
    (`[CHATGPT_DECISION][MARKET-RESUME-002]` item 4), so the candidate moves rather than the
    findings being deferred.
-2. **FRED / ECOS / OpenDART API keys** (HG-002/003/004, `LIVE_KEY_PENDING`) — user is obtaining
-   all three. When each key lands, run `npm run verify:live:<provider>`, then the full sequence
+2. **ECOS / OpenDART API keys** (HG-003/004, `LIVE_KEY_PENDING`) — user is obtaining both;
+   FRED's arrived 2026-09-06 and HG-002 is RESOLVED with FRED `LIVE_VERIFIED`. When each key lands, run `npm run verify:live:<provider>`, then the full sequence
    before classifying it `LIVE_VERIFIED`: compare the real schema against types/parser/DB, test
    nullability, missing fields, revisions, units, dates, timestamps and pagination, fix any
    drift, add regression tests, do a small real ingest, re-ingest for idempotency, verify

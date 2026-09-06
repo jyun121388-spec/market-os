@@ -69,19 +69,24 @@ describe("every proposal", () => {
 describe("what the matrix currently proposes", () => {
   it("raises verification debt for exactly the providers never seen live", () => {
     const debt = proposals.filter((p) => p.id.startsWith("CAP-DEBT-")).map((p) => p.id);
-    expect(debt.sort()).toEqual(["CAP-DEBT-ECOS", "CAP-DEBT-FRED", "CAP-DEBT-OPENDART"]);
-    // SEC has been observed, so there is nothing to verify and no proposal to make.
+    // FRED left this list on 2026-09-06 (HG-002): every one of its cells now carries live
+    // evidence, so the generator has nothing to propose for it — which is the generator working,
+    // not a control weakened to fit.
+    expect(debt.sort()).toEqual(["CAP-DEBT-ECOS", "CAP-DEBT-OPENDART"]);
+    // SEC and FRED have been observed, so there is nothing to verify and no proposal to make.
     expect(debt).not.toContain("CAP-DEBT-SEC_EDGAR");
+    expect(debt).not.toContain("CAP-DEBT-FRED");
   });
 
   it("raises a ceiling only where a real response established one", () => {
     const ceilings = proposals.filter((p) => p.id.startsWith("CAP-CEILING-")).map((p) => p.id);
-    expect(ceilings).toEqual(["CAP-CEILING-SEC_EDGAR"]);
+    // FRED's ceiling appeared on 2026-09-06 from five NOT_SUPPORTED cells measured live.
+    expect(ceilings.sort()).toEqual(["CAP-CEILING-FRED", "CAP-CEILING-SEC_EDGAR"]);
   });
 
   it("routes each debt proposal to the gate that would clear it", () => {
     const byId = new Map(proposals.map((p) => [p.id, p]));
-    expect(byId.get("CAP-DEBT-FRED")?.blockedBy).toBe("HG-002");
+    expect(byId.get("CAP-DEBT-FRED"), "HG-002 is resolved; no FRED debt to route").toBeUndefined();
     expect(byId.get("CAP-DEBT-ECOS")?.blockedBy).toBe("HG-003");
     expect(byId.get("CAP-DEBT-OPENDART")?.blockedBy).toBe("HG-004");
     // A ceiling is not blocked on anything; nothing external would change it.

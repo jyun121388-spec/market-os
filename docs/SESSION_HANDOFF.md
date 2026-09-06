@@ -201,15 +201,15 @@ version won.
 
 ## External gates
 
-| Gate                        | State                                                                       |
-| --------------------------- | --------------------------------------------------------------------------- |
-| `PUSH_PENDING_AUTH`         | **CLOSED 2026-08-20** (HG-001). Branch pushed, PR #1 open, `gh` authorised. |
-| Independent review          | **CLOSED for Gate A** — `reviews/market-os-final-review.json` vs `6103ad8`. |
-| `FRED_LIVE_KEY_PENDING`     | HG-002. Blocks 13 capability axes and the vintage question for macro.       |
-| `ECOS_LIVE_KEY_PENDING`     | HG-003.                                                                     |
-| `OPENDART_LIVE_KEY_PENDING` | HG-004.                                                                     |
-| HG-009                      | Login-lockout threat model. Fully documented; recommended default stated.   |
-| A1 (signup enumeration)     | Accepted pre-launch posture, not a defect left open. Revisit with HG-009.   |
+| Gate                        | State                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| `PUSH_PENDING_AUTH`         | **CLOSED 2026-08-20** (HG-001). Branch pushed, PR #1 open, `gh` authorised.           |
+| Independent review          | **CLOSED for Gate A** — `reviews/market-os-final-review.json` vs `6103ad8`.           |
+| `FRED_LIVE_KEY_PENDING`     | **CLOSED 2026-09-06** (HG-002). FRED `LIVE_VERIFIED`; 14 axes live; vintage measured. |
+| `ECOS_LIVE_KEY_PENDING`     | HG-003.                                                                               |
+| `OPENDART_LIVE_KEY_PENDING` | HG-004.                                                                               |
+| HG-009                      | Login-lockout threat model. Fully documented; recommended default stated.             |
+| A1 (signup enumeration)     | Accepted pre-launch posture, not a defect left open. Revisit with HG-009.             |
 
 None was faked closed. None blocked other work. The two now closed were both reported open for
 longer than they were: `PUSH_PENDING_AUTH` because a probe could not tell an unauthenticated `gh`

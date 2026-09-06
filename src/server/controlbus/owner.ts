@@ -46,6 +46,32 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
+/**
+ * How far a live process's start time must POSTDATE a legacy record's last heartbeat before the
+ * process is judged a different one.
+ *
+ * IR-128. A record written before IR-075 carries no `owner`, so `ownerLiveness` answered UNKNOWN
+ * for it unconditionally — and UNKNOWN never permits a takeover. That is right while the question
+ * is open, and on 2026-09-06 it stopped being open in a way nobody had considered: a watcher lock
+ * abandoned on 2026-08-25 was still on disk when the OS handed pid 12396 to an unrelated process
+ * twelve days later. Every canonical write then refused, permanently, because a pid that had been
+ * absent all morning became present. Nothing had changed about the dead watcher.
+ *
+ * The record already holds the evidence. `startedAt` is rewritten by every heartbeat, so it is a
+ * moment at which the owner was DEMONSTRABLY RUNNING. A process cannot heartbeat before it exists,
+ * so a live process whose OS start time is later than that heartbeat cannot be the one that wrote
+ * it. That is a proof, not a lease, and it is the only reasoning here that turns UNKNOWN into GONE.
+ *
+ * The margin is enormous on purpose, and it is the unsafe direction that sets it. To conclude GONE
+ * wrongly, the wall clock would have to have stepped BACKWARDS by more than this between the
+ * owner starting and its last heartbeat — then its own heartbeat would predate its own start. NTP
+ * corrections are sub-second; a VM resume or a manual change can be larger. A day is beyond any of
+ * them, still resolves the case this was found by (twelve days) and every stale-lock-across-a-
+ * reboot case, and leaves a same-day pid reuse UNKNOWN — which is a person's question, as it was
+ * before.
+ */
+export const LEGACY_OWNER_PROOF_MARGIN_MS = 24 * 60 * 60 * 1000;
+
 /** A process, and the moment the OS says it started. The pair is the identity; the pid is not. */
 export interface OwnerIdentity {
   pid: number;
@@ -169,7 +195,7 @@ export function selfIdentity(probe: StartProbe = processStart): OwnerIdentity | 
  * ownership — it is the reuse hazard the nonce was already written to avoid — and it blocks.
  */
 export function ownerLiveness(
-  record: { pid: number; owner?: OwnerIdentity } | undefined,
+  record: { pid: number; startedAt?: string; owner?: OwnerIdentity } | undefined,
   probe: StartProbe = processStart,
 ): OwnerLiveness {
   if (!record) return { state: "UNKNOWN", because: "there is no record to judge" };
@@ -180,6 +206,23 @@ export function ownerLiveness(
   if ("unknown" in start) return { state: "UNKNOWN", because: start.unknown };
 
   if (!record.owner) {
+    // A legacy record still carries ONE piece of ownership evidence: the moment its owner was last
+    // demonstrably running. See `LEGACY_OWNER_PROOF_MARGIN_MS`.
+    const lastAlive = record.startedAt === undefined ? NaN : Date.parse(record.startedAt);
+    const nowRunningSince = Date.parse(start.startedAt);
+    if (
+      !Number.isNaN(lastAlive) &&
+      !Number.isNaN(nowRunningSince) &&
+      nowRunningSince - lastAlive > LEGACY_OWNER_PROOF_MARGIN_MS
+    ) {
+      return {
+        state: "GONE",
+        because:
+          `pid ${pid} is running but only since ${start.startedAt}, long after this record was ` +
+          `last refreshed at ${record.startedAt} — a process cannot have written a heartbeat ` +
+          "before it existed, so the id was reused and the owner is gone",
+      };
+    }
     return {
       state: "UNKNOWN",
       because:

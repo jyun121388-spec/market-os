@@ -884,8 +884,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2780 / 2780 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2761 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2791 / 2791 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2772 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

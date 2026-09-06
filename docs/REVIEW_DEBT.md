@@ -3623,3 +3623,98 @@ the Evolution generator has no rule for a CONDITIONAL capability cell. It builds
 NOT_VERIFIED cells (debt) and NOT_SUPPORTED cells (ceiling), and FRED's five CONDITIONAL cells —
 capabilities measured on the wire and absent from what the default query stores — generate nothing
 at all. That is a disjoint, non-gated, credential-free gap, and it is the next node.
+
+## IR-128 — a pid the OS gave to somebody else, and a recovery path that announced what it had not done
+
+Found in production, mid-session, not by review: the completion marker for IR-127 could not be
+posted. `withCanonicalWriteAuthority` refused with
+
+    the lock (pid 12396, nonce 12396-25g58rewg) is UNKNOWN: pid 12396 is running, but the record
+    carries no process identity — this may be the original owner or an unrelated process that was
+    given the same id
+
+Three outbound posts had gone through the same path that same morning, at 07:52Z, 08:19Z and
+08:30Z. Nothing about the watcher had changed between them and the refusal.
+
+### What was actually happening
+
+    watcher.lock.json   { pid: 12396, startedAt: "2026-08-25T10:33:52.072Z", nonce: "12396-…" }
+                        no `owner` — written before IR-075
+    watcher.log         last line 2026-08-25 19:33 local, twelve days old
+    pid 12396 today     codex-code-mode-host.exe, OS start 2026-09-06T10:05:26.805Z
+
+The watcher died on 2026-08-25 leaving its lock behind. All morning pid 12396 was free, so
+`processStart` said `gone`, `ownerLiveness` said GONE, and the abandoned lock was correctly ignored.
+At 10:05Z the OS handed that pid to an unrelated process — the Codex host from this session's own
+read-only pass — and from that instant the lock read UNKNOWN, which never permits a takeover. Every
+canonical write was wedged behind a process that had nothing to do with the control bus, and would
+have stayed wedged until a person removed the file.
+
+Probed five times: deterministic, not a race. The behaviour is correct by IR-075's rule. The rule
+was simply incomplete for the records that predate it.
+
+### The evidence was already in the record
+
+`heartbeat()` writes `{ ...record, startedAt: at }`, so `LockRecord.startedAt` is the LAST HEARTBEAT
+— a moment at which the owner was demonstrably running. A process cannot write a heartbeat before
+it exists. So a live process whose OS start time postdates that heartbeat cannot be the one that
+wrote it, and that is a proof rather than a lease: no elapsed-time reasoning, no health signal
+standing in for ownership, which is exactly what IR-075 forbade.
+
+`ownerLiveness` now applies it in the one branch that had nothing else to go on — a record with no
+`owner`. Records that DO carry an identity are untouched and still take precedence: an exact match
+is ALIVE however old the heartbeat, a mismatch is GONE however recent.
+
+The margin is a full day, and the unsafe direction sets it. To conclude GONE wrongly the wall clock
+would have to have stepped BACKWARDS by more than the margin between the owner starting and its
+last heartbeat, so that its own heartbeat predated its own start. NTP corrections are sub-second; a
+VM resume or a manual change can be larger. A day is past all of them, resolves the twelve-day case
+and every stale-lock-across-a-reboot case, and deliberately leaves a same-day pid reuse UNKNOWN —
+still a person's question, as it was before.
+
+### The second defect, found while looking for the sanctioned recovery
+
+`scripts/control-bus.ts stop()`, on a lock whose owner is GONE:
+
+    releaseLock(paths);
+    console.log(`Stale lock for pid ${lock.pid} removed — its process is gone.`);
+
+`releaseLock` returns immediately when it has no `record` — `if (!record) return;`. So the operator
+recovery path removed nothing and reported that it had. The guard is itself correct and was added
+deliberately, because an unconditional delete behind a default argument had been "a live-lock
+destroyer"; the caller was never updated to match, so a safety fix turned a working call into a
+silent no-op with a truthful-sounding message. Two halves that each work with nothing joining them,
+and this repository's own recurring shape.
+
+`releaseAbandonedLock()` is the missing operation, deliberately separate from `releaseLock` because
+they are different things that only look alike: `releaseLock` hands back a lock we hold and matches
+our nonce and our mutation right, which an abandoned lock fails by definition. The new one decides
+by `ownerLiveness` and nothing else, re-reads the record under the mutation right and matches it by
+nonce, so a lock replaced between the decision and the delete is left alone. `stop()` now reports
+what happened, and on UNKNOWN it refuses both signalling and removal and tells the operator the two
+timestamps to compare.
+
+### Controls
+
+Eleven, in `tests/ownerLease.test.ts`, all deterministic-probe: the real incident to the
+millisecond; a live process predating the heartbeat stays UNKNOWN; the margin boundary in both
+directions; a record with an identity ignores the heartbeat rule entirely; a missing or unparseable
+heartbeat stays UNKNOWN; absent pid still GONE and an unreadable probe still UNKNOWN; and for the
+recovery — removes a proven-gone lock naming the proof, refuses an UNKNOWN one and an ALIVE one with
+the file byte-identical afterwards, says so when there is nothing to recover, and pins that
+`releaseLock(paths)` with no record still removes nothing, so the live-lock destroyer cannot return
+through the repair.
+
+Verified load-bearing rather than assumed: with the legacy proof removed, three of them go red —
+the incident control, the margin control and the recovery control — and green again with it.
+
+### What it unblocked, and what it did not
+
+The abandoned lock is now judged `GONE` with a reason a person can check, so the canonical write
+path recovered on its own and the IR-127 marker went out. No lock file was deleted by hand; an
+attempt to do so was refused by this environment's guardrail, which was the right call and is what
+sent the investigation into the code instead.
+
+Not changed: UNKNOWN still blocks a takeover, and it still needs a person whenever the record gives
+no way to decide. The residual IR-075 named — a wedged-but-live watcher holds the channel until
+someone intervenes — is untouched and is still the direction to fail in.

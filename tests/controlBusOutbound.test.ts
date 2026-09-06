@@ -16,6 +16,24 @@ import {
 } from "@/server/controlbus/state";
 import { storePaths, writeState } from "@/server/controlbus/store";
 import { processStart, selfIdentity } from "@/server/controlbus/owner";
+
+/**
+ * A heartbeat this very process could plausibly have written.
+ *
+ * IR-128. These fixtures paired a hard-coded past date with `process.pid`, and that pairing is
+ * IMPOSSIBLE: the live process cannot have refreshed a lock days before it started. Nothing
+ * noticed while no rule could read the contradiction. Once `ownerLiveness` learned to compare the
+ * two, the fixtures stopped meaning "unjudgeable" and started meaning "provably a different
+ * process" -- a different control, silently substituted.
+ *
+ * Deriving the heartbeat from the OS's own answer restores the intent exactly: this record could
+ * have been written by this process, so nothing proves it is ours and nothing proves it is not.
+ */
+function heartbeatThisProcessCouldHaveWritten(): string {
+  const start = processStart(process.pid);
+  return "startedAt" in start ? start.startedAt : new Date().toISOString();
+}
+
 import { spawn, type ChildProcess } from "node:child_process";
 import { controlBusStanding } from "../scripts/inbox-triage";
 
@@ -326,7 +344,9 @@ describe("what happens while the remote call is in flight", () => {
   const writeLock = (root: string, pid: number, nonce: string) =>
     writeFileSync(
       join(root, "watcher.lock.json"),
-      JSON.stringify({ pid, startedAt: "2026-09-02T00:00:00.000Z", nonce }),
+      // The live process's own start, not the frozen scene clock: see
+      // `heartbeatThisProcessCouldHaveWritten`.
+      JSON.stringify({ pid, startedAt: heartbeatThisProcessCouldHaveWritten(), nonce }),
       "utf8",
     );
 
@@ -463,7 +483,10 @@ describe("ownership replaced between taking the write right and reading it back"
             join(root, "watcher.lock.json"),
             JSON.stringify({
               pid: process.pid,
-              startedAt: "2026-09-02T00:00:00.000Z",
+              // Not the frozen scene clock: this record has no `owner`, so the heartbeat is the
+              // only ownership evidence in it, and a date days before this process started would
+              // make it provably somebody else rather than unjudgeable (IR-128).
+              startedAt: heartbeatThisProcessCouldHaveWritten(),
               nonce: "a-successor",
             }),
             "utf8",
@@ -713,7 +736,11 @@ describe("the post-right recheck uses the same ownership rule as everything else
     // either, which is the same lesson the lease-eviction mutant taught one layer up.
     const foreign = {
       pid: process.pid,
-      startedAt: new Date(Date.parse(NOW) - 45_000 * 10).toISOString(),
+      // IR-128: still LAPSED against the frozen `NOW` — a heartbeat that clock has not reached is
+      // not a current one, and `lockIsStale` says so — but no longer dated before this process
+      // began, which would have made it provably a different process and quietly turned this into
+      // a control about something else.
+      startedAt: heartbeatThisProcessCouldHaveWritten(),
       nonce: "an-unjudgeable-successor",
     };
     const written = JSON.stringify(foreign);

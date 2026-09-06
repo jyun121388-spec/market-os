@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  LEGACY_OWNER_PROOF_MARGIN_MS,
   ownerLiveness,
   parseProcStat,
   processStart,
@@ -14,6 +15,7 @@ import {
   acquireLock,
   heartbeat,
   readLock,
+  releaseAbandonedLock,
   releaseLock,
   storePaths,
   type LockRecord,
@@ -402,5 +404,145 @@ describe("reading a process state out of /proc", () => {
 
   it("refuses a line it cannot read rather than inventing a start time", () => {
     expect(parseProcStat("4242 (node) S 1 2 3", 4242)).toHaveProperty("unknown");
+  });
+});
+
+/**
+ * IR-128: a legacy record can still be proved gone, and a pid reuse must not wedge the channel.
+ *
+ * Found in production on 2026-09-06, not by review. A watcher lock abandoned on 2026-08-25 — a
+ * pre-IR-075 record, so no `owner` — was still on disk when the OS handed its pid to an unrelated
+ * process twelve days later. `ownerLiveness` answered UNKNOWN, correctly by its own rule, and every
+ * canonical write refused from that moment on. Three outbound posts had succeeded that same morning
+ * while the pid happened to be free; nothing about the dead watcher had changed in between.
+ *
+ * The record already held the evidence. `startedAt` is rewritten by every heartbeat, so it is a
+ * moment the owner was demonstrably running, and a process cannot heartbeat before it exists.
+ */
+describe("a legacy lock record, and a pid the OS handed to somebody else", () => {
+  const at =
+    (iso: string): StartProbe =>
+    () => ({ startedAt: iso });
+  const HEARTBEAT = "2026-08-25T10:33:52.072Z";
+  /** No `owner`: exactly the shape written before IR-075. */
+  const legacy = { pid: 12396, startedAt: HEARTBEAT, nonce: "12396-25g58rewg" };
+
+  it("proves GONE when the live process started long after the last heartbeat", () => {
+    // The real incident, to the millisecond.
+    const liveness = ownerLiveness(legacy, at("2026-09-06T10:05:26.8055618Z"));
+    expect(liveness.state).toBe("GONE");
+    // The reason has to be checkable by a person, because a person is who overrode it before.
+    expect(liveness.because).toContain("2026-09-06T10:05:26.8055618Z");
+    expect(liveness.because).toContain(HEARTBEAT);
+  });
+
+  it("stays UNKNOWN when the live process predates the heartbeat, because it may be the owner", () => {
+    // The ordinary case the UNKNOWN rule exists for: this really could be the original watcher.
+    const liveness = ownerLiveness(legacy, at("2026-08-25T09:00:00.000Z"));
+    expect(liveness.state).toBe("UNKNOWN");
+    expect(liveness.because).toContain("no process identity");
+  });
+
+  it("stays UNKNOWN inside the margin, so a clock correction cannot evict a live owner", () => {
+    // One hour after the last heartbeat is well within a plausible backwards clock step, and a
+    // backwards step is the only way a live owner's start could postdate its own heartbeat. The
+    // margin is a day precisely so this answer is UNKNOWN rather than GONE.
+    const hourLater = new Date(Date.parse(HEARTBEAT) + 60 * 60 * 1000).toISOString();
+    expect(ownerLiveness(legacy, at(hourLater)).state).toBe("UNKNOWN");
+    const dayAndABit = new Date(
+      Date.parse(HEARTBEAT) + LEGACY_OWNER_PROOF_MARGIN_MS + 60_000,
+    ).toISOString();
+    expect(ownerLiveness(legacy, at(dayAndABit)).state).toBe("GONE");
+  });
+
+  it("does not reach for the heartbeat when the record carries a real identity", () => {
+    // The IR-075 path is unchanged and takes precedence: an exact match is ALIVE however old the
+    // heartbeat is, and a mismatch is GONE however recent it is. The legacy rule is a fallback for
+    // records that have no identity, never a second opinion about ones that do.
+    const owned = { ...legacy, owner: { pid: 12396, startedAt: "2026-08-25T10:00:00.000Z" } };
+    expect(ownerLiveness(owned, at("2026-08-25T10:00:00.000Z")).state).toBe("ALIVE");
+    expect(ownerLiveness(owned, at("2026-09-06T10:05:26.8055618Z")).state).toBe("GONE");
+  });
+
+  it("stays UNKNOWN when there is no heartbeat to reason from", () => {
+    const { startedAt: _dropped, ...noHeartbeat } = legacy;
+    expect(ownerLiveness(noHeartbeat, at("2026-09-06T10:05:26.805Z")).state).toBe("UNKNOWN");
+    expect(
+      ownerLiveness({ ...legacy, startedAt: "not a date" }, at("2026-09-06T10:05:26.805Z")).state,
+    ).toBe("UNKNOWN");
+  });
+
+  it("still calls an absent pid gone, and an unreadable probe unknown", () => {
+    expect(ownerLiveness(legacy, () => ({ gone: true })).state).toBe("GONE");
+    expect(ownerLiveness(legacy, () => ({ unknown: "the platform refused" })).state).toBe(
+      "UNKNOWN",
+    );
+  });
+});
+
+/**
+ * IR-128: `stop()` announced a removal it had not performed.
+ *
+ * `releaseLock(paths)` with no record returns immediately — a guard added deliberately, because an
+ * unconditional delete behind a default argument had been "a live-lock destroyer". The guard was
+ * added without updating `scripts/control-bus.ts stop()`, which passes no record, so the recovery
+ * path became a no-op that printed "Stale lock for pid N removed — its process is gone". Two halves
+ * that each work, with nothing joining them, and the operator is told the opposite of the truth.
+ */
+describe("recovering a lock whose owner is proven gone", () => {
+  const lockRecord = (nonce: string): LockRecord => ({
+    pid: 4242,
+    startedAt: "2026-08-25T10:33:52.072Z",
+    nonce,
+  });
+  const startedLongAfter: StartProbe = () => ({ startedAt: "2026-09-06T10:05:26.805Z" });
+
+  it("removes it, and says which proof allowed that", () => {
+    writeFileSync(paths.lock, JSON.stringify(lockRecord("abandoned"), null, 2), "utf8");
+    const outcome = releaseAbandonedLock(paths, Date.now(), startedLongAfter);
+    expect(outcome.removed).toBe(true);
+    expect(outcome.removed && outcome.because).toContain("cannot have written a heartbeat");
+    expect(existsSync(paths.lock)).toBe(false);
+  });
+
+  it("refuses a lock whose owner cannot be judged, and leaves the file untouched", () => {
+    writeFileSync(paths.lock, JSON.stringify(lockRecord("unjudgeable"), null, 2), "utf8");
+    const before = readFileSync(paths.lock, "utf8");
+    const outcome = releaseAbandonedLock(paths, Date.now(), () => ({
+      startedAt: "2026-08-25T09:00:00.000Z",
+    }));
+    expect(outcome.removed).toBe(false);
+    expect(outcome.removed === false && outcome.reason).toContain("UNKNOWN");
+    // The witness, not just the verdict.
+    expect(readFileSync(paths.lock, "utf8")).toBe(before);
+  });
+
+  it("refuses a lock whose owner is alive", () => {
+    const owned: LockRecord = {
+      ...lockRecord("live"),
+      owner: { pid: 4242, startedAt: "2026-08-25T10:00:00.000Z" },
+    };
+    writeFileSync(paths.lock, JSON.stringify(owned, null, 2), "utf8");
+    const outcome = releaseAbandonedLock(paths, Date.now(), () => ({
+      startedAt: "2026-08-25T10:00:00.000Z",
+    }));
+    expect(outcome.removed).toBe(false);
+    expect(outcome.removed === false && outcome.reason).toContain("ALIVE");
+    expect(existsSync(paths.lock)).toBe(true);
+  });
+
+  it("says so when there is nothing to recover", () => {
+    const outcome = releaseAbandonedLock(paths, Date.now(), startedLongAfter);
+    expect(outcome.removed).toBe(false);
+    expect(outcome.removed === false && outcome.reason).toContain("no lock");
+  });
+
+  it("pins the guard that made the old caller a no-op", () => {
+    // `releaseLock` without a record must keep removing nothing. That is correct in itself; the
+    // defect was a caller relying on it to remove something. If this ever starts deleting, the
+    // live-lock destroyer is back.
+    writeFileSync(paths.lock, JSON.stringify(lockRecord("not-ours"), null, 2), "utf8");
+    releaseLock(paths);
+    expect(existsSync(paths.lock)).toBe(true);
   });
 });

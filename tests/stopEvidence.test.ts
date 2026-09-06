@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evaluateStopSentinel, scheduleNextWork } from "@/server/evolution/scheduler";
-import { selfIdentity } from "@/server/controlbus/owner";
+import { processStart, selfIdentity } from "@/server/controlbus/owner";
 import { gatherStopEvidence, HEARTBEAT_STALE_MS } from "../scripts/stop-evidence";
 import { type GitOracle, triageInbox } from "../scripts/inbox-triage";
 import { bodyDigest, CONTROL_BUS_REPOSITORY } from "@/server/controlbus/state";
@@ -223,11 +223,16 @@ describe("gathering evidence for the stop sentinel", () => {
     // STOPPED, because "we cannot tell" must not read as "nothing is running".
     withRoot((root) => {
       const now = Date.parse("2026-09-01T12:00:00Z");
+      // IR-128: the heartbeat is this process's own OS start, not `now - 1s`. A hard-coded past
+      // date beside a LIVE pid is an impossible pairing — a process cannot refresh a lock before
+      // it exists — and once `ownerLiveness` could read that, this fixture stopped meaning
+      // "unjudgeable" and started meaning "provably someone else".
+      const selfStart = processStart(process.pid);
       writeFileSync(
         join(root, "watcher.lock.json"),
         JSON.stringify({
           pid: process.pid,
-          startedAt: new Date(now - 1_000).toISOString(),
+          startedAt: "startedAt" in selfStart ? selfStart.startedAt : new Date(now).toISOString(),
           nonce: "legacy",
         }),
         "utf8",

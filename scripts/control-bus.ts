@@ -26,6 +26,7 @@ import {
   loadState,
   logLine,
   readLock,
+  releaseAbandonedLock,
   releaseLock,
   storePaths,
 } from "@/server/controlbus/store";
@@ -211,9 +212,28 @@ function stop(): void {
     console.log("No watcher lock present; nothing to stop.");
     return;
   }
-  if (ownerLiveness(lock).state === "GONE") {
-    releaseLock(paths);
-    console.log(`Stale lock for pid ${lock.pid} removed — its process is gone.`);
+  const liveness = ownerLiveness(lock);
+  if (liveness.state === "GONE") {
+    // IR-128: this said `releaseLock(paths)`, which returns immediately without a record and so
+    // removed nothing, while the line below announced that it had. Reported, not inferred.
+    const outcome = releaseAbandonedLock(paths);
+    if (outcome.removed) {
+      console.log(`Stale lock for pid ${lock.pid} removed — ${outcome.because}`);
+    } else {
+      console.error(`Stale lock for pid ${lock.pid} was NOT removed: ${outcome.reason}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (liveness.state === "UNKNOWN") {
+    // Neither signalling nor removing is safe here, and saying so is the whole point.
+    console.error(
+      `Watcher lock for pid ${lock.pid} cannot be judged: ${liveness.because}\n` +
+        "Not signalled and not removed. Confirm by hand whether a watcher is running — compare " +
+        `this record's last refresh (${lock.startedAt}) with what the OS says about pid ` +
+        `${lock.pid} — and remove ${paths.lock} only once you are sure.`,
+    );
+    process.exitCode = 1;
     return;
   }
   try {

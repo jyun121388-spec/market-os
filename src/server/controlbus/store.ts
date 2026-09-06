@@ -363,6 +363,63 @@ export function heartbeat(
   return result ?? false;
 }
 
+/** What an abandoned-lock recovery did, or why it did nothing. */
+export type AbandonedLockOutcome =
+  | { removed: true; record: LockRecord; because: string }
+  | { removed: false; reason: string; record?: LockRecord };
+
+/**
+ * Removes a lock whose owner is PROVEN gone. Never one that is alive, and never one in doubt.
+ *
+ * IR-128, and the reason it is its own function rather than an argument to `releaseLock`: those
+ * are two different operations that only look alike. `releaseLock` hands back a lock we hold, and
+ * refuses anything else — it checks our nonce and our mutation right, which an abandoned lock by
+ * definition fails. `scripts/control-bus.ts stop()` called it for exactly that case, with the
+ * record omitted, and `releaseLock` returns immediately when it has no record to match. So the
+ * operator was told "Stale lock for pid N removed — its process is gone" while the file stayed
+ * where it was. The guard that made `releaseLock` safe was added without updating this caller, and
+ * a no-op behind a truthful-sounding message is worse than the unconditional delete it replaced.
+ *
+ * Ownership is decided by `ownerLiveness` and by nothing else: not by the heartbeat, which is a
+ * health signal, and not by elapsed time, which IR-075 established says nothing about ownership.
+ * The record is re-read under the mutation right and matched by nonce, so a lock replaced between
+ * the decision and the delete is left alone.
+ */
+export function releaseAbandonedLock(
+  paths: StorePaths,
+  nowMs: number = Date.now(),
+  probe: StartProbe = processStart,
+): AbandonedLockOutcome {
+  const held = readLock(paths);
+  if (!held) return { removed: false, reason: "no lock is present" };
+
+  const liveness = ownerLiveness(held, probe);
+  if (liveness.state !== "GONE") {
+    return {
+      removed: false,
+      record: held,
+      reason: `the owner is ${liveness.state}, not proven gone: ${liveness.because}`,
+    };
+  }
+
+  const claim: LockRecord = {
+    pid: process.pid,
+    startedAt: new Date(nowMs).toISOString(),
+    nonce: `recover-${process.pid}-${nowMs}`,
+  };
+  const done = withMutation(paths, claim, HEARTBEAT_STALE_MS, nowMs, probe, () => {
+    // Re-read under the right. Anything else now owning this file is not the record we judged.
+    const during = readLock(paths);
+    if (!during || during.nonce !== held.nonce) return false;
+    removeIfPresent(paths.lock);
+    return true;
+  });
+
+  return done
+    ? { removed: true, record: held, because: liveness.because }
+    : { removed: false, record: held, reason: "the lock changed while the write right was taken" };
+}
+
 export function readLock(paths: StorePaths): LockRecord | null {
   if (!existsSync(paths.lock)) return null;
   try {

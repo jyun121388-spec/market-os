@@ -16,8 +16,10 @@ landed: `npx tsx scripts/next-work.ts` is the canonical queue path and establish
 before asking the scheduler. Both on `claude/ask-guardrail-architecture-20260823`; PR #3 not moved.
 M11 (the full tracked-series FRED ingest) ran the same day: 8 of 8 regime axes with data. The
 provider-key granularity escalation was decided and applied the same day as IR-127 (Option A:
-per-provider key facts). Next: the Evolution generator has no rule for a CONDITIONAL capability
-cell, which is why FRED's vintage work generates no proposal (`docs/CURRENT_TASK.md`).
+per-provider key facts), and IR-128 followed from a real incident: a recycled pid wedged the
+control bus shut behind a pre-IR-075 lock. Next: the Evolution generator has no rule for a
+CONDITIONAL capability cell, which is why FRED's vintage work generates no proposal
+(`docs/CURRENT_TASK.md`).
 
 `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
 closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`

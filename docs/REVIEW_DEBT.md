@@ -3718,3 +3718,103 @@ sent the investigation into the code instead.
 Not changed: UNKNOWN still blocks a takeover, and it still needs a person whenever the record gives
 no way to decide. The residual IR-075 named — a wedged-but-live watcher holds the channel until
 someone intervenes — is untouched and is still the direction to fail in.
+
+## IR-129 — the third capability state, which generated nothing
+
+`[CHATGPT_DECISION][MARKET-CONDITIONAL-CAPABILITY-PROPOSAL-20260906]` authorised the node IR-127's
+closeout had localized. The Evolution generator had a rule for `NOT_VERIFIED` (verification debt)
+and one for `NOT_SUPPORTED` (a ceiling that should stop generating work) and none at all for
+`CONDITIONAL`.
+
+### Reproduced before repairing
+
+    FRED         5 CONDITIONAL cells, every one LIVE_RESPONSE — source_release_time,
+                 provider_revision_identity, provider_vintage_time, revision_history,
+                 source_provenance, all naming the realtime range
+    SEC_EDGAR    3 CONDITIONAL cells, every one LIVE_RESPONSE
+    generator    emits CAP-CEILING-SEC_EDGAR, CAP-CEILING-FRED, CAP-DEBT-ECOS, CAP-DEBT-OPENDART
+    FRED-named actions reaching the scheduler: 0
+
+HG-002 closed every FRED `NOT_VERIFIED` cell, so `CAP-DEBT-FRED` correctly stopped being generated;
+five CONDITIONAL cells replaced it and generated nothing. M11 then measured six Macro Regime axes
+reading `SEMANTIC_REVISION_UNRESOLVED` for exactly the reason those cells describe. The one piece of
+work every measurement in that session pointed at was absent from the task graph, and the scheduler
+reported `NO_SAFE_MEANINGFUL_NODE` while a meaningful node existed and could not be seen.
+
+### The contract, narrowly
+
+`CONDITIONAL` is neither of the other two. It says the capability was MEASURED AVAILABLE, on a real
+response, under a stated limitation — a data shape nothing currently asks for. It is the one state
+where the provider can already do what is needed and we are not asking. `conditionalFollowUpProposal`
+turns that into a bounded follow-up: request the shape the cells already name, store what comes back,
+re-measure the cell afterwards rather than assuming it changed. It proposes no new provider semantics
+and reclassifies nothing.
+
+Eligibility is MECHANICAL and no per-cell judgement is encoded: a cell qualifies only when its
+provenance is `LIVE_RESPONSE`. "Measured available under a limitation" is a claim about a real
+response, and a CONDITIONAL transcribed from documentation would be an assumption generating work
+for itself — the PROVIDER_ASSUMPTION cluster's own failure mode, reproduced inside the generator
+meant to notice it. Today every CONDITIONAL cell in the matrix is LIVE_RESPONSE, so the rule changes
+no output; it is there for the first one that is not, and a mutant proves nothing else would catch
+that.
+
+The provider identity is DERIVED from the profile with the same `keyedProviderOf` the
+verification-debt proposal uses, so IR-127 governs it unchanged: named FRED work is answered from
+FRED's own key, a forged or unrecognised identity fails closed, and an unnamed action keeps the
+conservative conjunction.
+
+### What the two repairs do together
+
+    no keys           ACTIONABLE 0 / DEFERRED 6   CAP-FOLLOWUP-FRED blocked, reason names FRED
+    FRED key present  ACTIONABLE 1 / DEFERRED 5   CAP-FOLLOWUP-FRED, and nothing else
+
+Neither repair produces that alone. IR-127 stopped an absent ECOS key from holding FRED work;
+IR-129 put the FRED work in the graph. ECOS and OpenDART are untouched and still behind
+HG-003/004, and the generated proposal is a candidate rather than a permission — scheduler and
+Human-Gate policy still decide, which four of the controls assert directly.
+
+### Controls and mutants
+
+Nine controls added: the follow-up names exactly the axes the matrix marks CONDITIONAL and invents
+no scope for itself; the three states do not collapse (the ceiling still names only NOT_SUPPORTED
+axes); the identity is derived, not labelled; a documentation-only CONDITIONAL generates nothing; a
+provider with no conditional cells generates nothing; and at the boundary — blocked on its own
+provider's key with the reason naming it, startable on that key alone, a forged identity never
+runnable, and IR-127's unnamed conjunction still pinned.
+
+Five mutants, all ISOLATED, unrelated 79/79 green (run `8458a424099d`). Two of five predictions were
+wrong, both over-counting, and the misses are the useful part:
+
+    M-COND-EDGE-REMOVED          predicted 7, measured 6
+    M-COND-ALIASED-UNSUPPORTED   predicted 3, measured 1
+    M-COND-PROVENANCE-IGNORED    predicted 1, measured 1
+    M-COND-IDENTITY-STRIPPED     predicted 3, measured 3
+    M-COND-IDENTITY-FORGED       predicted 3, measured 3
+
+Aliasing CONDITIONAL to NOT_SUPPORTED reddens exactly ONE control — the one that enumerates the
+axes. The states-must-not-collapse control does not fire, because it asserts what the CEILING
+contains and the ceiling is untouched. So a single control stands between this repository and a
+silent merge of two capability states, and now that is written down where the next person to
+simplify it will read it.
+
+The first run also reported `M-COND-EDGE-REMOVED` as CAUGHT-BUT-BROAD. The verdict was right and
+the classification was wrong: the scheduler's convergence control now enumerates the generated ids,
+so it binds this contract rather than sitting beside it. Moved to BINDING and recorded, because
+moving a suite to make a verdict prettier is the tempting version of that edit.
+
+### One stale control found on the way
+
+`has converged: nothing startable, four items gated on provider keys` used `arrayContaining`, so it
+stayed green while its name said four and its own comment said five, and it survived this unit
+adding a sixth. A convergence control that cannot notice the queue changing is not one. It now
+asserts the exact set of six ids, so the next change has to come back and say what it did.
+
+### The limitation this exposed, recorded and not self-approved
+
+`CAP-FOLLOWUP-SEC_EDGAR` is generated and is deferred as `CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY`
+— for a provider that issues no key. SEC EDGAR is free AND keyless, so it is deliberately not in
+`KEYED_PROVIDERS`, its derived identity is `undefined`, and an unnamed action falls back to the
+conjunction, which is currently false. The block is conservative rather than dangerous, and it is
+the same aliasing shape IR-127 removed, one category out: a keyless provider's work held by
+credentials it does not need. Widening the contract to express "this provider needs no key" is a
+policy change and is escalated rather than taken here.

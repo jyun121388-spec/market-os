@@ -18,8 +18,8 @@ M11 (the full tracked-series FRED ingest) ran the same day: 8 of 8 regime axes w
 provider-key granularity escalation was decided and applied the same day as IR-127 (Option A:
 per-provider key facts), and IR-128 followed from a real incident: a recycled pid wedged the
 control bus shut behind a pre-IR-075 lock. Next: the Evolution generator has no rule for a
-CONDITIONAL capability cell, which is why FRED's vintage work generates no proposal
-(`docs/CURRENT_TASK.md`).
+CONDITIONAL capability cell — closed the same day as IR-129, so `CAP-FOLLOWUP-FRED` is now in the task graph and is
+startable with the HG-002 key exported. Next: that follow-up ingest (`docs/CURRENT_TASK.md`).
 
 `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
 closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`

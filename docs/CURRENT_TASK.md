@@ -49,14 +49,21 @@ unestablished; it is done now.
 provider's own established key fact; one that names none keeps the conjunction. The aliasing is
 gone, and the live queue did not move, because no generated proposal names FRED.
 
-**Exact next action.** The queue still says `NO_SAFE_MEANINGFUL_NODE`, and the gate on the
-FRED-vintage unit is now a different and much smaller one than the escalation reported. The
-Evolution generator builds a proposal from a `NOT_VERIFIED` cell (verification debt) and from a
-`NOT_SUPPORTED` cell (structural ceiling). It has no rule for a `CONDITIONAL` cell — a capability
-measured on the wire and absent from what the default query stores — and FRED has five of them.
-So the one piece of work every measurement this session pointed at generates no proposal at all,
-which is why nothing names FRED. Closing that gap is disjoint from the key contract, needs no
-credential and no provider call, is derived purely from the matrix, and is the next node.
+**That gap was decided and closed the same day** as IR-129
+(`[CHATGPT_DECISION][MARKET-CONDITIONAL-CAPABILITY-PROPOSAL-20260906]`): the generator now emits a
+bounded follow-up for a provider whose capabilities include a measured `CONDITIONAL` cell.
+
+**Exact next action.** `CAP-FOLLOWUP-FRED` — request the realtime range the five CONDITIONAL cells
+name, store the vintages, and re-measure the cells afterwards rather than assuming they changed.
+It is in the task graph now and the scheduler makes it startable the moment `FRED_API_KEY` is
+exported (the key granted under HG-002; no new credential, no account action). Without it exported
+the queue is `ACTIONABLE 0 / DEFERRED 6` and this item reads `BLOCKED_PROVIDER_KEY` naming FRED.
+It is ordinary non-gated work, not a decision — but it is a real ingest shape, so it wants its own
+unit rather than being tacked onto a closeout.
+
+Two things recorded and deliberately NOT taken here. `CAP-FOLLOWUP-SEC_EDGAR` is generated and
+conservatively blocked on a key SEC EDGAR does not issue — a keyless-provider contract question,
+escalated. And ECOS/OpenDART remain behind HG-003/004.
 
 **Before that, 2026-09-01 — a run of audit units, and the pattern in them matters more than any one.**
 `23e716b` → `f1e3293`. No product code changed in ANY of them: V1 is frozen except for a reproduced

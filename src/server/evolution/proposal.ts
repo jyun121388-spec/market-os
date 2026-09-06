@@ -223,6 +223,84 @@ function structuralLimitationProposal(profile: ProviderCapabilityProfile): Propo
 }
 
 /**
+ * One proposal per provider whose measured capabilities include a CONDITIONAL cell.
+ *
+ * The third state, and the one the generator had no rule for. `NOT_VERIFIED` says nobody has
+ * looked, and produces verification debt. `NOT_SUPPORTED` says the provider does not offer it, and
+ * produces a ceiling that should stop generating work. `CONDITIONAL` says something different from
+ * both: the capability was MEASURED AVAILABLE, on a real response, but only under a stated
+ * limitation — a data shape nothing currently asks for. That is neither debt nor a ceiling. It is
+ * the one state where the provider can already do what we need and we are not asking.
+ *
+ * Found by measurement rather than by review, on 2026-09-06. HG-002 closed every FRED
+ * `NOT_VERIFIED` cell, so `CAP-DEBT-FRED` correctly stopped being generated; FRED's five
+ * `CONDITIONAL` cells generated nothing in its place, and M11 then measured six Macro Regime axes
+ * reading `SEMANTIC_REVISION_UNRESOLVED` for exactly the reason those cells describe. The one piece
+ * of work every measurement pointed at was absent from the task graph, so the scheduler reported
+ * `NO_SAFE_MEANINGFUL_NODE` while a meaningful node existed.
+ *
+ * ELIGIBILITY IS MECHANICAL, and deliberately so. A cell qualifies only when its provenance is
+ * `LIVE_RESPONSE`: "measured available under a limitation" is a claim about a real response, and a
+ * CONDITIONAL transcribed from documentation would be an assumption generating work for itself —
+ * the PROVIDER_ASSUMPTION cluster's own failure mode. No per-cell judgement is encoded here; the
+ * matrix decides, as it does for the other two states.
+ */
+function conditionalFollowUpProposal(profile: ProviderCapabilityProfile): Proposal | null {
+  const conditional = axesWhere(
+    profile,
+    (axis) =>
+      profile.axes[axis].state === "CONDITIONAL" &&
+      profile.axes[axis].provenance === "LIVE_RESPONSE",
+  );
+  if (conditional.length === 0) return null;
+
+  return {
+    id: `CAP-FOLLOWUP-${profile.sourceCode}`,
+    observation:
+      `${profile.sourceCode} supplies ${conditional.length} of ${CAPABILITY_AXES.length} ` +
+      "capability axes CONDITIONALLY: each was observed on a real response, and each is available " +
+      `only under a stated limitation — ${conditional.join(", ")}. Nothing in the system requests ` +
+      "the shape that would capture them.",
+    evidence: conditional.map((axis) => ({
+      standing: "OBSERVED" as const,
+      statement: `${axis}: ${profile.axes[axis].basis}`,
+      source: `providerCapability.ts — ${profile.sourceCode}.${axis}`,
+    })),
+    systemicWeakness: "SEMANTIC_RECENCY",
+    hypothesis:
+      "A capability the provider already offers, and that no call requests, is indistinguishable " +
+      "downstream from one the provider does not have — so every layer reports the absence as a " +
+      "limitation of the provider rather than of our own query.",
+    prediction:
+      "Verify will keep returning UNRESOLVED or an equivalent open verdict for the dimensions " +
+      `these axes feed, and the reason will be recorded against ${profile.sourceCode} rather than ` +
+      "against the query shape that could have avoided it.",
+    falsifiedBy:
+      "The same dimensions resolving without any change to what is requested from the provider.",
+    proposedChange:
+      "Request the documented shape these cells name and store what comes back, so a measured " +
+      "capability stops being an unrecorded one. Bounded to the shape the matrix already names: " +
+      "this proposes no new provider semantics and no reclassification of any cell.",
+    expectedBenefit:
+      "Closes the gap between what a provider was proven to offer and what this system asks it " +
+      "for — the only capability state where the evidence says the work is possible today.",
+    expectedRisk:
+      "A second query shape is a second thing to keep correct, and the limitation each cell names " +
+      "is real: the data arrives under conditions that the ingest and the contract must both " +
+      "honour, or a conditional capability becomes an overstated one.",
+    requiredVerify: [
+      "the conditional shape requested against a real response, and what it returns recorded",
+      "the capability cell re-measured afterwards rather than assumed to have changed",
+    ],
+    requiredGovernance: ["CALL_FREE_PROVIDER", "ADD_TEST"],
+    // Derived from the profile, exactly as the verification-debt proposal derives its own. A
+    // provider that issues no key resolves to undefined and keeps the conservative aggregate
+    // (IR-127) — see the limitation recorded in docs/REVIEW_DEBT.md for what that costs SEC_EDGAR.
+    provider: keyedProviderOf(profile.sourceCode),
+  };
+}
+
+/**
  * Proposals derived from the capability matrix.
  *
  * Deterministic and total: same matrix, same proposals. Nothing here consults a model, and nothing
@@ -235,6 +313,7 @@ export function capabilityGapProposals(
     .flatMap((profile) => [
       verificationDebtProposal(profile),
       structuralLimitationProposal(profile),
+      conditionalFollowUpProposal(profile),
     ])
     .filter((proposal): proposal is Proposal => proposal !== null);
 }

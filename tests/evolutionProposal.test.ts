@@ -5,6 +5,13 @@ import {
   clusterProposals,
   observedEvidence,
 } from "@/server/evolution/proposal";
+import {
+  CAPABILITY_AXES,
+  PROVIDER_CAPABILITIES,
+  type ProviderCapabilityProfile,
+} from "@/server/fabric/providerCapability";
+import { scheduleNextWork } from "@/server/evolution/scheduler";
+import { scheduleAutonomousWork, type EnvironmentProbe } from "../scripts/autonomy-context";
 import { detectWeaknesses } from "@/server/evolution/detect";
 import { BACKFILLED_LEDGER } from "@/server/evolution/ledger";
 
@@ -168,5 +175,151 @@ describe("cluster proposals", () => {
   it("is a pure function of the ledger", () => {
     expect(clusterProposals([])).toEqual([]);
     expect(clusterProposals()).toEqual(clusters);
+  });
+});
+
+/**
+ * IR-129: the third capability state, which generated nothing.
+ *
+ * `NOT_VERIFIED` produces verification debt. `NOT_SUPPORTED` produces a ceiling that should stop
+ * generating work. `CONDITIONAL` — measured available on a real response, under a stated
+ * limitation — produced neither, and so produced nothing at all. HG-002 closed every FRED
+ * `NOT_VERIFIED` cell, `CAP-DEBT-FRED` correctly stopped being generated, five `CONDITIONAL` cells
+ * replaced it, and the one piece of work every measurement in that session pointed at was absent
+ * from the task graph. The scheduler reported `NO_SAFE_MEANINGFUL_NODE` while a meaningful node
+ * existed and could not be seen.
+ */
+describe("a capability measured available under a limitation is work, not a ceiling", () => {
+  const byId = (id: string) => capabilityGapProposals().find((p) => p.id === id);
+
+  it("proposes a bounded follow-up for the provider that has such cells", () => {
+    const followUp = byId("CAP-FOLLOWUP-FRED");
+    expect(followUp, "FRED has five CONDITIONAL cells and must generate a follow-up").toBeDefined();
+    // Every axis it names must actually be CONDITIONAL in the matrix — the proposal may not invent
+    // scope for itself, which is the property that separates a generated proposal from a wish.
+    const fred = PROVIDER_CAPABILITIES.find((p) => p.sourceCode === "FRED")!;
+    const conditional = CAPABILITY_AXES.filter((a) => fred.axes[a].state === "CONDITIONAL");
+    expect(conditional.length).toBeGreaterThan(0);
+    for (const axis of conditional) expect(followUp!.observation).toContain(axis);
+    expect(followUp!.evidence).toHaveLength(conditional.length);
+    for (const e of followUp!.evidence) expect(e.standing).toBe("OBSERVED");
+  });
+
+  it("is a different proposal from the debt and the ceiling, not an alias of either", () => {
+    // The states must not collapse. A ceiling says stop looking; debt says nobody has looked; this
+    // says the provider can already do it and we are not asking.
+    const fred = PROVIDER_CAPABILITIES.find((p) => p.sourceCode === "FRED")!;
+    expect(CAPABILITY_AXES.some((a) => fred.axes[a].state === "NOT_SUPPORTED")).toBe(true);
+    expect(CAPABILITY_AXES.some((a) => fred.axes[a].state === "NOT_VERIFIED")).toBe(false);
+    expect(byId("CAP-CEILING-FRED")).toBeDefined();
+    expect(byId("CAP-DEBT-FRED"), "HG-002 closed FRED's verification debt").toBeUndefined();
+    // And the ceiling still names only NOT_SUPPORTED axes, so the two did not merge.
+    const ceiling = byId("CAP-CEILING-FRED")!;
+    for (const axis of CAPABILITY_AXES.filter((a) => fred.axes[a].state === "CONDITIONAL")) {
+      expect(ceiling.observation).not.toContain(axis);
+    }
+  });
+
+  it("derives the provider identity from the profile rather than labelling it", () => {
+    expect(byId("CAP-FOLLOWUP-FRED")!.provider).toBe("FRED");
+    // SEC EDGAR issues no key, so it is not a `KeyedProvider` and resolves to undefined. That is
+    // the derivation being total rather than a special case — and see the recorded limitation:
+    // an unnamed action falls back to the conjunction, which currently over-blocks it.
+    expect(byId("CAP-FOLLOWUP-SEC_EDGAR")!.provider).toBeUndefined();
+  });
+
+  it("requires a real response before it will generate work for itself", () => {
+    // Eligibility is mechanical: LIVE_RESPONSE only. A CONDITIONAL transcribed from documentation
+    // is an assumption, and generating work from an assumption is the PROVIDER_ASSUMPTION cluster's
+    // own failure mode reproduced inside the generator that is supposed to notice it.
+    const invented: ProviderCapabilityProfile = {
+      ...PROVIDER_CAPABILITIES.find((p) => p.sourceCode === "ECOS")!,
+      sourceCode: "INVENTED",
+      axes: {
+        ...PROVIDER_CAPABILITIES.find((p) => p.sourceCode === "ECOS")!.axes,
+        revision_history: {
+          state: "CONDITIONAL",
+          field: "documented only",
+          basis: "the documentation says so",
+          provenance: "PROVIDER_DOCUMENTATION",
+        },
+      },
+    };
+    const ids = capabilityGapProposals([invented]).map((p) => p.id);
+    expect(ids).not.toContain("CAP-FOLLOWUP-INVENTED");
+  });
+
+  it("generates nothing for a provider with no conditional cells", () => {
+    const none: ProviderCapabilityProfile = {
+      ...PROVIDER_CAPABILITIES.find((p) => p.sourceCode === "ECOS")!,
+      sourceCode: "NOTHING_CONDITIONAL",
+    };
+    expect(CAPABILITY_AXES.some((a) => none.axes[a].state === "CONDITIONAL")).toBe(false);
+    expect(capabilityGapProposals([none]).map((p) => p.id)).not.toContain(
+      "CAP-FOLLOWUP-NOTHING_CONDITIONAL",
+    );
+  });
+});
+
+/**
+ * IR-129 at the boundary: the generated proposal is a candidate, never a permission.
+ *
+ * The decision that authorised the generator is explicit that scheduler and Human-Gate policy stay
+ * authoritative after generation. These are the controls that hold it to that.
+ */
+describe("the conditional follow-up reaches the scheduler as ordinary gated work", () => {
+  const gates =
+    "## HG-003 — g\n\n**Status**: `PENDING_USER` · n\n\n## HG-004 — g\n\n**Status**: `PENDING_USER` · n\n";
+  const probe = (env: Record<string, string | undefined>): EnvironmentProbe => ({
+    env,
+    gateRegister: () => gates,
+    stateDocument: () => "# state\n",
+    githubAuth: () => "AUTHENTICATED",
+  });
+
+  it("is blocked when its own provider's key is absent, and the reason names that provider", () => {
+    const { queue } = scheduleAutonomousWork({ probe: probe({}) });
+    expect(queue.actionable.map((w) => w.proposal.id)).not.toContain("CAP-FOLLOWUP-FRED");
+    const followUp = queue.deferred.find((w) => w.proposal.id === "CAP-FOLLOWUP-FRED")!;
+    expect(followUp.authority).toBe("BLOCKED_BY_ENVIRONMENT");
+    expect(followUp.blockedBy).toContain("FRED");
+  });
+
+  it("becomes startable on its own provider's key, and only that key", () => {
+    // The two repairs composing: IR-129 puts the node in the graph, IR-127 stops an unrelated
+    // absent credential from holding it. Neither alone produces this.
+    const { queue } = scheduleAutonomousWork({ probe: probe({ FRED_API_KEY: "x" }) });
+    expect(queue.actionable.map((w) => w.proposal.id)).toEqual(["CAP-FOLLOWUP-FRED"]);
+    // ECOS and OpenDART work stays exactly where it was, gates included.
+    const ids = queue.deferred.map((w) => w.proposal.id);
+    expect(ids).toContain("CAP-DEBT-ECOS");
+    expect(ids).toContain("CAP-DEBT-OPENDART");
+  });
+
+  it("does not make a forged or unknown provider identity runnable", () => {
+    // Fails closed: an identity the policy engine does not recognise is never cleared by any key.
+    const forged = {
+      ...capabilityGapProposals().find((p) => p.id === "CAP-FOLLOWUP-FRED")!,
+      provider: "BLOOMBERG" as never,
+    };
+    const queue = scheduleNextWork({
+      proposals: [forged],
+      context: {
+        verificationGreen: true,
+        providerKeys: { FRED: true, ECOS: true, OPENDART: true },
+        providerKeyAvailable: true,
+      },
+    });
+    expect(queue.actionable).toEqual([]);
+    expect(queue.deferred[0].authority).toBe("BLOCKED_BY_ENVIRONMENT");
+  });
+
+  it("keeps the unnamed conjunction pinned, so IR-127 is not loosened by the new node", () => {
+    const { queue } = scheduleAutonomousWork({ probe: probe({ FRED_API_KEY: "x" }) });
+    for (const id of ["CLUSTER-PROVIDER_ASSUMPTION", "CLUSTER-SEMANTIC_RECENCY"]) {
+      const work = queue.deferred.find((w) => w.proposal.id === id)!;
+      expect(work.proposal.provider, `${id} must stay unnamed`).toBeUndefined();
+      expect(work.blockedBy).toBe("CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY");
+    }
   });
 });

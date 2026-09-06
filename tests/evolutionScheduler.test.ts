@@ -275,9 +275,16 @@ describe("the scheduler cannot do anything", () => {
 });
 
 describe("against the real ledger and capability matrix", () => {
-  it("has converged: nothing startable, four items gated on provider keys", () => {
-    // Four since 2026-09-06: CAP-DEBT-FRED is no longer generated (HG-002), and CAP-CEILING-FRED
-    // is recorded as worked in COMPLETED_WORK, so it does not appear either.
+  it("has converged: nothing startable, and exactly these six items gated", () => {
+    // The count has moved three times in one day and the name was wrong twice, because
+    // `arrayContaining` let it drift silently: it said "four items" while its own comment said
+    // "five", and both survived IR-129 adding a sixth. A convergence control that cannot notice
+    // the queue changing is not a convergence control, so the whole set is asserted exactly and a
+    // future change has to come back here and say what it did.
+    //
+    // 2026-09-06, in order: HG-002 stopped CAP-DEBT-FRED being generated; CAP-CEILING-FRED is
+    // recorded worked in COMPLETED_WORK so it does not appear; IR-129 added the two
+    // CAP-FOLLOWUP items for the providers with measured CONDITIONAL cells.
     const queue = scheduleNextWork({
       context: {
         verificationGreen: true,
@@ -288,14 +295,18 @@ describe("against the real ledger and capability matrix", () => {
     });
 
     // Real state after every cluster and capability proposal was worked and recorded: nothing
-    // startable remains, and the five items needing a provider key stay deferred. The queue
+    // startable remains, and every item that needs a provider key stays deferred. The queue
     // CONVERGING is the point — before COMPLETED_WORK existed it returned the same nine items
     // forever, and a queue that never empties can never make "exhausted" mean anything.
     expect(queue.actionable.length).toBe(0);
-    expect(queue.deferred.map((w) => w.proposal.id)).toEqual(
-      // CAP-DEBT-FRED is no longer generated at all since HG-002 (2026-09-06).
-      expect.arrayContaining(["CAP-DEBT-ECOS", "CAP-DEBT-OPENDART"]),
-    );
+    expect(queue.deferred.map((w) => w.proposal.id).sort()).toEqual([
+      "CAP-DEBT-ECOS",
+      "CAP-DEBT-OPENDART",
+      "CAP-FOLLOWUP-FRED",
+      "CAP-FOLLOWUP-SEC_EDGAR",
+      "CLUSTER-PROVIDER_ASSUMPTION",
+      "CLUSTER-SEMANTIC_RECENCY",
+    ]);
     for (const blocked of queue.deferred) {
       expect(blocked.blockedBy, blocked.proposal.id).toBeTruthy();
     }

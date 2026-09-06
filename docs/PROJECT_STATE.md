@@ -504,6 +504,20 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE THIRD CAPABILITY STATE (2026-09-06, IR-129)
+The Evolution generator had a rule for `NOT_VERIFIED` (verification debt) and `NOT_SUPPORTED` (a
+ceiling) and none for `CONDITIONAL` — measured available on a real response, under a stated
+limitation. HG-002 closed FRED's verification debt and five CONDITIONAL cells replaced it, so the
+work M11 pointed at was absent from the task graph and the scheduler said NO_SAFE_MEANINGFUL_NODE
+while a meaningful node existed. `conditionalFollowUpProposal` emits a bounded follow-up per
+provider with such cells; eligibility is mechanical (LIVE_RESPONSE provenance only, so a
+documentation-derived CONDITIONAL cannot generate work for itself) and the provider identity is
+derived from the profile, so IR-127 governs it unchanged. Nine controls, five mutants all
+ISOLATED. Effect, measured: with no key `ACTIONABLE 0 / DEFERRED 6`; with FRED's key present
+`ACTIONABLE 1` and it is `CAP-FOLLOWUP-FRED`, which neither repair produces alone. Recorded
+limitation: `CAP-FOLLOWUP-SEC_EDGAR` is generated and conservatively blocked on a key SEC EDGAR
+does not issue — escalated, not self-approved.
+
 PER-PROVIDER KEY FACTS (2026-09-06, IR-127)
 `ActionDescriptor` carries an optional `provider` drawn from `KEYED_PROVIDERS` (`FRED`, `ECOS`,
 `OPENDART`; SEC EDGAR is free AND keyless, so it names none and is never blocked on a credential
@@ -884,8 +898,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2791 / 2791 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2772 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2800 / 2800 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2781 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

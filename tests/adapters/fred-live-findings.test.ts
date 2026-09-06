@@ -95,3 +95,45 @@ describe("FRED's `units` is a transformation code, not a measurement unit", () =
     expect(b.skippedMissing).toHaveLength(a.skippedMissing.length);
   });
 });
+
+/**
+ * IR-130: the release date is stored only when the shape that gives one was actually requested.
+ *
+ * The HG-002 finding above is the whole reason this needs a control rather than a default. Under
+ * the default query `realtime_start` is the day the request was made — 954 CPIAUCSL rows reaching
+ * back to 1947 all carried 2026-09-06 — so a normalizer that mapped it into `releaseDate`
+ * unconditionally would stamp seventy years of observations with today and call it provenance.
+ * The realtime range gives a genuine per-vintage boundary. Same field, two meanings, decided by
+ * how it was asked for, so only the caller who asked may say.
+ */
+describe("realtime_start becomes a release date only under the range that makes it one", () => {
+  const response = fixture as unknown as FredObservationsResponse;
+
+  it("stores no release date by default, which is what every existing caller gets", () => {
+    const { observations } = normalizeFredObservations(response);
+    expect(observations.length).toBeGreaterThan(0);
+    for (const obs of observations) expect(obs.releaseDate).toBeNull();
+  });
+
+  it("stores one per row when the caller declares the response vintage-aware", () => {
+    const { observations } = normalizeFredObservations(response, { vintageAware: true });
+    for (const obs of observations) {
+      expect(obs.releaseDate).toBeInstanceOf(Date);
+      // The row's own realtime_start, parsed as UTC like every other date in this adapter — not
+      // the retrieval clock, which is the substitution IR-021 was about.
+      expect(obs.releaseDate!.toISOString().slice(0, 10)).toBe(obs.raw.realtime_start);
+    }
+  });
+
+  it("is explicit rather than inferred, so a default response can never acquire one by accident", () => {
+    // `vintageAware: false` and an omitted option must be the same thing. If a future edit tries to
+    // detect the range from the payload instead, this is what should stop it: the default response
+    // is indistinguishable from a single-vintage range response, which is exactly why detection
+    // cannot work and the caller has to declare it.
+    const declaredOff = normalizeFredObservations(response, { vintageAware: false });
+    const omitted = normalizeFredObservations(response);
+    expect(declaredOff.observations.map((o) => o.releaseDate)).toEqual(
+      omitted.observations.map((o) => o.releaseDate),
+    );
+  });
+});

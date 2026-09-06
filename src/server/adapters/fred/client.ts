@@ -136,7 +136,17 @@ export interface FredObservationPage {
  */
 export async function fetchAllFredObservations(
   seriesId: string,
-  options?: { observationStart?: string; observationEnd?: string },
+  options?: {
+    observationStart?: string;
+    observationEnd?: string;
+    /**
+     * The realtime range. Passing it changes WHAT COMES BACK, not just how much: instead of one
+     * row per date carrying the query date, FRED returns one row per (date, vintage) with the
+     * interval in which that value was current. Measured 2026-09-06 under HG-002.
+     */
+    realtimeStart?: string;
+    realtimeEnd?: string;
+  },
 ): Promise<FredObservationPage> {
   const observations: FredObservationRaw[] = [];
   let count = 0;

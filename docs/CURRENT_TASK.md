@@ -53,17 +53,21 @@ gone, and the live queue did not move, because no generated proposal names FRED.
 (`[CHATGPT_DECISION][MARKET-CONDITIONAL-CAPABILITY-PROPOSAL-20260906]`): the generator now emits a
 bounded follow-up for a provider whose capabilities include a measured `CONDITIONAL` cell.
 
-**Exact next action.** `CAP-FOLLOWUP-FRED` — request the realtime range the five CONDITIONAL cells
-name, store the vintages, and re-measure the cells afterwards rather than assuming they changed.
-It is in the task graph now and the scheduler makes it startable the moment `FRED_API_KEY` is
-exported (the key granted under HG-002; no new credential, no account action). Without it exported
-the queue is `ACTIONABLE 0 / DEFERRED 6` and this item reads `BLOCKED_PROVIDER_KEY` naming FRED.
-It is ordinary non-gated work, not a decision — but it is a real ingest shape, so it wants its own
-unit rather than being tacked onto a closeout.
+**`CAP-FOLLOWUP-FRED` was worked the same day as IR-130** — the storage half of it. The provider's
+own vintage now reaches `Observation.releaseDate`, which nothing could write to before, and a real
+CPIAUCSL run stored 71 of them. See `docs/REVIEW_DEBT.md`, IR-130.
 
-Two things recorded and deliberately NOT taken here. `CAP-FOLLOWUP-SEC_EDGAR` is generated and
-conservatively blocked on a key SEC EDGAR does not issue — a keyless-provider contract question,
-escalated. And ECOS/OpenDART remain behind HG-003/004.
+**Exact next action: none that may be taken without a decision, and three are open.** The run that
+closed the storage half also produced the thing that decides the next one — appending a vintage
+history to a chain that already holds the current value makes the read path serve a superseded
+figure, because chain order is arrival order. Storing the vintage is done; ORDERING on it is a V1
+revision-semantics change and V1 moves for a reproduced P0/P1 only. Escalated as
+`MARKET-REVISION-CHAIN-ORDERING-20260906` with the measurement, recommended option A.
+
+Also open, and each blocking only its own item: `MARKET-KEYLESS-PROVIDER-IDENTITY-20260906`
+(`CAP-FOLLOWUP-SEC_EDGAR` is conservatively blocked on a key SEC EDGAR does not issue), and
+HG-003/004 for ECOS and OpenDART. No further FRED vintage ingestion should run until chain
+ordering is decided, and the script enforces that itself.
 
 **Before that, 2026-09-01 — a run of audit units, and the pattern in them matters more than any one.**
 `23e716b` → `f1e3293`. No product code changed in ANY of them: V1 is frozen except for a reproduced

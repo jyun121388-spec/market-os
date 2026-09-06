@@ -19,6 +19,23 @@ export interface ObservationIngestInput {
   observationDate: Date;
   value: string;
   raw: Prisma.InputJsonValue;
+  /**
+   * The moment the PROVIDER says this value became current, where the provider says it at all.
+   *
+   * `Observation.releaseDate` has existed since M08 and nothing has ever written to it: the input
+   * had no field to carry one, so the column was unreachable from the only path that creates rows.
+   * The rollback-guard comment below names the consequence and its cause — "FRED publishes
+   * `realtime_start` for precisely this ... but no adapter populates it yet and no key is available
+   * to verify the real semantics". HG-002 supplied both on 2026-09-06, and IR-130 supplies the
+   * field.
+   *
+   * ADDITIVE AND INERT. Omitting it stores NULL, which is what every row holds today, so every
+   * existing caller keeps its behaviour exactly. Nothing in this module ORDERS on it — the
+   * rollback guard is untouched and still refuses a value that reappears in the chain, because
+   * using a release date to order two readings is a change to V1 revision semantics and needs its
+   * own decision. This field makes the evidence storable; it does not make it authoritative.
+   */
+  releaseDate?: Date | null;
 }
 
 const UNIQUE_CONSTRAINT_VIOLATION = "P2002";
@@ -304,6 +321,7 @@ export async function upsertRevisionAwareObservation(
           seriesId: input.seriesId,
           sourceId: input.sourceId,
           observationDate: input.observationDate,
+          releaseDate: input.releaseDate ?? null,
           value: input.value,
           isRevision: true,
           revisionOf: latest.id,
@@ -356,9 +374,9 @@ async function tryInsertOriginal(input: ObservationIngestInput): Promise<string 
   const id = randomUUID();
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     INSERT INTO "observations"
-      ("id", "seriesId", "sourceId", "observationDate", "value", "isRevision", "raw")
+      ("id", "seriesId", "sourceId", "observationDate", "releaseDate", "value", "isRevision", "raw")
     VALUES
-      (${id}, ${input.seriesId}, ${input.sourceId}, ${input.observationDate}, ${input.value}::numeric, false, ${JSON.stringify(input.raw)}::jsonb)
+      (${id}, ${input.seriesId}, ${input.sourceId}, ${input.observationDate}, ${input.releaseDate ?? null}, ${input.value}::numeric, false, ${JSON.stringify(input.raw)}::jsonb)
     ON CONFLICT ("seriesId", "observationDate") WHERE "isRevision" = false
     DO NOTHING
     RETURNING "id"

@@ -29,9 +29,18 @@ import { processStart, selfIdentity } from "@/server/controlbus/owner";
  * Deriving the heartbeat from the OS's own answer restores the intent exactly: this record could
  * have been written by this process, so nothing proves it is ours and nothing proves it is not.
  */
+let cachedSelfStart: string | undefined;
 function heartbeatThisProcessCouldHaveWritten(): string {
-  const start = processStart(process.pid);
-  return "startedAt" in start ? start.startedAt : new Date().toISOString();
+  // Read ONCE. On win32 `processStart` spawns PowerShell, ~450ms measured, and IR-075's own header
+  // says so — which is why `selfIdentity()` is read once wherever it is used. The first version of
+  // this helper called it per fixture write, inside the interleaving of tests that time real child
+  // processes, and four control-bus controls began failing under the loaded full suite while
+  // passing in isolation. A test helper that costs half a second is a timing change, not a detail.
+  if (cachedSelfStart === undefined) {
+    const start = processStart(process.pid);
+    cachedSelfStart = "startedAt" in start ? start.startedAt : new Date().toISOString();
+  }
+  return cachedSelfStart;
 }
 
 import { spawn, type ChildProcess } from "node:child_process";

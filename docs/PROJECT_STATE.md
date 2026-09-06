@@ -504,6 +504,30 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE PROVIDER'S OWN VINTAGE, STORED (2026-09-06, IR-130)
+`Observation.releaseDate` has existed since M08 and nothing could write to it:
+`ObservationIngestInput` had no field to carry one, so the only path that creates observation
+rows could not reach the column and every row held NULL. The rollback guard's own comment said
+why — no adapter populates it, and no key exists to verify the semantics — and HG-002 supplied
+both. The input now takes an optional `releaseDate`, written on the original and on revisions;
+omitting it stores NULL, so every existing caller is unchanged. The FRED ingest takes
+`allVintages`, which sends the documented realtime sentinels, and the normalizer takes an
+explicit `vintageAware` flag — a parameter and not an inference, because under the default query
+`realtime_start` is the query date and a default response is indistinguishable from a
+single-vintage range response.
+
+Nothing ORDERS on the new field. Measured on a real run of CPIAUCSL from 2023-01-01: 71
+revisions stored with per-vintage release dates, 7 unchanged, and **6 rows refused** by the
+rollback guard — the documented KNOWN LIMITATION given a rate for the first time, about one row
+in thirteen. The run also left the chain WRONG, which is the finding that matters: CPIAUCSL
+already held the current value as its chain original, so appending history put three older
+vintages after the newest one and the arrival-ordered tail became the 2025-02-12 vintage
+(300.456) where the current figure is 300.420. IR-021 from the opposite direction — correct
+history arriving after the present. The script now refuses to append history to a chain holding
+present-tense rows; the dev database is in that state for 43 CPIAUCSL dates, recorded rather
+than silently repaired. Chain ordering is escalated as
+`MARKET-REVISION-CHAIN-ORDERING-20260906`.
+
 THE THIRD CAPABILITY STATE (2026-09-06, IR-129)
 The Evolution generator had a rule for `NOT_VERIFIED` (verification debt) and `NOT_SUPPORTED` (a
 ceiling) and none for `CONDITIONAL` — measured available on a real response, under a stated
@@ -898,8 +922,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2800 / 2800 PASS across 157 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2781 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2807 / 2807 PASS across 158 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2788 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

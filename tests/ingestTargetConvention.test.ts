@@ -56,6 +56,14 @@ const KNOWN_TARGET_SHAPES: { script: string; expression: string; note: string }[
     note: "a series identity, not a company — no completeness reader consumes it",
   },
   {
+    script: "ingest-fred-vintages.ts",
+    expression: "target: `${def.seriesId}#vintages`",
+    note:
+      "the SAME series fetched in a different shape, so it needs a distinct target: a vintage run " +
+      "and a value run are not comparable, and recording both under `CPIAUCSL` would make the run " +
+      "history say two incomparable things under one name (IR-130)",
+  },
+  {
     script: "ingest-fred.ts",
     expression: "target: series.seriesId",
     note: "a series identity, not a company — no completeness reader consumes it",

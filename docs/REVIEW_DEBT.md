@@ -3818,3 +3818,97 @@ conjunction, which is currently false. The block is conservative rather than dan
 the same aliasing shape IR-127 removed, one category out: a keyless provider's work held by
 credentials it does not need. Widening the contract to express "this provider needs no key" is a
 policy change and is escalated rather than taken here.
+
+## IR-130 — CAP-FOLLOWUP-FRED, and the column nothing could write to
+
+The first node the scheduler has offered since HG-002. IR-129 put it in the task graph, IR-127 let
+FRED's own key answer for it, and with `FRED_API_KEY` exported the queue read
+`ACTIONABLE 1 / DEFERRED 5` with `CAP-FOLLOWUP-FRED` alone.
+
+### What the proposal asked for, and what stood in the way
+
+Request the shape FRED's five CONDITIONAL cells name — the realtime range — and store what comes
+back. The obstacle was one field. `Observation.releaseDate` has existed since M08 for the provider's
+own statement of when a value became current, and `ObservationIngestInput` had no field to carry
+one, so the only path that creates observation rows could not reach the column. Every row in the
+database holds NULL there, and the provider-vintage contract in `src/server/fabric/vintage.ts` has
+never once been given the evidence it was designed around.
+
+`observationIngest.ts` had already written down why, in the rollback guard's own comment: "FRED
+publishes `realtime_start` for precisely this, and `Observation.releaseDate` exists to hold it — but
+no adapter populates it yet and no key is available to verify the real semantics." HG-002 supplied
+both on 2026-09-06. The premise expired; the code had not noticed.
+
+### The change, and what it deliberately is not
+
+ADDITIVE and INERT. `ObservationIngestInput` gains an optional `releaseDate`, written on both the
+original insert and the revision insert. Omitting it stores NULL, so every existing caller behaves
+exactly as before — asserted, not assumed. The FRED client and ingest take an `allVintages` option
+that sends the documented sentinels, and the normalizer takes an explicit `vintageAware` flag.
+
+Nothing ORDERS on the new field. The rollback guard is untouched and still refuses a value that
+reappears in a chain. Ordering two readings by the provider's vintage is a change to V1 revision
+semantics, and V1 changes for a reproduced P0/P1 only.
+
+The flag is a parameter rather than an inference, and that is the HG-002 finding defended. Under the
+default query `realtime_start` is the day the request was made — 954 CPIAUCSL rows back to 1947 all
+read 2026-09-06 — so a normalizer that mapped it unconditionally would stamp seventy years of
+observations with today and call it provenance. A default response is indistinguishable from a
+single-vintage range response, so detection cannot work: only the caller who asked for the range may
+say it asked.
+
+### The real run, and the regression it produced
+
+`scripts/ingest-fred-vintages.ts CPIAUCSL 2023-01-01`, live, key never printed (zero occurrences):
+
+    0 inserted · 71 revised · 7 unchanged · 1 missing skipped · providerTotal 114
+    6 rows refused by the rollback guard, each logged with its value and the chain's current one
+    71 CPIAUCSL rows now carry a provider release date; 954 still hold NULL
+
+The six refusals are the documented KNOWN LIMITATION, measured for the first time instead of
+predicted: an intermediate vintage whose value coincides with an earlier one in the chain is
+indistinguishable from a replay, and is dropped. Roughly one row in thirteen.
+
+**And the run left the chain wrong, which is the finding that matters.** CPIAUCSL already held the
+current value from M11's ordinary ingest, stored as the chain ORIGINAL. Appending the vintage
+history put three OLDER vintages in after the newest one, and the chain tail is chosen by arrival
+order:
+
+    2023-01-01   releaseDate NULL         300.420   original   <- the true current value
+                 2023-02-14               300.536   revision
+                 2024-02-09               300.356   revision
+                 2025-02-12               300.456   revision   <- chain tail, so this is served
+
+The read path now serves 300.456 for that month where the current figure is 300.420. A superseded
+value presented as current is IR-021 exactly, reached from a new direction — this time not by a
+stale response arriving late, but by correct history arriving after the present.
+
+Recorded and NOT repaired here: the 71 rows are legitimate provider data and the only real-data
+example of this ordering problem, and deleting rows from a database is not something to do on my own
+judgement. The dev database is affected for 43 CPIAUCSL dates. To restore the pre-run read path:
+`DELETE FROM observations WHERE "releaseDate" IS NOT NULL AND "seriesId" = (…CPIAUCSL…);`
+
+The script now refuses this case: it counts present-tense rows for the series and stops unless the
+operator passes a flag naming this entry. That precondition was learned by running it, not by
+reasoning about it beforehand.
+
+### Controls
+
+Four integration controls on the storage half (release date on the original, on a revision, one per
+vintage in a chain, NULL when omitted so existing paths are unchanged) and one that pins the
+boundary: a replayed value is still refused even when the provider stamps it with the newest release
+date of the three, because if that ever returns "revised" the ordering decision was taken by
+accident. Three normalizer controls: null by default, one per row when declared, and
+`vintageAware: false` identical to omitting it, so a future edit cannot make detection implicit.
+
+The first version of the integration file ordered rows by `retrievedAt` then `id` and failed against
+correct data: both inserts land in the same millisecond of a `timestamp(3)` column and the id is a
+random UUID. That is precisely the defect `revisionChain.ts` exists for, reproduced inside a test
+about revision chains. The controls identify rows by what they are.
+
+### The decision this hands over
+
+Chain order. Storing the provider's vintage is done; using it to decide which of two readings is
+current is not, and the run above shows that leaving arrival order in place while vintages exist in
+the same chain produces a wrong answer rather than merely an incomplete one. Escalated as
+`[ESCALATION][MARKET-OS][MARKET-REVISION-CHAIN-ORDERING-20260906]` with the measurement.

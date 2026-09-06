@@ -2,6 +2,40 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { redactSecrets, sanitiseErrorForStorage, REDACTED } from "@/server/adapters/redactSecrets";
 
 /**
+ * Pins the environment for controls that are about the SHAPE layer of redaction, so their verdict
+ * cannot be decided by whatever database the runner happens to be pointed at.
+ *
+ * Found 2026-09-06, as a full-suite failure that the file passed in isolation. `vitest.config.mts`
+ * points every worker at the test database, whose local password is `postgres`; the exact-value
+ * layer redacts a configured password wherever it appears, and `postgres` appears inside
+ * `postgresql://`. So "keeps everything that is not the password" received
+ * `[REDACTED]ql://market:[REDACTED]@db.internal...` — correct by the redactor's own rule, and a
+ * control whose answer depends on the operator's password is not a control. CI's password is
+ * `market_os_ci`, which is why the same tree was green there.
+ *
+ * The collision itself is pinned below as accepted behaviour rather than repaired: a password that
+ * coincides with a scheme token is a bad password, and the redactor must not start guessing which
+ * occurrences of a configured secret are "really" the secret.
+ */
+function withNoAmbientCredentials() {
+  const NAMES = ["DATABASE_URL", "FRED_API_KEY", "ECOS_API_KEY", "DART_API_KEY"] as const;
+  const original: Partial<Record<(typeof NAMES)[number], string | undefined>> = {};
+  beforeEach(() => {
+    for (const name of NAMES) {
+      original[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+  afterEach(() => {
+    for (const name of NAMES) {
+      const value = original[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+}
+
+/**
  * Credential redaction for anything that might be logged, stored, or rendered.
  *
  * The concrete hazard, found on 2026-08-17: `HttpTimeoutError` embeds the request URL in its
@@ -217,6 +251,8 @@ describe("the database password is redacted like any other credential", () => {
  * say which database failed.
  */
 describe("a connection URI never keeps its password", () => {
+  withNoAmbientCredentials();
+
   it.each([
     "connect failed: postgresql://market:s3cr3t!@db.internal:5432/market_os",
     "postgres://u:short@host:5432/db",
@@ -261,6 +297,8 @@ describe("a connection URI never keeps its password", () => {
  * back.
  */
 describe("the connection-URI redaction, at both ends", () => {
+  withNoAmbientCredentials();
+
   it("redacts a password when the username is empty", () => {
     const out = redactSecrets("connect failed: postgresql://:s3cr3t@db.internal/market");
     expect(out).not.toContain("s3cr3t");
@@ -303,6 +341,8 @@ describe("the connection-URI redaction, at both ends", () => {
  * prose, and the earlier version of this pattern rewrote that too.
  */
 describe("a full URI-shaped placeholder is redacted, deliberately", () => {
+  withNoAmbientCredentials();
+
   it("cannot tell documentation from a credential, and errs toward redacting", () => {
     const out = redactSecrets("Documentation says the form is proto://user:password@host/path.");
     expect(out).toBe("Documentation says the form is proto://user:[REDACTED]@host/path.");
@@ -312,5 +352,35 @@ describe("a full URI-shaped placeholder is redacted, deliberately", () => {
     // The Gate B fix, which this does not undo: no host means no URI, so nothing is rewritten.
     const text = "Parser syntax is proto://left:right@ followed by a host token.";
     expect(redactSecrets(text)).toBe(text);
+  });
+});
+
+/**
+ * The environment dependence that made the shape controls above non-hermetic, pinned so it is a
+ * documented property rather than a flake someone rediscovers. See `withNoAmbientCredentials`.
+ */
+describe("a configured password that coincides with a scheme token", () => {
+  const ORIGINAL_DB = process.env.DATABASE_URL;
+  afterEach(() => {
+    if (ORIGINAL_DB === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = ORIGINAL_DB;
+  });
+
+  it("is redacted wherever it appears, including inside postgresql://", () => {
+    process.env.DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:55432/market_os_test";
+    const out = redactSecrets("connect failed: postgresql://market:s3cr3t!@db.internal/market_os");
+    // The exact-value layer does its job: the configured password is gone everywhere...
+    expect(out).not.toContain("postgres");
+    // ...and the URI password is gone by shape, as before.
+    expect(out).not.toContain("s3cr3t!");
+    // The cost, stated: the scheme is unreadable under this password. Accepted, not repaired —
+    // the redactor does not get to decide which occurrences of a secret are coincidental.
+    expect(out).toContain(`${REDACTED}ql://market:${REDACTED}@db.internal/market_os`);
+  });
+
+  it("does not happen under a password that is not a scheme token", () => {
+    process.env.DATABASE_URL = "postgresql://market_os:market_os_ci@localhost:5432/market_os";
+    const out = redactSecrets("connect failed: postgresql://market:s3cr3t!@db.internal/market_os");
+    expect(out).toBe(`connect failed: postgresql://market:${REDACTED}@db.internal/market_os`);
   });
 });

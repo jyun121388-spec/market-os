@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db/client";
-import { findRevisionChainTail } from "@/server/domain/revisionChain";
+import { selectCurrentObservation } from "@/server/domain/revisionChain";
 import type { Observation } from "@/generated/prisma/client";
 
 export interface ObservationPair {
@@ -47,8 +47,8 @@ export async function getRecentObservationPair(seriesId: string): Promise<Observ
     orderBy: [{ retrievedAt: "desc" }, { id: "desc" }],
   });
 
-  // `findRevisionChainTail` throws on a malformed chain, which is right — refusing to guess which
-  // value is current beats presenting a superseded one. But the THROW must not escape this
+  // `selectCurrentObservation` throws on a malformed chain, which is right — refusing to guess
+  // which value is current beats presenting a superseded one. But the THROW must not escape this
   // function. Every caller loops over many series, and an uncaught error here takes down Morning
   // Brief, Macro Regime and Ask Market in their entirety over one corrupt row: a whole page lost
   // to a defect in a single series (independent review, `gpt-5.6-terra`, 2026-08-18).
@@ -57,11 +57,25 @@ export async function getRecentObservationPair(seriesId: string): Promise<Observ
   // what a series with too little history returns. The error is logged rather than swallowed, so
   // an operator can still see that something is structurally wrong — silence here would trade one
   // failure mode for the quieter one this project keeps finding.
+  //
+  // IR-131 adds a second way to get nothing back, and it lands in the same place on purpose: a
+  // chain the provider's own vintages cannot order is UNVERIFIABLE, and an unverifiable current
+  // value is exactly as unusable as a malformed one. It is logged distinctly, because the two have
+  // different causes and only one of them is corruption.
   const forDate = (date: Date) => {
+    const chain = rows.filter((r) => r.observationDate.getTime() === date.getTime());
     try {
-      return findRevisionChainTail(
-        rows.filter((r) => r.observationDate.getTime() === date.getTime()),
-      );
+      const selection = selectCurrentObservation(chain);
+      if (selection === null) return null;
+      if (selection.kind === "UNVERIFIABLE") {
+        console.error(
+          `[seriesReadings] series ${seriesId} cannot prove which value is current on ` +
+            `${date.toISOString().slice(0, 10)}; treating the series as unreadable rather than ` +
+            `serving a value that may be superseded: ${selection.because}`,
+        );
+        return null;
+      }
+      return selection.row;
     } catch (error) {
       console.error(
         `[seriesReadings] series ${seriesId} has a malformed revision chain on ` +
@@ -117,8 +131,20 @@ export async function getObservationsOneRowPerDate(seriesId: string): Promise<Ob
   const resolved: Observation[] = [];
   for (const [dateKey, bucket] of byDate) {
     try {
-      const tail = findRevisionChainTail(bucket);
-      if (tail) resolved.push(tail);
+      const selection = selectCurrentObservation(bucket);
+      if (selection === null) continue;
+      if (selection.kind === "UNVERIFIABLE") {
+        // IR-131: omitting the date is the same degradation a malformed chain already produced,
+        // and it is the honest one. A history point whose current value cannot be proven would
+        // otherwise be plotted and compared against as though it were settled.
+        console.error(
+          `[seriesReadings] series ${seriesId} cannot prove which value is current on ` +
+            `${new Date(dateKey).toISOString().slice(0, 10)}; omitting that date from the ` +
+            `history: ${selection.because}`,
+        );
+        continue;
+      }
+      resolved.push(selection.row);
     } catch (error) {
       console.error(
         `[seriesReadings] series ${seriesId} has a malformed revision chain on ` +

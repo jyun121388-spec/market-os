@@ -104,3 +104,120 @@ export function findRevisionChainTail<T extends RevisionChainRow>(rows: T[]): T 
 
   return tail;
 }
+
+/**
+ * A chain row that may carry the provider's own statement of when its value became current.
+ *
+ * `releaseDate` is NULL for every row this repository wrote before IR-130, and for every provider
+ * that does not publish a vintage. It is NOT globally reinterpreted from FRED's measurement: a
+ * value here means the adapter that wrote the row established provider-vintage semantics for it
+ * (`normalizeFredObservations({ vintageAware: true })` is the only such writer today), and a NULL
+ * means nothing is known either way.
+ */
+export interface VintagedChainRow extends RevisionChainRow {
+  releaseDate: Date | null;
+}
+
+/**
+ * Which row of a chain is CURRENT, and on what authority — or a refusal to say.
+ *
+ * The basis is carried rather than assumed because the two answers are not equally strong. A
+ * structural answer is only as good as the order rows arrived in; a vintage answer is the
+ * provider's own.
+ */
+export type CurrentSelection<T> =
+  | { kind: "CURRENT"; row: T; basis: "PROVIDER_VINTAGE" | "CHAIN_STRUCTURE" }
+  | { kind: "UNVERIFIABLE"; because: string };
+
+/**
+ * Selects the current value for one observation date.
+ *
+ * IR-131, and the defect it repairs was reproduced rather than reasoned about. `findRevisionChainTail`
+ * is correct about the STRUCTURE, and the structure is built by the writer attaching each new row to
+ * the current tail — so chain order is ARRIVAL order. That is fine while everything arrives in the
+ * order it happened, and it is wrong the moment history arrives after the present. Ingesting FRED's
+ * vintage history into a chain that already held the current value put three older vintages after
+ * the newest one, and the read path served 300.456 (a 2025-02-12 vintage) where the current value is
+ * 300.420. Measured on a real database on 2026-09-06.
+ *
+ * Three cases, and the middle one is the whole point:
+ *
+ *   NO row carries a vintage      the structural tail, exactly as before. Every chain this
+ *                                 repository held before IR-130 is in this case, so ordinary
+ *                                 behaviour is unchanged and a control pins that.
+ *   EVERY row carries one         the provider's own answer: the latest `releaseDate` wins,
+ *                                 whatever order the rows arrived in or were linked in.
+ *   SOME do                       REFUSED. A chain that mixes rows with provider authority and rows
+ *                                 without has no orderable total: the vintage rows can be ordered
+ *                                 among themselves and the NULL rows cannot be placed against them
+ *                                 at all. Arrival order is exactly what is not trustworthy here, so
+ *                                 there is nothing to fall back to. This is the CPIAUCSL case.
+ *
+ * Refusing is not free — the caller loses that date — and it is still better than the alternative,
+ * because the alternative is a superseded number displayed as current with nothing marking it. The
+ * boundary that shows it already has an unreadable state and this reuses it.
+ *
+ * The structure is validated FIRST in every case, so a malformed chain still throws before any
+ * vintage reasoning happens. Ordering by vintage must not become a way to stop noticing a cycle.
+ */
+export function selectCurrentObservation<T extends VintagedChainRow>(
+  rows: T[],
+): CurrentSelection<T> | null {
+  if (rows.length === 0) return null;
+
+  // Structural validation first and always. `findRevisionChainTail` throws on a cycle, a fork, a
+  // dangling parent or a disconnected row, and none of those become acceptable just because the
+  // rows happen to carry vintages.
+  const structuralTail = findRevisionChainTail(rows);
+  if (!structuralTail) return null;
+
+  // A vintage that is not a usable date is not evidence. Found by adversarial review of this
+  // repair (read-only Codex, 2026-09-07): an `Invalid Date` makes every comparison below NaN, so
+  // the loop never moves `latest` and never sets `tied`, and the FIRST row would be returned as
+  // though the provider had chosen it. Prisma and Postgres make that shape unlikely; this function
+  // is exported and claims to decide which number a user sees, so it enforces its own precondition
+  // rather than inheriting one. An unusable vintage is treated as absent, which routes the chain
+  // into the mixed branch and refuses — the same answer as any other unorderable chain.
+  const hasUsableVintage = (r: T): boolean =>
+    r.releaseDate instanceof Date && !Number.isNaN(r.releaseDate.getTime());
+  const withVintage = rows.filter(hasUsableVintage);
+
+  if (withVintage.length === 0) {
+    return { kind: "CURRENT", row: structuralTail, basis: "CHAIN_STRUCTURE" };
+  }
+
+  if (withVintage.length !== rows.length) {
+    return {
+      kind: "UNVERIFIABLE",
+      because:
+        `${withVintage.length} of ${rows.length} rows carry a provider release date. A chain that ` +
+        "mixes provider-dated rows with undated ones cannot be ordered: the undated rows cannot be " +
+        "placed against the dated ones, and arrival order is the thing that is not trustworthy here.",
+    };
+  }
+
+  // Every row has one. The provider decides, and a tie means the provider did not.
+  let latest = withVintage[0];
+  let tied = false;
+  for (const row of withVintage.slice(1)) {
+    const delta = row.releaseDate!.getTime() - latest.releaseDate!.getTime();
+    if (delta > 0) {
+      latest = row;
+      tied = false;
+    } else if (delta === 0) {
+      tied = true;
+    }
+  }
+
+  if (tied) {
+    return {
+      kind: "UNVERIFIABLE",
+      because:
+        `two or more rows claim the same provider release date (${latest.releaseDate!.toISOString()}), ` +
+        "so the provider's own evidence does not say which is current. Falling back to arrival " +
+        "order here would reintroduce exactly the ordering this function exists to stop trusting.",
+    };
+  }
+
+  return { kind: "CURRENT", row: latest, basis: "PROVIDER_VINTAGE" };
+}

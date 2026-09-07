@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findRevisionChainTail } from "@/server/domain/revisionChain";
+import { findRevisionChainTail, selectCurrentObservation } from "@/server/domain/revisionChain";
 
 /**
  * `findRevisionChainTail` decides which value users see in What Changed, Macro Regime, Ask Market
@@ -56,5 +56,64 @@ describe("findRevisionChainTail — malformed chains must fail loudly", () => {
     // chains. Picking the first is picking arbitrarily between two competing values.
     const rows = [row("o1"), row("o2")];
     expect(() => findRevisionChainTail(rows)).toThrow();
+  });
+});
+
+/**
+ * IR-131: an unusable vintage is not evidence.
+ *
+ * Found by adversarial read-only review of the repair rather than by writing it. Without a validity
+ * filter an `Invalid Date` makes every comparison in the selection loop NaN, so `latest` never
+ * moves and `tied` is never set, and the FIRST row comes back labelled `PROVIDER_VINTAGE` — the
+ * provider appearing to have chosen a row it said nothing about. Prisma and Postgres make the shape
+ * unlikely, and `selectCurrentObservation` is exported and decides which number a user sees, so it
+ * enforces its own precondition instead of inheriting one.
+ *
+ * These are unit controls on purpose: an invalid Date cannot be stored through the database, so the
+ * integration suite cannot construct this. That is exactly the case for testing the pure function
+ * directly, and exactly the case where a helper-only control is the RIGHT tool rather than a
+ * surrogate for one.
+ */
+describe("selectCurrentObservation refuses a vintage it cannot use", () => {
+  const row = (id: string, revisionOf: string | null, releaseDate: Date | null) => ({
+    id,
+    revisionOf,
+    releaseDate,
+  });
+
+  it("treats an Invalid Date as no vintage at all, and so refuses a mixed chain", () => {
+    const selection = selectCurrentObservation([
+      row("a", null, new Date("not a date")),
+      row("b", "a", new Date("2026-02-13T00:00:00.000Z")),
+    ]);
+    expect(selection?.kind).toBe("UNVERIFIABLE");
+    // And specifically NOT the first row wearing the provider's authority.
+    expect(selection).not.toMatchObject({ basis: "PROVIDER_VINTAGE" });
+  });
+
+  it("falls back to structure when every vintage is unusable", () => {
+    // Indistinguishable from a chain that never had vintages, which is the honest reading: nothing
+    // usable was supplied, so the structural answer is the only one available.
+    const selection = selectCurrentObservation([
+      row("a", null, new Date("not a date")),
+      row("b", "a", new Date("also not a date")),
+    ]);
+    expect(selection).toEqual({
+      kind: "CURRENT",
+      row: row("b", "a", expect.any(Date)),
+      basis: "CHAIN_STRUCTURE",
+    });
+  });
+
+  it("still answers from the provider when every vintage is usable", () => {
+    // The positive control, so "refuse everything" cannot satisfy the two above vacuously.
+    const older = new Date("2023-02-14T00:00:00.000Z");
+    const newer = new Date("2026-02-13T00:00:00.000Z");
+    const selection = selectCurrentObservation([row("a", null, newer), row("b", "a", older)]);
+    expect(selection).toEqual({
+      kind: "CURRENT",
+      row: row("a", null, newer),
+      basis: "PROVIDER_VINTAGE",
+    });
   });
 });

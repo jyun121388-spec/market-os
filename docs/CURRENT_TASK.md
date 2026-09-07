@@ -64,6 +64,9 @@ environment — the key is there — it is held by a judgement, which is what th
 for and what the script's own precondition enforces. Recording it worked would make the queue say
 the work is done when one twelfth of it is.
 
+**IR-131 landed 2026-09-07**: current-value authority now rests on the provider's vintage, or on
+an explicit refusal. The chain-ordering decision is applied and the wrong answer is gone.
+
 **Exact next action: none that may be taken without a decision, and three are open.** The run that
 closed the storage half also produced the thing that decides the next one — appending a vintage
 history to a chain that already holds the current value makes the read path serve a superseded

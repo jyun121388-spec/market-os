@@ -504,6 +504,21 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+CURRENT-VALUE AUTHORITY (2026-09-07, IR-131)
+The wrong answer IR-130 measured is repaired at the read boundary. `findRevisionChainTail` was
+never wrong: the WRITER attaches each new row to the current tail, so chain order is arrival
+order, and history arriving after the present inverts it. `selectCurrentObservation` validates
+structure first, then answers from the provider's vintage when every row carries a usable one,
+falls back to the structural tail when none does (every pre-IR-130 chain, unchanged), and
+REFUSES a mixed or tied chain as an explicit unverifiable state. Both production readers map
+that onto the degrade path they already had. IR-021's rollback guard is untouched and
+independent, proven by its reproduction suite staying green under all eight mutants. Controls
+A-F run through the production readers against a real database; eight mutants, all ISOLATED.
+The 43 CPIAUCSL dates that demonstrate the defect are untouched and are now refused rather than
+answered wrongly. Two open follow-ups are named in `docs/REVIEW_DEBT.md` under IR-131:
+`shadowProjection` still picks an arbitrary row's `releaseDate` as metadata, and refusing a date
+leaves a hole that Historical Analog and Economic Calendar read as contiguous.
+
 THE PROVIDER'S OWN VINTAGE, STORED (2026-09-06, IR-130)
 `Observation.releaseDate` has existed since M08 and nothing could write to it:
 `ObservationIngestInput` had no field to carry one, so the only path that creates observation
@@ -922,8 +937,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2807 / 2807 PASS across 158 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2788 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2818 / 2818 PASS across 159 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2799 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

@@ -21,8 +21,9 @@ control bus shut behind a pre-IR-075 lock. Next: the Evolution generator has no 
 CONDITIONAL capability cell — closed the same day as IR-129, so `CAP-FOLLOWUP-FRED` entered the task graph and was then
 worked as IR-130: the provider's own vintage now reaches `Observation.releaseDate`. That run
 showed chain order is arrival order and a vintage history appended to a live chain makes the read
-path serve a superseded figure. Three decisions are open and nothing else is startable — see
-`docs/CURRENT_TASK.md`.
+path serve a superseded figure. That was decided and applied on 2026-09-07 as IR-131: the
+provider's vintage decides the current value, and a chain that cannot be ordered is refused
+rather than guessed. See `docs/CURRENT_TASK.md` for what remains open.
 
 `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
 closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`

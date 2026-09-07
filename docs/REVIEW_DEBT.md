@@ -3912,3 +3912,118 @@ Chain order. Storing the provider's vintage is done; using it to decide which of
 current is not, and the run above shows that leaving arrival order in place while vintages exist in
 the same chain produces a wrong answer rather than merely an incomplete one. Escalated as
 `[ESCALATION][MARKET-OS][MARKET-REVISION-CHAIN-ORDERING-20260906]` with the measurement.
+
+## IR-131 — current-value authority: the provider's vintage, or a refusal
+
+`[CHATGPT_DECISION][MARKET-REVISION-CHAIN-ORDERING-20260906]` authorised a bounded V1 data-integrity
+repair for a wrong answer reproduced the previous day. The decision was issued against `db83c2d`
+and the writer had moved to `575a21a`; the seam was verified mechanically before anything was
+edited — `git diff db83c2d..575a21a` touches `docs/CURRENT_TASK.md` and one capability basis string,
+and no file under the revision-chain reader/writer contract.
+
+### The mechanism, stated exactly
+
+`findRevisionChainTail` is not wrong. It walks `revisionOf` and returns the row nothing points at,
+and it is right about the structure. The structure is the problem: the writer attaches every new row
+to the current tail, so chain order IS arrival order. That is invisible while everything arrives in
+the order it happened, and wrong the moment history arrives after the present — which is exactly
+what a vintage ingest does.
+
+### Authority surface, inventoried before implementing
+
+    READERS deciding a current VALUE
+      seriesReadings.getRecentObservationPair       -> morningBrief, whatChanged, macroRegime,
+                                                      verify/shadowRun
+      seriesReadings.getObservationsOneRowPerDate   -> askMarket, economicCalendar, historicalAnalog
+      Both resolved by structural tail. Both already degrade: the pair reader reports the series
+      unreadable, the history reader omits the date, each logged.
+
+    WRITER
+      observationIngest.upsertRevisionAwareObservation — attaches `revisionOf: latest.id`, where
+      `latest` is the structural tail. UNCHANGED by this unit, deliberately.
+
+    NOT current-value readers, confirmed and left alone
+      claimStore, claimVerification (id-bound), systemHealth and shadowRun's retrieval aggregates.
+
+    releaseDate semantics, per path, NOT generalised from FRED
+      FRED with `allVintages` — provider vintage, established (IR-130).
+      Everything else, every provider — NULL. No provider-vintage concept is asserted for ECOS,
+      OpenDART or SEC from FRED's measurement.
+
+### The rule
+
+`selectCurrentObservation` validates structure FIRST in every case, so a cycle, a fork, a dangling
+parent or a disconnected row still throws before any vintage reasoning. Then:
+
+    no row carries a usable vintage    the structural tail, exactly as before — every chain this
+                                       repository held before IR-130 is in this case
+    every row carries one              the provider's own answer: the latest `releaseDate`
+    some do, or the maximum is tied    REFUSED, as an explicit `UNVERIFIABLE` with a reason
+
+Mixed is refused because there is nothing to fall back to: the undated rows cannot be placed against
+the dated ones, and arrival order is precisely what is not trustworthy here. A tie is refused
+because the provider's own evidence does not say. Both land on each reader's existing degrade path,
+logged distinctly from a malformed chain — the two have different causes and only one is corruption.
+
+**Rollback protection is untouched and independent.** IR-021's guard is a write-side mechanism; it
+still refuses a value that reappears in a chain, whatever vintage it claims. Control F asserts that
+directly, and the rollback reproduction suite stayed green under all eight mutants.
+
+### Controls and mutants
+
+Controls A–F run through the PRODUCTION readers against a real database, not a helper:
+
+    A  current row first, older vintages after -> current stays current   (the reproduction shape)
+    B  vintages oldest to newest -> newest wins
+    C  identical retrievedAt and random ids -> answer unchanged, asserted five times
+    D  mixed dated/undated -> series unreadable, history omits that date and keeps the rest
+    D2 tied vintages -> refused
+    E  no vintages anywhere -> structural answer, unchanged;  E2 single row, dated or not
+    F  replayed equal value -> still refused, current unaffected
+
+Eight mutants, all ISOLATED, the IR-021 rollback suite green throughout. Five of eight predictions
+were wrong and three of the misses are worth more than the numbers:
+
+- **B cannot see the defect.** Under `M-CUR-ARRIVAL-TAIL`, B stays GREEN: its vintages arrive
+  oldest-to-newest, so arrival order and vintage order agree and the wrong rule gives the right
+  answer. Only A puts the current row first, which is the shape that actually occurred. A suite of
+  B-shaped controls would have been fully green against the broken code.
+- **`M-CUR-ORDER-ID` has no stable cardinality** — 4 reds in one run, 2 in a repeat. Ids are random
+  UUIDs, so the count is a random variable rather than a property. The ISOLATED verdict is the
+  evidence; the number is not.
+- **Two mutants existed only because review asked for them.** The first six left the tied-maximum
+  refusal load-bearing in the integration suite but not mutation-proven, and had no mutant at all
+  for the validity guard below.
+
+### What adversarial review found, and what was done with each
+
+A read-only zero-cost Codex pass ran on the pre-repair contract and again on the repaired tree. The
+first independently proposed the same design and named the trap avoided here — changing
+`findRevisionChainTail` itself, which would have altered ingest attachment and IR-021 semantics
+rather than user-facing selection. The second produced four findings:
+
+1. **Fixed.** `releaseDate` validity was assumed. An `Invalid Date` makes every comparison NaN, so
+   `latest` never moves and `tied` is never set, and the FIRST row would return labelled
+   `PROVIDER_VINTAGE` — the provider appearing to have chosen a row it said nothing about. Now
+   filtered, with three unit controls and a mutant. Those controls are pure-function on purpose: an
+   invalid Date cannot be stored through the database, so this is the one case where a helper-level
+   control is the right tool rather than a surrogate.
+2. **Fixed.** No mutant covered the tied-maximum refusal. Added.
+3. **Recorded, not changed.** `fabric/shadowProjection.ts` picks an arbitrary row from the latest
+   observation date and promotes that row's `releaseDate` as vintage metadata, with no chain
+   resolution. It does not select a value, so it is outside this decision's current-value scope, and
+   there is no reproduction of harm from it — and "no reproduction => no repair" is the decision's
+   own closing rule. It is a named limitation, not an oversight.
+4. **Escalated.** Refusing a date makes `getObservationsOneRowPerDate` return a shorter array, and
+   Historical Analog and Economic Calendar both read the remaining dates as contiguous — computing
+   cadence, trailing changes and forward offsets across a gap as though it were one period. The
+   omission path predates this unit, but IR-131 makes it far likelier, so a rare hazard becomes a
+   live one. Also no reproduction yet, so it is a decision rather than an edit:
+   `MARKET-HISTORY-HOLE-COMPRESSION-20260907`.
+
+### The evidence is untouched
+
+The 43 CPIAUCSL dates that demonstrate the original defect were not deleted, reordered or repaired.
+Every control above rebuilds the mechanism from fixtures. What changed is that the read path no
+longer serves 300.456 for those dates: it now refuses them as unverifiable, which is the correct
+answer for a chain nobody can order, and the rows remain exactly as measured.

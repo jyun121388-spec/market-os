@@ -4101,3 +4101,111 @@ without keys" were re-expressed to the narrower truth they were always about: no
 key is startable. Three of them — the two verdict controls and the convergence one — now construct
 an empty queue with `proposals: []` instead of borrowing one from the live matrix, because they were
 never about what the matrix happens to hold.
+
+## IR-133 — a refused date is not an adjacency, and the consumer had to be told
+
+`[CHATGPT_DECISION][MARKET-HISTORY-HOLE-COMPRESSION-20260907]`: measurement first, and no product
+repair from suspicion alone. IR-131's own closeout raised the hazard and explicitly did not
+reproduce it, so this unit reproduced it before touching anything.
+
+Seam re-verified against the decision's anchor first. `git diff 2672cc44..b9d22317` is IR-132 —
+governance, evolution, policy and their tests, plus docs and one mutation script — and touches none
+of `seriesReadings.ts`, `revisionChain.ts`, `historicalAnalog.ts`, `economicCalendar.ts` or
+`askMarket.ts`. The three changed source files contain zero references to observations, the history
+reader or the chain module, so IR-132 cannot reach this seam at all.
+
+### REPRODUCED
+
+Fixture: a linear monthly ramp, value = 100 + monthIndex, so a true N-period change is exactly N and
+anything else is arithmetic rather than interpretation. One interior date made UNVERIFIABLE through
+the IR-131 path — a chain mixing an undated row with a provider-dated one — and driven through the
+real consumers.
+
+    contiguous        2024-02: trailing=1  +1=1  +3=3  +6=6     correct
+    hole at 2024-07   2024-02: trailing=1  +1=1  +3=3  +6=7     WRONG
+                      2024-04: trailing=1  +1=1  +3=4  +6=7     WRONG
+    two gaps          2024-04: +3=5                             WRONG
+
+`subsequentChange3` reported 4 and `subsequentChange6` reported 7. Those fields name a period count;
+`historicalAnalog` computes them as `points[fromIndex + windowsAhead]`, so one omitted date shifts
+every later index and the label and the arithmetic disagree. Materially wrong, not merely incomplete.
+
+### Consumer inventory
+
+    historicalAnalog.computeHistoricalAnalog   B CONTIGUITY_DEPENDENT — `points[i] - points[i-w]`
+                                               and `points[fromIndex + n]`. Array index used as
+                                               period identity. THE DEFECT.
+    economicCalendar.computeCalendarEntry      B by shape, but subtracts REAL dates. One inflated
+                                               interval is absorbed by the median: measured 31d
+                                               before and after the hole, and `lastObservedDate`
+                                               names the row it used. Not wrong.
+    askMarket (two call sites)                 A/C — selects by explicit date and REFUSES when a
+                                               named boundary date is absent. Unchanged.
+    claimStore, claimVerification, systemHealth, shadowRun aggregates
+                                               not current-period readers.
+
+A safe omission is not a defect. A consumer inventing period semantics from it is. Only one consumer
+was doing that.
+
+### The repair, at the lowest boundary that holds the evidence
+
+The knowledge that a date was REFUSED exists only inside the history reader, so that is where it is
+handed on. `getObservationHistory` returns `{ rows, unresolvedDates }`;
+`getObservationsOneRowPerDate` becomes a thin wrapper returning `.rows`, so every date-reading
+consumer is untouched. `unresolvedDates` carries only dates that ARE stored and unanswerable — a
+date the provider never published appears nowhere, which is exactly why an irregular series is not
+penalised for being irregular.
+
+`historicalAnalog` then refuses what it cannot prove: a trailing change carries `spanProven`; the
+CURRENT window failing it returns INSUFFICIENT_DATA; earlier windows failing it are dropped rather
+than compared; `subsequentChange` returns null across a withheld date. No value is fabricated, no
+superseded value is resurrected, no frequency is inferred from local spacing, and array position is
+never period identity — the evidence is an explicit withheld date, or nothing.
+
+`observationIngest.ts` and `revisionChain.ts` are untouched. IR-131 current-value selection and
+IR-021 rollback are unchanged, and the IR-131 suites stayed 18/18 green under all eight mutants.
+
+### Adversarial review found two P1s IN THE REPAIR, both fixed
+
+A read-only zero-cost Codex pass on the repaired tree:
+
+1. **A refusal NEWER than every answerable point invalidated nothing.** `spansWithheldDate` looks
+   strictly BETWEEN two points, so a withheld date past the last one lies outside every span; the
+   engine took the previous window as "current" and analysed an older period under the
+   current-period contract. The same substitution the repair was written to stop, arriving from the
+   one direction the check was blind to. Fixed with an explicit `refusedAfterNewest`, control F
+   re-expressed from "values stay correct" to "the analog fails closed", and a mutant added.
+2. **Filtering could leave too few windows to be honest about.** The sample-size guard ran on the
+   UNFILTERED list, so dropping unprovable windows could leave one survivor: `sd === 0`, both
+   z-scores forced to zero, and any current change scoring a perfect 1.0 similarity against it.
+   Refusing a wrong period count and then publishing a confident wrong distribution would have been
+   no repair. Guard re-applied after the drop, control F2 added, mutant added.
+
+Codex also confirmed the predicate handles unsorted and duplicate withheld dates, that
+`windowSize > history` still yields INSUFFICIENT_DATA, and that no production positional-period
+consumer was missed.
+
+### Controls and mutants
+
+Twelve controls, all through the production consumers against a real database, covering every
+discrimination the decision listed — contiguous monthly and quarterly unchanged; one interior
+refusal; two consecutive refusals; first- and last-boundary; irregular-but-legitimate not rejected;
+absent versus refused distinguished; a non-contiguity consumer pinned; plus J (the current window
+itself spanning a refusal) and K (a refusal outside a window must not withhold it, so
+"withhold everything" cannot satisfy the rest vacuously).
+
+Eight mutants, all ISOLATED. Four of eight cardinality predictions were low, all for the same
+reason: they were written against the 11-control suite, before review forced F to become a
+fail-closed and added F2. Strengthening one control widened the blast radius of unrelated mutants,
+which is what a suite that genuinely overlaps looks like.
+
+### Recorded, not repaired
+
+Codex's P2: the result exposes the surviving `sampleSize` but not how many windows were rejected, so
+a caller cannot tell clean history from heavily censored history. Missingness may also be
+time-correlated. Both are real and neither is reproduced as a wrong answer; `computeHistoricalAnalog`
+has no production caller outside tests today. Recorded here rather than widened into.
+
+Also unchanged and previously recorded under IR-131: `fabric/shadowProjection.ts` picks an arbitrary
+row from the latest observation date for vintage metadata. It selects no value and remains
+unreproduced.

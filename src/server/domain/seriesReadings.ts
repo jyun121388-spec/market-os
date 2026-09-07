@@ -110,7 +110,33 @@ export async function getRecentObservationPair(seriesId: string): Promise<Observ
  * Exists so there is one correct way to ask this question, rather than three call sites each
  * getting it subtly wrong in their own file.
  */
-export async function getObservationsOneRowPerDate(seriesId: string): Promise<Observation[]> {
+/**
+ * A series' history, WITH the dates this repository declined to answer about.
+ *
+ * IR-133. `getObservationsOneRowPerDate` omits a date whose current value cannot be proven, and
+ * omitting is right — the alternative is serving a superseded number. But the omission leaves no
+ * trace in the array, and a consumer that reads array positions as periods then treats the two
+ * dates either side of the hole as adjacent. Measured through the real consumers on 2026-09-08:
+ * `historicalAnalog` reported `subsequentChange3 = 4` and `subsequentChange6 = 7` on a ramp whose
+ * every one-period step is exactly 1.
+ *
+ * The knowledge that a date was refused exists HERE and nowhere downstream, so this is the lowest
+ * boundary that can hand it on. It is offered rather than imposed: `unresolvedDates` is evidence a
+ * consumer may use to refuse, not an instruction, and consumers that read dates rather than
+ * positions need nothing from it.
+ *
+ * `unresolvedDates` carries ONLY dates that are stored and unprovable. A date the provider never
+ * published is simply absent and appears nowhere here — that distinction is the reason an
+ * irregular series is not penalised for being irregular.
+ */
+export interface ObservationHistory {
+  /** One row per answerable date, oldest first. Exactly what `getObservationsOneRowPerDate` returns. */
+  rows: Observation[];
+  /** Dates that ARE stored but whose current value could not be proven, so they were withheld. */
+  unresolvedDates: Date[];
+}
+
+export async function getObservationHistory(seriesId: string): Promise<ObservationHistory> {
   const rows = await prisma.observation.findMany({
     where: { seriesId },
     // Deterministic tiebreak only, for a forked chain that should be impossible.
@@ -129,6 +155,7 @@ export async function getObservationsOneRowPerDate(seriesId: string): Promise<Ob
   // malformed date would otherwise discard every other date in the series as well. Skipping the
   // affected date loses one point instead of all of them.
   const resolved: Observation[] = [];
+  const unresolvedDates: Date[] = [];
   for (const [dateKey, bucket] of byDate) {
     try {
       const selection = selectCurrentObservation(bucket);
@@ -137,6 +164,10 @@ export async function getObservationsOneRowPerDate(seriesId: string): Promise<Ob
         // IR-131: omitting the date is the same degradation a malformed chain already produced,
         // and it is the honest one. A history point whose current value cannot be proven would
         // otherwise be plotted and compared against as though it were settled.
+        //
+        // IR-133 records WHICH date, because the omission is invisible in the array and a consumer
+        // reading positions as periods would otherwise span it silently.
+        unresolvedDates.push(new Date(dateKey));
         console.error(
           `[seriesReadings] series ${seriesId} cannot prove which value is current on ` +
             `${new Date(dateKey).toISOString().slice(0, 10)}; omitting that date from the ` +
@@ -146,6 +177,10 @@ export async function getObservationsOneRowPerDate(seriesId: string): Promise<Ob
       }
       resolved.push(selection.row);
     } catch (error) {
+      // A malformed chain is also a stored date this repository cannot answer about, so it is
+      // recorded the same way. The CAUSE differs and is logged differently; the consequence for a
+      // consumer counting periods is identical.
+      unresolvedDates.push(new Date(dateKey));
       console.error(
         `[seriesReadings] series ${seriesId} has a malformed revision chain on ` +
           `${new Date(dateKey).toISOString().slice(0, 10)}; omitting that date from the history: ` +
@@ -154,7 +189,21 @@ export async function getObservationsOneRowPerDate(seriesId: string): Promise<Ob
     }
   }
 
-  return resolved.sort((a, b) => a.observationDate.getTime() - b.observationDate.getTime());
+  return {
+    rows: resolved.sort((a, b) => a.observationDate.getTime() - b.observationDate.getTime()),
+    unresolvedDates: unresolvedDates.sort((a, b) => a.getTime() - b.getTime()),
+  };
+}
+
+/**
+ * One row per answerable date, oldest first.
+ *
+ * The long-standing shape, kept exactly as it was so every date-reading consumer is untouched. A
+ * consumer that counts PERIODS wants `getObservationHistory` instead — see IR-133 for why the
+ * difference matters.
+ */
+export async function getObservationsOneRowPerDate(seriesId: string): Promise<Observation[]> {
+  return (await getObservationHistory(seriesId)).rows;
 }
 
 export interface DeterministicChange {

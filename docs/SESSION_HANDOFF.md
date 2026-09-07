@@ -23,7 +23,9 @@ worked as IR-130: the provider's own vintage now reaches `Observation.releaseDat
 showed chain order is arrival order and a vintage history appended to a live chain makes the read
 path serve a superseded figure. That was decided and applied on 2026-09-07 as IR-131: the
 provider's vintage decides the current value, and a chain that cannot be ordered is refused
-rather than guessed. See `docs/CURRENT_TASK.md` for what remains open.
+rather than guessed. IR-132 then scoped SEC's public read-only surface as keyless, and IR-133
+(2026-09-08) stopped the refusal from becoming a false adjacency downstream. See
+`docs/CURRENT_TASK.md` for what remains open.
 
 `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
 closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`

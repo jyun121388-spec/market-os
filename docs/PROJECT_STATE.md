@@ -504,6 +504,20 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+A REFUSED DATE IS NOT AN ADJACENCY (2026-09-08, IR-133)
+IR-131's refusal was correct and left the omission invisible in the array. Reproduced through the
+real consumers on a ramp of ones: `historicalAnalog` reported `subsequentChange3 = 4` and
+`subsequentChange6 = 7`, because it computes windows by array index. The calendar was measured
+too and is NOT wrong — it subtracts real dates and the median absorbed the inflated interval —
+and Ask Market selects by explicit date and already refuses an absent boundary. One consumer was
+inventing period semantics; only that one changed. `getObservationHistory` now hands on the
+dates this repository stored but could not answer about, and the analog engine refuses any window
+spanning one rather than relabelling it. Nothing is interpolated, no frequency is inferred, and
+array position is never period identity. Adversarial review found two P1s in the repair itself —
+a refusal newer than every point invalidated nothing, and filtering could leave one window and
+manufacture a perfect similarity score — both fixed with their own controls and mutants. Twelve
+controls, eight mutants all ISOLATED, IR-131 suites green throughout.
+
 A SURFACE THAT NEEDS NO KEY (2026-09-07, IR-132)
 IR-127's comment claimed a keyless provider "names no provider and is never blocked on a key it
 does not need"; the second half was false, because an unnamed action takes the conjunction over
@@ -950,8 +964,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2824 / 2824 PASS across 159 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2805 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2836 / 2836 PASS across 160 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2817 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

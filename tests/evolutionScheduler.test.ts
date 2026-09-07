@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as scheduler from "@/server/evolution/scheduler";
+import { KEYLESS_PROVIDER_SURFACES } from "@/server/governance/policy";
 import {
   evaluateStopSentinel,
   isWorkExhausted,
@@ -193,8 +194,13 @@ describe("a finished phase yields the next one without being asked", () => {
     expect(unstated.actionable.length).toBeGreaterThan(stated.actionable.length);
     expect(unstated.deferred.length).toBeLessThan(stated.deferred.length);
     // The narrowing, asserted rather than left to the comment: what an unstated environment still
-    // makes actionable is exactly the work that names no provider.
-    for (const work of unstated.actionable) expect(work.proposal.provider).toBeUndefined();
+    // makes actionable is the work that names no provider — plus, since IR-132, work naming a
+    // surface that needs no credential at all, which an unstated environment cannot affect either
+    // way. Nothing that needs an unestablished KEY is in here.
+    for (const work of unstated.actionable) {
+      const provider = work.proposal.provider;
+      if (provider !== undefined) expect(KEYLESS_PROVIDER_SURFACES).toContain(provider);
+    }
   });
 
   /**
@@ -275,7 +281,7 @@ describe("the scheduler cannot do anything", () => {
 });
 
 describe("against the real ledger and capability matrix", () => {
-  it("has converged: nothing startable, and exactly these six items gated", () => {
+  it("has converged: only the credential-free item startable, and exactly these five gated", () => {
     // The count has moved three times in one day and the name was wrong twice, because
     // `arrayContaining` let it drift silently: it said "four items" while its own comment said
     // "five", and both survived IR-129 adding a sixth. A convergence control that cannot notice
@@ -284,7 +290,10 @@ describe("against the real ledger and capability matrix", () => {
     //
     // 2026-09-06, in order: HG-002 stopped CAP-DEBT-FRED being generated; CAP-CEILING-FRED is
     // recorded worked in COMPLETED_WORK so it does not appear; IR-129 added the two
-    // CAP-FOLLOWUP items for the providers with measured CONDITIONAL cells.
+    // CAP-FOLLOWUP items for the providers with measured CONDITIONAL cells. Then IR-132
+    // (2026-09-07) made SEC's public read-only surface keyless, so CAP-FOLLOWUP-SEC_EDGAR is
+    // startable in this no-credentials context: it needs none. The queue has not stopped
+    // converging — it has one item whose requirements are genuinely met.
     const queue = scheduleNextWork({
       context: {
         verificationGreen: true,
@@ -298,15 +307,17 @@ describe("against the real ledger and capability matrix", () => {
     // startable remains, and every item that needs a provider key stays deferred. The queue
     // CONVERGING is the point — before COMPLETED_WORK existed it returned the same nine items
     // forever, and a queue that never empties can never make "exhausted" mean anything.
-    expect(queue.actionable.length).toBe(0);
+    expect(queue.actionable.map((w) => w.proposal.id)).toEqual(["CAP-FOLLOWUP-SEC_EDGAR"]);
     expect(queue.deferred.map((w) => w.proposal.id).sort()).toEqual([
       "CAP-DEBT-ECOS",
       "CAP-DEBT-OPENDART",
       "CAP-FOLLOWUP-FRED",
-      "CAP-FOLLOWUP-SEC_EDGAR",
       "CLUSTER-PROVIDER_ASSUMPTION",
       "CLUSTER-SEMANTIC_RECENCY",
     ]);
+    // The one startable item is startable BECAUSE it needs no credential, not because the context
+    // was permissive: this context states every key absent.
+    expect(queue.actionable[0].proposal.provider).toBe("SEC_EDGAR_PUBLIC_READ");
     for (const blocked of queue.deferred) {
       expect(blocked.blockedBy, blocked.proposal.id).toBeTruthy();
     }

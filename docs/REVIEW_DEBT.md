@@ -4027,3 +4027,77 @@ The 43 CPIAUCSL dates that demonstrate the original defect were not deleted, reo
 Every control above rebuilds the mechanism from fixtures. What changed is that the read path no
 longer serves 300.456 for those dates: it now refuses them as unverifiable, which is the correct
 answer for a chain nobody can order, and the rows remain exactly as measured.
+
+## IR-132 — a surface that needs no key, scoped to the surface
+
+`[CHATGPT_DECISION][MARKET-KEYLESS-PROVIDER-IDENTITY-20260906]` approved Option A and narrowed it:
+adopt the keyless direction, but scope the authority to SEC EDGAR's existing PUBLIC READ-ONLY data
+surface and do NOT encode "all SEC/EDGAR APIs are keyless" — EDGAR Next filer and submission APIs
+require user/filer tokens.
+
+Seam re-verified first, as the decision required: the escalation was anchored at `be37d853` and the
+writer had moved twice since. `git diff be37d853..HEAD -- policy.ts scheduler.ts proposal.ts
+autonomy-context.ts` is EMPTY, and `policy.ts` specifically is byte-identical. The authority applies
+as written.
+
+### What was wrong
+
+IR-127 left SEC EDGAR out of `KEYED_PROVIDERS` because it issues no key, and its own comment claimed
+such an action "names no provider and is never blocked on a key it does not need". The first half is
+true; the second was false. An unnamed action falls back to the conjunction over the three KEYED
+providers, which is false unless all three are present — so `CAP-FOLLOWUP-SEC_EDGAR` was deferred as
+`CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY`, held by ECOS and OpenDART credentials that SEC work never
+touches. The same aliasing IR-127 removed, one category out, and IR-129 made it visible by
+generating the proposal that ran into it.
+
+### The scope is mechanical, not a promise in a comment
+
+The identity is `SEC_EDGAR_PUBLIC_READ` — a SURFACE. There is deliberately no value meaning "SEC" in
+general, so a token-requiring action cannot inherit the classification: it would have to name an
+identity that does not exist, which fails closed like any unrecognised string.
+
+The mapping is DERIVED rather than asserted. The SEC_EDGAR capability profile is live-verified across
+`submissions` and `companyfacts`; `adapters/edgar/client.ts` calls exactly those on `data.sec.gov`;
+and that surface takes a descriptive User-Agent under SEC's fair-access policy, not a credential. The
+derivation rests on what the profile actually describes.
+
+**It answers only the credential-presence question.** Rate and fair-access, request shape,
+verification, scheduler authority and every Human Gate are separate predicates, evaluated exactly as
+before. A control asserts that over the WHOLE governed action table: naming a keyless surface moves
+no other action's decision or execution, not a deployment, not a payment, not a merge.
+
+### Effect, measured
+
+    before   ACTIONABLE 0 / DEFERRED 6 with no keys; CAP-FOLLOWUP-SEC_EDGAR read
+             `CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY`
+    after    ACTIONABLE 1 / DEFERRED 5 with no keys; the one startable item is
+             CAP-FOLLOWUP-SEC_EDGAR, provider `SEC_EDGAR_PUBLIC_READ`
+
+Everything that needs a key is still exactly where it was: the two clusters on the conjunction,
+CAP-FOLLOWUP-FRED on FRED's own key, CAP-DEBT-ECOS and CAP-DEBT-OPENDART behind HG-003/004.
+
+### Controls and mutants
+
+Six controls, covering all five discriminations the decision listed, plus a negative control that
+the keyed path did not loosen. Three mutants, all ISOLATED, unrelated 49/49 green.
+
+Two cardinalities were wrong and both misses are informative. `M-KEYLESS-UNKNOWN-IS-KEYLESS`
+reddened three controls, not two: the third is IR-127's own "refuses an identity it does not
+recognise", which predates this unit — an older control still watching a rule a newer unit widened.
+`M-KEYLESS-SCOPE-ERASED` reddened two, not one, so the docstring's claim that ONE control stood
+between this repository and "all SEC APIs are keyless" was wrong; two do, and the second only
+because a control written for another purpose happened to enumerate the string `SEC_EDGAR`.
+
+One mutant had to be re-aimed, and that is worth keeping. `M-KEYLESS-BYPASSES-POLICY` first inserted
+its short-circuit at the top of `CALL_FREE_PROVIDER`'s `refine`, which SOUNDS like bypassing the rest
+of the rule and is not: the verification predicate lives in `evaluateAction` after `refine` returns.
+It came back MISSED. A mutant must reach the code that applies the predicate it claims to bypass, or
+it measures nothing.
+
+### Eight controls re-expressed, not deleted
+
+The change makes real work startable that was not, so eight controls asserting "nothing is startable
+without keys" were re-expressed to the narrower truth they were always about: nothing that NEEDS a
+key is startable. Three of them — the two verdict controls and the convergence one — now construct
+an empty queue with `proposals: []` instead of borrowing one from the live matrix, because they were
+never about what the matrix happens to hold.

@@ -69,6 +69,30 @@ export type ActionKind =
 export const KEYED_PROVIDERS = ["FRED", "ECOS", "OPENDART"] as const;
 export type KeyedProvider = (typeof KEYED_PROVIDERS)[number];
 
+/**
+ * Provider SURFACES that need no credential at all.
+ *
+ * IR-132, under `[CHATGPT_DECISION][MARKET-KEYLESS-PROVIDER-IDENTITY-20260906]`. IR-127 left SEC
+ * EDGAR out of `KEYED_PROVIDERS` because it issues no key, and said in its own comment that such an
+ * action "names no provider and is never blocked on a key it does not need". The second half was
+ * untrue: an unnamed action falls back to the conjunction over the three KEYED providers, which is
+ * false unless all three are present — so SEC work was held by ECOS and OpenDART credentials it
+ * never touches. The same aliasing IR-127 removed, one category out.
+ *
+ * The member names a SURFACE, not a company, and that is the mechanical scope the decision
+ * requires. `data.sec.gov` submissions and companyfacts — the endpoints
+ * `src/server/adapters/edgar/client.ts` actually calls, and the ones the SEC_EDGAR capability
+ * profile was live-verified against — need only a descriptive User-Agent under SEC's fair-access
+ * policy. EDGAR Next filer-management and submission APIs DO require user/filer tokens, and nothing
+ * here says otherwise: an action on those surfaces carries a different identity or none, and either
+ * way it is not keyless. There is deliberately no value meaning "SEC" in general.
+ */
+export const KEYLESS_PROVIDER_SURFACES = ["SEC_EDGAR_PUBLIC_READ"] as const;
+export type KeylessProviderSurface = (typeof KEYLESS_PROVIDER_SURFACES)[number];
+
+/** What an action may name: a keyed provider, or a surface that needs no key. */
+export type ProviderIdentity = KeyedProvider | KeylessProviderSurface;
+
 export interface ActionDescriptor {
   kind: ActionKind;
   detail?: string;
@@ -87,7 +111,7 @@ export interface ActionDescriptor {
    * claim about the work rather than a fact about it — so an unnamed action keeps the conjunction,
    * which is the conservative reading and the one every existing caller already gets.
    */
-  provider?: KeyedProvider;
+  provider?: ProviderIdentity;
   /**
    * Context the engine cannot infer. Absent fields are treated as UNKNOWN and, where a rule
    * depends on one, resolve toward the safer decision rather than the convenient one.
@@ -246,10 +270,29 @@ interface Rule {
  *            calls must not be cleared by a credential belonging to a different one, which is the
  *            same aliasing with its sign flipped.
  */
+/**
+ * Membership tests written as type predicates rather than bare `includes` calls.
+ *
+ * The narrowing is the point: after `isKeyedProvider` the compiler knows the value indexes
+ * `providerKeys`, so a surface can never be looked up in the keyed map by accident. Both take a
+ * `string` so an identity arriving from JSON or a fixture — which the type system did not check —
+ * is classified rather than assumed.
+ */
+const isKeylessSurface = (p: string): p is KeylessProviderSurface =>
+  (KEYLESS_PROVIDER_SURFACES as readonly string[]).includes(p);
+const isKeyedProvider = (p: string): p is KeyedProvider =>
+  (KEYED_PROVIDERS as readonly string[]).includes(p);
+
 export function providerKeyReady(action: ActionDescriptor): boolean {
   const named = action.provider;
   if (named === undefined) return action.context?.providerKeyAvailable !== false;
-  if (!(KEYED_PROVIDERS as readonly string[]).includes(named)) return false;
+  // A surface that issues no credential has no key to be missing. This answers ONLY the
+  // credential-presence question: rate/fair-access, request shape, verification, scheduler
+  // authority and every Human Gate are separate predicates and are evaluated exactly as before.
+  if (isKeylessSurface(named)) return true;
+  // Anything not recognised as a keyed provider fails closed. A forged string, a future provider
+  // nobody has classified, or an EDGAR surface that DOES require a token all land here.
+  if (!isKeyedProvider(named)) return false;
   return action.context?.providerKeys?.[named] === true;
 }
 
@@ -544,7 +587,8 @@ const RULES: Record<ActionKind, Rule> = {
               `${base.rationale} ` +
               (action.provider
                 ? `No established key for ${action.provider}, which is the only provider this ` +
-                  "action calls."
+                  "action calls. (A surface known to need no credential would not reach this: see " +
+                  "KEYLESS_PROVIDER_SURFACES.)"
                 : "This action does not say which provider it calls, so it needs a key for every " +
                   "keyed provider and at least one is absent."),
           };

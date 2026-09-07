@@ -504,6 +504,19 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+A SURFACE THAT NEEDS NO KEY (2026-09-07, IR-132)
+IR-127's comment claimed a keyless provider "names no provider and is never blocked on a key it
+does not need"; the second half was false, because an unnamed action takes the conjunction over
+the three KEYED providers. SEC's follow-up was held by ECOS and OpenDART credentials it never
+touches. `KEYLESS_PROVIDER_SURFACES = ["SEC_EDGAR_PUBLIC_READ"]` names a SURFACE, not a company:
+`data.sec.gov` submissions and companyfacts, which the profile was live-verified against and which
+take a User-Agent rather than a credential. EDGAR Next filer and submission APIs require tokens
+and are deliberately unrepresented, so an action on them fails closed like any unrecognised
+identity. It answers ONLY credential presence — rate, shape, verification, scheduler and Human
+Gates are unchanged, asserted over the whole governed table. With no keys the queue now reads
+`ACTIONABLE 1 / DEFERRED 5` and the startable item is the one needing no credential. Six controls,
+three mutants all ISOLATED.
+
 CURRENT-VALUE AUTHORITY (2026-09-07, IR-131)
 The wrong answer IR-130 measured is repaired at the read boundary. `findRevisionChainTail` was
 never wrong: the WRITER attaches each new row to the current tail, so chain order is arrival
@@ -937,8 +950,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2818 / 2818 PASS across 159 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2799 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2824 / 2824 PASS across 159 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2805 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

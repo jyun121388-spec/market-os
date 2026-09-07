@@ -4,6 +4,7 @@ import {
   observeExecution,
   GOVERNED_ACTIONS,
   KEYED_PROVIDERS,
+  KEYLESS_PROVIDER_SURFACES,
   type ActionKind,
   type PolicyDecision,
 } from "@/server/governance/policy";
@@ -634,6 +635,137 @@ describe("a free-provider call is blocked by the key it needs, not by the ones i
       expect(named.execution, `${kind} changed execution when a provider was named`).toBe(
         bare.execution,
       );
+    }
+  });
+});
+
+/**
+ * IR-132: a surface that issues no credential, scoped to the surface and not to the company.
+ *
+ * `[CHATGPT_DECISION][MARKET-KEYLESS-PROVIDER-IDENTITY-20260906]`. IR-127 left SEC EDGAR out of
+ * `KEYED_PROVIDERS` because it issues no key, and its own comment claimed such an action "names no
+ * provider and is never blocked on a key it does not need". The second half was false: an unnamed
+ * action falls back to the conjunction over the three KEYED providers, so SEC work was held by ECOS
+ * and OpenDART credentials it never touches — the same aliasing IR-127 removed, one category out.
+ *
+ * The identity names a SURFACE. `data.sec.gov` submissions and companyfacts — what
+ * `adapters/edgar/client.ts` calls and what the SEC_EDGAR profile was live-verified against — need
+ * a descriptive User-Agent under SEC's fair-access policy, not a credential. EDGAR Next
+ * filer-management and submission APIs DO require tokens, and nothing here says otherwise: there is
+ * deliberately no value meaning "SEC" in general, so a token-requiring action cannot inherit this.
+ */
+describe("a provider surface that needs no credential", () => {
+  const NO_KEYS = {
+    providerKeys: { FRED: false, ECOS: false, OPENDART: false },
+    providerKeyAvailable: false,
+  } as const;
+
+  it("1. lets a named SEC public-read action pass the credential predicate with zero keys", () => {
+    const evaluation = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      provider: "SEC_EDGAR_PUBLIC_READ",
+      context: NO_KEYS,
+    });
+    expect(evaluation.execution).toBe("READY");
+  });
+
+  it("2. changes ONLY the credential predicate — every other one still decides", () => {
+    // The decision is explicit that this is a credential-presence repair and nothing else. A red
+    // verification still DENIES the same action, and a rate limit that has not been proven still
+    // leaves it AUTO_ALLOWED_WITH_VERIFY rather than auto-allowed.
+    const redVerification = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      provider: "SEC_EDGAR_PUBLIC_READ",
+      context: { ...NO_KEYS, verificationGreen: false },
+    });
+    expect(redVerification.decision).toBe("DENIED");
+
+    const unprovenRate = evaluateAction({
+      kind: "CALL_FREE_PROVIDER",
+      provider: "SEC_EDGAR_PUBLIC_READ",
+      context: NO_KEYS,
+    });
+    expect(unprovenRate.decision).toBe("AUTO_ALLOWED_WITH_VERIFY");
+    expect(unprovenRate.requiredVerification).toContain(
+      "call is within the provider's documented rate limit",
+    );
+
+    // And it confers nothing on any other ACTION. Asserted over the WHOLE governed table rather
+    // than a chosen pair, because the risk is a keyless surface quietly becoming a general
+    // permission: naming it must not move a deployment, a payment, a merge or anything else.
+    for (const kind of GOVERNED_ACTIONS) {
+      if (kind === "CALL_FREE_PROVIDER") continue;
+      const bare = evaluateAction({ kind, context: NO_KEYS });
+      const named = evaluateAction({ kind, provider: "SEC_EDGAR_PUBLIC_READ", context: NO_KEYS });
+      expect(named.decision, `${kind} decision changed when a keyless surface was named`).toBe(
+        bare.decision,
+      );
+      expect(named.execution, `${kind} execution changed when a keyless surface was named`).toBe(
+        bare.execution,
+      );
+    }
+  });
+
+  it("3. leaves an unnamed action on the conservative conjunction, unchanged", () => {
+    expect(evaluateAction({ kind: "CALL_FREE_PROVIDER", context: NO_KEYS }).execution).toBe(
+      "BLOCKED_PROVIDER_KEY",
+    );
+    // Not "any provider without a known key is allowed": an unnamed action gains nothing from the
+    // existence of a keyless surface.
+    expect(
+      evaluateAction({
+        kind: "CALL_FREE_PROVIDER",
+        context: { ...NO_KEYS, providerKeyAvailable: true },
+      }).execution,
+    ).toBe("READY");
+  });
+
+  it("4. refuses an unknown provider identity, which is never treated as keyless", () => {
+    for (const forged of ["BLOOMBERG", "SEC", "SEC_EDGAR", "sec_edgar_public_read", ""]) {
+      const evaluation = evaluateAction({
+        kind: "CALL_FREE_PROVIDER",
+        provider: forged as never,
+        context: NO_KEYS,
+      });
+      expect(evaluation.execution, `${forged || "(empty)"} must fail closed`).toBe(
+        "BLOCKED_PROVIDER_KEY",
+      );
+    }
+  });
+
+  it("5. does not make a token-requiring EDGAR surface keyless", () => {
+    // EDGAR Next filer-management and submission APIs require user/filer tokens. There is no
+    // identity for them, so an action on those surfaces either names one that does not exist —
+    // which fails closed by (4) — or names none and takes the conjunction. Both are asserted, and
+    // the important part is that NEITHER inherits the public-read surface's answer.
+    expect(
+      evaluateAction({
+        kind: "CALL_FREE_PROVIDER",
+        provider: "SEC_EDGAR_NEXT_SUBMISSION" as never,
+        context: NO_KEYS,
+      }).execution,
+    ).toBe("BLOCKED_PROVIDER_KEY");
+    expect(evaluateAction({ kind: "CALL_FREE_PROVIDER", context: NO_KEYS }).execution).toBe(
+      "BLOCKED_PROVIDER_KEY",
+    );
+    // The keyless list contains exactly one member, and it is a surface rather than a company.
+    expect(KEYLESS_PROVIDER_SURFACES).toEqual(["SEC_EDGAR_PUBLIC_READ"]);
+    expect(KEYLESS_PROVIDER_SURFACES).not.toContain("SEC_EDGAR");
+  });
+
+  it("keeps the keyed providers answering from their own keys, unaffected", () => {
+    // The negative control: adding a keyless surface must not have loosened the keyed path.
+    const fredOnly = {
+      providerKeys: { FRED: true, ECOS: false, OPENDART: false },
+      providerKeyAvailable: false,
+    } as const;
+    for (const provider of KEYED_PROVIDERS) {
+      const evaluation = evaluateAction({
+        kind: "CALL_FREE_PROVIDER",
+        provider,
+        context: fredOnly,
+      });
+      expect(evaluation.execution).toBe(provider === "FRED" ? "READY" : "BLOCKED_PROVIDER_KEY");
     }
   });
 });

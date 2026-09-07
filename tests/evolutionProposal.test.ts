@@ -222,10 +222,15 @@ describe("a capability measured available under a limitation is work, not a ceil
 
   it("derives the provider identity from the profile rather than labelling it", () => {
     expect(byId("CAP-FOLLOWUP-FRED")!.provider).toBe("FRED");
-    // SEC EDGAR issues no key, so it is not a `KeyedProvider` and resolves to undefined. That is
-    // the derivation being total rather than a special case — and see the recorded limitation:
-    // an unnamed action falls back to the conjunction, which currently over-blocks it.
-    expect(byId("CAP-FOLLOWUP-SEC_EDGAR")!.provider).toBeUndefined();
+    // SEC EDGAR issues no key, and since IR-132 that is expressed rather than left as undefined:
+    // the identity names the SURFACE this profile was live-verified against — `data.sec.gov`
+    // submissions and companyfacts — not SEC in general. The recorded limitation this replaces was
+    // that an unnamed action fell back to the conjunction and was over-blocked by ECOS and OpenDART
+    // credentials SEC work never touches.
+    expect(byId("CAP-FOLLOWUP-SEC_EDGAR")!.provider).toBe("SEC_EDGAR_PUBLIC_READ");
+    // And the derivation stays TOTAL: a provider nobody has classified is still undefined, which
+    // fails toward the conservative conjunction rather than toward a keyless assumption.
+    expect(byId("CAP-DEBT-ECOS")!.provider).toBe("ECOS");
   });
 
   it("requires a real response before it will generate work for itself", () => {
@@ -289,7 +294,15 @@ describe("the conditional follow-up reaches the scheduler as ordinary gated work
     // The two repairs composing: IR-129 puts the node in the graph, IR-127 stops an unrelated
     // absent credential from holding it. Neither alone produces this.
     const { queue } = scheduleAutonomousWork({ probe: probe({ FRED_API_KEY: "x" }) });
-    expect(queue.actionable.map((w) => w.proposal.id)).toEqual(["CAP-FOLLOWUP-FRED"]);
+    const actionable = queue.actionable.map((w) => w.proposal.id);
+    expect(actionable).toContain("CAP-FOLLOWUP-FRED");
+    // "and only that key": no other KEYED provider's work moved. Since IR-132 the SEC public
+    // read-only surface is also startable here, and it is startable with no key at all rather than
+    // on FRED's — so it is excluded by name instead of being allowed to blur the claim.
+    const keyedActionable = queue.actionable.filter(
+      (w) => w.proposal.provider !== "SEC_EDGAR_PUBLIC_READ",
+    );
+    expect(keyedActionable.map((w) => w.proposal.id)).toEqual(["CAP-FOLLOWUP-FRED"]);
     // ECOS and OpenDART work stays exactly where it was, gates included.
     const ids = queue.deferred.map((w) => w.proposal.id);
     expect(ids).toContain("CAP-DEBT-ECOS");

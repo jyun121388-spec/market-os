@@ -4,7 +4,7 @@ import {
   type CapabilityAxis,
   type ProviderCapabilityProfile,
 } from "../fabric/providerCapability";
-import { KEYED_PROVIDERS, type ActionKind, type KeyedProvider } from "../governance/policy";
+import { KEYED_PROVIDERS, type ActionKind, type ProviderIdentity } from "../governance/policy";
 import { detectWeaknesses } from "./detect";
 import { BACKFILLED_LEDGER, type LedgerEntry, type WeaknessCategory } from "./ledger";
 
@@ -67,7 +67,7 @@ export interface Proposal {
   /** Which governed actions carrying this out would involve, so the gate is visible up front. */
   requiredGovernance: ActionKind[];
   /**
-   * The keyed provider this proposal's work actually calls, when it calls exactly one.
+   * The provider identity this proposal's work actually calls, when it calls exactly one.
    *
    * DERIVED, never asserted — the only proposals that carry it are the per-provider capability
    * ones, where the identity is the profile the proposal was generated from. Cluster
@@ -77,22 +77,31 @@ export interface Proposal {
    * rather than a fact about it, and an unnamed action keeps the conservative conjunction
    * (`[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]`, item 5).
    */
-  provider?: KeyedProvider;
+  provider?: ProviderIdentity;
   /** The gate that blocks it now, where one does. */
   blockedBy?: string;
 }
 
 /**
- * The profile's source code as a keyed-provider identity, or undefined when it issues no key.
+ * The profile's source code as a provider identity, or undefined when nothing is established.
  *
  * A total function over whatever the matrix holds, so a provider added later is UNNAMED until
- * someone adds it to `KEYED_PROVIDERS` deliberately — which fails toward the conjunction, the
- * safe direction, rather than toward an identity nobody established a fact for.
+ * someone classifies it deliberately — which fails toward the conjunction, the safe direction,
+ * rather than toward an identity nobody established a fact for.
+ *
+ * SEC_EDGAR maps to a SURFACE rather than to itself (IR-132). The mapping is derived from what this
+ * profile actually describes: it is live-verified across `submissions` and `companyfacts`, which is
+ * what `src/server/adapters/edgar/client.ts` calls on `data.sec.gov`, and that surface needs a
+ * descriptive User-Agent under SEC's fair-access policy rather than a credential. It says nothing
+ * about EDGAR Next filer-management or submission APIs, which DO require tokens: those are a
+ * different surface, they are not what this profile was verified against, and an action on them
+ * would have to name an identity that does not exist here — which fails closed.
  */
-function keyedProviderOf(sourceCode: string): KeyedProvider | undefined {
-  return (KEYED_PROVIDERS as readonly string[]).includes(sourceCode)
-    ? (sourceCode as KeyedProvider)
-    : undefined;
+function providerIdentityOf(sourceCode: string): ProviderIdentity | undefined {
+  if ((KEYED_PROVIDERS as readonly string[]).includes(sourceCode)) {
+    return sourceCode as ProviderIdentity;
+  }
+  return sourceCode === "SEC_EDGAR" ? "SEC_EDGAR_PUBLIC_READ" : undefined;
 }
 
 const axesWhere = (
@@ -172,9 +181,9 @@ function verificationDebtProposal(profile: ProviderCapabilityProfile): Proposal 
     ],
     requiredGovernance: ["CALL_FREE_PROVIDER", "FIX_REPRODUCED_DEFECT"],
     // Structural, not a label: this proposal exists BECAUSE of one profile and its live-
-    // verification calls exactly that provider. SEC_EDGAR resolves to undefined — it issues no
-    // key, so it is not in `KEYED_PROVIDERS` and must never be blocked on one.
-    provider: keyedProviderOf(profile.sourceCode),
+    // verification calls exactly that provider. SEC_EDGAR resolves to its public read-only
+    // SURFACE, which needs no key at all (IR-132) — never to a claim about SEC in general.
+    provider: providerIdentityOf(profile.sourceCode),
     blockedBy: gates.join(", ") || undefined,
   };
 }
@@ -293,10 +302,10 @@ function conditionalFollowUpProposal(profile: ProviderCapabilityProfile): Propos
       "the capability cell re-measured afterwards rather than assumed to have changed",
     ],
     requiredGovernance: ["CALL_FREE_PROVIDER", "ADD_TEST"],
-    // Derived from the profile, exactly as the verification-debt proposal derives its own. A
-    // provider that issues no key resolves to undefined and keeps the conservative aggregate
-    // (IR-127) — see the limitation recorded in docs/REVIEW_DEBT.md for what that costs SEC_EDGAR.
-    provider: keyedProviderOf(profile.sourceCode),
+    // Derived from the profile, exactly as the verification-debt proposal derives its own. Since
+    // IR-132 a keyless SURFACE resolves to its own identity rather than to undefined, so SEC's
+    // follow-up is no longer held by credentials it does not need.
+    provider: providerIdentityOf(profile.sourceCode),
   };
 }
 

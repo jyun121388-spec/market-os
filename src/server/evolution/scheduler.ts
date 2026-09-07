@@ -4,6 +4,7 @@ import {
   type ActionKind,
   type ExecutionStatus,
   type KeyedProvider,
+  type ProviderIdentity,
   type PolicyDecision,
 } from "../governance/policy";
 import { capabilityGapProposals, clusterProposals, type Proposal } from "./proposal";
@@ -57,9 +58,10 @@ export interface GovernanceTrace {
    * Carried into the trace so a blocked row says WHICH credential is missing. Before 2026-09-06 a
    * reader saw `CALL_FREE_PROVIDER: BLOCKED_PROVIDER_KEY` and could not tell whether the work was
    * blocked on the key it needs or on one it never touches — which is the aliasing
-   * `[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` accepted.
+   * `[CHATGPT_DECISION][MARKET-PROVIDER-KEY-GRANULARITY-20260906]` accepted. Since IR-132 it may
+   * also be a keyless SURFACE, which is the same question answered with "no key is needed".
    */
-  provider?: KeyedProvider;
+  provider?: ProviderIdentity;
 }
 
 export interface ScheduledWork {

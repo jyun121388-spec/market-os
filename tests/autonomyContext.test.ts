@@ -63,9 +63,16 @@ const proposal = (id: string, requiredGovernance: ActionKind[]): Proposal => ({
 const realProposals = () => [...clusterProposals(), ...capabilityGapProposals()];
 
 describe("a known no-provider-key environment", () => {
-  it("schedules nothing and defers everything with a reason", () => {
+  it("schedules nothing that needs a key, and defers everything with a reason", () => {
     const { queue, environment } = scheduleAutonomousWork({ probe: probe() });
-    expect(queue.actionable).toEqual([]);
+    // IR-132: what survives here is exactly the work needing no credential. Everything that needs
+    // a KEY is deferred, which is the property this control was always about — it could previously
+    // be written as "nothing at all" only because no keyless identity existed yet.
+    for (const work of queue.actionable) {
+      expect(work.proposal.provider, `${work.proposal.id} must need no key`).toBe(
+        "SEC_EDGAR_PUBLIC_READ",
+      );
+    }
     expect(queue.deferred.length).toBeGreaterThan(0);
     for (const work of queue.deferred) {
       expect(isStartable(work)).toBe(false);
@@ -196,7 +203,11 @@ describe("a fact that could not be established", () => {
 
 describe("NO_SAFE_MEANINGFUL_NODE", () => {
   it("is a statement about the queue and never about stopping", () => {
-    const schedule = scheduleAutonomousWork({ probe: probe() });
+    // `proposals: []` since IR-132. This control is about what the VERDICT says when nothing is
+    // startable, and it used to get an empty queue for free because the live matrix produced one.
+    // SEC's public read-only surface is now legitimately startable with no credentials, so the
+    // empty queue is constructed rather than borrowed — which is what the control always meant.
+    const schedule = scheduleAutonomousWork({ probe: probe(), proposals: [] });
     expect(queueVerdict(schedule).verdict).toBe("NO_SAFE_MEANINGFUL_NODE");
     // The same queue, handed to the sentinel with nothing else established: the loop may not stop.
     // The verdict is one of the sentinel's inputs, not a substitute for the other eight.
@@ -207,10 +218,15 @@ describe("NO_SAFE_MEANINGFUL_NODE", () => {
   });
 
   it("says whether the zero is a finding or a fact held closed", () => {
-    const established = queueVerdict(scheduleAutonomousWork({ probe: probe() }));
+    // Same reason as above: the zero is constructed, because the distinction under test is between
+    // two REASONS for a zero, not between two matrices.
+    const established = queueVerdict(scheduleAutonomousWork({ probe: probe(), proposals: [] }));
     expect(established.because).toContain("established");
     const held = queueVerdict(
-      scheduleAutonomousWork({ probe: probe({ githubAuth: () => "UNAVAILABLE" }) }),
+      scheduleAutonomousWork({
+        probe: probe({ githubAuth: () => "UNAVAILABLE" }),
+        proposals: [],
+      }),
     );
     expect(held.verdict).toBe("NO_SAFE_MEANINGFUL_NODE");
     expect(held.because).toContain("credentialsAvailable");
@@ -359,17 +375,19 @@ describe("the boundary supplies per-provider facts as well as the conjunction", 
     expect(ecos?.governance.some((t) => t.provider === "ECOS")).toBe(true);
   });
 
-  it("still holds everything closed when no key is present at all", () => {
-    // The IR-126 property, re-asserted through the new contract: per-provider facts must not have
-    // opened a path that the conjunction used to close.
+  it("still holds every key-needing item closed when no key is present at all", () => {
+    // The IR-126 property, re-asserted through the contract as it now stands: per-provider facts
+    // must not have opened a path that the conjunction used to close. Both gates are RESOLVED here,
+    // so a gate cannot be what is doing the blocking — only the absent credentials can be.
     const { queue } = scheduleAutonomousWork({
       probe: probe({
         gateRegister: () => register({ "HG-003": "RESOLVED", "HG-004": "RESOLVED" }),
       }),
     });
-    expect(queue.actionable).toEqual([]);
-    expect(queueVerdict({ ...scheduleAutonomousWork({ probe: probe() }) }).verdict).toBe(
-      "NO_SAFE_MEANINGFUL_NODE",
-    );
+    // IR-132: the sole survivor is the surface that needs no credential, and it says so by name.
+    expect(queue.actionable.map((w) => w.proposal.provider)).toEqual(["SEC_EDGAR_PUBLIC_READ"]);
+    // Everything else is still closed, and still says why.
+    expect(queue.deferred.length).toBeGreaterThan(0);
+    for (const work of queue.deferred) expect(work.blockedBy).toBeDefined();
   });
 });

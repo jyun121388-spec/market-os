@@ -2,6 +2,11 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/server/actions/auth";
 import { computeCompanyXray, listCompanySources } from "@/server/domain/companyXray";
+import {
+  computeValuationScenarios,
+  type MultipleInput,
+  type ValuationScenario,
+} from "@/server/domain/valuationScenario";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +23,15 @@ export default async function CompanyXrayPage({
   searchParams,
 }: {
   params: Promise<{ corpCode: string }>;
-  searchParams: Promise<{ source?: string }>;
+  searchParams: Promise<{
+    source?: string;
+    peLow?: string;
+    peBase?: string;
+    peHigh?: string;
+    psLow?: string;
+    psBase?: string;
+    psHigh?: string;
+  }>;
 }) {
   const user = await getCurrentUser();
   if (!user) {
@@ -26,7 +39,8 @@ export default async function CompanyXrayPage({
   }
 
   const { corpCode } = await params;
-  const { source } = await searchParams;
+  const query = await searchParams;
+  const { source } = query;
 
   // A corp code is unique only within the provider that issued it. This page used to take one and
   // show whichever provider's filing happened to be most recent, so a second company sharing the
@@ -60,6 +74,17 @@ export default async function CompanyXrayPage({
   const comparable = changes.filter((c) => c.status === "COMPUTED");
   const notComparable = changes.filter((c) => c.status !== "COMPUTED");
 
+  // Multiples travel in the query string. They are the user's own assumption, they are not stored
+  // anywhere, and there is nothing authoritative to prefill them with — the decision is explicit
+  // that V1 defaults must be blank rather than a number the product invented.
+  const valuation = computeValuationScenarios({
+    figures: latestFigures,
+    sourceCode: company.sourceCode,
+    completeness,
+    peMultiples: readMultiples(query.peLow, query.peBase, query.peHigh),
+    psMultiples: readMultiples(query.psLow, query.psBase, query.psHigh),
+  });
+
   return (
     <div className="mx-auto flex max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
       <header className="flex items-start justify-between gap-4">
@@ -83,9 +108,18 @@ export default async function CompanyXrayPage({
         </div>
       </header>
 
+      {/*
+        This sentence changed when the scenario valuation landed, and it had to. It used to say
+        "does not score, rate or value companies", and leaving that above a section that multiplies
+        a reported figure by a multiple would have made the page's own disclaimer false — the
+        quietest way to break a legal guardrail is to keep the old wording after the behaviour
+        moves. What is still true, and is what the guardrail actually requires, is that nothing
+        here scores, ranks, recommends or decides a multiple on the reader's behalf.
+      */}
       <p className="rounded border border-zinc-200 p-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-        These are figures the company reported, and arithmetic differences between them. Market OS
-        does not score, rate or value companies, and nothing here is a recommendation.
+        These are figures the company reported, arithmetic differences between them, and scenario
+        arithmetic under multiples you supply yourself. Market OS does not score or rank companies,
+        does not choose a multiple for you, and nothing here is a recommendation.
       </p>
 
       {/*
@@ -147,6 +181,57 @@ export default async function CompanyXrayPage({
             </table>
           </div>
         )}
+      </section>
+
+      {/*
+        Scenario valuation (`[CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]`). The three
+        blocks below are deliberately visually distinct, because `docs/LEGAL_GUARDRAILS.md`
+        requires user-facing output touching valuation to distinguish FACT from CALCULATION from
+        INFERENCE, and a table that renders a reported figure and a number the reader typed in the
+        same style has already lost that distinction.
+      */}
+      <section className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Scenario valuation</h2>
+          <p className="text-sm text-zinc-500">
+            Arithmetic over one reported figure and a multiple you choose. Market OS does not supply
+            the multiple, does not know whether yours is reasonable, and takes no view on what this
+            company is worth. Total implied equity value only — this product publishes nothing about
+            a share.
+          </p>
+        </div>
+
+        <form
+          method="get"
+          className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
+        >
+          {source ? <input type="hidden" name="source" value={source} /> : null}
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-sm font-medium">Your P/E multiples (USER ASSUMPTION)</legend>
+            <div className="flex flex-wrap gap-3">
+              <MultipleField name="peLow" label="Low" value={query.peLow} />
+              <MultipleField name="peBase" label="Base" value={query.peBase} />
+              <MultipleField name="peHigh" label="High" value={query.peHigh} />
+            </div>
+          </fieldset>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-sm font-medium">Your P/S multiples (USER ASSUMPTION)</legend>
+            <div className="flex flex-wrap gap-3">
+              <MultipleField name="psLow" label="Low" value={query.psLow} />
+              <MultipleField name="psBase" label="Base" value={query.psBase} />
+              <MultipleField name="psHigh" label="High" value={query.psHigh} />
+            </div>
+          </fieldset>
+          <button
+            type="submit"
+            className="self-start rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium dark:border-zinc-700"
+          >
+            Calculate scenarios
+          </button>
+        </form>
+
+        <ScenarioPanel title="P/E scenario" scenario={valuation.pe} />
+        <ScenarioPanel title="P/S scenario" scenario={valuation.ps} />
       </section>
 
       <section className="flex flex-col gap-3">
@@ -276,6 +361,165 @@ function SourceChoice({ corpCode, sources }: { corpCode: string; sources: string
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * A multiple from the query string.
+ *
+ * Absent means absent: all three blank is an untouched form, not a refusal, and the scenario
+ * reports `AWAITING_ASSUMPTIONS` rather than pretending the company has no usable figure. But once
+ * ANY of the three is typed the whole set is parsed, so `abc` becomes NaN and is refused as a
+ * malformed assumption rather than silently ignored — a field the reader filled in must never be
+ * dropped on the floor.
+ */
+function readMultiples(
+  low: string | undefined,
+  base: string | undefined,
+  high: string | undefined,
+): MultipleInput | undefined {
+  const raw = [low, base, high].map((v) => (v ?? "").trim());
+  if (raw.every((v) => v.length === 0)) return undefined;
+  const [l, b, h] = raw.map((v) => (v.length === 0 ? Number.NaN : Number(v)));
+  return { low: l, base: b, high: h };
+}
+
+function MultipleField({
+  name,
+  label,
+  value,
+}: {
+  name: string;
+  label: string;
+  value: string | undefined;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <span className="text-zinc-600 dark:text-zinc-400">{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        name={name}
+        defaultValue={value ?? ""}
+        placeholder="—"
+        aria-label={`${label} multiple`}
+        className="w-24 rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+      />
+    </label>
+  );
+}
+
+/** Plain English for each machine reason, so a refusal explains itself instead of shrugging. */
+const UNVERIFIABLE_TEXT: Record<string, string> = {
+  NO_FACT_FOR_CONCEPT: "No figure of the required concept is stored for this company.",
+  NO_ANNUAL_PERIOD:
+    "No twelve-month period is stored. A multiple is defined against a year, and multiplying a quarter by one would be wrong by roughly four — so this refuses rather than substituting a shorter period.",
+  VALUE_NOT_POSITIVE:
+    "The reported figure is zero or negative, so this method does not apply. That is a fact about the filing, not a judgement about the company.",
+  VALUE_NOT_FINITE: "The stored figure is not a finite number.",
+  UNIT_NOT_A_CURRENCY_AMOUNT:
+    "The stored figure is not a plain currency amount, so multiplying it by a multiple would not produce an equity value.",
+  PROVENANCE_INCOMPLETE:
+    "The figure is missing the filing identity that makes it checkable, and Market OS does not compute on numbers it cannot point back to a source for.",
+  COMPLETENESS_UNSAFE:
+    "The stored history for this company is known to be incomplete or its last ingest failed, so the latest figure on file may not be the latest one filed.",
+  FACT_IDENTITY_AMBIGUOUS:
+    "Two stored figures cover the same period and disagree, and choosing between them would be a guess about which basis you meant.",
+};
+
+const REFUSED_TEXT: Record<string, string> = {
+  MULTIPLE_NOT_FINITE: "Enter three numbers. One of the multiples is blank or not a number.",
+  MULTIPLE_NEGATIVE: "A multiple cannot be negative.",
+  RANGE_NOT_ASCENDING: "The range must ascend: low ≤ base ≤ high.",
+};
+
+/**
+ * One scenario, with FACT, USER ASSUMPTION and CALCULATION kept visibly apart.
+ *
+ * Every branch renders the sourced figure when there is one, including when the assumptions were
+ * refused — a typo in a multiple says nothing about the data, and blanking the fact would make the
+ * two failures look the same to a reader.
+ */
+function ScenarioPanel({ title, scenario }: { title: string; scenario: ValuationScenario }) {
+  const { fact, assumptions, impliedEquityValue } = scenario;
+  return (
+    <div className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="font-medium">{title}</h3>
+        <span className="text-xs uppercase tracking-wide text-zinc-500">
+          Method: {scenario.method} · {scenario.status}
+        </span>
+      </div>
+
+      {fact ? (
+        <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950">
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+            Fact — reported by the company
+          </div>
+          <div className="mt-1 font-medium">
+            {fact.concept}: {fact.value.toLocaleString("en-US")} {fact.unit}
+          </div>
+          <div className="text-zinc-600 dark:text-zinc-400">
+            {fact.periodStart} → {fact.periodEnd} ({fact.periodMonths}mo
+            {fact.fiscalPeriod ? `, ${fact.fiscalPeriod}` : ""}
+            {fact.fiscalYear ? ` ${fact.fiscalYear}` : ""})
+          </div>
+          <div className="text-xs text-zinc-500">
+            {fact.sourceCode} · {fact.form} · {fact.accessionNumber} · completeness{" "}
+            {fact.completeness.status}
+          </div>
+        </div>
+      ) : null}
+
+      {assumptions ? (
+        <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950">
+          <div className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+            User assumption — supplied by you, not sourced
+          </div>
+          <div className="mt-1">
+            low {assumptions.low} · base {assumptions.base} · high {assumptions.high}
+          </div>
+        </div>
+      ) : null}
+
+      {impliedEquityValue ? (
+        <div className="rounded border border-zinc-300 p-3 text-sm dark:border-zinc-700">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+            Calculation — implied total equity value
+          </div>
+          <div className="mt-1 font-medium">
+            {impliedEquityValue.low.toLocaleString("en-US")} ·{" "}
+            {impliedEquityValue.base.toLocaleString("en-US")} ·{" "}
+            {impliedEquityValue.high.toLocaleString("en-US")} {impliedEquityValue.unit}
+          </div>
+          <div className="text-xs text-zinc-500">{impliedEquityValue.formula}</div>
+        </div>
+      ) : null}
+
+      {scenario.status === "AWAITING_ASSUMPTIONS" ? (
+        <p className="text-sm text-zinc-500">
+          Enter low, base and high multiples above to see a range. Nothing is filled in for you —
+          Market OS has no authoritative multiple to offer.
+        </p>
+      ) : null}
+
+      {scenario.status === "UNVERIFIABLE" ? (
+        <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <span className="font-medium">UNVERIFIABLE ({scenario.unverifiableBecause})</span> —{" "}
+          {UNVERIFIABLE_TEXT[scenario.unverifiableBecause ?? ""] ??
+            "This scenario cannot be established from what is stored."}
+        </p>
+      ) : null}
+
+      {scenario.status === "ASSUMPTIONS_REFUSED" ? (
+        <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <span className="font-medium">Assumptions refused</span> —{" "}
+          {REFUSED_TEXT[scenario.assumptionsRefusedBecause ?? ""] ?? "Check the multiples above."}
+        </p>
+      ) : null}
+
+      <p className="text-xs text-zinc-500">{scenario.limitations}</p>
     </div>
   );
 }

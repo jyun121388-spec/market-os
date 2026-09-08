@@ -4361,3 +4361,101 @@ whole boundary rather than one point on it.
 `computeHistoricalAnalog` still has no production caller outside tests. Under
 `[CHATGPT_DECISION][MARKET-V1-DELIVERY-DEFINITION-20260908]` no user-facing Macro/Calendar surface
 may expose historical-analog output until this decision is landed AND independently verified.
+
+### IR-135 — a valuation surface that values nothing
+
+`[CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]` (comment 5584643975), Option C, answering
+this repository's own escalation 5584504205. The escalation recommended B (evidence only, no
+model); the decision overruled it, and gave a reason worth recording: the delivery contract
+requires an APPLIED method, explicit assumptions, an output range and provenance, and a page whose
+method is "none, by design" does not satisfy that. It also read `docs/LEGAL_GUARDRAILS.md` on the
+exact tree and found valuation is not among the prohibitions — personalized recommendations,
+portfolio advice, guaranteed returns, definitive price predictions and single-number "buy fitness"
+scores are, and the same document REQUIRES that user-facing output touching valuation separate
+FACT from CALCULATION from INFERENCE.
+
+**Two decisions were live and they disagreed.** `[CHATGPT_DECISION][MARKET-V1-MINIMUM-PRODUCTIZATION-20260908]`
+(5584583566, 11:42) said absent capabilities must stay `UNSUPPORTED_BY_V1` and the GUI "must say
+that no V1 valuation method is implemented". `[CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]`
+(5584643975, 11:47) said do not choose that answer. The later one wins, and not only because it is
+later: it answers the escalation by id, it addresses this exact question rather than reaching it as
+a consequence of accepting the audit, and it names itself "a narrow product-delivery exception to
+the earlier no-new-feature-family default". Recorded here rather than resolved silently, because a
+future reader finding 5584583566 alone would conclude this unit disobeyed it.
+
+### What was built
+
+`src/server/domain/valuationScenario.ts`, one pure function, no Prisma import, no query, no new
+model, no LLM. `implied equity value = sourced annual figure × user multiple`, at low, base and
+high. Two methods: P/E over `NetIncomeLoss`, P/S over the three literal revenue tags. That is the
+whole capability.
+
+**No second fact authority.** Input is `computeCompanyXray`'s own `latestFigures`, already selected
+through the shared `compareFactCurrency` that `filingDiff` and the figures table agree on. The
+module physically cannot disagree with the page it appears on, and a DB-backed control asserts the
+figure it valued is one the figures table displays, with the same accession.
+
+### The refusals, each with a machine reason
+
+    NO_FACT_FOR_CONCEPT          nothing of that concept is stored
+    NO_ANNUAL_PERIOD             no twelve-month bucket
+    VALUE_NOT_POSITIVE           zero or a loss
+    VALUE_NOT_FINITE             not a number
+    UNIT_NOT_A_CURRENCY_AMOUNT   not a plain currency amount
+    PROVENANCE_INCOMPLETE        no accession, form or source
+    COMPLETENESS_UNSAFE          KNOWN_INCOMPLETE or LAST_RUN_FAILED
+    FACT_IDENTITY_AMBIGUOUS      two figures, same period, different amount or unit
+
+A single `INSUFFICIENT_DATA` covering all eight would let a control pass for the wrong reason, and
+the UI explains each in plain English instead of shrugging.
+
+**The annual requirement is the load-bearing one.** A multiple is defined against a year. SEC files
+the fourth quarter and the full year under the SAME period end and the SAME accession — the exact
+identity collision the `financial_fact_period_start_identity` migration exists for — so a selection
+that took "the latest NetIncomeLoss" would have a one-in-two chance of multiplying a quarter by an
+annual multiple and publishing roughly a quarter of the answer as a confident number. The DB-backed
+control seeds precisely that pair and asserts the annual figure is the one used.
+
+**Two lines drawn deliberately, and stated rather than buried.** `UNKNOWN` and `UNCONFIRMED`
+completeness do NOT refuse: both are statements about the ingest HISTORY, while the figure carries
+its own accession, form and period. Refusing on `UNKNOWN` would disable the surface on every
+installation whose runs table predates its facts — dead on arrival for a reason that says nothing
+about the number — so the state is displayed beside every result instead. And the unit check is on
+SHAPE (three letters, no slash) rather than an allowlist, so a new currency does not silently
+become unusable while `USD/shares` does not silently become usable.
+
+### FACT / USER ASSUMPTION / CALCULATION are three types, not three CSS classes
+
+Each carries a literal `kind`. A user's multiple cannot be rendered as a sourced fact by accident
+because it is not the same shape, and it carries none of the provenance fields a fact must have.
+The guardrail requirement is enforced by the type system and by control K, not by everyone
+remembering.
+
+`FORBIDDEN_VALUATION_VOCABULARY` is a constant, and control M walks every string in every result
+against it with word boundaries. The disclaimer had to be rewritten to avoid tripping its own guard
+— it originally said "not a per-share figure", which the scan correctly flagged. Saying what the
+number IS turned out to be shorter than listing what it is not.
+
+**No per-share price.** There is no share-count authority in this repository, so there is no honest
+way to divide by one. V1 publishes total implied equity value only.
+
+### Controls and mutants
+
+18 pure controls (A-N with sub-cases) and 6 DB-backed ones through the real
+`computeCompanyXray` → `computeValuationScenarios` path. 7 mutants, **7 of 7 ISOLATED**, with the
+three guardrail suites held UNRELATED and 34/34 green under every one.
+
+Three cardinality predictions were low and one mutant was RE-AIMED. `M-VAL-ASSUMPTION-IS-FACT`
+first measured 6 instead of 1: it replaced the whole object literal and so dropped `low`/`base`/
+`high` as well as flipping the label, which killed every COMPUTED control on NaN. Caught, but for
+the wrong reason — it would have looked identical if the label had been left alone. It now changes
+only `kind` and measures 1. A mutant that dies of a side effect proves nothing about the guard it
+was written for.
+
+### The page's own disclaimer had to change
+
+It said "does not score, rate or value companies". Leaving that above a section that multiplies a
+reported figure would have made the page's own legal disclaimer false — the quietest way to break a
+guardrail is to keep the old wording after the behaviour moves. It now says Market OS does not
+score or rank, does not choose a multiple, and recommends nothing, all of which remains true. The
+E2E assertion moved with it, and eighteen browser checks now cover the surface.

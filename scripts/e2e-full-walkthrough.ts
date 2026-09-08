@@ -191,8 +191,8 @@ async function main() {
         (body ?? "").includes("Latest reported figures"),
       );
       check(
-        "company page states it does not score or rate",
-        (body ?? "").includes("does not score, rate or value companies"),
+        "company page states it does not score or rank",
+        (body ?? "").includes("does not score or rank companies"),
       );
       // The legal guardrail, checked structurally rather than trusted: no scoring or
       // recommendation language may appear on a company page.
@@ -203,6 +203,81 @@ async function main() {
           lowered,
         ),
       );
+
+      // [6b] Scenario valuation through the real GUI
+      // ([CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908], required control 11). The
+      // domain controls prove the arithmetic; this proves a person can reach it with a mouse, that
+      // the three labels the legal guardrail requires are actually rendered, and that an empty
+      // form publishes no number.
+      check(
+        "valuation section is reachable on the company page",
+        (body ?? "").includes("Scenario valuation"),
+      );
+      check(
+        "both methods are named",
+        (body ?? "").includes("PE_SCENARIO") && (body ?? "").includes("PS_SCENARIO"),
+      );
+      check(
+        "an untouched form publishes no implied value",
+        !(body ?? "").includes("Calculation — implied total equity value"),
+      );
+      check(
+        "the multiple is asked for rather than supplied",
+        (body ?? "").includes("Market OS has no authoritative multiple to offer") ||
+          (body ?? "").includes("UNVERIFIABLE"),
+      );
+
+      const companyUrl = page.url();
+      const joiner = companyUrl.includes("?") ? "&" : "?";
+      await page.goto(
+        `${companyUrl}${joiner}peLow=10&peBase=15&peHigh=20&psLow=1&psBase=2&psHigh=3`,
+      );
+      body = await page.textContent("body");
+      const valued = (body ?? "").includes("Calculation — implied total equity value");
+      if (valued) {
+        // FACT / USER ASSUMPTION / CALCULATION, the three labels docs/LEGAL_GUARDRAILS.md requires
+        // any user-facing output touching valuation to keep apart.
+        check(
+          "the sourced figure is labelled a fact",
+          (body ?? "").includes("Fact — reported by the company"),
+        );
+        check(
+          "the multiple is labelled the user's own",
+          (body ?? "").includes("User assumption — supplied by you, not sourced"),
+        );
+        check(
+          "provenance travels with the result",
+          /completeness\s+(COMPLETE|UNCONFIRMED|UNKNOWN)/.test(body ?? ""),
+        );
+      } else {
+        // No annual figure in this database is a legitimate outcome, and the page must SAY so
+        // rather than render an empty panel.
+        check(
+          "a company without a usable annual figure says UNVERIFIABLE",
+          (body ?? "").includes("UNVERIFIABLE"),
+        );
+      }
+
+      // Whatever the data, the vocabulary is not negotiable.
+      const valuationLowered = (body ?? "").toLowerCase();
+      for (const banned of [
+        "target price",
+        "fair value",
+        "undervalued",
+        "overvalued",
+        "expected return",
+      ]) {
+        check(`valuation UI never says "${banned}"`, !valuationLowered.includes(banned));
+      }
+
+      // An inverted range must be refused in the GUI, not silently computed.
+      await page.goto(`${companyUrl}${joiner}peLow=30&peBase=15&peHigh=20`);
+      body = await page.textContent("body");
+      check(
+        "an inverted range is refused in the GUI",
+        (body ?? "").includes("Assumptions refused"),
+      );
+      check("and refused for the stated reason", (body ?? "").includes("The range must ascend"));
     } else {
       // No ingested company in this database — the page must say so rather than render a shell
       // implying coverage it does not have.

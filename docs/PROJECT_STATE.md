@@ -504,6 +504,18 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+A VALUATION SURFACE THAT VALUES NOTHING (2026-09-08, IR-135)
+V1 productization, not architecture. `[CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]`
+overruled this repository's own recommendation and required an applied method: scenario
+arithmetic over one stored annual figure and a multiple the USER supplies. One pure module, no
+query, no new model, no LLM, no DCF, no forecast, no per-share price -- there is no share-count
+authority here, so there is no honest way to divide by one. FACT, USER ASSUMPTION and
+CALCULATION are three TYPES carrying literal `kind` discriminators, so the legal guardrail's
+separation requirement is enforced by the compiler rather than by a stylesheet. Eight named
+refusal reasons; the load-bearing one is that a multiple is defined against a YEAR, and SEC
+files Q4 and FY under the same period end and the same accession. 24 controls, 7 of 7 mutants
+ISOLATED, 18 browser checks, the three guardrail suites green throughout.
+
 ZERO VARIANCE IS NOT A DISTRIBUTION (2026-09-08, IR-134)
 Escalated by this repository rather than self-classified, and the decision overruled the
 recommended default: FAIL CLOSED, not suppress-the-score. Three identical comparators of +1
@@ -990,8 +1002,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2839 / 2839 PASS across 160 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2820 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2863 / 2863 PASS across 162 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2844 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

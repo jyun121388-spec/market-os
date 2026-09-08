@@ -120,8 +120,9 @@ export async function computeHistoricalAnalog(
   }));
 
   const changes = trailingChanges(points, windowSize, unresolvedDates);
-  // Need the current point's trailing change plus enough earlier history (with room for a
-  // 6-window lookahead) to have at least one comparable historical point.
+  // A cheap early exit only: without a current window and at least one earlier one there is
+  // nothing to filter. The boundary that actually decides whether a distribution is publishable
+  // is applied below, AFTER unprovable windows are dropped.
   if (changes.length < 2) {
     return {
       status: "INSUFFICIENT_DATA",
@@ -164,12 +165,25 @@ export async function computeHistoricalAnalog(
   const historical = changes.slice(0, -1).filter((c) => c.spanProven);
 
   // The sample-size guard is re-applied AFTER the drop, and the first version of this repair did
-  // not do that — also found by review. The check above ran on the UNFILTERED list, so a history
-  // whose windows were nearly all unprovable could reach the statistics with one survivor or none:
-  // with none, an empty distribution; with one, `sd === 0` forces both z-scores to zero and every
-  // comparison scores a perfect 1.0 however different the changes are. Refusing a wrong period
-  // count only to publish a confidently wrong distribution would be no repair at all.
-  if (historical.length < 1) {
+  // not do that. The check above ran on the UNFILTERED list, so a history whose windows were
+  // nearly all unprovable could reach the statistics with one survivor or none.
+  //
+  // TWO comparators, not one. The first correction of this line said one, and independent review
+  // reproduced it as still broken. Measured again on the exact tree, through this function:
+  // three answerable points, `windowSize: 1`, values 100, 101, 111. The single surviving
+  // comparator changed by +1 and the current window by +10; `sd` was 0, both z-scores were forced
+  // to 0, and the match came back `similarityScore: 1` — a perfect analog asserted between two
+  // changes an order of magnitude apart. One point carries no spread, so there is nothing to
+  // measure a distance against and no honest score to publish.
+  //
+  // What this line does NOT close, said here rather than left for the guard to imply. `sd === 0`
+  // is still reachable with two or more comparators when they are all IDENTICAL, and the same
+  // forced-zero z-scores manufacture the same 1.0. Reproduced on the exact tree with values
+  // 100, 101, 102, 103, 113: three comparators of +1, a current change of +10, three matches at
+  // 1.0. That is a different boundary from this one — it would refuse every linear fixture in
+  // this repository's own control corpus — so it is recorded and escalated rather than repaired
+  // in the same breath. See `docs/REVIEW_DEBT.md` under IR-133.
+  if (historical.length < 2) {
     return {
       status: "INSUFFICIENT_DATA",
       seriesId,

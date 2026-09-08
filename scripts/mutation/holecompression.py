@@ -80,12 +80,30 @@ actually overlaps looks like.
                                 put their holes further back.
 
   M-HOLE-POST-FILTER-COUNT   the sample-size guard is not re-applied after dropping windows
-                             -> 1 red: F2. Also from review. The original guard ran on the
-                                UNFILTERED list, so dropping unprovable windows could leave one
-                                survivor: `sd === 0`, both z-scores forced to zero, and any current
-                                change scoring a perfect 1.0 similarity. Refusing a wrong period
-                                count and then publishing a confident wrong distribution would have
-                                been no repair at all.
+                             -> PREDICTED 1 (F2), now PREDICTED 2: F2 and L1. The guard is removed
+                                outright, so both the zero-survivor and the one-survivor shapes
+                                reach the statistics. It was written when the guard read
+                                `< 1` and F2 was the only control that could see it.
+
+  M-HOLE-MIN-COMPARATORS     one surviving comparator is enough -- the guard is weakened from
+                             `< 2` back to `< 1`, which is EXACTLY the tree independent review
+                             reproduced as still broken
+                             -> PREDICTED 1: L1 alone. F2 stays GREEN and that is the whole point
+                                of the split: F2 reaches ZERO survivors, which `< 1` still refuses,
+                                so F2 cannot discriminate the minimum-comparator boundary at all.
+                                Its old closing assertion --
+                                `matches.every(m => m.similarityScore < 1)` -- was VACUOUSLY TRUE
+                                on an empty array, which is how a suite of eight mutants and twelve
+                                controls passed over a P1 the packet claimed to have closed. L1
+                                stands on three plainly answerable points with changes of +1 and
+                                +10, so a perfect score cannot be read as the changes being equal.
+
+  NOT COVERED, and not a gap this suite can quietly imply is closed. `sd === 0` remains reachable
+  with two or more comparators when they are all IDENTICAL, and manufactures the same 1.0.
+  Reproduced on the exact tree with values 100, 101, 102, 103, 113. No mutant is aimed at it here
+  because no control refuses it yet: refusing a zero-spread distribution would refuse every linear
+  fixture in this file, which is a boundary decision rather than a bug fix. Escalated; see
+  `docs/REVIEW_DEBT.md` under IR-133.
 
     python scripts/mutation/holecompression.py [ID ...]
 """
@@ -159,8 +177,14 @@ MUTATIONS = [
     (
         "M-HOLE-POST-FILTER-COUNT the sample-size guard is not re-applied after the drop",
         ANALOG,
-        "  if (historical.length < 1) {\n",
+        "  if (historical.length < 2) {\n",
         "  if (false as boolean) {\n",
+    ),
+    (
+        "M-HOLE-MIN-COMPARATORS one surviving comparator is enough",
+        ANALOG,
+        "  if (historical.length < 2) {\n",
+        "  if (historical.length < 1) {\n",
     ),
 ]
 
@@ -170,7 +194,7 @@ if SELECTED:
     if not MUTATIONS:
         print(f"no mutant matches {SELECTED}")
         sys.exit(3)
-    print(f"PARTIAL RUN: {len(MUTATIONS)} of 8. Not a substitute for the full set.")
+    print(f"PARTIAL RUN: {len(MUTATIONS)} of 9. Not a substitute for the full set.")
 
 sys.exit(
     harness([ANALOG, READERS, TEST], BINDING_TESTS, UNRELATED_TESTS, MUTATIONS, wall_seconds=1800)

@@ -4209,3 +4209,63 @@ has no production caller outside tests today. Recorded here rather than widened 
 Also unchanged and previously recorded under IR-131: `fabric/shadowProjection.ts` picks an arbitrary
 row from the latest observation date for vintage metadata. It selects no value and remains
 unreproduced.
+
+### IR-133 REWORK — the one-survivor P1 the packet claimed to have closed, and the one it did not
+
+`[CHATGPT_VERIFIED][MARKET-HISTORY-HOLE-COMPRESSION-20260907] Status: REWORK_REQUIRED` (comment
+5576762287, 2026-09-07T23:35:02Z) confirmed the IR-133 repair correct in four respects and then
+reproduced, on exact `3c541a97`, a P1 the `[CLAUDE_APPLIED]` packet had explicitly claimed to have
+fixed. The claim was that the post-filter sample-size guard closed the one-survivor case. It did
+not: the landed guard read `historical.length < 1`, so exactly one survivor was still accepted.
+
+**Both shapes were re-reproduced here through `computeHistoricalAnalog` on a real database, before
+anything was edited.** Neither uses a withheld date, and that is the finding: the mechanism lives
+in the statistics, not in the IR-133 filtering.
+
+    L1  values 100, 101, 111          windowSize 1
+        status COMPUTED   sampleSize 1   currentTrailingChange 10
+        match 2024-02  historicalTrailingChange 1  similarityScore 1      REPRODUCED
+
+    L2  values 100, 101, 102, 103, 113   windowSize 1
+        status COMPUTED   sampleSize 3   currentTrailingChange 10
+        three matches, each historicalTrailingChange 1, similarityScore 1  REPRODUCED
+
+`sd === 0` forces both z-scores to zero, so `round(1 / (1 + |0 - 0|), 4)` is 1 however far apart
+the changes actually are. +1 scored a perfect analog against +10 in both shapes.
+
+**Why the twelve controls and eight mutants passed over it.** F2 was the control that claimed the
+one-survivor case, and its holes at every other month reach ZERO survivors, not one. Its closing
+assertion was `analog.matches.every((m) => m.similarityScore < 1)` — vacuously true on an empty
+array. `M-HOLE-POST-FILTER-COUNT` mutated the guard to `false`, which discriminates removing the
+zero-survivor guard and says nothing about where the minimum sits. Neither could see the boundary.
+
+**REPAIRED: the minimum comparator count.** `historical.length < 2`. One point carries no spread,
+so there is nothing to measure a distance against and no honest score to publish. Control L1 stands
+on three plainly answerable points — precondition asserted, not assumed — and pairs the refusal with
+a positive half on four points whose comparators genuinely differ, so "refuse whenever the history
+is short" cannot satisfy it. Mutant `M-HOLE-MIN-COMPARATORS` weakens the guard back to `< 1`;
+measured, it reddens L1 alone, exactly as predicted, and F2 stays green because zero survivors are
+still refused by `< 1`. F2 was re-expressed to claim only what it proves, with its shape pinned so
+"INSUFFICIENT_DATA" cannot be satisfied by the current-window branch instead.
+
+Nine mutants, 9 of 9 ISOLATED, every cardinality predicted before the run and measured equal:
+NO-DETECTION 4, COMPRESS-MIDDLE 5, INDEX-IS-PERIOD 2, TWO-GAPS-AS-ONE 1, UNKNOWN-INTERVAL-PASSES 2,
+PRE-REPAIR-CONSUMER 4, TRAILING-IGNORED 1, POST-FILTER-COUNT 2 (F2 and L1, up from 1 now that L1
+exists), MIN-COMPARATORS 1. The IR-131 selector suites stayed 18/18 green under all nine.
+
+**NOT REPAIRED, and deliberately not claimed closed: L2.** `sd === 0` is still reachable whenever
+two or more comparators are all IDENTICAL, and it manufactures the same perfect score. The count
+boundary does not touch it. It is not repaired in this unit for a reason that is measurable rather
+than stylistic: refusing a zero-spread distribution would refuse every linear fixture in this
+repository's own control corpus, because the IR-133 ramp is `value = 100 + monthIndex` and every
+trailing change on it is exactly 1. That is a boundary decision about what the analog engine may
+publish, not a bug fix, and the review authorised repairing the reproduced one-survivor P1 only.
+
+Its severity today rests on reachability: `computeHistoricalAnalog` still has no production caller
+outside tests, so no user can currently be shown the manufactured 1.0. That changes the moment the
+analog reaches a user-facing surface —
+`[CHATGPT_DECISION][MARKET-V1-DELIVERY-DEFINITION-20260908]` requires a Macro / Regime / Calendar
+screen carrying "historical analog where it is release-safe". Escalated as
+`[ESCALATION][MARKET-OS][MARKET-ANALOG-ZERO-SPREAD-20260908]` rather than self-classified, because
+whether a zero-spread history may be scored at all is the same kind of boundary question the
+one-survivor case turned out to be, and this repository has now been wrong about it once.

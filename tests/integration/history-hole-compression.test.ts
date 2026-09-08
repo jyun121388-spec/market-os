@@ -120,6 +120,28 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     return series.id;
   }
 
+  /**
+   * A monthly series with EXPLICIT values and no refusals at all. The ramp helper above cannot
+   * express what control L1 needs: on a ramp every trailing change is identical, so a perfect
+   * similarity score could always be explained away as the changes genuinely being equal.
+   */
+  async function valueSeries(externalId: string, values: number[]): Promise<string> {
+    const series = await prisma.series.create({
+      data: { sourceId, externalId, name: externalId, unit: "index", frequency: "monthly" },
+    });
+    for (let i = 0; i < values.length; i++) {
+      await upsert({
+        seriesId: series.id,
+        sourceId,
+        observationDate: monthDate(i),
+        value: String(values[i]),
+        releaseDate: null,
+        raw: { i },
+      });
+    }
+    return series.id;
+  }
+
   const months = (rows: { observationDate: Date }[]) =>
     rows.map((r) => r.observationDate.toISOString().slice(0, 7));
 
@@ -248,20 +270,68 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     expect(cal.lastObservedDate).toBe("2025-01-01");
   });
 
-  it("F2: too few provable windows after the drop refuses rather than inventing a distribution", async () => {
+  it("F2: ZERO provable windows after the drop refuses rather than inventing a distribution", async () => {
     // Also from review. The sample-size guard used to run on the UNFILTERED list, so a history
-    // whose windows were nearly all unprovable could reach the statistics with one survivor: `sd`
-    // is then 0, both z-scores are forced to 0, and any current change scores a perfect 1.0
-    // similarity against it. Refusing a wrong period count only to publish a confident wrong
-    // distribution would be no repair.
+    // whose windows were nearly all unprovable could reach the statistics with none at all.
     //
-    // Holes at every other month leave almost nothing provable.
+    // Holes at every other month leave nothing earlier provable: every surviving pair spans a
+    // withheld date except the newest one, so the current window stands alone.
     const id = await rampSeries("F2_SPARSE", [1, 3, 5, 7, 9, 11]);
+    const returned = months(await getObservationsOneRowPerDate(id));
+    // Pinning the shape, because "INSUFFICIENT_DATA" alone does not say WHICH branch refused.
+    // The last two months both survive and nothing is withheld after them, so the CURRENT window
+    // is provable — this cannot be control J's branch, and it is the historical count that is 0.
+    expect(returned.slice(-2)).toEqual(["2025-01", "2025-02"]);
+
     const analog = await computeHistoricalAnalog(id, { windowSize: 1, topK: 3 });
     expect(analog.status).toBe("INSUFFICIENT_DATA");
     expect(analog.matches).toEqual([]);
-    // And no match may ever carry a manufactured perfect score from a single survivor.
-    expect(analog.matches.every((m) => m.similarityScore < 1)).toBe(true);
+    // The one-survivor case is control L1's, not this one's. It used to be asserted here with
+    // `matches.every(m => m.similarityScore < 1)`, which is VACUOUSLY TRUE on an empty array —
+    // independent review named that as the reason this control could not close the P1 it claimed.
+  });
+
+  // ---------------------------------------------------------------- L1
+  it("L1: exactly ONE surviving historical comparator refuses instead of scoring a perfect analog", async () => {
+    // [CHATGPT_VERIFIED][MARKET-HISTORY-HOLE-COMPRESSION-20260907] REWORK_REQUIRED. The previous
+    // guard was `historical.length < 1`, so exactly one survivor was accepted. With one point the
+    // distribution has no spread: `sd` is 0, both z-scores are forced to 0, and the score is
+    // round(1 / (1 + 0), 4) = 1 no matter how far apart the two changes actually are.
+    //
+    // No refusals are involved. Three plainly answerable points are enough, which is the finding:
+    // the mechanism lives in the statistics, not in the IR-133 filtering.
+    //
+    // Measured on the pre-repair tree through this exact path:
+    //     values 100, 101, 111   status COMPUTED   sampleSize 1
+    //     currentTrailingChange 10, match 2024-02 historicalTrailingChange 1, similarityScore 1
+    //
+    // +1 against +10 is an order of magnitude apart, so a perfect score cannot be explained away
+    // as the changes being genuinely equal — which is why the ramp helper cannot express this.
+    const one = await valueSeries("L1_ONE_COMPARATOR", [100, 101, 111]);
+    // The precondition, asserted rather than assumed: all three dates are answerable, so the
+    // single comparator is a real one and not an artefact of something being withheld.
+    expect(months(await getObservationsOneRowPerDate(one))).toHaveLength(3);
+
+    const refused = await computeHistoricalAnalog(one, { windowSize: 1, topK: 3 });
+    expect(refused.status).toBe("INSUFFICIENT_DATA");
+    expect(refused.matches).toEqual([]);
+
+    // The positive half, so "refuse whenever the history is short" cannot satisfy the assertion
+    // above. One more comparator — and a DIFFERENT one, so the spread is real — must compute, and
+    // must not hand back a perfect score for a change nothing in the history resembles.
+    const two = await valueSeries("L1_TWO_COMPARATORS", [100, 101, 105, 115]);
+    const computed = await computeHistoricalAnalog(two, { windowSize: 1, topK: 3 });
+    expect(computed.status).toBe("COMPUTED");
+    expect(computed.sampleSize).toBe(2);
+    expect(computed.currentTrailingChange).toBe(10);
+    expect(computed.matches.length).toBeGreaterThan(0);
+    for (const m of computed.matches) {
+      expect(
+        m.historicalTrailingChange,
+        "the comparators must differ from the current change",
+      ).not.toBe(10);
+      expect(m.similarityScore, `${m.asOfDate} must not score a perfect analog`).toBeLessThan(1);
+    }
   });
 
   // ---------------------------------------------------------------- J

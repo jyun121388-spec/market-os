@@ -504,6 +504,20 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+ONE COMPARATOR IS NOT A DISTRIBUTION (2026-09-08, IR-133 REWORK)
+Independent review returned REWORK_REQUIRED on `3c541a97` and was right. The packet claimed the
+one-survivor case was closed; the landed guard read `historical.length < 1`, so exactly one
+survivor still reached the statistics, `sd` was 0, and +1 scored a PERFECT 1.0 analog against
++10. Re-reproduced here before editing, on three plainly answerable points with no refusal
+involved -- the mechanism is in the statistics, not in the IR-133 filtering. The guard is now
+`< 2`. The twelve controls missed it because F2 reached ZERO survivors and closed on
+`matches.every(...)`, which is vacuously true on an empty array; control L1 now stands exactly
+on one survivor and mutant `M-HOLE-MIN-COMPARATORS` weakens the boundary back. Nine mutants,
+9 of 9 ISOLATED, every cardinality predicted and measured equal. A SECOND shape was reproduced
+and deliberately NOT repaired: `sd === 0` is still reachable with two or more IDENTICAL
+comparators. Refusing it would refuse every linear fixture in this repository's own corpus, so
+it is a boundary decision rather than a bug fix and is escalated, not self-classified.
+
 A REFUSED DATE IS NOT AN ADJACENCY (2026-09-08, IR-133)
 IR-131's refusal was correct and left the omission invisible in the array. Reproduced through the
 real consumers on a ramp of ones: `historicalAnalog` reported `subsequentChange3 = 4` and
@@ -964,8 +978,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2836 / 2836 PASS across 160 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2817 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2837 / 2837 PASS across 160 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2818 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

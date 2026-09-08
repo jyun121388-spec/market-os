@@ -24,8 +24,11 @@ showed chain order is arrival order and a vintage history appended to a live cha
 path serve a superseded figure. That was decided and applied on 2026-09-07 as IR-131: the
 provider's vintage decides the current value, and a chain that cannot be ordered is refused
 rather than guessed. IR-132 then scoped SEC's public read-only surface as keyless, and IR-133
-(2026-09-08) stopped the refusal from becoming a false adjacency downstream. See
-`docs/CURRENT_TASK.md` for what remains open.
+(2026-09-08) stopped the refusal from becoming a false adjacency downstream. Independent
+review returned REWORK_REQUIRED on IR-133's first landing and was right: one surviving
+comparator still manufactured a perfect similarity score, and the minimum is now two. A
+second shape of the same mechanism -- two or more IDENTICAL comparators -- is reproduced,
+recorded and escalated rather than repaired. See `docs/CURRENT_TASK.md` for what remains open.
 
 `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
 closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`

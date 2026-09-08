@@ -20,7 +20,7 @@
  * UNPROVEN wording says outright that such a run is not evidence about the tree, so a green result
  * cannot be quoted as if it were.
  */
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import { prisma } from "../src/server/db/client";
 import { checkTreeBinding, formatBinding } from "./e2e-tree-binding";
 
@@ -29,6 +29,20 @@ const TEST_EMAIL = "e2e-walkthrough@example.com";
 const PASSWORD = "correct-horse-battery-staple";
 
 let failures = 0;
+
+/**
+ * Submit the form the PAGE is about, not the first one in the document.
+ *
+ * `page.click('button[type="submit"]')` took the first match, and once the global navigation
+ * landed that became the "Log out" button on every single page — so the watchlist step signed the
+ * user out instead of adding an item. The selector had been unambiguous only by accident, and the
+ * accident ended the moment the product grew a nav bar.
+ *
+ * Scoped to `main, div` outside `nav` by excluding the nav subtree explicitly.
+ */
+async function submitPageForm(page: Page) {
+  await page.locator('button[type="submit"]:not([data-nav])').first().click();
+}
 
 function check(label: string, condition: boolean) {
   if (condition) {
@@ -87,7 +101,7 @@ async function main() {
     await page.goto(`${BASE_URL}/signup`);
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', PASSWORD);
-    await page.click('button[type="submit"]');
+    await submitPageForm(page);
     await page.waitForURL("**/today", { timeout: 10000 });
     let body = await page.textContent("body");
     check("on /today after signup", page.url() === `${BASE_URL}/today`);
@@ -128,7 +142,7 @@ async function main() {
     await page.goto(`${BASE_URL}/signup`);
     await page.fill('input[name="email"]', otherEmail);
     await page.fill('input[name="password"]', PASSWORD);
-    await page.click('button[type="submit"]');
+    await submitPageForm(page);
     await page.waitForURL((u) => !u.pathname.includes("/signup"), { timeout: 15000 });
 
     await page.goto(`${BASE_URL}/admin`);
@@ -146,7 +160,7 @@ async function main() {
     await page.goto(`${BASE_URL}/login`);
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', PASSWORD);
-    await page.click('button[type="submit"]');
+    await submitPageForm(page);
     await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 15000 });
 
     console.log("[5] Watchlist: add, see it listed, remove it");
@@ -157,7 +171,7 @@ async function main() {
     await page.selectOption('select[name="itemType"]', "INDICATOR");
     await page.fill('input[name="itemRef"]', "DGS10");
     await page.fill('input[name="label"]', "US 10Y Treasury Yield");
-    await page.click('button[type="submit"]');
+    await submitPageForm(page);
     await page.waitForSelector("text=US 10Y Treasury Yield", { timeout: 10000 });
     body = await page.textContent("body");
     check("added item appears in the list", (body ?? "").includes("US 10Y Treasury Yield"));
@@ -176,10 +190,74 @@ async function main() {
     body = await page.textContent("body");
     check("removed item is gone", !(body ?? "").includes("US 10Y Treasury Yield"));
 
+    console.log("[5b] The GUI shell: a root that is the product, and navigation that reaches it");
+    // The delivery audit's first finding was that `/` served the unmodified create-next-app
+    // starter and navigation existed only on /today, only when signed in. Both are checked from
+    // the browser, because both were invisible to every test that existed.
+    await page.goto(`${BASE_URL}/`);
+    await page.waitForURL("**/today", { timeout: 10000 });
+    check("the root is the product, not the framework starter", page.url().endsWith("/today"));
+    body = await page.textContent("body");
+    check(
+      "no create-next-app template survives at the root",
+      !/get started by editing|create next app/i.test(body ?? ""),
+    );
+    check("the browser tab names the product", (await page.title()).includes("Market OS"));
+
+    for (const [label, href] of [
+      ["Today", "/today"],
+      ["Companies", "/company"],
+      ["Watchlist", "/watchlist"],
+      ["Ask Market", "/ask"],
+    ] as const) {
+      check(
+        `global nav reaches ${label} from any page`,
+        (await page.locator(`nav a[href="${href}"]`).count()) > 0,
+      );
+    }
+    check(
+      "the signed-in identity and the way out are always present",
+      (body ?? "").includes(TEST_EMAIL) &&
+        (await page.getByRole("button", { name: /log ?out/i }).count()) === 1,
+    );
+
     console.log("[6] Company X-Ray renders reported figures without any judgment");
     await page.goto(`${BASE_URL}/company`);
     body = await page.textContent("body");
     check("company index renders", (body ?? "").includes("Companies"));
+
+    // [6a] Search and an honest coverage statement.
+    check(
+      "coverage is stated per provider",
+      (body ?? "").includes("What this installation covers"),
+    );
+    check(
+      "every filing provider is named with a state",
+      /SEC_EDGAR\) — (HAS_DATA|CONFIGURED_NO_DATA|NOT_CONFIGURED)/.test(body ?? "") &&
+        /DART\) — (HAS_DATA|CONFIGURED_NO_DATA|NOT_CONFIGURED)/.test(body ?? ""),
+    );
+    // The failure this replaces: an empty list that reads as "this product does not support Korea".
+    check(
+      "an empty universe is explained rather than left blank",
+      /HAS_DATA/.test(body ?? "") ||
+        /No credential is configured|Nothing has been fetched/.test(body ?? ""),
+    );
+    // And never the developer's answer handed to a user.
+    check(
+      "no terminal instruction is offered as normal UX",
+      !/ingest:\*|run one of the|npm run/i.test(body ?? ""),
+    );
+    check("a search box exists", (await page.locator('input[name="q"]').count()) === 1);
+    await page.fill('input[name="q"]', "zzzz-no-such-company");
+    await submitPageForm(page);
+    await page.waitForURL("**/company?q=*", { timeout: 10000 });
+    body = await page.textContent("body");
+    check(
+      "a search with no match says so about the store, not the world",
+      (body ?? "").includes("That is a statement about what is stored here"),
+    );
+    await page.goto(`${BASE_URL}/company`);
+    body = await page.textContent("body");
 
     const companyLink = page.locator('a[href^="/company/"]').first();
     if ((await companyLink.count()) > 0) {
@@ -361,7 +439,7 @@ async function main() {
     console.log("[10] Wrong password is rejected without revealing which part was wrong");
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', "totally-wrong-password");
-    await page.click('button[type="submit"]');
+    await submitPageForm(page);
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("wrong password rejected", page.url() === `${BASE_URL}/login`);
 
@@ -369,12 +447,12 @@ async function main() {
     for (let i = 0; i < 4; i += 1) {
       await page.fill('input[name="email"]', TEST_EMAIL);
       await page.fill('input[name="password"]', "totally-wrong-password");
-      await page.click('button[type="submit"]');
+      await submitPageForm(page);
       await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     }
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', PASSWORD);
-    await page.click('button[type="submit"]');
+    await submitPageForm(page);
     await page.waitForSelector("text=Invalid email or password", { timeout: 10000 });
     check("locked out even with correct password", page.url() === `${BASE_URL}/login`);
 

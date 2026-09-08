@@ -504,6 +504,17 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE GUI SHELL (2026-09-08, IR-137)
+`src/app/page.tsx` was still the create-next-app starter and `layout.tsx` was still titled
+"Create Next App"; navigation existed only on `/today`, only when signed in, and reached three
+routes. The root now redirects to the dashboard rather than duplicating it, a global `SiteNav`
+reaches every supported surface and shows `/admin` only to an operator, and the company index
+has a non-fuzzy search plus a per-provider coverage statement derived from stored data and
+credential PRESENCE -- three states, because "no results" makes a product look broken when it
+is merely unconfigured. "Run one of the `ingest:*` scripts" is gone: that is the developer's
+answer handed to a user. The nav also broke eight E2E selectors that had been unambiguous only
+by accident, which is recorded rather than quietly patched.
+
 GROWTH, PROFITABILITY AND RISKS WITHOUT A NEW ENGINE (2026-09-08, IR-136)
 Growth was already built and unlabelled -- `computeFilingDiff` period-over-period change, now
 named as historical, saying outright that it does not forecast, with the missing-comparator
@@ -1014,8 +1025,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2880 / 2880 PASS across 164 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2861 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2889 / 2889 PASS across 165 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2870 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

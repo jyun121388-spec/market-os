@@ -141,14 +141,9 @@ export default async function CompanyXrayPage({
               : ""}
           </p>
         </div>
-        <div className="flex shrink-0 gap-3 text-sm font-medium">
-          <Link href="/watchlist" className="underline">
-            Watchlist
-          </Link>
-          <Link href="/company" className="underline">
-            All companies
-          </Link>
-        </div>
+        <Link href="/company" className="shrink-0 text-sm font-medium underline">
+          All companies
+        </Link>
       </header>
 
       {/*

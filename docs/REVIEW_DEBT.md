@@ -4519,3 +4519,69 @@ accession, digits for a CIK, digits for a DART receipt), the CIK's leading zeros
 the Archives path per the `canonical_edgar_cik` migration, and every other provider returns null
 so the page shows the raw identifier. A fabricated citation is worse than no link: a reader who
 clicks it and lands nowhere cannot tell whether the filing is missing or the link was invented.
+
+### IR-137 — the GUI shell, and the selector that had been unambiguous by accident
+
+`[CHATGPT_DECISION][MARKET-V1-MINIMUM-PRODUCTIZATION-20260908]` section 2: "the smallest connected
+GUI shell that makes the existing engine reachable and honest". Three findings from
+`docs/V1_DELIVERY_AUDIT.md`, closed together because they are one surface.
+
+**The root served the framework's starter.** `src/app/page.tsx` was the unmodified
+`create-next-app` template — a Next.js logo and an instruction to edit the file — so anyone typing
+the product's own address met the starter for the framework it happens to be built on. It is now a
+redirect to `/today` rather than a second copy of the dashboard: two renderings of the Morning
+Brief would be two places to change and two places to disagree, which is the shape of defect this
+repository keeps finding in its own data layer. `layout.tsx` said `title: "Create Next App"`,
+which had survived every milestone because nothing renders page metadata where a developer looks.
+
+**Navigation existed only on `/today`, only when signed in, and reached three routes.** `SiteNav`
+is a server component in the root layout; it reads the session directly rather than duplicating
+auth state, and shows `/admin` only for an operator, matching `isOperatorEmail`'s own fail-closed
+allowlist — a link to a page that will redirect is worse than no link. The inline copies on
+`/today` and the company page were removed rather than left to drift.
+
+**The company index had no search and stated no coverage.** `src/lib/companySearch.ts`, pure:
+`filterCompanies` matches name, ticker or provider code, case-insensitively and NOT fuzzily — a
+search that quietly returns a different company than the one asked for is IR-001 and IR-032 in the
+least visible place in the product. `summariseCoverage` derives a per-provider statement from what
+is stored and from whether a credential exists, with three states kept apart because they need
+three different things from the reader: `HAS_DATA`, `CONFIGURED_NO_DATA`, `NOT_CONFIGURED`.
+Collapsing them into "no results" is what makes a product look broken when it is merely empty, and
+"Korea and US companies" would be false on almost every installation. Booleans only — a credential
+value is never read, rendered or logged, and a control asserts the summary's exact key set.
+
+The index also said "No filings ingested yet. Run one of the `ingest:*` scripts." That is the
+developer's answer handed to a user, and the delivery decision names "terminal required for normal
+operation" as `V1_DELIVERY_REQUIRED`. An E2E control now asserts no such instruction appears.
+
+### The regression this unit caused, and how it announced itself
+
+Adding a nav put a `<button type="submit">` (Log out) ahead of every page's own form in the
+document. `scripts/e2e-full-walkthrough.ts` had used `page.click('button[type="submit"]')` in eight
+places, which took the FIRST match — so the watchlist step signed the user out instead of adding an
+item, and the walkthrough failed on a selector rather than on the change.
+
+That selector had been unambiguous only by accident, and the accident ended the moment the product
+grew a nav bar. The fix is `data-nav="logout"` on the nav's button and a `submitPageForm` helper
+selecting `button[type="submit"]:not([data-nav])` — chrome marked as chrome, so the page's own
+action is what a submit means. Worth recording because nothing about the product was wrong; the
+test was reading a structural coincidence as a contract.
+
+### IR-137 addendum — three controls that failed to machine load, not to a change
+
+The first full-suite run on this tree reported 3 failed of 165 files and took **974s**, against a
+normal 230-240s. The three were `controlBusOutbound`, `outboundExactlyOnce` and
+`orderReachesOutput` — none of them reachable from anything this unit touched, which is a nav bar,
+two pages, a pure search helper and documentation.
+
+Diagnosed before anything was edited. Re-run serially, two passed immediately and the third passed
+alone. A check for stray processes belonging to this worktree found none, so the load was ambient
+rather than self-inflicted; nothing was killed. A second full run on the SAME tree, with no product
+change of any kind between them, returned **165/165 files, 2870 passed + 19 expected-fail, 228s**.
+
+This is the documented IR-075 hazard, not a new one: `processStart` spawns PowerShell to establish
+OS process identity — ~450ms documented, ~1300ms measured under load — and these ownership controls
+have failed this way before, under the loaded full suite, which is why the fixture memoizes. The
+run recorded as evidence is the second one, and the first is recorded here rather than deleted,
+because a green number that replaced a red one without an explanation is the thing this repository
+refuses to accept from itself.

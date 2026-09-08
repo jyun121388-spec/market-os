@@ -1,41 +1,22 @@
-import Link from "next/link";
 import { buildMorningBrief } from "@/server/domain/morningBrief";
-import { getCurrentUser, signOutAction } from "@/server/actions/auth";
 import { formatTimestampUtc } from "@/lib/formatDate";
 
 export const dynamic = "force-dynamic"; // always reflects current data, never statically cached
 
 export default async function TodayPage() {
-  const [brief, user] = await Promise.all([buildMorningBrief(), getCurrentUser()]);
+  const brief = await buildMorningBrief();
 
   return (
     <div className="mx-auto flex max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
-          <p className="text-sm text-zinc-500">Generated {formatTimestampUtc(brief.generatedAt)}</p>
-        </div>
-        {user ? (
-          <form action={signOutAction} className="flex items-center gap-3 text-sm text-zinc-500">
-            <Link href="/company" className="underline">
-              Companies
-            </Link>
-            <Link href="/watchlist" className="underline">
-              Watchlist
-            </Link>
-            <Link href="/ask" className="underline">
-              Ask
-            </Link>
-            <span>{user.email}</span>
-            <button type="submit" className="underline">
-              Log out
-            </button>
-          </form>
-        ) : (
-          <Link href="/login" className="text-sm font-medium underline">
-            Log in
-          </Link>
-        )}
+      {/*
+        Navigation and the session controls moved to the global `SiteNav` when the delivery
+        audit found they existed ONLY here. Leaving a copy behind would put two "Log out"
+        buttons on one page, which is also how the duplication announced itself: Playwright's
+        role selector is strict and refuses an ambiguous match.
+      */}
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
+        <p className="text-sm text-zinc-500">Generated {formatTimestampUtc(brief.generatedAt)}</p>
       </header>
 
       <Section title="What Changed">

@@ -4269,3 +4269,95 @@ screen carrying "historical analog where it is release-safe". Escalated as
 `[ESCALATION][MARKET-OS][MARKET-ANALOG-ZERO-SPREAD-20260908]` rather than self-classified, because
 whether a zero-spread history may be scored at all is the same kind of boundary question the
 one-survivor case turned out to be, and this repository has now been wrong about it once.
+
+### IR-134 — zero variance is not a distribution
+
+`[CHATGPT_DECISION][MARKET-ANALOG-ZERO-SPREAD-20260908]` (comment 5577234132), Option A — FAIL
+CLOSED. Raised by this repository as `[ESCALATION][MARKET-ANALOG-ZERO-SPREAD-20260908]` after the
+IR-133 rework reproduced it and deliberately did not repair it. The decision overruled the
+recommended default (C, suppress the score) and named the reason: a z-score similarity has no
+defined discriminating scale at zero variance, so the correct behaviour is no analog result — not a
+second metric invented to keep a screen populated. Test-fixture convenience is not product
+authority.
+
+### Reproduced first, on exact `91aa3b66`, through `computeHistoricalAnalog`
+
+    values 100, 101, 102, 103, 113   windowSize 1
+    comparators +1, +1, +1   historical.length 3   sd 0   current +10
+    status COMPUTED   sampleSize 3
+    three matches, each historicalTrailingChange 1, each similarityScore 1     REPRODUCED
+
+    values 100, 101, 105, 112, 122   windowSize 1
+    comparators +1, +4, +7   sd 2.449…   current +10
+    scores 0.4495 / 0.2899 / 0.2139                                            NOT reproduced
+
+No withheld date is involved in either. The mechanism is the statistics, not the IR-133 filtering,
+and the count guard cannot see it because three comparators is not one.
+
+### The repair
+
+`if (sd === 0) return INSUFFICIENT_DATA`, immediately after the distribution is computed, with
+`matches: []` and no score published. Both `sd === 0 ? 0 : …` ternaries are GONE rather than left
+unreachable — leaving one would let a future edit remove the guard and silently restore the
+fabricated 1.0 instead of failing loudly. Changed production file:
+`src/server/domain/historicalAnalog.ts`, and nothing else.
+
+### The fixtures had to move, and what was protected while they did
+
+The IR-133 corpus seeded `value = 100 + monthIndex`, so every trailing change was exactly 1 and
+EVERY positive control had a zero-variance history — they would all have started refusing. The seed
+is now triangular, `value(i) = 100 + i(i+1)/2`, so `value(i) - value(i-1) = i`: distinct one-period
+changes and genuine spread.
+
+The assertions were not merely re-baselined. They no longer compare against the constant N; they
+compare against `trueChange(from, n)`, derived from the SAME seed function over the month index
+read from the DATE the engine named. That is strictly stronger — period identity comes from the
+date, never from the array slot, which is the property IR-133 exists to defend — and a compression
+now produces a visibly different number rather than an off-by-one on a constant. On the pre-repair
+consumer, `+3` from 2024-05 across the 2024-07 hole reports 26 where the true three-period change
+is 18. Control B moved with it, indexed by quarter, so "one period is whatever the dates say it is"
+is still measured on a non-monthly cadence. Hole placement, window structure and every
+adjacency/withheld-date precondition are unchanged.
+
+### Controls
+
+**Z1** — the direct zero-spread control. Both preconditions are ASSERTED, not assumed: five
+answerable dates (so neither control J's unresolved-current-window branch nor F2's zero-survivor
+branch can be what refuses), three identical comparators well above L1's minimum of two, and a
+current change an order of magnitude away. Asserts INSUFFICIENT_DATA and no matches.
+
+**Z2** — the positive counterpart. Same length, same current change, comparators that genuinely
+differ. Must still COMPUTE, with `sampleSize` 3 and no perfect score. Without it, "refuse
+everything" would satisfy Z1.
+
+### Mutation — 11 of 12 ISOLATED, and the twelfth is a DECLARED EQUIVALENT
+
+    M-HOLE-ZERO-SPREAD-PASSES        predicted 1, measured 1    Z1        ISOLATED
+    M-HOLE-ZERO-SPREAD-SCORES-ONE    predicted 1, measured 1    Z1        ISOLATED
+    M-HOLE-BOTH-BOUNDARIES-GONE      predicted 1, measured 3    F2 L1 Z1  ISOLATED
+
+`M-HOLE-ZERO-SPREAD-SCORES-ONE` restores the condemned tree verbatim — guard removed AND both
+z-scores forced to zero — so Z1 is proven to catch the ACTUAL published 1.0 rather than merely any
+deviation. IR-131 selector suites stayed 18/18 green under all twelve.
+
+**`M-HOLE-MIN-COMPARATORS` is now MISSED, and that is a finding rather than a regression.** Adding
+the variance boundary made it unobservable, and the proof is one line: `stdev([x], x) === 0` for
+every x, so `historical.length === 1` ALWAYS implies `sd === 0`. Every input the count guard would
+refuse is refused by the next guard instead. The `< 2` guard is KEPT — the decision requires the
+one-survivor repair intact, and it is real defence in depth if the metric is ever replaced by one
+that tolerates zero variance — but it no longer has behaviour of its own to mutate. Declared in the
+suite docstring rather than dropped, the treatment `M-CAPGATE-REGISTER` already gets.
+
+The consequence is that the two guards MASK EACH OTHER'S MUTANTS at one comparator, so L1 would
+have been left with nothing aimed at it. `M-HOLE-BOTH-BOUNDARIES-GONE` disables both in one
+substitution and restores that. Its prediction was low for a reason worth keeping: it named only
+the control it was built for and forgot these two guards are also the last thing between an EMPTY
+sample and the statistics — with both gone `mean([])` is NaN, `NaN === 0` is false, and the
+zero-survivor shape walks through too. Three controls, three sample sizes (0, 1, 3), which is the
+whole boundary rather than one point on it.
+
+### Standing limitation
+
+`computeHistoricalAnalog` still has no production caller outside tests. Under
+`[CHATGPT_DECISION][MARKET-V1-DELIVERY-DEFINITION-20260908]` no user-facing Macro/Calendar surface
+may expose historical-analog output until this decision is landed AND independently verified.

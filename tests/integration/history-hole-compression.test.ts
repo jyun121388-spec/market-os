@@ -9,9 +9,8 @@ import type { prisma as PrismaClientInstance } from "@/server/db/client";
  * by adversarial review of IR-131 and left unreproduced there, was whether a consumer then reads
  * the SHORTER array as though the remaining dates were adjacent periods.
  *
- * Measured on 2026-09-08 through the real consumers, on a linear monthly ramp where value =
- * 100 + monthIndex, so a true N-period change is exactly N and any other number is arithmetically
- * wrong rather than a matter of interpretation:
+ * Originally measured on 2026-09-08 through the real consumers on a LINEAR ramp, value =
+ * 100 + monthIndex, so a true N-period change was exactly N:
  *
  *     contiguous       2024-02: trailing=1  +1=1  +3=3  +6=6      correct
  *     hole at 2024-07  2024-02: trailing=1  +1=1  +3=3  +6=7      WRONG
@@ -21,6 +20,21 @@ import type { prisma as PrismaClientInstance } from "@/server/db/client";
  * count, and `historicalAnalog` computes them as `points[fromIndex + windowsAhead]` — array index
  * used as period identity. One omitted date shifts every later index by one, so the label and the
  * arithmetic disagree.
+ *
+ * RE-SEEDED 2026-09-08 under `[CHATGPT_DECISION][MARKET-ANALOG-ZERO-SPREAD-20260908]`. A linear
+ * ramp gives every trailing change the same value, so its historical distribution has zero
+ * variance — and the analog engine now refuses that, correctly, because a z-score similarity has
+ * no discriminating scale at zero spread. The fixture is now TRIANGULAR, value(i) = 100 + i(i+1)/2,
+ * so `value(i) - value(i-1) = i`: every one-period change is distinct, the spread is genuinely
+ * non-zero, and the positive controls can still reach COMPUTED.
+ *
+ * Nothing these controls discriminate was traded away for that. The assertions no longer compare
+ * against the constant N; they compare against `trueChange`, computed from the SAME seed function
+ * over the REAL month index carried by the row the engine named. That is a strictly stronger
+ * statement of the same property — period identity comes from the date, not the array slot — and a
+ * compression now yields a visibly different number rather than an off-by-one on a constant. On
+ * the pre-repair consumer, `+3` from 2024-05 across the 2024-07 hole reports 26 where the true
+ * three-period change is 18.
  *
  * The calendar behaved differently and is measured here too, because the difference is the point:
  * it computes intervals from real date subtraction, so an omitted interior date inflates ONE
@@ -34,6 +48,18 @@ const describeIfDb = hasDb ? describe : describe.skip;
 const SOURCE_CODE = "TEST_HOLE_COMPRESSION_SOURCE";
 const MONTHS = 14;
 const monthDate = (i: number) => new Date(Date.UTC(2024, i, 1));
+
+/** value(i) - value(i-1) = i. Distinct one-period changes, so the distribution has real spread. */
+const seedValue = (i: number) => 100 + (i * (i + 1)) / 2;
+
+/** The month index a reported `asOfDate` names — read from the DATE, never from array position. */
+const monthIndexOf = (asOfDate: string) => {
+  const [year, month] = asOfDate.split("-").map(Number);
+  return (year - 2024) * 12 + (month - 1);
+};
+
+/** The true change over `n` periods starting at month `from`, straight from the seed function. */
+const trueChange = (from: number, n: number) => seedValue(from + n) - seedValue(from);
 
 describeIfDb("IR-133: a refused date must not become an adjacent period", () => {
   let prisma: typeof PrismaClientInstance;
@@ -102,7 +128,7 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
         seriesId: series.id,
         sourceId,
         observationDate: monthDate(i),
-        value: String(100 + i),
+        value: String(seedValue(i)),
         releaseDate: null,
         raw: { i },
       });
@@ -111,7 +137,7 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
           seriesId: series.id,
           sourceId,
           observationDate: monthDate(i),
-          value: String(100 + i + 0.5),
+          value: String(seedValue(i) + 0.5),
           releaseDate: new Date(Date.UTC(2026, 0, 1)),
           raw: { i, vintage: true },
         });
@@ -151,6 +177,7 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     if (analog.status === "INSUFFICIENT_DATA") return null;
     return analog.matches.map((m) => ({
       asOf: m.asOfDate,
+      month: monthIndexOf(m.asOfDate),
       trailing: m.historicalTrailingChange,
       plus1: m.subsequentChange1,
       plus3: m.subsequentChange3,
@@ -163,10 +190,10 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     const id = await rampSeries("A_CONTIGUOUS");
     expect(months(await getObservationsOneRowPerDate(id))).toHaveLength(MONTHS);
     for (const m of (await lookaheads(id))!) {
-      expect(m.trailing, `${m.asOf} trailing`).toBe(1);
-      if (m.plus1 !== null) expect(m.plus1, `${m.asOf} +1`).toBe(1);
-      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(3);
-      if (m.plus6 !== null) expect(m.plus6, `${m.asOf} +6`).toBe(6);
+      expect(m.trailing, `${m.asOf} trailing`).toBe(trueChange(m.month - 1, 1));
+      if (m.plus1 !== null) expect(m.plus1, `${m.asOf} +1`).toBe(trueChange(m.month, 1));
+      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(trueChange(m.month, 3));
+      if (m.plus6 !== null) expect(m.plus6, `${m.asOf} +6`).toBe(trueChange(m.month, 6));
     }
   });
 
@@ -186,7 +213,9 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
         seriesId: series.id,
         sourceId,
         observationDate: new Date(Date.UTC(2022, q * 3, 1)),
-        value: String(100 + q),
+        // Same triangular seed as the monthly fixtures, indexed by QUARTER, so this series has
+        // genuine spread too and can still reach COMPUTED under the zero-variance refusal.
+        value: String(seedValue(q)),
         releaseDate: null,
         raw: { q },
       });
@@ -196,9 +225,17 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     // A quarter, not a month: the interval is measured, so the shape of the series decides.
     expect(cal.medianIntervalDays).toBeGreaterThan(80);
     expect(cal.medianIntervalDays).toBeLessThan(95);
+    // The period here is a QUARTER, and the index is read from the date exactly as in the monthly
+    // controls — which is the property: one "period" is whatever the dates say it is.
+    const quarterIndexOf = (asOfDate: string) => {
+      const [year, month] = asOfDate.split("-").map(Number);
+      return ((year - 2022) * 12 + (month - 1)) / 3;
+    };
     for (const m of (await lookaheads(series.id))!) {
-      expect(m.trailing).toBe(1);
-      if (m.plus3 !== null) expect(m.plus3).toBe(3);
+      const q = quarterIndexOf(m.asOf);
+      expect(Number.isInteger(q), `${m.asOf} must land on a quarter boundary`).toBe(true);
+      expect(m.trailing, `${m.asOf} trailing`).toBe(trueChange(q - 1, 1));
+      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(trueChange(q, 3));
     }
   });
 
@@ -214,10 +251,10 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     for (const m of (await lookaheads(id))!) {
       // Every value still reported must be arithmetically what its name claims. A window that
       // cannot prove its span is expected to be withheld, not adjusted.
-      expect(m.trailing, `${m.asOf} trailing`).toBe(1);
-      if (m.plus1 !== null) expect(m.plus1, `${m.asOf} +1`).toBe(1);
-      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(3);
-      if (m.plus6 !== null) expect(m.plus6, `${m.asOf} +6`).toBe(6);
+      expect(m.trailing, `${m.asOf} trailing`).toBe(trueChange(m.month - 1, 1));
+      if (m.plus1 !== null) expect(m.plus1, `${m.asOf} +1`).toBe(trueChange(m.month, 1));
+      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(trueChange(m.month, 3));
+      if (m.plus6 !== null) expect(m.plus6, `${m.asOf} +6`).toBe(trueChange(m.month, 6));
     }
   });
 
@@ -229,9 +266,9 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     expect(returned).not.toContain("2024-07");
     expect(returned).not.toContain("2024-08");
     for (const m of (await lookaheads(id))!) {
-      expect(m.trailing, `${m.asOf} trailing`).toBe(1);
-      if (m.plus1 !== null) expect(m.plus1, `${m.asOf} +1`).toBe(1);
-      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(3);
+      expect(m.trailing, `${m.asOf} trailing`).toBe(trueChange(m.month - 1, 1));
+      if (m.plus1 !== null) expect(m.plus1, `${m.asOf} +1`).toBe(trueChange(m.month, 1));
+      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(trueChange(m.month, 3));
     }
   });
 
@@ -241,9 +278,9 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     const returned = months(await getObservationsOneRowPerDate(id));
     expect(returned[0]).toBe("2024-02");
     for (const m of (await lookaheads(id))!) {
-      expect(m.trailing).toBe(1);
-      if (m.plus3 !== null) expect(m.plus3).toBe(3);
-      if (m.plus6 !== null) expect(m.plus6).toBe(6);
+      expect(m.trailing, `${m.asOf} trailing`).toBe(trueChange(m.month - 1, 1));
+      if (m.plus3 !== null) expect(m.plus3, `${m.asOf} +3`).toBe(trueChange(m.month, 3));
+      if (m.plus6 !== null) expect(m.plus6, `${m.asOf} +6`).toBe(trueChange(m.month, 6));
     }
   });
 
@@ -334,6 +371,61 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     }
   });
 
+  // ---------------------------------------------------------------- Z1
+  it("Z1: a zero-variance historical distribution refuses instead of scoring every comparator 1.0", async () => {
+    // `[CHATGPT_DECISION][MARKET-ANALOG-ZERO-SPREAD-20260908]`, Option A — FAIL CLOSED. The score
+    // is a z-score distance, and a z-score has no discriminating scale when every comparator is
+    // identical. The old code answered `sd === 0` by forcing both z-scores to zero, so
+    // round(1 / (1 + 0), 4) came back 1 for ANY current change.
+    //
+    // Measured on exact 91aa3b66 through this path, with no withheld date involved:
+    //     values 100, 101, 102, 103, 113   windowSize 1
+    //     comparators +1, +1, +1   sd 0   current +10
+    //     status COMPUTED, sampleSize 3, three matches each similarityScore 1
+    //
+    // This is a DIFFERENT boundary from L1's: three comparators is not one, so the count guard
+    // cannot see it. Both preconditions are asserted below rather than assumed, so this control
+    // cannot pass by reaching too few comparators, an unresolved current window, missing rows, or
+    // any other early exit.
+    const flat = await valueSeries("Z1_ZERO_SPREAD", [100, 101, 102, 103, 113]);
+
+    // PRECONDITION 1 — all five dates are answerable, so nothing is withheld and the current
+    // window is provable. Neither control J's branch nor F2's can be what refuses.
+    expect(months(await getObservationsOneRowPerDate(flat))).toHaveLength(5);
+    // PRECONDITION 2 — three historical comparators, well past L1's minimum of two, and they are
+    // identical to each other while the current change differs from them by an order of magnitude.
+    const comparators = [101 - 100, 102 - 101, 103 - 102];
+    expect(comparators).toEqual([1, 1, 1]);
+    expect(new Set(comparators).size, "the comparators must be identical, i.e. sd === 0").toBe(1);
+    expect(comparators.length, "well above the one-survivor minimum").toBeGreaterThanOrEqual(2);
+    expect(113 - 103, "the current change must differ materially").toBe(10);
+
+    const refused = await computeHistoricalAnalog(flat, { windowSize: 1, topK: 3 });
+    expect(refused.status).toBe("INSUFFICIENT_DATA");
+    expect(refused.matches).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------- Z2
+  it("Z2: a distribution with real spread still computes — the refusal is variance, not history length", async () => {
+    // The positive counterpart. Same length, same current change, the ONLY difference is that the
+    // comparators differ from one another. Without this, "refuse whenever the history is short"
+    // or "refuse everything" would satisfy Z1 vacuously.
+    const varied = await valueSeries("Z2_REAL_SPREAD", [100, 101, 105, 112, 122]);
+    const comparators = [101 - 100, 105 - 101, 112 - 105];
+    expect(comparators).toEqual([1, 4, 7]);
+    expect(new Set(comparators).size, "the comparators must genuinely differ").toBeGreaterThan(1);
+
+    const computed = await computeHistoricalAnalog(varied, { windowSize: 1, topK: 3 });
+    expect(computed.status).toBe("COMPUTED");
+    expect(computed.sampleSize).toBe(3);
+    expect(computed.currentTrailingChange).toBe(10);
+    expect(computed.matches).toHaveLength(3);
+    // And still no manufactured certainty: +10 resembles none of +1, +4, +7.
+    for (const m of computed.matches) {
+      expect(m.similarityScore, `${m.asOfDate} must not score a perfect analog`).toBeLessThan(1);
+    }
+  });
+
   // ---------------------------------------------------------------- J
   it("J: when the CURRENT window itself spans a refusal, the whole result fails closed", async () => {
     // The window everything else is compared AGAINST. Controls C and D put the hole in the middle,
@@ -362,7 +454,7 @@ describeIfDb("IR-133: a refused date must not become an adjacent period", () => 
     expect(marks, "later windows must still be answerable").not.toBeNull();
     const answered = marks!.filter((m) => m.plus3 !== null);
     expect(answered.length, "some window must still report a +3").toBeGreaterThan(0);
-    for (const m of answered) expect(m.plus3, `${m.asOf} +3`).toBe(3);
+    for (const m of answered) expect(m.plus3, `${m.asOf} +3`).toBe(trueChange(m.month, 3));
   });
 
   // ---------------------------------------------------------------- G

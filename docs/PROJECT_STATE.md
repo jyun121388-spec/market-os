@@ -504,6 +504,18 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+ZERO VARIANCE IS NOT A DISTRIBUTION (2026-09-08, IR-134)
+Escalated by this repository rather than self-classified, and the decision overruled the
+recommended default: FAIL CLOSED, not suppress-the-score. Three identical comparators of +1
+against a current change of +10 returned three matches at similarityScore 1, because a z-score
+has no discriminating scale at zero variance and the code answered `sd === 0` by forcing both
+z-scores to zero. The engine now refuses. Both ternaries are gone rather than left unreachable.
+The IR-133 corpus was re-seeded triangular so the positive controls keep a real distribution,
+and the assertions now compare against the true change derived from the seed over the month
+index read from the DATE -- stronger than the constant they replaced. 11 of 12 mutants
+ISOLATED; the twelfth is `M-HOLE-MIN-COMPARATORS`, now provably EQUIVALENT because a
+one-element sample always has sd 0, declared with its proof rather than dropped.
+
 ONE COMPARATOR IS NOT A DISTRIBUTION (2026-09-08, IR-133 REWORK)
 Independent review returned REWORK_REQUIRED on `3c541a97` and was right. The packet claimed the
 one-survivor case was closed; the landed guard read `historical.length < 1`, so exactly one
@@ -978,8 +990,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2837 / 2837 PASS across 160 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2818 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2839 / 2839 PASS across 160 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2820 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

@@ -176,13 +176,7 @@ export async function computeHistoricalAnalog(
   // changes an order of magnitude apart. One point carries no spread, so there is nothing to
   // measure a distance against and no honest score to publish.
   //
-  // What this line does NOT close, said here rather than left for the guard to imply. `sd === 0`
-  // is still reachable with two or more comparators when they are all IDENTICAL, and the same
-  // forced-zero z-scores manufacture the same 1.0. Reproduced on the exact tree with values
-  // 100, 101, 102, 103, 113: three comparators of +1, a current change of +10, three matches at
-  // 1.0. That is a different boundary from this one — it would refuse every linear fixture in
-  // this repository's own control corpus — so it is recorded and escalated rather than repaired
-  // in the same breath. See `docs/REVIEW_DEBT.md` under IR-133.
+  // The COUNT boundary. Zero variance is a second, separate one, enforced immediately below.
   if (historical.length < 2) {
     return {
       status: "INSUFFICIENT_DATA",
@@ -198,10 +192,36 @@ export async function computeHistoricalAnalog(
   const avg = mean(historicalValues);
   const sd = stdev(historicalValues, avg);
 
-  const zCurrent = sd === 0 ? 0 : (current.change - avg) / sd;
+  // ZERO VARIANCE IS NOT A DISTRIBUTION. `[CHATGPT_DECISION][MARKET-ANALOG-ZERO-SPREAD-20260908]`,
+  // Option A. This score is a z-score distance, and a z-score has no discriminating scale when
+  // every comparator is identical: the previous code answered `sd === 0` by forcing both z-scores
+  // to zero, which makes `round(1 / (1 + 0), 4)` a PERFECT 1.0 for any current change whatsoever.
+  //
+  // Reproduced through this function on a real database, on exact `91aa3b66`, with no withheld
+  // date involved: values 100, 101, 102, 103, 113 at `windowSize: 1` gave three comparators of +1
+  // against a current change of +10 and returned three matches at `similarityScore: 1`. The count
+  // guard above does not see it, because three comparators is not one.
+  //
+  // Fail closed. Not a fallback metric, not a second distance formula, and not a COMPUTED result
+  // kept so a screen has something to render — an undefined ranking published as a confident
+  // number is the failure mode, not the absence of one.
+  if (sd === 0) {
+    return {
+      status: "INSUFFICIENT_DATA",
+      seriesId,
+      windowSize,
+      sampleSize: 0,
+      matches: [],
+      limitations: LIMITATIONS_TEXT,
+    };
+  }
+
+  // No `sd === 0` branch survives here, deliberately. Leaving one would let a future edit remove
+  // the guard above and silently restore the fabricated 1.0 instead of failing loudly.
+  const zCurrent = (current.change - avg) / sd;
 
   const scored = historical.map((h) => {
-    const zHist = sd === 0 ? 0 : (h.change - avg) / sd;
+    const zHist = (h.change - avg) / sd;
     const similarityScore = round(1 / (1 + Math.abs(zCurrent - zHist)), 4);
     return { ...h, similarityScore };
   });

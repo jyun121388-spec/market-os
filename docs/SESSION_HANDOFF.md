@@ -27,8 +27,9 @@ rather than guessed. IR-132 then scoped SEC's public read-only surface as keyles
 (2026-09-08) stopped the refusal from becoming a false adjacency downstream. Independent
 review returned REWORK_REQUIRED on IR-133's first landing and was right: one surviving
 comparator still manufactured a perfect similarity score, and the minimum is now two. A
-second shape of the same mechanism -- two or more IDENTICAL comparators -- is reproduced,
-recorded and escalated rather than repaired. See `docs/CURRENT_TASK.md` for what remains open.
+second shape of the same mechanism -- two or more IDENTICAL comparators -- was reproduced and
+escalated rather than self-classified; the decision came back FAIL CLOSED and IR-134 landed it,
+re-seeding the IR-133 corpus triangular so its positive controls keep a real distribution. See `docs/CURRENT_TASK.md` for what remains open.
 
 `P1_UNBOUNDED_CLAUSE_OPENING_CLASS` was, as of 2026-08-28, **OPEN and blocking this unit's
 closure**, and the decision it waited on was **not an engineering one**. Escalated as `ESC-015`

@@ -4459,3 +4459,63 @@ reported figure would have made the page's own legal disclaimer false — the qu
 guardrail is to keep the old wording after the behaviour moves. It now says Market OS does not
 score or rank, does not choose a multiple, and recommends nothing, all of which remains true. The
 E2E assertion moved with it, and eighteen browser checks now cover the surface.
+
+### IR-136 — growth, profitability and risks, without inventing an engine for any of them
+
+The Company Intelligence half of
+`[CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]`. All three fields are
+`V1_DELIVERY_REQUIRED` and none of them may be satisfied by a new analytical family.
+
+**Growth was already built and had no label.** `computeCompanyXray().changes` is
+`computeFilingDiff` output: period-over-period difference per concept, with `INSUFFICIENT_DATA`
+where nothing comparable exists, plus `periodLengthMismatch` and `currentIsRestatement`. The page
+already rendered it under "Change vs. the previous comparable period". So the work was naming it,
+saying outright that it is historical and not a projection, and turning the trailing
+"no comparable prior period for: X" note into an explicit `UNVERIFIABLE` — growth for those
+concepts is not zero and not small, it is unknown, and the old wording let it read as a footnote.
+
+**Profitability is the only new arithmetic**, and it is a division. `src/server/domain/profitability.ts`,
+pure, two ratios over four literal us-gaap tags the ingest already stores: net margin
+(`NetIncomeLoss` / revenue) and operating margin (`OperatingIncomeLoss` / revenue). Six named
+refusal reasons.
+
+The load-bearing rule is `sharesPeriod`: `periodStart`, `periodEnd`, `periodMonths` AND `unit` must
+all match. A quarter's profit over a year's revenue is 25% of nothing and looks entirely
+reasonable, which is why the control that seeds exactly that pair asserts `NO_SHARED_PERIOD`
+rather than a number. Revenue-tag ambiguity refuses on the same rule as the valuation surface —
+two tags, same period, different amounts, no way to choose that is not a guess — and does NOT
+refuse when the two agree, because the ratio is identical either way.
+
+**Deliberately not annual-only, unlike `valuationScenario`.** A multiple is defined against a year,
+so applying one to a quarter is wrong by roughly four. A margin is a ratio of two quantities over
+the same span, so it is exactly as meaningful for a quarter — provided both sides really do cover
+that span, which is the whole of what the module checks. Two different rules for two different
+reasons, stated so neither looks like an oversight of the other.
+
+A negative margin is COMPUTED, not refused: a loss is a fact about the period. Zero or negative
+revenue is refused, because the ratio is undefined or meaningless.
+
+**Risks: the section says what it does not know.** No new NLP family, no inferred business risk, no
+ranking. It lists only what an existing engine already proved — completeness state, restated
+figures, unequal period lengths, concepts with no comparable prior period — under a notice that
+reads `QUALITATIVE RISK FACTORS NOT EXTRACTED IN V1`. That notice is the point rather than a
+disclaimer bolted on: a section headed "Risks" listing only data-quality notes would read as a
+claim that there are no others, and an E2E control asserts the notice is present and that no
+"top risks" or "risk score" language ever appears.
+
+### The EDGAR source link was wrong when first written, and nothing would have failed on it
+
+`src/lib/filingSourceUrl.ts`. The first version used
+`browse-edgar?action=getcompany&filenum=<accession>` — a company FILE-NUMBER search, not an
+accession lookup — so every SEC filing on the site would have carried a confident link to the wrong
+kind of page. It was caught by checking the URL shape against the stored data, not by a failure,
+which is why it now has its own controls asserting the accession appears in the path and that
+`browse-edgar` and `filenum` do not.
+
+It lives in `src/lib` rather than in the page because Next.js refuses arbitrary named exports from
+a route module — the typecheck said so — and because a URL builder that can be wrong should be
+testable. The identifier shape is asserted before any URL is built (`\d{10}-\d{2}-\d{6}` for an
+accession, digits for a CIK, digits for a DART receipt), the CIK's leading zeros are stripped for
+the Archives path per the `canonical_edgar_cik` migration, and every other provider returns null
+so the page shows the raw identifier. A fabricated citation is worse than no link: a reader who
+clicks it and lands nowhere cannot tell whether the filing is missing or the link was invented.

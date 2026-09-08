@@ -278,6 +278,44 @@ async function main() {
         (body ?? "").includes("Assumptions refused"),
       );
       check("and refused for the stated reason", (body ?? "").includes("The range must ascend"));
+
+      // [6c] Growth, profitability and risks — the rest of the Company Intelligence surface
+      // ([CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]). Each is presentation over an
+      // engine that already existed or a deterministic ratio over already-tracked literal tags;
+      // none of them is a forecast, a score or an inferred business risk.
+      await page.goto(companyUrl);
+      body = await page.textContent("body");
+      check(
+        "growth is named as historical change, not projection",
+        (body ?? "").includes("Growth — change vs. the previous comparable period"),
+      );
+      check(
+        "growth says outright that it does not forecast",
+        (body ?? "").includes("no forecast here and no projection"),
+      );
+      check("profitability is reachable", (body ?? "").includes("Profitability"));
+      check(
+        "each ratio is either computed or explicitly UNVERIFIABLE",
+        (body ?? "").includes("Net margin") &&
+          (body ?? "").includes("Operating margin") &&
+          ((body ?? "").includes("UNVERIFIABLE") || /\d+(\.\d+)?%/.test(body ?? "")),
+      );
+      check("risks section is reachable", (body ?? "").includes("Risks and evidence warnings"));
+      // The load-bearing one. A section headed "Risks" that quietly listed only data-quality notes
+      // would read as a claim that there are no others.
+      check(
+        "the risks section refuses to imply it extracted business risks",
+        (body ?? "").includes("QUALITATIVE RISK FACTORS NOT EXTRACTED IN V1"),
+      );
+      check(
+        "no fabricated top-risks list",
+        !/\btop risks?\b/i.test(body ?? "") && !/\brisk score\b/i.test(body ?? ""),
+      );
+      check(
+        "a filing carries a source link or says why it has none",
+        (body ?? "").includes("Open the original filing at") ||
+          (body ?? "").includes("No canonical source URL is known"),
+      );
     } else {
       // No ingested company in this database — the page must say so rather than render a shell
       // implying coverage it does not have.

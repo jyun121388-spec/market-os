@@ -504,6 +504,18 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+GROWTH, PROFITABILITY AND RISKS WITHOUT A NEW ENGINE (2026-09-08, IR-136)
+Growth was already built and unlabelled -- `computeFilingDiff` period-over-period change, now
+named as historical, saying outright that it does not forecast, with the missing-comparator
+note promoted to an explicit UNVERIFIABLE. Profitability is the only new arithmetic and it is a
+division: two ratios over four literal tags, refusing unless periodStart, periodEnd,
+periodMonths AND unit all match, because a quarter's profit over a year's revenue looks
+entirely reasonable. Not annual-only, unlike the valuation surface, and the reason for the
+difference is written down. Risks lists only what an engine already proved, under a notice
+reading QUALITATIVE RISK FACTORS NOT EXTRACTED IN V1 -- the notice is the feature. The EDGAR
+source link was wrong when first written (a file-number search, not an accession lookup) and
+was caught by inspection rather than by a failure; it now has its own controls.
+
 A VALUATION SURFACE THAT VALUES NOTHING (2026-09-08, IR-135)
 V1 productization, not architecture. `[CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]`
 overruled this repository's own recommendation and required an applied method: scenario
@@ -1002,8 +1014,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2863 / 2863 PASS across 162 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2844 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2880 / 2880 PASS across 164 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2861 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

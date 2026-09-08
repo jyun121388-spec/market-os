@@ -7,6 +7,8 @@ import {
   type MultipleInput,
   type ValuationScenario,
 } from "@/server/domain/valuationScenario";
+import { computeProfitability, type ProfitabilityRatio } from "@/server/domain/profitability";
+import { filingSourceUrl } from "@/lib/filingSourceUrl";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +86,47 @@ export default async function CompanyXrayPage({
     peMultiples: readMultiples(query.peLow, query.peBase, query.peHigh),
     psMultiples: readMultiples(query.psLow, query.psBase, query.psHigh),
   });
+
+  const profitability = computeProfitability(latestFigures);
+
+  // Every risk shown below is one an existing engine already PROVED. Nothing here reads prose,
+  // infers a business risk, or ranks anything — the decision is explicit that no qualitative
+  // risk family may be invented during productization, and the section says so in as many words
+  // rather than leaving a reader to assume the list is exhaustive.
+  const evidenceWarnings: { label: string; detail: string }[] = [];
+  if (completeness.status !== "COMPLETE") {
+    evidenceWarnings.push({
+      label: `Data completeness: ${completeness.status}`,
+      detail: completeness.detail,
+    });
+  }
+  for (const c of changes) {
+    if (c.currentIsRestatement || c.previousIsRestatement) {
+      evidenceWarnings.push({
+        label: `Restated figure: ${c.concept}`,
+        detail:
+          c.currentIsRestatement && c.previousIsRestatement
+            ? "Both compared figures were superseded by a later filing."
+            : c.currentIsRestatement
+              ? "The current figure supersedes one already reported for the same period."
+              : "The prior figure was superseded by a later filing.",
+      });
+    }
+    if (c.periodLengthMismatch) {
+      evidenceWarnings.push({
+        label: `Unequal period lengths: ${c.concept}`,
+        detail: `${c.previousPeriodDays} days compared against ${c.currentPeriodDays} days — the same month bucket, not the same duration.`,
+      });
+    }
+  }
+  for (const c of changes) {
+    if (c.status !== "COMPUTED") {
+      evidenceWarnings.push({
+        label: `No comparable prior period: ${c.concept}`,
+        detail: "Nothing on record covers a matching earlier period, so no change can be shown.",
+      });
+    }
+  }
 
   return (
     <div className="mx-auto flex max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
@@ -235,10 +278,14 @@ export default async function CompanyXrayPage({
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Change vs. the previous comparable period</h2>
+        <h2 className="text-lg font-semibold">
+          Growth — change vs. the previous comparable period
+        </h2>
         <p className="text-sm text-zinc-500">
-          Only periods of the same length are compared. A quarter is never measured against a
-          year-to-date figure, which is why some concepts below have no change to show.
+          Historical, deterministic, and nothing else: this is the arithmetic difference between two
+          figures the company filed. There is no forecast here and no projection. Only periods of
+          the same length are compared — a quarter is never measured against a year-to-date figure —
+          which is why some concepts below have no change to show.
         </p>
         {comparable.length === 0 ? (
           <p className="text-sm text-zinc-500">Nothing has two comparable periods on record yet.</p>
@@ -302,9 +349,59 @@ export default async function CompanyXrayPage({
         )}
         {notComparable.length > 0 && (
           <p className="text-xs text-zinc-500">
-            No comparable prior period on record for:{" "}
-            {notComparable.map((c) => c.concept).join(", ")}.
+            <span className="font-medium">UNVERIFIABLE</span> — no comparable prior period is on
+            record for: {notComparable.map((c) => c.concept).join(", ")}. Growth for these is not
+            zero and not small; it is unknown, and this product does not estimate it.
           </p>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Profitability</h2>
+        <p className="text-sm text-zinc-500">
+          Two ratios, each computed only where both sides are figures the company filed for the same
+          period in the same unit. No adjustment, no normalisation, no peer comparison.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {profitability.map((r) => (
+            <RatioRow key={r.name} ratio={r} />
+          ))}
+        </ul>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Risks and evidence warnings</h2>
+        {/*
+          The honest shape of this section is the point. Everything listed is something an
+          existing engine established mechanically; the notice below says plainly that the
+          business risks a reader might expect are NOT among them, because inventing a
+          qualitative risk family during productization is exactly what the governing decision
+          forbids — and a section headed "Risks" that quietly listed only data-quality notes
+          would read as a claim that there are no others.
+        */}
+        <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <span className="font-medium">QUALITATIVE RISK FACTORS NOT EXTRACTED IN V1.</span> Market
+          OS does not read the narrative sections of filings, so it cannot list this company&apos;s
+          business, market, legal or operational risks. What follows is only what the stored data
+          itself proves. Read the filings below for the rest.
+        </p>
+        {evidenceWarnings.length === 0 ? (
+          <p className="text-sm text-zinc-500">
+            No data-quality warning is outstanding for this company. That is a statement about the
+            stored data, not about the company.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {evidenceWarnings.map((w, i) => (
+              <li
+                key={`${w.label}-${i}`}
+                className="rounded border border-zinc-200 p-3 text-sm dark:border-zinc-800"
+              >
+                <div className="font-medium">{w.label}</div>
+                <div className="text-zinc-600 dark:text-zinc-400">{w.detail}</div>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
@@ -323,6 +420,11 @@ export default async function CompanyXrayPage({
                 <div className="text-sm text-zinc-600 dark:text-zinc-400">
                   {f.receiptDate} · {f.receiptNo}
                 </div>
+                <FilingSourceLink
+                  sourceCode={company.sourceCode}
+                  corpCode={company.corpCode}
+                  receiptNo={f.receiptNo}
+                />
               </li>
             ))}
           </ul>
@@ -521,5 +623,88 @@ function ScenarioPanel({ title, scenario }: { title: string; scenario: Valuation
 
       <p className="text-xs text-zinc-500">{scenario.limitations}</p>
     </div>
+  );
+}
+
+/** Plain English per refusal, so a missing ratio explains itself rather than leaving a blank. */
+const RATIO_UNVERIFIABLE_TEXT: Record<string, string> = {
+  NUMERATOR_MISSING: "The income figure this ratio needs is not stored for this company.",
+  DENOMINATOR_MISSING: "No revenue figure is stored for this company.",
+  NO_SHARED_PERIOD:
+    "No period has both figures in the same unit. A quarter's profit over a year's revenue would look entirely reasonable and mean nothing, so this refuses instead.",
+  DENOMINATOR_NOT_POSITIVE: "Reported revenue is zero or negative, so the ratio is undefined.",
+  PROVENANCE_INCOMPLETE: "One side is missing the filing identity that makes it checkable.",
+  DENOMINATOR_AMBIGUOUS:
+    "Two revenue tags cover the same period and disagree, and choosing between them would be a guess about which basis you meant.",
+};
+
+const RATIO_LABEL: Record<string, string> = {
+  NET_MARGIN: "Net margin",
+  OPERATING_MARGIN: "Operating margin",
+};
+
+function RatioRow({ ratio }: { ratio: ProfitabilityRatio }) {
+  return (
+    <li className="rounded border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="font-medium">{RATIO_LABEL[ratio.name] ?? ratio.name}</span>
+        <span className="text-xs uppercase tracking-wide text-zinc-500">{ratio.status}</span>
+      </div>
+      {ratio.status === "COMPUTED" && ratio.numerator && ratio.denominator ? (
+        <>
+          <div className="mt-1 text-lg font-medium">{ratio.percent}%</div>
+          <div className="text-zinc-600 dark:text-zinc-400">
+            {ratio.numerator.concept} {ratio.numerator.value.toLocaleString("en-US")} ÷{" "}
+            {ratio.denominator.concept} {ratio.denominator.value.toLocaleString("en-US")}{" "}
+            {ratio.denominator.unit}
+          </div>
+          <div className="text-xs text-zinc-500">
+            {ratio.numerator.periodStart} → {ratio.numerator.periodEnd} (
+            {ratio.numerator.periodMonths}mo) · {ratio.numerator.form}{" "}
+            {ratio.numerator.accessionNumber}
+            {ratio.denominator.accessionNumber !== ratio.numerator.accessionNumber
+              ? ` · ${ratio.denominator.form} ${ratio.denominator.accessionNumber}`
+              : ""}
+          </div>
+        </>
+      ) : (
+        <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+          <span className="font-medium">UNVERIFIABLE ({ratio.unverifiableBecause})</span> —{" "}
+          {RATIO_UNVERIFIABLE_TEXT[ratio.unverifiableBecause ?? ""] ??
+            "This ratio cannot be established from what is stored."}
+        </p>
+      )}
+      <p className="mt-1 text-xs text-zinc-500">{ratio.limitations}</p>
+    </li>
+  );
+}
+
+function FilingSourceLink({
+  sourceCode,
+  corpCode,
+  receiptNo,
+}: {
+  sourceCode: string;
+  corpCode: string;
+  receiptNo: string;
+}) {
+  const href = filingSourceUrl(sourceCode, corpCode, receiptNo);
+  if (!href) {
+    return (
+      <div className="text-xs text-zinc-500">
+        No canonical source URL is known for {sourceCode}, or this identifier does not match its
+        expected shape. The identifier above is the filing.
+      </div>
+    );
+  }
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-xs underline text-zinc-600 dark:text-zinc-400"
+    >
+      Open the original filing at {sourceCode}
+    </a>
   );
 }

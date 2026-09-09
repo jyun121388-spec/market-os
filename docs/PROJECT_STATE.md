@@ -504,6 +504,17 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+ASK MARKET RENDERED NOTHING FOR A QUARTER OF ITS STATUSES (2026-09-10, IR-140)
+`AskMarketResultStatus` has four members and the page had branches for two.
+`REQUEST_NOT_SUPPORTED` had none, so the engine computed an explanation, put it in
+`redirectMessage`, and the page threw it away and rendered an empty div -- including for
+`inflation`, which was the input's OWN placeholder example. E2E step [8] had asserted only that
+the guardrail did not fire on that query, so it stayed green over a blank screen: a check that
+something bad is absent says nothing about whether anything good is present. All four statuses
+now render. Reported and NOT repaired: `NOT_FOUND` conflates "nothing stored" with "stored but
+withheld as stale", which is why every well-formed question here returns it -- the copy is now
+honest about that, but separating the statuses is an engine contract change.
+
 THE ANALOG REACHES A USER (2026-09-10, IR-139)
 `/macro` composes regime, calendar, staleness and -- for the first time in this product's life --
 `computeHistoricalAnalog`, which had never had a production caller. It has one only because
@@ -1047,8 +1058,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2896 / 2896 PASS across 166 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2877 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2902 / 2902 PASS across 167 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2883 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

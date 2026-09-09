@@ -553,13 +553,99 @@ async function main() {
       );
     }
 
-    console.log("[8] Ask Market answers a factual topic query normally");
+    console.log("[8] Ask Market: every status is explained, and none is a blank screen");
+    // This step used to be one assertion — that "inflation" was not caught by the buy/sell
+    // guardrail — and it passed for months while the page rendered NOTHING for that query.
+    // `REQUEST_NOT_SUPPORTED` had no branch, so the engine's own explanation was computed and
+    // discarded, and a green test sat on top of a blank screen. The lesson is the assertion: a
+    // check that something bad is ABSENT says nothing about whether anything good is PRESENT.
+
+    // A: the capability statement, so a user knows what shapes of question work at all.
+    await page.goto(`${BASE_URL}/ask`);
+    body = await page.textContent("body");
+    check(
+      "A: the page says what it can answer today",
+      (body ?? "").includes("What this can answer today"),
+    );
+    check(
+      "F: the gated generation capability is stated, not hidden",
+      (body ?? "").includes("Written answers are not enabled in this installation"),
+    );
+    check(
+      "F: and it promises no silent provider call",
+      (body ?? "").includes("will not silently reach for one"),
+    );
+
+    // D: the status that had no branch. The page's OWN former placeholder is the query.
     await page.goto(`${BASE_URL}/ask?q=${encodeURIComponent("inflation")}`);
     body = await page.textContent("body");
+    check(
+      "D: an unsupported request is explained rather than rendered blank",
+      (body ?? "").includes("Market OS cannot act on that request"),
+    );
+    check(
+      "D: and the engine's own reason is shown",
+      (body ?? "").includes("matches no operation this repository can perform"),
+    );
+    check(
+      "D: it is distinguished from an empty search",
+      (body ?? "").includes("not a search that came back empty"),
+    );
     check(
       "a neutral factual query is not caught by the guardrail",
       !(body ?? "").includes("doesn't give personalized buy/sell recommendations"),
     );
+
+    // A/B/C: a well-formed request either serves sourced factors or explains why not. Both
+    // branches are acceptable; a blank one is not.
+    await page.goto(
+      `${BASE_URL}/ask?q=${encodeURIComponent("What is the current US headline CPI?")}`,
+    );
+    body = await page.textContent("body");
+    const served = (body ?? "").includes("Macro / market factors");
+    const explained = (body ?? "").includes("Nothing could be served for");
+    check("A: a well-formed request is served or explained, never blank", served || explained);
+    if (served) {
+      check(
+        "B: the provider is named beside the figure",
+        /FRED|ECOS|SEC_EDGAR|DART/.test(body ?? ""),
+      );
+      check(
+        "C: the freshness rule is stated with the figures",
+        (body ?? "").includes("fresh against its own release cadence"),
+      );
+    } else {
+      // C/H: the honest reading of NOT_FOUND on this installation. Every stored series is stale,
+      // and askMarket withholds a stale reading rather than serving it as current — so "no data"
+      // and "held but too old" are the same status, and the page must not tell the reader to
+      // rephrase when rephrasing is not the problem.
+      check(
+        "C: the refusal explains that stale readings are withheld",
+        (body ?? "").includes("too old to serve"),
+      );
+      check(
+        "H: unknown stays unknown — nothing is fabricated either way",
+        (body ?? "").includes("Nothing is fabricated either way"),
+      );
+    }
+
+    // G: no credential value may reach the rendered page. Compared against the real environment
+    // values, and only the BOOLEAN result is ever reported.
+    const html = (await page.content()) + (body ?? "");
+    for (const name of ["FRED_API_KEY", "DART_API_KEY", "ECOS_API_KEY", "DATABASE_URL"]) {
+      const value = process.env[name];
+      if (!value || value.length < 8) continue;
+      check(`G: no ${name} value appears in the rendered page`, !html.includes(value));
+    }
+
+    // I: no normal-user page may hand the reader a developer's answer.
+    const askText = (body ?? "").toLowerCase();
+    for (const forbidden of ["npm run", "npx ", ".env", "powershell", "prisma", "api key"]) {
+      check(
+        `I: the Ask page never tells a user to "${forbidden.trim()}"`,
+        !askText.includes(forbidden),
+      );
+    }
 
     console.log("[8b] Macro, regime, calendar and the historical analog");
     // The analog reaches a user surface for the first time here, and only because

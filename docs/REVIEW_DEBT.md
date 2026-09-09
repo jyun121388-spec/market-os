@@ -4718,3 +4718,64 @@ present and forbids the affirmative forms — `will rise|fall|increase|decrease|
 `price target`. Recorded because it is now twice, which makes it a pattern rather than a slip: any
 check phrased as "this word must not appear" will eventually fire on the sentence that exists to
 deny it.
+
+### IR-140 — the Ask page rendered nothing for a quarter of its own statuses
+
+Unit E. `AskMarketResultStatus` has four members and the page had branches for two. The one with
+no branch was `REQUEST_NOT_SUPPORTED`, and the engine puts its explanation in `redirectMessage`
+before returning it — so the page computed a good answer and threw it away, rendering an empty
+`<div>`.
+
+Measured on 2026-09-10, and the measurement is the part worth keeping:
+
+    "Should I buy Samsung?"       PERSONALIZED_ADVICE_REDIRECTED   page renders something
+    "airspeed velocity ..."       REQUEST_NOT_SUPPORTED            *** BLANK ***
+    "inflation"                   REQUEST_NOT_SUPPORTED            *** BLANK ***
+    "zzzz-nothing-matches-this"   REQUEST_NOT_SUPPORTED            *** BLANK ***
+
+**`inflation` was the page's own placeholder.** The input said `e.g. inflation, Samsung
+Electronics` and typing the example it suggested returned a blank screen. This is the third
+"already computed, never rendered" defect in two days, after the filing accessions (IR-138) and
+the analog (IR-139).
+
+The page now renders all four statuses, shows the engine's own `detail`, and states plainly that
+an unsupported request is "not a search that came back empty". No engine change: every status,
+message and factor is read from the result `askMarket` already returns.
+
+### The test that was green over the blank screen
+
+E2E step [8] asserted `!body.includes("doesn't give personalized buy/sell recommendations")` for
+the query `inflation` — that the guardrail did NOT fire. It passed for months while the page below
+it was empty. **A check that something bad is ABSENT says nothing about whether anything good is
+PRESENT**, and that is the whole lesson: the step now asserts what must be rendered, for every
+status, and the blank case fails it.
+
+### A second finding, reported rather than repaired
+
+Every well-formed indicator question on this installation returns `NOT_FOUND`, and not because
+nothing is stored. `askMarket` drops any series whose latest reading is stale against its own
+cadence — `if (freshness.status !== "FRESH") continue` — and every stored series here now is.
+`NOT_FOUND` therefore conflates "we hold nothing" with "we hold it and withheld it as too old",
+and the old copy told the reader to "try a different macro series or company name", which sends
+them to fix the wrong problem.
+
+The copy is repaired: the refusal now says the data may be held but too old to serve, and links to
+`/macro`, which lists every indicator with its freshness. **The conflation itself is NOT repaired.**
+Separating the two statuses means `askMarket` reporting what it withheld — the `unresolvedDates`
+shape IR-133 used — and that is a contract change to an engine under approval, during
+productization, for a defect that is now honestly described to the user. Recorded here for the
+productization checkpoint rather than fixed quietly.
+
+### `askCapabilityBoundary.test.ts` — a claim in copy is still a claim
+
+The page now tells the user Market OS "will not silently reach for" an answer-writing model.
+Observing that no request went out would prove that for one query on one day. These controls prove
+there is no path at all: `InferenceSink` is declared in exactly one file and implemented in none;
+no model SDK is imported anywhere in `src/`; none is declared in `package.json`; no model
+credential is read from `process.env`; and the Ask page's rendered copy contains no `.env`, npm,
+PowerShell, Prisma or "API key" instruction. The file-walker is asserted non-empty first, because a
+walker that found nothing would satisfy all five by vacuity — the same shape as the empty-array
+`every()` that hid a P1 in IR-133.
+
+The browser run also compares the rendered HTML against the REAL values of `FRED_API_KEY`,
+`DART_API_KEY`, `ECOS_API_KEY` and `DATABASE_URL` from the environment, reporting only the boolean.

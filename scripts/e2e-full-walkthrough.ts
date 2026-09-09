@@ -31,14 +31,74 @@ const PASSWORD = "correct-horse-battery-staple";
 let failures = 0;
 
 /**
+ * Two indicator series for the macro step, created here and removed in a `finally`.
+ *
+ * They exist because the analog's two interesting branches cannot be reached from whatever this
+ * installation happens to have ingested. `spread` has distinct trailing changes, so a distribution
+ * exists and the engine can score it. `flat` has identical ones, which is the zero-variance shape
+ * IR-134 made the engine refuse — and the shape that used to come back as a perfect 1.0 similarity
+ * for any current change whatsoever.
+ */
+async function seedMacroFixtures() {
+  const source = await prisma.source.upsert({
+    where: { code: "E2E_MACRO" },
+    update: {},
+    create: { code: "E2E_MACRO", name: "E2E macro fixture", tier: "TIER_S" },
+  });
+
+  async function series(externalId: string, values: number[]) {
+    const row = await prisma.series.create({
+      data: {
+        sourceId: source.id,
+        externalId,
+        name: `E2E ${externalId}`,
+        unit: "index",
+        frequency: "monthly",
+      },
+    });
+    for (let i = 0; i < values.length; i++) {
+      await prisma.observation.create({
+        data: {
+          seriesId: row.id,
+          sourceId: source.id,
+          observationDate: new Date(Date.UTC(2024, i, 1)),
+          value: String(values[i]),
+          raw: {},
+        },
+      });
+    }
+    return row.id;
+  }
+
+  // Distinct one-period changes: 1, 2, 3, ... so the historical distribution has real spread.
+  const ramp: number[] = [];
+  for (let i = 0; i < 14; i++) ramp.push(100 + (i * (i + 1)) / 2);
+  const spreadSeriesId = await series("E2E_SPREAD", ramp);
+
+  // Every one-period change is exactly 1, so sd is 0 and the engine must refuse.
+  const flat: number[] = [];
+  for (let i = 0; i < 14; i++) flat.push(100 + i);
+  const flatSeriesId = await series("E2E_FLAT", flat);
+
+  return {
+    spreadSeriesId,
+    flatSeriesId,
+    async cleanup() {
+      await prisma.observation.deleteMany({ where: { sourceId: source.id } });
+      await prisma.series.deleteMany({ where: { sourceId: source.id } });
+      await prisma.source.delete({ where: { id: source.id } });
+    },
+  };
+}
+
+/**
  * Submit the form the PAGE is about, not the first one in the document.
  *
  * `page.click('button[type="submit"]')` took the first match, and once the global navigation
  * landed that became the "Log out" button on every single page — so the watchlist step signed the
  * user out instead of adding an item. The selector had been unambiguous only by accident, and the
- * accident ended the moment the product grew a nav bar.
- *
- * Scoped to `main, div` outside `nav` by excluding the nav subtree explicitly.
+ * accident ended the moment the product grew a nav bar. The nav's own button carries `data-nav`,
+ * so "chrome" and "this page's action" are now distinguishable rather than merely ordered.
  */
 async function submitPageForm(page: Page) {
   await page.locator('button[type="submit"]:not([data-nav])').first().click();
@@ -500,6 +560,88 @@ async function main() {
       "a neutral factual query is not caught by the guardrail",
       !(body ?? "").includes("doesn't give personalized buy/sell recommendations"),
     );
+
+    console.log("[8b] Macro, regime, calendar and the historical analog");
+    // The analog reaches a user surface for the first time here, and only because
+    // [CHATGPT_VERIFIED][MARKET-ANALOG-ZERO-SPREAD-20260908] approved IR-134. Two series are
+    // seeded for this step and removed after it: one with genuine spread, which must COMPUTE, and
+    // one whose every trailing change is identical, which must REFUSE. Without the second, "the
+    // page renders an analog" would prove nothing about the case that used to fabricate a 1.0.
+    const macro = await seedMacroFixtures();
+    try {
+      await page.goto(`${BASE_URL}/today`);
+      check(
+        "A: macro is reachable from the global nav",
+        (await page.locator('nav a[href="/macro"]').count()) > 0,
+      );
+      await page.getByRole("link", { name: /^macro$/i }).click();
+      await page.waitForURL("**/macro", { timeout: 15000 });
+      body = await page.textContent("body");
+
+      check("B: regime is visible", (body ?? "").includes("Regime"));
+      check(
+        "B: every axis reports a state rather than rendering blank",
+        /\b(GROWTH|INFLATION|RATES)\b/.test(body ?? "") &&
+          /(DATA_AVAILABLE|INSUFFICIENT_DATA)/.test(body ?? ""),
+      );
+      check(
+        "C: the calendar is visible",
+        (body ?? "").includes("Indicators and expected releases"),
+      );
+      check(
+        "C: a projection is labelled a projection, not a release date",
+        (body ?? "").includes("not a confirmed release date") ||
+          (body ?? "").includes("INSUFFICIENT_DATA"),
+      );
+
+      // D — genuine spread must compute, and show what the contract requires.
+      await page.goto(`${BASE_URL}/macro?series=${encodeURIComponent(macro.spreadSeriesId)}`);
+      body = await page.textContent("body");
+      check("D: a valid-spread analog renders", (body ?? "").includes("Historical analog"));
+      check("D: it is COMPUTED", (body ?? "").includes("COMPUTED"));
+      check("G: sample size is visible", /sample size \d+/i.test(body ?? ""));
+      check(
+        "G: the mandatory limitations text is visible",
+        (body ?? "").includes("not a prediction"),
+      );
+      check("G: a similarity score is shown for each match", /similarity \d/.test(body ?? ""));
+      // Never a forecast, whatever the numbers say — but the DENIALS must be present, and the
+      // first version of this banned the bare words "forecast" and "predict", so it failed on
+      // "Nothing here is a forecast" and "they are not a prediction". Exactly the trap the
+      // valuation disclaimer hit: a substring scan cannot tell a claim from its refusal. This
+      // asserts the refusals ARE there and forbids the affirmative forms instead.
+      const macroText = (body ?? "").toLowerCase();
+      check(
+        "D: the page denies being a forecast",
+        macroText.includes("nothing here is a forecast"),
+      );
+      check("D: the analog denies being a prediction", macroText.includes("not a prediction"));
+      for (const claim of [
+        /\bwill (rise|fall|increase|decrease|continue)\b/,
+        /\bwe (expect|predict|forecast)\b/,
+        /\b(is|are) (forecast|predicted|expected) to\b/,
+        /\bexpected return\b/,
+        /\bprice target\b/,
+      ]) {
+        check(`D: the analog never claims ${claim.source}`, !claim.test(macroText));
+      }
+
+      // E — zero spread must NOT produce a fabricated perfect score.
+      await page.goto(`${BASE_URL}/macro?series=${encodeURIComponent(macro.flatSeriesId)}`);
+      body = await page.textContent("body");
+      check("E: a zero-spread history refuses", (body ?? "").includes("INSUFFICIENT_DATA"));
+      check(
+        "E: and publishes no similarity at all, perfect or otherwise",
+        !/similarity \d/.test(body ?? ""),
+      );
+      check(
+        "F: the refusal says what it is, not that nothing is wrong",
+        (body ?? "").includes("cannot establish a usable historical analog") &&
+          (body ?? "").includes("not a finding that conditions are calm"),
+      );
+    } finally {
+      await macro.cleanup();
+    }
 
     console.log("[9] Log out (logout control lives on /today)");
     await page.goto(`${BASE_URL}/today`);

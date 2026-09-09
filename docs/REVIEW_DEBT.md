@@ -4675,3 +4675,46 @@ timing budget assumed a PowerShell spawn cost this machine no longer meets" are 
 and only the second one tells the next person what to measure. No product code was touched, and the
 1194ms `selfIdentity()` is left as an observation: it is the control bus's own start-up cost, it is
 not on any user path, and chasing it here would be widening.
+
+### IR-139 — the analog reaches a user for the first time, under the contract IR-134 bought
+
+Unit D. `/macro` composes `computeRegimeSnapshot`, `computeCalendar`, `evaluateStaleness` and
+`computeHistoricalAnalog` and adds no engine. The indicator-detail mechanism is a query parameter,
+which is the smallest thing that works: no second route, no client state, and the selected
+indicator travels in the URL.
+
+**`computeHistoricalAnalog` has had no production caller for its entire existence.** It has one
+now, and only because `[CHATGPT_VERIFIED][MARKET-ANALOG-ZERO-SPREAD-20260908]` approved IR-134.
+Before that, a zero-variance history came back as a perfect 1.0 similarity for any current change
+whatsoever, and exposing that to a reader would have been the confidence laundering the delivery
+decision names as an acceptance failure.
+
+The rendering contract is the load-bearing part, so it is proven end-to-end rather than argued.
+Two series are seeded for the browser step and removed in a `finally`, because the two interesting
+branches cannot be reached from whatever an installation happens to have ingested:
+
+    E2E_SPREAD   value(i) = 100 + i(i+1)/2, distinct trailing changes -> COMPUTED
+    E2E_FLAT     value(i) = 100 + i, every trailing change 1, sd = 0 -> INSUFFICIENT_DATA
+
+Measured through the real page: the spread series renders COMPUTED with sample size, per-match
+similarity and the mandatory limitations text; the flat one renders `INSUFFICIENT_DATA` and **no
+similarity score at all**, perfect or otherwise. A refusal says "cannot establish a usable
+historical analog ... not a finding that conditions are calm", which is the sentence that stops
+`INSUFFICIENT_DATA` from being read as "no risk".
+
+`freshnessOf` returns `UNKNOWN` rather than `FRESH` when a series has no established cadence.
+Defaulting to fresh would publish an answer nobody computed.
+
+### The check that failed on its own denials, for the second time
+
+The first version of the forecast guard banned the bare substrings `forecast` and `predict`, and
+failed immediately — on "Nothing here is a forecast" and on the engine's own "they are not a
+prediction". Exactly the trap the valuation disclaimer hit in IR-135, where the vocabulary scan
+flagged "not a per-share figure".
+
+A substring scan cannot tell a claim from its refusal. The guard now asserts the DENIALS are
+present and forbids the affirmative forms — `will rise|fall|increase|decrease|continue`,
+`we expect|predict|forecast`, `is/are forecast|predicted|expected to`, `expected return`,
+`price target`. Recorded because it is now twice, which makes it a pattern rather than a slip: any
+check phrased as "this word must not appear" will eventually fire on the sentence that exists to
+deny it.

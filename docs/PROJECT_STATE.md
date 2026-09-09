@@ -504,6 +504,17 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE ANALOG REACHES A USER (2026-09-10, IR-139)
+`/macro` composes regime, calendar, staleness and -- for the first time in this product's life --
+`computeHistoricalAnalog`, which had never had a production caller. It has one only because
+IR-134 was independently APPROVED: before that a zero-variance history returned a perfect 1.0
+similarity for any current change, and showing that to a reader is the confidence laundering the
+delivery decision names as an acceptance failure. Two series are seeded for the browser step and
+removed after -- one with real spread that must COMPUTE, one flat that must REFUSE -- because
+neither branch is reachable from whatever an installation happens to hold. The flat one renders
+INSUFFICIENT_DATA and no similarity at all. Freshness reads UNKNOWN, never FRESH, when no cadence
+is established.
+
 THE EVIDENCE WAS ALREADY COMPUTED (2026-09-09, IR-138)
 `FilingDiffResult` has carried `currentAccession` and `previousAccession` since M16 and nothing
 rendered them, so a reader could see a change and not reach either filing behind it -- an

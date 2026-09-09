@@ -504,6 +504,16 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+A STATUS PAGE FOR THE OWNER, NOT THE OPERATOR (2026-09-10, IR-141)
+`/admin` stays operator-only -- it renders raw adapter errors and run internals -- and `/status`
+is the translation. `src/lib/userStatus.ts` is pure so that "no adapter error reaches the user"
+is a CONTROL: it is fed a fabricated error carrying a connection string, an absolute path, a
+stack frame and a PID, and asserted to leak none while still REPORTING the failure. The
+three-state provider vocabulary is reused from the company index rather than reinvented, an
+unconfigured optional provider says "nothing is wrong with the installation", and NO_DATA is
+kept distinct from DEGRADED. It also closes IR-140's loose end: the page states that stale
+indicators are withheld from answers, which is why Ask Market appears to know nothing.
+
 ASK MARKET RENDERED NOTHING FOR A QUARTER OF ITS STATUSES (2026-09-10, IR-140)
 `AskMarketResultStatus` has four members and the page had branches for two.
 `REQUEST_NOT_SUPPORTED` had none, so the engine computed an explanation, put it in
@@ -1058,8 +1068,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2902 / 2902 PASS across 167 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2883 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2914 / 2914 PASS across 168 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2895 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

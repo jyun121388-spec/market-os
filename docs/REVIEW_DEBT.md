@@ -4779,3 +4779,47 @@ walker that found nothing would satisfy all five by vacuity — the same shape a
 
 The browser run also compares the rendered HTML against the REAL values of `FRED_API_KEY`,
 `DART_API_KEY`, `ECOS_API_KEY` and `DATABASE_URL` from the environment, reporting only the boolean.
+
+### IR-141 — a status page for the owner, not the operator
+
+Unit F. `/admin` already existed, and widening its audience was the obvious move and the wrong one:
+it renders raw adapter error strings, ingest targets and run internals. That is exactly right for
+whoever is debugging the pipeline and exactly wrong for everybody else, so `/admin` stays
+operator-only and `/status` is the translation.
+
+`src/lib/userStatus.ts` is a PURE function, and that is the point rather than a style preference.
+`IngestRunHealth.error` is a raw string from an adapter and has carried connection strings,
+absolute paths and stack traces. The builder **never reads it** — it reports THAT a run failed and
+for which provider, in a sentence it wrote itself — and a control proves that by feeding it an
+error containing all four of
+
+    postgresql://market_os:hunter2@127.0.0.1:55432/market_os_dev
+    C:\AI-Projects\market-os\.env
+    at Object.<anonymous> (/app/src/server/adapters/fred/client.ts:42:11)
+    pid 18448
+
+and asserting none survives into any field, while the failure itself is still REPORTED. Redaction
+that hides the problem is not redaction.
+
+The three-state provider vocabulary is **reused** from `companySearch.ts` rather than reinvented —
+`HAS_DATA` / `CONFIGURED_NO_DATA` / `NOT_CONFIGURED` — because a reader who learns what
+`CONFIGURED_NO_DATA` means on the company index should not meet a different word for the same idea
+here. `EXTERNALLY_GATED` is the fourth, for a capability no amount of provider configuration can
+enable.
+
+Two distinctions the page exists to make. An optional provider that is not set up says "Nothing is
+wrong with the installation" — three unconfigured optional providers would otherwise read as three
+faults. And the overall state separates `NO_DATA` from `DEGRADED`: a fresh installation with
+nothing fetched is not a broken one.
+
+`lastUpdate` is a DATE, never a timestamp; a wall-clock time is operator detail. A control asserts
+the time component does not appear.
+
+### The connection the status page closes
+
+IR-140 recorded that every well-formed Ask Market question returns `NOT_FOUND` because every stored
+series is stale and `askMarket` withholds a stale reading. A user hitting that had no way to find
+out why. `/status` now says it in one line — _"N of M indicators are older than their own usual
+release interval ... those will not appear in answers"_ — which is the sentence that turns an
+apparently broken product into a legible one. The two surfaces were built two units apart and the
+second is what makes the first honest rather than merely accurate.

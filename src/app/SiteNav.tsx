@@ -39,6 +39,14 @@ export async function SiteNav() {
             <Link href="/ask" className="text-zinc-600 hover:underline dark:text-zinc-400">
               Ask Market
             </Link>
+            {/*
+              The ORDINARY user's health surface. `/admin` below is a different thing and stays
+              operator-only: it renders raw adapter errors and run internals, which is right for
+              whoever is debugging the pipeline and wrong for everybody else.
+            */}
+            <Link href="/status" className="text-zinc-600 hover:underline dark:text-zinc-400">
+              Status
+            </Link>
             {isOperator ? (
               <Link href="/admin" className="text-zinc-600 hover:underline dark:text-zinc-400">
                 System health

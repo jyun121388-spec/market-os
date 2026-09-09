@@ -729,6 +729,90 @@ async function main() {
       await macro.cleanup();
     }
 
+    console.log("[8c] User-facing system status");
+    // `/admin` already existed and is operator-only; exposing it more widely was the obvious move
+    // and the wrong one, because it renders raw adapter error strings and run internals. This is
+    // the translated surface. The redaction itself is proven in `tests/userStatus.test.ts` against
+    // a fabricated error; what the browser adds is that a NORMAL user can reach it and that the
+    // real environment's real secrets are not on the real page.
+    check(
+      "H: status is reachable from the global nav",
+      (await page.locator('nav a[href="/status"]').count()) > 0,
+    );
+    await page.getByRole("link", { name: /^status$/i }).click();
+    await page.waitForURL("**/status", { timeout: 15000 });
+    body = await page.textContent("body");
+
+    check(
+      "A: an overall state is stated in plain words",
+      /Everything is working|Working, with gaps|No data yet/.test(body ?? ""),
+    );
+    check("providers are listed with a state each", (body ?? "").includes("Data providers"));
+    check(
+      "E/F: the three provider states are used, not collapsed into one",
+      /HAS_DATA|CONFIGURED_NO_DATA|NOT_CONFIGURED/.test(body ?? ""),
+    );
+    check("capabilities are stated", (body ?? "").includes("What works right now"));
+    check(
+      "the gated capability is named as gated, not merely unavailable",
+      (body ?? "").includes("EXTERNALLY_GATED"),
+    );
+    check("a data-quality section exists", (body ?? "").includes("Data quality"));
+
+    // B/C/D: whichever of these the installation actually has must be readable, and none of them
+    // may arrive as a stack trace.
+    const statusText = body ?? "";
+    if (statusText.includes("A data fetch did not finish")) {
+      check(
+        "D: a failed fetch is readable and blames nothing else",
+        statusText.includes("Existing stored data is unaffected"),
+      );
+    }
+    if (statusText.includes("Some indicators are out of date")) {
+      check(
+        "B: stale is preserved as stale, with the reason answers omit them",
+        statusText.includes("withholds a stale reading"),
+      );
+    }
+    if (statusText.includes("Only part of a provider")) {
+      check("C: partial is visibly partial", statusText.includes("known to be incomplete"));
+    }
+
+    // G: the real values from the real environment, compared against the real page. Only the
+    // boolean is ever reported.
+    const statusHtml = (await page.content()) + statusText;
+    for (const name of ["FRED_API_KEY", "DART_API_KEY", "ECOS_API_KEY", "DATABASE_URL"]) {
+      const value = process.env[name];
+      if (!value || value.length < 8) continue;
+      check(`G: no ${name} value appears on the status page`, !statusHtml.includes(value));
+    }
+    // And no operator-only shape, whatever the data happens to be.
+    for (const leak of [
+      /\bat Object\.<anonymous>/,
+      /\bC:\\\\/,
+      /\bpostgresql:\/\//,
+      /\bpid \d+/i,
+      /node_modules/,
+    ]) {
+      check(`G: no operator-only detail matching ${leak.source}`, !leak.test(statusHtml));
+    }
+    // J: no terminal remediation.
+    const statusLower = statusText.toLowerCase();
+    for (const forbidden of ["npm run", "npx ", ".env", "powershell", "prisma", "git "]) {
+      check(
+        `J: status never tells a user to "${forbidden.trim()}"`,
+        !statusLower.includes(forbidden),
+      );
+    }
+
+    // I: /admin stays operator-only. The walkthrough user IS an operator here, so this is
+    // re-proven with the non-operator account in step [4b]; what is checked here is that /status
+    // did not become a second door into operator detail.
+    check(
+      "I: the status page is not the admin panel",
+      !statusText.includes("Pipeline Health") && !statusText.includes("Ingest completeness"),
+    );
+
     console.log("[9] Log out (logout control lives on /today)");
     await page.goto(`${BASE_URL}/today`);
     await page.getByRole("button", { name: /log ?out/i }).click();

@@ -155,16 +155,15 @@ export default async function AskMarketPage({
                 own release cadence rather than presenting it as current. Nothing is fabricated
                 either way.
               </p>
-              {/*
-                `/status` is deliberately NOT linked here yet: it lands in the next unit, and a
-                commit that points at a route the next commit creates is a broken intermediate
-                state rather than a head start.
-              */}
               <p className="mt-2">
                 <Link href="/macro" className="underline">
                   Macro and regime
                 </Link>{" "}
-                lists every indicator held here with its freshness.
+                lists every indicator held here with its freshness, and{" "}
+                <Link href="/status" className="underline">
+                  system status
+                </Link>{" "}
+                shows which providers have data.
               </p>
             </div>
           )}

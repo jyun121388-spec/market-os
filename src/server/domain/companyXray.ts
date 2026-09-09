@@ -397,3 +397,69 @@ export async function assessCompleteness(
     detail: "The most recent ingest retrieved everything the provider reported.",
   };
 }
+
+/** The cap on one filings page. Stated in the result so a page can never imply it showed all. */
+export const FILINGS_PAGE_LIMIT = 200;
+
+export interface CompanyFilingRow extends RecentFiling {
+  /** Source-specific flag — DART's `rm`, for instance. Null when the provider reported none. */
+  remark: string | null;
+}
+
+export interface CompanyFilingsPage {
+  rows: CompanyFilingRow[];
+  /** How many this company has in total, so `rows.length < total` is visible rather than implied. */
+  total: number;
+  limit: number;
+}
+
+/**
+ * Every stored filing for one company at one provider, newest first, capped.
+ *
+ * The same module and the same scoping rule as `computeCompanyXray` — deliberately NOT a second
+ * filings authority. `recentFilings` takes ten because it is a summary on a page about figures;
+ * an evidence page is about the filings themselves, so it needs the rest of them and needs to say
+ * how many it did not show. A list that silently truncates is the same defect as a truncated
+ * ingest reported as COMPLETE, one layer up.
+ */
+export async function listCompanyFilings(
+  corpCode: string,
+  sourceCode: string,
+  limit: number = FILINGS_PAGE_LIMIT,
+): Promise<CompanyFilingsPage | null> {
+  const source = await prisma.source.findUnique({ where: { code: sourceCode } });
+  if (!source) return null;
+  const scope = { sourceId: source.id, corpCode };
+
+  const [total, rows] = await Promise.all([
+    prisma.filing.count({ where: scope }),
+    prisma.filing.findMany({
+      where: scope,
+      // Three keys, and each earns its place. `receiptDate` is a DATE, so a company that files
+      // several documents on one day has rows Postgres may return in any order — an evidence list
+      // that reorders itself between two requests is not evidence, and a control asks twice.
+      // `receiptNo` is the meaningful tiebreak and is already unique here: the schema carries
+      // `@@unique([sourceId, receiptNo])` and this query is scoped to one `sourceId`.
+      // `id` is therefore REDUNDANT today and kept anyway, for two reasons: it is what
+      // `tests/orderingDeterminism.test.ts` recognises as proof of totality, and the uniqueness
+      // above depends on the scope holding. If someone later widens this query past one provider,
+      // the ordering stays total instead of quietly stopping being so.
+      orderBy: [{ receiptDate: "desc" }, { receiptNo: "desc" }, { id: "desc" }],
+      take: limit,
+      select: { reportName: true, receiptNo: true, receiptDate: true, remark: true },
+    }),
+  ]);
+
+  if (total === 0) return { rows: [], total: 0, limit };
+
+  return {
+    rows: rows.map((f) => ({
+      reportName: f.reportName,
+      receiptNo: f.receiptNo,
+      receiptDate: iso(f.receiptDate),
+      remark: f.remark,
+    })),
+    total,
+    limit,
+  };
+}

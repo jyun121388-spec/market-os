@@ -504,6 +504,17 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE EVIDENCE WAS ALREADY COMPUTED (2026-09-09, IR-138)
+`FilingDiffResult` has carried `currentAccession` and `previousAccession` since M16 and nothing
+rendered them, so a reader could see a change and not reach either filing behind it -- an
+assertion rather than evidence. A new `/company/[corpCode]/filings` route names both, links to
+the provider's own copy where the shape is provable, and lists every stored filing.
+`listCompanyFilings` returns `total` beside `rows` so truncation is visible, and orders on
+`receiptDate` then `receiptNo` because a date is not a tiebreak -- an evidence list that
+reorders between two requests is not evidence. The E2E moved to `next start` and the tree
+binding went from START_ORDER_COMPATIBLE to **BOUND**, and it walks all 216 rendered SEC links
+asserting none is a `browse-edgar` search.
+
 THE GUI SHELL (2026-09-08, IR-137)
 `src/app/page.tsx` was still the create-next-app starter and `layout.tsx` was still titled
 "Create Next App"; navigation existed only on `/today`, only when signed in, and reached three
@@ -1025,8 +1036,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2889 / 2889 PASS across 165 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2870 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2896 / 2896 PASS across 166 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2877 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

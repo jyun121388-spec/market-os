@@ -400,6 +400,77 @@ async function main() {
       check("empty company index explains itself", (body ?? "").includes("No filings ingested"));
     }
 
+    // [6d] Filings and evidence, traversed the way a user reaches it: from the company page.
+    // The gap this closes is not a missing engine — computeFilingDiff has existed since M16 and
+    // its results already reach the company page. It is that both accessions were on the result
+    // and nothing rendered them, so a reader could see a change and not the two documents behind
+    // it. Selectors here are scoped to accessible names, not to document position.
+    if ((await page.locator('a[href*="/filings"]').count()) > 0) {
+      await page.getByRole("link", { name: /all filings and comparison evidence/i }).click();
+      await page.waitForURL("**/filings*", { timeout: 10000 });
+      body = await page.textContent("body");
+
+      check(
+        "evidence page is reachable from the company flow",
+        (body ?? "").includes("Filings and evidence"),
+      );
+      check("comparison evidence section exists", (body ?? "").includes("Comparison evidence"));
+      check("stored filings are listed", (body ?? "").includes("Stored filings"));
+      check(
+        "the list says how many it did not show",
+        /\d+ of \d+ shown/.test(body ?? "") || (body ?? "").includes("No filings are stored"),
+      );
+      check(
+        "provenance is visible — provider and identifier per filing",
+        (body ?? "").includes("Data completeness:"),
+      );
+
+      // Either a comparison names BOTH filings, or the page says UNVERIFIABLE. Never neither.
+      const hasComparison = /Earlier filing:/.test(body ?? "") && /Later filing:/.test(body ?? "");
+      const saysUnverifiable = (body ?? "").includes("UNVERIFIABLE");
+      check(
+        "a comparison names both filings, or the page says UNVERIFIABLE",
+        hasComparison || saysUnverifiable,
+      );
+
+      // A source link is only ever offered where the shape is provable; otherwise the raw
+      // identifier and the reason. Never a fabricated URL.
+      check(
+        "a source link is offered or its absence is explained",
+        (body ?? "").includes("Open the original filing at") ||
+          (body ?? "").includes("No canonical source URL is known"),
+      );
+      const links = await page
+        .locator('a[href^="https://www.sec.gov"], a[href^="https://dart.fss.or.kr"]')
+        .all();
+      for (const link of links) {
+        const href = (await link.getAttribute("href")) ?? "";
+        check(
+          `source link ${href.slice(0, 60)} is an accession URL, not a search`,
+          !/browse-edgar|filenum/.test(href),
+        );
+      }
+
+      // Nothing on a normal-user page may be a developer's answer.
+      const evidenceText = (body ?? "").toLowerCase();
+      for (const forbidden of [
+        "npm run",
+        "npx ",
+        "prisma ",
+        "powershell",
+        "ingest:*",
+        "at object.",
+        "error:",
+      ]) {
+        check(`evidence page never says "${forbidden.trim()}"`, !evidenceText.includes(forbidden));
+      }
+
+      await page.goBack();
+      await page.waitForURL("**/company/**", { timeout: 10000 });
+    } else {
+      check("no company means no evidence link, which is honest", true);
+    }
+
     console.log("[7] Ask Market refuses a buy/sell question through the real request path");
     // The single highest legal-risk surface in the product (docs/LEGAL_GUARDRAILS.md). The
     // detector is unit-tested, but until now nothing proved it was actually wired into the page

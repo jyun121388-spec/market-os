@@ -401,7 +401,19 @@ export default async function CompanyXrayPage({
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Recent filings</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-lg font-semibold">Recent filings</h2>
+          {/*
+            The evidence page is reachable from the company flow, not only by URL. It shows every
+            stored filing rather than ten, and names the two filings behind each comparison above.
+          */}
+          <Link
+            href={`/company/${corpCode}/filings?source=${encodeURIComponent(company.sourceCode)}`}
+            className="text-sm font-medium underline"
+          >
+            All filings and comparison evidence
+          </Link>
+        </div>
         {recentFilings.length === 0 ? (
           <p className="text-sm text-zinc-500">No filings stored.</p>
         ) : (

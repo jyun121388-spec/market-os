@@ -241,6 +241,16 @@ describe("committing an outbound message only once it is proven to exist", () =>
     // the write now is a positive answer about the PROCESS, so the fixture names a pid the real
     // probe reports absent — asserted first, because a control resting on an unchecked premise is
     // how this whole class hides.
+    //
+    // 60s, matching every other probe-touching control in this file; this one was left on the 5s
+    // default by oversight rather than by design. `processStart` shells out to PowerShell for OS
+    // process identity. IR-075 documents ~450ms; measured on this machine on 2026-09-09 it is
+    // 891-935ms per probe with `selfIdentity()` at 1194ms, and a bare `powershell -NoProfile`
+    // cold start alone measured 647-851ms. This control makes several probes along the
+    // `transmitAndCommit` path, so the total crossed 5s and the test began timing out WHILE
+    // ANSWERING CORRECTLY: `processStart(GONE_PID)` returned `{ gone: true }` on four consecutive
+    // measurements. Nothing about the product changed; a latency assumption that was never the
+    // subject of this test did.
     const GONE_PID = 2_147_483_647;
     expect(processStart(GONE_PID), "the fixture premise").toEqual({ gone: true });
 
@@ -259,7 +269,7 @@ describe("committing an outbound message only once it is proven to exist", () =>
       const out = await transmitAndCommit(storePaths(root), state, { ...draft }, t, deps);
       expect(out.status).toBe("COMMITTED");
     });
-  });
+  }, 60_000);
 
   it("writes nothing at all when it refuses on the lock", async () => {
     await withStore(async (root, state) => {

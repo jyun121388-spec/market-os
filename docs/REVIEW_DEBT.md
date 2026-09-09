@@ -4585,3 +4585,93 @@ have failed this way before, under the loaded full suite, which is why the fixtu
 run recorded as evidence is the second one, and the first is recorded here rather than deleted,
 because a green number that replaced a red one without an explanation is the thing this repository
 refuses to accept from itself.
+
+### IR-138 — the evidence was already computed and nothing rendered it
+
+Unit C of the serial productization lane. The Filings/Evidence delivery gap was NOT a missing
+engine: `computeFilingDiff` has existed since M16, its results already reach the company page as
+the growth section, and `FilingDiffResult` has carried `currentAccession` and `previousAccession`
+the whole time. Nothing rendered them. A reader could see a change of +12.4% and had no way to
+reach either of the two filings it was computed from — which makes it an assertion rather than
+evidence, and the difference is the entire point of the Claim Ledger design.
+
+`/company/[corpCode]/filings`, reachable from the company page rather than only by URL. It shows
+every stored filing with its real identifier, and re-presents the SAME `changes` object naming both
+filings behind each comparison, each with a source link where the shape can be proven.
+
+**`listCompanyFilings` was added to `companyXray.ts`, deliberately in that module rather than a new
+one.** `recentFilings` takes ten, which is right for a summary on a page about figures and wrong
+for a page about the filings themselves. Two properties are load-bearing and both have controls:
+
+- it returns `total` alongside `rows`, so `rows.length < total` is VISIBLE rather than implied. A
+  list that silently truncates is the same defect as a truncated ingest reported COMPLETE, one
+  layer up, and this repository has already been bitten by that exact shape.
+- it orders on `receiptDate` then `receiptNo`. `receiptDate` is a date, so a company that files
+  three documents on one day has rows Postgres may return in any order — the same
+  resolution trap as the observation revision chain and the ingest-run completeness lookup. An
+  evidence list that rearranges itself between two requests is not evidence. A control asks twice
+  and compares.
+
+It returns `null` for a provider that does not exist and an EMPTY page for a company with no
+filings, because those are different sentences and a caller that cannot tell them apart renders
+the wrong one.
+
+**`tests/orderingDeterminism.test.ts` caught the new query, and it was right to.** The first
+ordering was `receiptDate desc, receiptNo desc`, which IS total — `@@unique([sourceId,
+receiptNo])` and the query is scoped to one `sourceId` — but the guard only recognises a
+trailing `id` as proof, by design: its docstring says the waiver is deliberately a sentence
+someone has to write. Widening the heuristic to accept "unique within scope" would have
+weakened it for every future site to accommodate one. `id` was appended instead, redundant
+today and explained as such, and it stops being redundant the moment anyone widens the query
+past a single provider. A guard that fails on a correct-but-unproven ordering is doing its job.
+
+Source links reuse `filingSourceUrl` unchanged: proven shape or the raw identifier and the reason
+there is no link. The E2E now walks every rendered SEC link — **216 of them on the real Apple
+data** — and asserts none is a `browse-edgar` search, which is the exact mistake IR-136 made and
+caught by inspection.
+
+### Two environment findings from this unit, neither a product change
+
+**PostgreSQL was down at session start** (the machine restarted between sessions). Restarted with
+`pg_ctl -o "-p 55432"` and confirmed with a real query before anything else ran.
+
+**The E2E moved from `next dev` to `next start`, and the evidence got stronger for it.** The first
+attempts timed out: `/today` took 19-23s under the dev server even after warming, against the 10s
+waits the walkthrough uses. Measured against a production build on the same database it is ~4s, so
+the cost was dev-server compilation and not the data path — worth knowing before anyone "optimises"
+`buildMorningBrief`. The walkthrough had always run against a dev server, which
+`scripts/e2e-tree-binding.ts` explicitly caps at `START_ORDER_COMPATIBLE` because a dev server
+serves no build id. Against `next start` the verdict is **`BOUND`**: `servesLocalBuildId true`, the
+listener proven to be serving THIS checkout's build. Every prior browser result in this session was
+recorded under the weaker verdict; this one is not.
+
+~4s for the dashboard is recorded as an observation, not repaired. It is within the delivery
+contract and outside this unit.
+
+### IR-138 addendum — yesterday's "load flake" had a sharper cause, and the measurement found it
+
+IR-137's addendum recorded three control-bus failures as machine load, on the evidence that they
+passed when re-run and correlated with a 974s full run. That was true as far as it went and it was
+not the whole answer. One of the three came back on 2026-09-09 and failed **three times out of
+three when run alone**, which the load story does not explain.
+
+The failure was `Test timed out in 5000ms` — not an assertion. So the question was never whether
+the answer was right, and measuring settled it:
+
+    processStart(GONE_PID)   891ms / 935ms / 891ms / 914ms   -> { gone: true } every time
+    selfIdentity()           1194ms
+    bare `powershell -NoProfile` cold start   647ms / 755ms / 851ms
+
+IR-075 documents ~450ms for that probe. This machine is at roughly twice that today, and the
+control makes several probes along the `transmitAndCommit` path, so the total crossed the 5s vitest
+default while the product **answered correctly on every single probe**.
+
+`tests/controlBusOutbound.test.ts` already gives `60_000` to five other probe-touching controls in
+the same file. This one was on the default by oversight rather than by design, so it now matches
+its neighbours, with the measurement written beside it. Three consecutive runs green.
+
+Recorded as a correction rather than an edit to yesterday's entry, because "it was load" and "the
+timing budget assumed a PowerShell spawn cost this machine no longer meets" are different claims,
+and only the second one tells the next person what to measure. No product code was touched, and the
+1194ms `selfIdentity()` is left as an observation: it is the control bus's own start-up cost, it is
+not on any user path, and chasing it here would be widening.

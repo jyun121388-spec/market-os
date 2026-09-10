@@ -138,6 +138,17 @@ export const PACKAGED_SETUP_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The installer's own files, which only `build-installer.ts` stages. They are separate from
+ * `PACKAGED_SETUP_FILES` because a runtime staged for testing has no business carrying a program
+ * that runs `initdb`.
+ */
+export const PACKAGED_INSTALLER_FILES: Readonly<Record<string, string>> = {
+  "install.mjs": "install.mjs",
+  "install-classify.mjs": "install-classify.mjs",
+  "Install Market OS.cmd": "Install Market OS.cmd",
+};
+
+/**
  * Where the packaged Prisma CLI must end up. `first-run.mjs` looks here and nowhere else, so this
  * path is a contract between the two and a test asserts they still agree.
  */
@@ -148,7 +159,14 @@ interface StagedFile {
   bytes: number;
 }
 
-function walk(dir: string, base: string, out: StagedFile[] = []): StagedFile[] {
+/**
+ * Every file under `dir`, with its size, refusing any symlink on the way.
+ *
+ * Exported because `build-installer.ts` adds a PostgreSQL distribution to a tree this module has
+ * already checked, and a refusal that only ever saw the earlier tree would be a refusal about
+ * something nobody ships.
+ */
+export function walkStagedTree(dir: string, base: string, out: StagedFile[] = []): StagedFile[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     const st = lstatSync(full);
@@ -159,7 +177,7 @@ function walk(dir: string, base: string, out: StagedFile[] = []): StagedFile[] {
         `staged tree contains a symlink, which cannot be packaged: ${relative(base, full)}`,
       );
     }
-    if (st.isDirectory()) walk(full, base, out);
+    if (st.isDirectory()) walkStagedTree(full, base, out);
     else out.push({ path: relative(base, full).split(sep).join("/"), bytes: st.size });
   }
   return out;
@@ -301,7 +319,7 @@ export function stageRuntime(outDir: string): {
     cpSync(join(REPO, "packaging", name), to);
   }
 
-  const files = walk(outDir, outDir).sort((a, b) => a.path.localeCompare(b.path));
+  const files = walkStagedTree(outDir, outDir).sort((a, b) => a.path.localeCompare(b.path));
 
   // 5. The refusal. Checked on the RESULT, so it cannot be satisfied by a careful copy list that
   //    a later edit widens.

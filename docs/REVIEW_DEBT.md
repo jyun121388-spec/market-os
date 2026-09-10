@@ -5090,3 +5090,89 @@ spanned from an unrelated import's closing quote to that same `process.env` seve
 A fourth: an assertion that the browser is opened only inside the READY branch compared the branch
 against `openBrowser(url)` — which also matches the function's own DECLARATION, earlier in the
 file. It failed against a launcher that was correct.
+
+### IR-145 — an installer, a restart, and three ways a program fails to stop
+
+Units J and K. A distribution now creates its own PostgreSQL cluster on a machine that has never
+had one, and survives being stopped and started again with its data intact.
+
+### Unit J — the installer, which is the most destructive program in the package
+
+`packaging/install.mjs` runs `initdb`, and `initdb` into a directory that already holds files is
+how somebody loses work that had nothing to do with this application. So the refusals are the
+substance of `install-classify.mjs` and the install path is the short case at the end.
+
+Six verdicts. Two are worth naming:
+
+- `REFUSE_DATA_DIR_NOT_EMPTY` — the user pointed the installer at a folder that is already theirs.
+  Checked AFTER "is this a cluster", because a cluster directory is itself full of files and the
+  other order would make every second install refuse. A safety check nobody can satisfy is one
+  somebody deletes.
+- `REFUSE_CLUSTER_WITHOUT_CONFIG` — a Market OS database exists and `market-os.json` does not. The
+  plausible-looking repair is to `initdb` again, and it would destroy a database that may hold
+  everything the user has. The password was generated at install time and is not recoverable from
+  the cluster, so the honest answer is to say what is wrong and stop.
+
+The credential is generated, never shipped, never printed, and handed to `initdb` through a file
+that is deleted in a `finally` — a command line is readable by every other process on the machine
+for as long as the program runs. It is `base64url` on purpose: a password containing `?` makes
+`new URL` return an EMPTY password, which was measured while building the launcher's redactor, and
+`@` or `/` would move where the authority ends. The port is asked of the operating system rather
+than picked from a list.
+
+`scripts/build-installer.ts` assembles the distribution and re-runs the forbidden-path check on the
+FINAL tree, because `stageRuntime` verified a tree this script then adds several hundred megabytes
+to. `pgdata` is the pattern that matters: a distribution carries a PostgreSQL installation and
+never somebody's database.
+
+It also copies `bin`, `lib` and `share` and not the whole PostgreSQL folder. The stock Windows
+distribution carries pgAdmin 4 and StackBuilder — a browser-based administration console and a
+package downloader — which took the first build to 1.15 GB, of which about 700 MB was two programs
+a user would be surprised to find they had installed. Trimmed: 411 MB, and the three binaries the
+package actually runs are verified present afterwards.
+
+### Unit K — restart and persistence
+
+Measured end to end, 51 of 51: a fresh installation, a launch that starts the bundled database and
+applies 17 migrations, a row written through the running product, a stop, a restart that reports
+`NOTHING_TO_DO` and applies nothing, the row still there, and real pages still rendering.
+
+### Three ways a program fails to stop, all found by running it
+
+**One — `spawnSync` never returned.** The first real installation created its cluster, started it,
+and then sat there: twenty minutes with the server up, `postgres.log` filling with routine
+checkpoints, and `market-os.json` never written. `pg_ctl start` launches the server as a child and
+exits; the SERVER inherits the pipes, and `spawnSync` waits for the pipes to close rather than for
+the program to end. Reproduced in isolation as `status: 0` alongside `ETIMEDOUT` — the program
+succeeded and its pipe outlived it. `stdio: "ignore"` at both call sites; nine seconds instead of
+never.
+
+**Two — Windows delivers no signal to a killed process.** `TerminateProcess` cannot be intercepted,
+so a launcher that is killed runs no handler and the database it started outlives it. There is no
+better handler to write. The answer is `OWNERSHIP_MARKER`: a file written BEFORE the start is
+announced, so a launcher killed a millisecond later still leaves the record, and the next launch
+recognises the cluster as ours (`adopted=true`) and stops it when it exits properly. The acceptance
+asserts the honest behaviour — a hard kill leaves PostgreSQL running — and then proves the leak is
+temporary rather than permanent.
+
+**Three — returning is not exiting.** Without `--stay` the launcher returned 0 and did not end:
+the server child is held by its stderr pipe, the event loop stays alive, and the `exit` handler
+never fires. A run reached READY, printed nothing further, and left both the launcher and the
+database up. The teardown is now explicit. Relying on a program to exit is not the same as making
+it.
+
+### And one number that was merely plausible
+
+Rebuilding a distribution over an existing one made the manifest report 13,929 application files —
+the whole tree, PostgreSQL included. It reads like a real measurement. The build now clears the
+previous `pgsql` before staging, and asserts that the two halves add up to the whole, which is the
+check that would have caught it.
+
+### The harness was wrong three times, and the product was right
+
+Worth recording together, because each looked like a defect report. A hand-written list of table
+names failed against a schema that maps every model to snake_case. An insert named an `updatedAt`
+the `sources` table does not have. And a launcher that had stopped the database correctly was
+reported as not having: the helper resolved with `out`, a STRING, so everything printed after
+READY — including the line saying it had stopped — was invisible to the caller. Resolved with a
+mutable holder instead.

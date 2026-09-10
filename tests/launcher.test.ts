@@ -286,10 +286,60 @@ describe("the launcher program itself", () => {
     expect(launcher).not.toContain("0.0.0.0");
   });
 
+  it("starts PostgreSQL without holding its output pipes open", () => {
+    // Same defect as the installer's, and it would have hung every launch of an installation that
+    // manages its own database: `pg_ctl start` exits, the server it spawned inherits the pipes,
+    // and `spawnSync` waits for those pipes rather than for the program.
+    const startCall = launcher.indexOf('"-w", "start"');
+    expect(startCall).toBeGreaterThan(-1);
+    expect(launcher.slice(startCall, startCall + 200)).toContain('stdio: "ignore"');
+  });
+
   it("stops a database only when it was the one that started it", () => {
     // A database that was already running belonged to someone before this process existed.
     expect(launcher).toContain("DATABASE_ALREADY_RUNNING");
     expect(launcher).toContain("if (ownsDatabase) stopDatabase(config)");
+  });
+
+  it("records that it started the database, so a killed launcher does not orphan one", () => {
+    // Windows does not let a program clean up after a hard kill: `TerminateProcess` cannot be
+    // intercepted, so no handler runs and a cluster this launcher started outlives it. Measured,
+    // not feared — an acceptance run killed a launcher and found PostgreSQL still up. There is no
+    // better handler to write; the answer is a record on disk that the NEXT launch can read.
+    expect(launcher).toContain("OWNERSHIP_MARKER");
+    const startBranch = launcher.indexOf("DATABASE_STARTED");
+    const markerWrite = launcher.indexOf("writeFileSync(OWNERSHIP_MARKER");
+    expect(markerWrite).toBeGreaterThan(-1);
+    // Written BEFORE the announcement, so a launcher killed a millisecond later still left the
+    // record behind.
+    expect(markerWrite).toBeLessThan(startBranch);
+  });
+
+  it("adopts a cluster a previous launcher started and never stopped", () => {
+    expect(launcher).toContain("existsSync(OWNERSHIP_MARKER)");
+    expect(launcher).toContain("adopted=");
+  });
+
+  it("clears the record when it does stop the database", () => {
+    const stop = launcher.slice(launcher.indexOf("function stopDatabase"));
+    expect(stop.slice(0, 500)).toContain("rmSync(OWNERSHIP_MARKER");
+  });
+
+  it("tears down explicitly when it is not staying, rather than trusting the process to end", () => {
+    // Returning does not end the process: the server child is held by its stderr pipe and the
+    // event loop stays alive, so an `exit` handler never fires. Measured — a run reached READY,
+    // printed nothing further, and left both the launcher and the database up.
+    const stayCheck = launcher.indexOf('if (!process.argv.includes("--stay"))');
+    expect(stayCheck).toBeGreaterThan(-1);
+    expect(launcher.slice(stayCheck, stayCheck + 600)).toContain("shutdown();");
+  });
+
+  it("registers every way out of the process that Windows lets it see", () => {
+    for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"]) {
+      expect(launcher, `no handler for ${signal}`).toContain(signal);
+    }
+    // `exit` runs synchronously, which is why the shutdown path uses `spawnSync` throughout.
+    expect(launcher).toContain('process.on("exit", shutdown)');
   });
 
   it("filters the server's stderr, which is where a database failure surfaces", () => {

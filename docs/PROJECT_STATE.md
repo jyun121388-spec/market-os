@@ -504,6 +504,19 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+AN INSTALLER, A RESTART, AND THREE WAYS A PROGRAM FAILS TO STOP (2026-09-11, IR-145)
+Units J and K. A 411 MB distribution bundles PostgreSQL and creates its own cluster on a
+machine that has never had one; 51/51 measured end to end, including a restart that
+applies nothing and finds its data intact. The installer generates a credential, never
+prints it, and hands it to `initdb` through a file deleted in a `finally`. Its refusals
+are the substance: a data directory holding somebody's files, and a Market OS cluster
+whose config has gone missing -- where reinitialising is the plausible repair and would
+destroy the data. Three stop-failures were found by RUNNING it: `spawnSync` waiting on
+pipes the started server inherited (twenty minutes, not an error); a Windows hard kill
+delivering no signal, answered with an ownership marker the next launch adopts rather
+than a better handler that does not exist; and a launcher that returned 0 without
+exiting, because its child's stderr pipe held the event loop open.
+
 A PACKAGE THAT INSTALLS ITSELF, AND A LAUNCHER THAT WAITS (2026-09-11, IR-144)
 Units H and I. A staged package now creates its own schema on a machine that has never
 seen it, using PRISMA'S OWN migration runner staged into it (91 packages) rather than a
@@ -1105,8 +1118,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2981 / 2981 PASS across 171 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2961 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+3012 / 3012 PASS across 172 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2992 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

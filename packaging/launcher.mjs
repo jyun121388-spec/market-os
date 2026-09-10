@@ -23,8 +23,8 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describeLaunchConfig, resolveLaunchConfig } from "./launch-config.mjs";
@@ -73,31 +73,62 @@ function databasePort(databaseUrl) {
   }
 }
 
-function pgCtl(config, args) {
+/**
+ * `resolve` and not `join`, and the difference is not stylistic. The installer records a data
+ * directory INSIDE the package as a relative path so the whole folder can be moved, and one
+ * outside it whole. `join("C:/app", "D:/data")` produces `C:/app/D:/data`; `resolve` returns
+ * `D:/data`, which is what was meant. Both forms have to work, because both are written.
+ *
+ * It is imported as `resolvePath` because `resolve` is also the name every Promise executor in
+ * this file gives its own first argument, and two different `resolve`s in one module is a reading
+ * hazard for no benefit.
+ */
+function pgPath(dir) {
+  return resolvePath(ROOT, dir);
+}
+
+function pgCtl(config, args, options = {}) {
   const exe = join(
-    ROOT,
-    config.postgres.binDir,
+    pgPath(config.postgres.binDir),
     process.platform === "win32" ? "pg_ctl.exe" : "pg_ctl",
   );
-  return spawnSync(exe, ["-D", join(ROOT, config.postgres.dataDir), ...args], {
+  return spawnSync(exe, ["-D", pgPath(config.postgres.dataDir), ...args], {
     cwd: ROOT,
     encoding: "utf8",
+    ...options,
   });
 }
 
 /**
- * Start the bundled database, and report whether THIS launcher started it.
+ * A file saying that a Market OS launcher, not a person, started this database.
  *
- * The distinction matters at shutdown: a database that was already running belonged to someone
- * before this process existed, and stopping it on exit would take it away from them.
+ * It exists because Windows cannot be relied on to let a program clean up after itself. A console
+ * Ctrl+C arrives as a signal and the shutdown below runs; being killed — Task Manager, a closed
+ * window, a machine going to sleep — does not, because `TerminateProcess` is not interceptable.
+ * So a cluster this launcher started can outlive it, and without a record nothing afterwards would
+ * ever know it was ours to stop.
+ *
+ * Measured, not assumed: an acceptance run killed a launcher and found PostgreSQL still up
+ * afterwards. The marker is what turns that from a leak into a thing the next launch tidies away.
+ */
+const OWNERSHIP_MARKER = join(ROOT, ".database-started-by-launcher");
+
+/**
+ * Start the bundled database, and report whether it is THIS installation's to stop.
+ *
+ * The distinction matters at shutdown: a database somebody else was already running belonged to
+ * them before this process existed, and stopping it on exit would take it away from them. The
+ * marker is what tells the two apart when a cluster is found already running.
  */
 function startDatabase(config) {
   const status = pgCtl(config, ["status"]);
   // `pg_ctl status` exits 0 when the server is running, 3 when it is not, 4 when the data
-  // directory is unusable. Only the first means there is nothing to do.
+  // directory is unusable. Only the first means there is nothing to start.
   if (status.status === 0) {
-    console.log("LAUNCH DATABASE_ALREADY_RUNNING");
-    return { started: false, ok: true };
+    // Already up. Ours only if a previous launcher started it and never got to stop it.
+    const adopted = existsSync(OWNERSHIP_MARKER);
+    console.log(`LAUNCH DATABASE_ALREADY_RUNNING adopted=${adopted}`);
+    return { started: adopted, ok: true };
   }
   if (status.status === 4) {
     console.error("LAUNCH DATABASE_DIRECTORY_UNUSABLE");
@@ -105,18 +136,28 @@ function startDatabase(config) {
   }
 
   const port = databasePort(config.databaseUrl);
-  const started = pgCtl(config, [
-    "-o",
-    `-p ${port}`,
-    "-l",
-    join(ROOT, "postgres.log"),
-    "-w",
-    "start",
-  ]);
+  // `stdio: "ignore"`, and this one line is the difference between a launcher and a hang.
+  // `pg_ctl start` launches the server as a child and exits; the SERVER inherits the pipes, so
+  // `spawnSync` waits for them to close — which happens when PostgreSQL shuts down, not when
+  // `pg_ctl` finishes. Measured during the first real installation: the cluster came up, the log
+  // filled with routine checkpoints, and the calling process never returned. `-l` already sends
+  // the server's own output to `postgres.log`, and `-w` makes the exit status a real answer.
+  const started = pgCtl(
+    config,
+    ["-o", `-p ${port} -h 127.0.0.1`, "-l", join(ROOT, "postgres.log"), "-w", "start"],
+    { stdio: "ignore" },
+  );
   if (started.status !== 0) {
     console.error("LAUNCH DATABASE_FAILED_TO_START");
     console.error("  See postgres.log beside the application for what PostgreSQL reported.");
     return { started: false, ok: false };
+  }
+  // Written BEFORE the success is announced, so a launcher killed in the next millisecond still
+  // leaves behind the fact that this database is ours.
+  try {
+    writeFileSync(OWNERSHIP_MARKER, new Date().toISOString(), "utf8");
+  } catch {
+    // A read-only installation directory is a reason to lose the tidy-up, not the launch.
   }
   console.log("LAUNCH DATABASE_STARTED");
   return { started: true, ok: true };
@@ -124,6 +165,14 @@ function startDatabase(config) {
 
 function stopDatabase(config) {
   const result = pgCtl(config, ["-m", "fast", "-w", "stop"]);
+  if (result.status === 0) {
+    try {
+      rmSync(OWNERSHIP_MARKER, { force: true });
+    } catch {
+      // A stale marker makes the next launch adopt a database it did not start, which stops one
+      // process too many at worst. Failing to stop is the error worth reporting; this is not.
+    }
+  }
   console.log(`LAUNCH DATABASE_STOPPED=${result.status === 0}`);
 }
 
@@ -246,14 +295,30 @@ async function main() {
     if (!server.killed) server.kill();
     if (ownsDatabase) stopDatabase(config);
   };
-  process.on("SIGINT", () => {
-    shutdown();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    shutdown();
-    process.exit(0);
-  });
+  // Every way out of this process that Windows lets a program observe.
+  //
+  // `SIGINT` is a console Ctrl+C and does arrive. `SIGBREAK` is Ctrl+Break, and `SIGHUP` reaches
+  // Node when a console window closes. `exit` catches a normal return and an uncaught throw, and
+  // runs synchronously, which is why `shutdown` uses `spawnSync` throughout.
+  //
+  // What none of these catches is a hard kill: `TerminateProcess` — Task Manager, `taskkill /F`,
+  // `child.kill()` from another program — cannot be intercepted, so the database this launcher
+  // started can survive it. That is measured, not feared: an acceptance run killed a launcher and
+  // found PostgreSQL still up. The answer is not a better handler, because there is not one; it is
+  // `OWNERSHIP_MARKER`, which lets the NEXT launch recognise that cluster as ours and stop it when
+  // it exits properly.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"]) {
+    try {
+      process.on(signal, () => {
+        shutdown();
+        process.exit(0);
+      });
+    } catch {
+      // Not every signal name is valid on every platform, and one that is not is not a reason to
+      // register none of the others.
+    }
+  }
+  process.on("exit", shutdown);
   // The server's stderr is the one stream that could carry a connection string, since a database
   // failure surfaces there.
   server.stderr?.on("data", (chunk) => process.stderr.write(redact(chunk)));
@@ -264,9 +329,22 @@ async function main() {
     const url = `http://127.0.0.1:${config.port}/`;
     console.log(`LAUNCH READY ${url}`);
     if (config.openBrowser) openBrowser(url);
-    if (!process.argv.includes("--stay")) return 0;
-    // `--stay` keeps this process alive as the supervisor, which is what the double-clicked
-    // shortcut wants: closing the window stops Market OS.
+    // Without `--stay` this returns here, and the `exit` handler above then stops the server and
+    // the database on the way out. That is deliberate rather than a leak: this launcher is always
+    // the supervisor of what it started, and a mode that walked away would leave a server with
+    // nothing watching it and a database nobody remembers owning.
+    //
+    // So the two modes are "start it, prove it works, put it back" and, with `--stay`, "start it
+    // and keep it running until this window closes". The double-clicked shortcut passes `--stay`.
+    if (!process.argv.includes("--stay")) {
+      // Explicitly, rather than by returning and trusting the `exit` handler. Returning does not
+      // end this process: the server child is held by its stderr pipe and the event loop stays
+      // alive, so `exit` never fires. Measured — an acceptance run reached READY, printed nothing
+      // further, and left both the launcher and the database running. Relying on a program to
+      // exit is not the same as making it.
+      shutdown();
+      return 0;
+    }
     await new Promise(() => {});
   }
 

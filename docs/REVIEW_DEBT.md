@@ -4823,3 +4823,87 @@ out why. `/status` now says it in one line — _"N of M indicators are older tha
 release interval ... those will not appear in answers"_ — which is the sentence that turns an
 apparently broken product into a legible one. The two surfaces were built two units apart and the
 second is what makes the first honest rather than merely accurate.
+
+### IR-142 — the standalone bundle was a symlink to the developer's checkout
+
+Unit G. `output: "standalone"` is one line and it was not the work; proving the result can run
+without this repository was.
+
+**The first build looked fine and was not.** `.next/standalone` came out at 1.4M with a
+`node_modules` full of packages, and `node_modules` was a **symlink** —
+`.next/standalone/node_modules -> /c/AI-Projects/market-os/node_modules` — because this worktree's
+own `node_modules` is one. Copying that to a staging directory produces an app pointing straight
+back at the developer's machine, which is precisely the dependency Unit G exists to disprove. It
+would have passed any check phrased as "does the bundle contain its dependencies", because
+following the link it does.
+
+The fix was to remove the worktree artifact rather than work around it: the symlink was replaced
+with a real `node_modules` via `npm ci` against the tracked lockfile (668 entries, so the versions
+are the locked ones, not a fresh resolution). The rebuilt bundle is a real directory — **2069
+files, 56M** — and the staging builder now REFUSES a symlinked source and refuses any symlink
+anywhere in the staged tree, because a link is a pointer out of the package even when it resolves
+here.
+
+### What standalone does not give you, measured rather than assumed
+
+    .next/static      NOT included — 45 files. Missing them serves HTML with silent 404s for every
+                      chunk, which reads as a product bug rather than a packaging one.
+    public            NOT included.
+    prisma migrations NOT included — not an import of the server, so nothing traces them. A
+                      packaged app that cannot create its own schema is not packaged.
+    migration engine  NOT included, and `prisma` is a devDependency, so `npx prisma migrate deploy`
+                      cannot be assumed on a user's machine.
+
+### The migration toolchain, measured before escalating
+
+Hand-picking `prisma` + `@prisma/engines` + four more failed immediately: `Cannot find module
+'effect'`. Prisma 7's CLI has a real dependency closure and guessing at it is exactly what the
+instruction warns against. npm was allowed to compute it instead — `npm install prisma@7.9.1
+--omit=dev` into a staging-local tools directory — **136 packages, 151M**, and it runs from the
+staging directory with no repository on any path. No ad-hoc SQL runner was written and no
+escalation was needed, because the measurement answered the question.
+
+One packaging-specific file was required: Prisma 7 wants the datasource URL in its config file, and
+the repository's `prisma.config.ts` imports `dotenv` and needs a TypeScript loader. The staged
+runtime gets a plain `prisma.config.mjs` reading `process.env.DATABASE_URL`, which the launcher
+supplies.
+
+### STAGED_RUNTIME_ACCEPTANCE — every item proven, not argued
+
+Staged to `C:/MarketOS-Staging/run-g2`, outside the repository. Disposable PostgreSQL cluster
+`initdb`'d fresh on port 55440 — the developer cluster on 55432 was never touched, and neither was
+`.local/pgdata`, `market_os` or `market_os_test`.
+
+    A/B  worktree independence   the repository's node_modules was RENAMED AWAY and the staged
+                                 server was started fresh: it served /today, rendered the database
+                                 row, and served static assets. Restored immediately after.
+    C    starts from staging     yes
+    D    portable PostgreSQL     initdb + start from the vendored runtime, no global install
+    E    database exists         createdb from the vendored runtime
+    F    migrations usable       17 of 17 applied BY THE STAGED TOOLCHAIN
+    G    readiness              `/api/ready` -> 503 NOT_READY/DATABASE_UNAVAILABLE with no DB;
+                                 200 {"status":"READY"} with one
+    H    real Prisma query       a row inserted into the validation DB by psql rendered on /today
+                                 seconds later — the decisive proof it reads THAT database
+    I    browser                 9/9 checks in real Chromium, including the row and the nav
+    J    static assets           stylesheet requested, zero product-critical 404s
+    K    owned shutdown          stopped by port-owner pid and by DATA DIRECTORY; no image-name
+                                 kill; developer cluster verified still running afterwards
+    L    data survives           the row and all 17 migration records present after a full stop
+    M    second start            succeeded twice
+
+Manifest: commit `c3b0e3e9`, tree `19d2cd7a`, buildId `w29AygqVL9oCXEJMs4fBJ`, Node v24.14.0,
+PostgreSQL 16.10, 2225 files, 54,896,054 bytes plus a 151M migration toolchain.
+
+This is `STAGED_RUNTIME_ACCEPTANCE`. It is **not** clean-install acceptance: the machine is the
+developer's, Node came from `C:\Program Files
+odejs`, and no installer exists yet.
+
+### The forbidden-content check had to be scoped, not weakened
+
+The staging refusal is evaluated on the RESULT tree rather than the copy list, so a later edit
+cannot widen it quietly. Its first version flagged any `test/` segment — which every real run would
+have tripped, because 136 third-party packages ship test directories. An unsatisfiable refusal is
+one somebody deletes, so the SCOPE was narrowed: `test/`, `CLAUDE.md`, mutation scripts and
+escalation records do not apply under `node_modules`, while `.git`, `.env` and `pgdata` apply
+everywhere, since no package has any business containing those.

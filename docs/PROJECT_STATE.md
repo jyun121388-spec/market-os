@@ -504,6 +504,17 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE STANDALONE BUNDLE WAS A SYMLINK TO THE DEVELOPER'S CHECKOUT (2026-09-10, IR-142)
+`output: "standalone"` is one line and was not the work. The first build looked right --
+1.4M, node_modules full of packages -- and its `node_modules` was a SYMLINK back to this
+machine, because the worktree's own is one. Any check phrased "does the bundle contain its
+dependencies" would have passed. Replaced with a real `npm ci` tree (locked versions): 2069
+files, 56M. Measured what standalone omits -- `.next/static` (45 files), `public`, migrations,
+and the migration engine, with `prisma` a devDependency. Hand-picking the CLI's dependencies
+failed on `effect`, so npm computed the closure: 136 packages, 151M, runs from staging.
+STAGED_RUNTIME_ACCEPTANCE A-M all proven, including renaming the repo's node_modules away and
+watching the staged server still serve a database row. NOT clean-install acceptance.
+
 A STATUS PAGE FOR THE OWNER, NOT THE OPERATOR (2026-09-10, IR-141)
 `/admin` stays operator-only -- it renders raw adapter errors and run internals -- and `/status`
 is the translation. `src/lib/userStatus.ts` is pure so that "no adapter error reaches the user"
@@ -1068,8 +1079,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2914 / 2914 PASS across 168 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2895 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2925 / 2925 PASS across 169 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2906 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

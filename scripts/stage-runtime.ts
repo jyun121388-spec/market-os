@@ -29,7 +29,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 const REPO = process.cwd();
@@ -115,6 +115,34 @@ export function isForbiddenStagedPath(path: string): boolean {
   );
 }
 
+/**
+ * The first-run files, copied from `packaging/` to the package root unchanged.
+ *
+ * They are plain `.mjs` and they are the SAME BYTES the tests exercise. A packaged runtime has no
+ * TypeScript loader, so writing the setup logic in `src/` would have meant a second copy of it
+ * living in the package — and the tested copy would not have been the one that runs.
+ */
+export const PACKAGED_SETUP_FILES: Readonly<Record<string, string>> = {
+  "first-run.mjs": "first-run.mjs",
+  "first-run-classify.mjs": "first-run-classify.mjs",
+  "first-run-redact.mjs": "first-run-redact.mjs",
+  "launcher.mjs": "launcher.mjs",
+  "launch-config.mjs": "launch-config.mjs",
+  "ready-poll.mjs": "ready-poll.mjs",
+  // The double-clickable entry point, at the top of the package where a person will find it.
+  "Market OS.cmd": "Market OS.cmd",
+  // Not the package root. `prisma.config.mjs` imports `prisma/config`, which only the toolchain
+  // directory can resolve — staged at the root, the very first real run failed with
+  // `Cannot find module 'prisma/config'`.
+  "prisma.config.mjs": "migrate-tools/prisma.config.mjs",
+};
+
+/**
+ * Where the packaged Prisma CLI must end up. `first-run.mjs` looks here and nowhere else, so this
+ * path is a contract between the two and a test asserts they still agree.
+ */
+export const MIGRATION_RUNNER_PATH = "migrate-tools/node_modules/prisma/build/index.js";
+
 interface StagedFile {
   path: string;
   bytes: number;
@@ -157,6 +185,78 @@ function gitOutput(args: string[]): string {
   return execFileSync("git", args, { cwd: REPO, encoding: "utf8" }).trim();
 }
 
+/**
+ * Put Prisma's own migration runner in the package.
+ *
+ * Why the real toolchain and not a loop over `migration.sql` files: `migrate deploy` checksums
+ * each migration and refuses when an applied one has changed on disk, applies each in its own
+ * transaction, and records failure so the next run resumes rather than half-applying. That
+ * behaviour IS the safety of migrations, and a fifteen-line loop that skips it is not the same
+ * thing written shorter. The user's packaging directive asked for this to be measured before it
+ * was replaced; measured, it costs one `npm install` at packaging time and the runner works
+ * unmodified from inside the package, so there is nothing to replace.
+ *
+ * The version is read from the INSTALLED CLI rather than from the `package.json` range, so the
+ * runner shipped is the one that generated and last verified these migrations, not whatever the
+ * range resolves to on the day someone packages.
+ *
+ * Idempotent: an existing toolchain of the right version is reused, so re-staging does not need
+ * the network.
+ */
+function stageMigrationToolchain(outDir: string): {
+  version: string;
+  packages: number;
+  reused: boolean;
+} {
+  const installed = JSON.parse(
+    readFileSync(join(REPO, "node_modules", "prisma", "package.json"), "utf8"),
+  ) as { version: string };
+  const version = installed.version;
+
+  const dir = join(outDir, "migrate-tools");
+  const marker = join(dir, "node_modules", "prisma", "package.json");
+  let reused = false;
+
+  if (existsSync(marker)) {
+    const there = JSON.parse(readFileSync(marker, "utf8")) as { version: string };
+    reused = there.version === version;
+  }
+
+  if (!reused) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify(
+        { name: "market-os-migrate-tools", version: "1.0.0", private: true },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+    // Hand-picking the CLI's dependencies was tried first and failed on a transitive import
+    // (`Cannot find module 'effect'`). npm computes the closure correctly; nothing else does.
+    // `npm.cmd` by name rather than `shell: true`. Node warns about the latter, and it is right
+    // to: with a shell, arguments are concatenated instead of escaped, and one of these arguments
+    // is a version string read out of a file.
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    execFileSync(npm, ["install", `prisma@${version}`, "--no-audit", "--no-fund", "--silent"], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+  }
+
+  if (!existsSync(join(outDir, MIGRATION_RUNNER_PATH))) {
+    throw new Error(
+      `the migration runner is not at ${MIGRATION_RUNNER_PATH} after staging the toolchain. ` +
+        `A package that cannot create its own schema is not a package.`,
+    );
+  }
+
+  const packages = readdirSync(join(dir, "node_modules")).filter((n) => !n.startsWith(".")).length;
+  return { version, packages, reused };
+}
+
 export function stageRuntime(outDir: string): {
   outDir: string;
   files: StagedFile[];
@@ -190,6 +290,17 @@ export function stageRuntime(outDir: string): {
   copyInto(join(REPO, "prisma", "migrations"), join(outDir, "prisma", "migrations"), "migrations");
   cpSync(join(REPO, "prisma", "schema.prisma"), join(outDir, "prisma", "schema.prisma"));
 
+  // 5. The migration toolchain. Nothing traces it, because it is not an import of the server.
+  //    Staged BEFORE the setup files, since one of them belongs inside it.
+  const toolchain = stageMigrationToolchain(outDir);
+
+  // 6. First-run setup, shipped as the same files the tests import. See `packaging/`.
+  for (const [name, destination] of Object.entries(PACKAGED_SETUP_FILES)) {
+    const to = join(outDir, ...destination.split("/"));
+    mkdirSync(dirname(to), { recursive: true });
+    cpSync(join(REPO, "packaging", name), to);
+  }
+
   const files = walk(outDir, outDir).sort((a, b) => a.path.localeCompare(b.path));
 
   // 5. The refusal. Checked on the RESULT, so it cannot be satisfied by a careful copy list that
@@ -216,9 +327,20 @@ export function stageRuntime(outDir: string): {
     fileCount: files.length,
     totalBytes: files.reduce((sum, f) => sum + f.bytes, 0),
     migrations: readdirSync(join(outDir, "prisma", "migrations")).filter((n) => /^\d/.test(n)),
+    migrationRunner: {
+      prismaVersion: toolchain.version,
+      packages: toolchain.packages,
+      path: MIGRATION_RUNNER_PATH,
+    },
     keyFileHashes: {
       "server.js": sha256(join(outDir, "server.js")),
       "prisma/schema.prisma": sha256(join(outDir, "prisma", "schema.prisma")),
+      // The setup files are hashed because they are the part of the package that decides whether
+      // to touch a user's database. A silent difference between what was tested and what shipped
+      // is exactly what a manifest is for.
+      ...Object.fromEntries(
+        Object.values(PACKAGED_SETUP_FILES).map((d) => [d, sha256(join(outDir, ...d.split("/")))]),
+      ),
     },
   };
   const manifestPath = join(outDir, "market-os-manifest.json");
@@ -253,6 +375,10 @@ if (process.argv[1] && process.argv[1].endsWith("stage-runtime.ts")) {
   console.log(`  node       ${manifest.nodeVersion}`);
   console.log(`  bytes      ${manifest.totalBytes.toLocaleString("en-US")}`);
   console.log(`  migrations ${manifest.migrations.length}`);
+  console.log(
+    `  runner     prisma ${manifest.migrationRunner.prismaVersion} ` +
+      `(${manifest.migrationRunner.packages} packages)`,
+  );
   console.log(`  manifest   ${result.manifestPath}`);
   const staticCount = result.files.filter((f) => f.path.startsWith(".next/static/")).length;
   console.log(`  static     ${staticCount} files`);

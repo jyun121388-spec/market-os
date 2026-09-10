@@ -504,6 +504,20 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+A PACKAGE THAT INSTALLS ITSELF, AND A LAUNCHER THAT WAITS (2026-09-11, IR-144)
+Units H and I. A staged package now creates its own schema on a machine that has never
+seen it, using PRISMA'S OWN migration runner staged into it (91 packages) rather than a
+homemade SQL loop -- measured before being replaced, and there was nothing to replace.
+Six first-run verdicts, of which `REFUSE_EMPTY_PACKAGE` is checked first so an empty
+pending list cannot read as a finished database, and `REFUSE_FOREIGN_DATABASE` reports a
+COUNT rather than the table names of whatever else the user runs. Unit H: 38/38 against a
+real PostgreSQL from inside a real package. Unit I: the launcher waits for `/api/ready`
+and not for the port, refuses a stranger already answering there instead of browsing to
+it, and stops only a database it started -- 34/34, including a launch from a completely
+unmigrated database through to real product pages. The packaged files are plain `.mjs`
+and the tests import the SHIPPED bytes, so there is no second copy of the decision that
+writes to a user's database.
+
 TWO LIVE PROVIDERS, AND A CREDENTIAL IN A BUILD CACHE (2026-09-11, IR-143)
 ECOS 17/17 and OpenDART 28/28 contract checks against the REAL providers, bounded ingests
 (+29 ECOS, 50 DART filings) each proven idempotent by an identical re-run, and both reaching
@@ -1091,8 +1105,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2926 / 2926 PASS across 169 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2907 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2981 / 2981 PASS across 171 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2961 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

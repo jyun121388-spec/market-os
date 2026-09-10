@@ -4979,3 +4979,114 @@ product that was correct. The underlying computation had ECOS as `HAS_DATA` all 
 page now also names the provider CODE beside its human label, because every other surface in this
 product identifies providers that way and a reader comparing two pages needs the same identifier in
 both.
+
+### IR-144 — a package that installs itself, and a launcher that waits for the right signal
+
+Units H and I of the packaging authority. A staged Market OS can now create its own database schema
+on a machine that has never seen it, and be started by a person double-clicking one file.
+
+### Unit H — first-run setup, and why it is not a loop over the SQL files
+
+The packaged app arrives at a database that is empty, or absent, or — the case worth being
+frightened of — full of somebody else's data. `packaging/first-run.mjs` decides which before
+touching anything, from probes alone, in `packaging/first-run-classify.mjs`.
+
+Those are plain `.mjs` and they are the SAME BYTES that ship. A packaged runtime has no TypeScript
+loader, so a `.ts` classifier would have had to be re-implemented inside the package — two
+implementations of the one decision that writes to a user's database, and the tested one would not
+have been the one that runs. The tests import the shipped file directly; `.d.ts` declarations keep
+`tsc` checking the callers.
+
+The migration itself uses **Prisma's own runner**, staged into the package by
+`scripts/stage-runtime.ts`. The user's directive asked for that to be measured before being replaced
+with anything homemade, and measured, there is nothing to replace: `migrate deploy` checksums each
+migration and refuses when an applied one has changed on disk, applies each in its own transaction,
+and records failure so the next run resumes rather than half-applying. A fifteen-line loop over
+`migration.sql` is not the same thing written shorter — it is the same thing with the safety
+removed. Cost: one `npm install` at packaging time, 91 packages.
+
+Six verdicts, and two of them exist because of failures this project has already made:
+
+- `REFUSE_EMPTY_PACKAGE` is checked FIRST, before any database is contacted. With no packaged
+  migrations the pending list is empty, and an empty pending list reads as `NOTHING_TO_DO` — a
+  schemaless database declared ready. That is the shape of the guard that closed over
+  `matches.every(...)` and was vacuously true on an empty array, so it is ordered rather than
+  trusted to fall out.
+- `REFUSE_FOREIGN_DATABASE` reports a COUNT and not the table names. The refusal is fully
+  actionable without them, and the names are the schema of whatever else the user runs, on their
+  way into a log they may later hand to someone.
+
+`REFUSE_DATABASE_AHEAD` names the migrations it lacks, because those are the package's own
+filenames and they are the only way a reader can tell which build they need. And a migration
+history table that exists but is EMPTY is an interrupted run of ours, not a foreign database:
+refusing there would strand a user with a database no version of this program would ever touch
+again.
+
+Measured, from inside a real staged package against a real PostgreSQL: 38 of 38. An empty database
+receives 17 migrations and every table the packaged schema declares; the identical re-run reports
+`NOTHING_TO_DO` and does not invoke the runner at all; a database with two foreign tables is
+refused with both still intact; a database carrying a migration from the future is refused; an
+unreachable database is `WAIT_FOR_DATABASE` and not a schema complaint.
+
+### The first real run failed, and the fix was a layout, not a patch
+
+`prisma.config.mjs` was staged at the package root and the first run against an empty database
+reported `Cannot find module 'prisma/config'`. The CLI lives under `migrate-tools/node_modules`, so
+the package root cannot resolve it at all. The config moved into the toolchain directory with its
+schema paths pointing one level up, and the runner is invoked with that directory as its working
+directory so the two possible readings of a relative path cannot disagree.
+
+Worth stating plainly because the alternative was available and worse: the error was a missing
+module, and the fifteen-line SQL loop would have made it go away.
+
+### Unit I — the launcher, and the moment it may open a browser
+
+`APP_PROCESS_STARTED` is not `MARKET_OS_READY`. The HTTP port accepts connections before the
+database is reachable and long before the schema exists, so a launcher that opens a browser when
+the port opens shows the user an error page it then has to explain. `packaging/launcher.mjs` polls
+`/api/ready` and starts nothing later when something earlier did not succeed.
+
+The verdict that earns its own name is `NOT_MARKET_OS`. A launcher polls a fixed port on localhost
+and something else may own it. Retrying would waste the budget; opening a browser at it would show
+the user a stranger's page and let them believe it is theirs. So a 200 whose body is not this
+application's readiness document stops the launch — proved against a real impostor server, which
+was refused rather than browsed to.
+
+Managing PostgreSQL is opt-in, and the launcher stops only a database it was the one to start. An
+installation pointed at a database somebody else runs must never take it away from them.
+
+Measured out of a staged package: 34 of 34. A launch from a completely unmigrated database runs
+setup, applies 17 migrations, reaches READY, serves real product pages, and the whole sequence is
+refused — with nothing listening on the application port afterwards — when the database belongs to
+something else.
+
+### What the redactor hides, and what it deliberately does not
+
+Every line the migration runner writes is filtered through a redactor built from the ACTUAL
+connection string and its ACTUAL password, never from a pattern for what a connection string looks
+like. That distinction is the lesson of the leak audit in IR-143, and it was immediately worth
+having: `new URL` returns an EMPTY password for a URL whose password contains `?`, because the
+WHATWG parser treats `?` as the end of the authority. A redactor built on it alone would have
+printed such a password in the clear the moment it appeared on its own. The password is now also
+read off the string lexically, and matched with `split`/`join` rather than a regex, since building
+a pattern out of a secret is how a redactor silently stops matching the one value it exists to
+hide.
+
+It does NOT hide the host and port. An acceptance check asserted that it should, and the check was
+wrong: the migration runner announces which database it is about to change, and a user watching
+seventeen migrations go past has every right to see which database received them. Host and port are
+the identity of the thing being modified; the password is the secret.
+
+### Three scans that fired on their own denials, again
+
+`first-run.mjs` says in as many words that a package has no `.env` and that it does not loop over
+`migration.sql`. The first version of the tests failed on both — reporting the denial as the
+offence — which is now the fourth time this class has been hit here. Every structural scan runs on
+comment-stripped source, and a bare `.env` substring is not the claim either: `process.env.DATABASE_URL`
+contains it, and reading an environment variable is the intended mechanism. The scan looks for a
+QUOTED `.env` on ONE line, the newline exclusion having been needed after the character class
+spanned from an unrelated import's closing quote to that same `process.env` several lines later.
+
+A fourth: an assertion that the browser is opened only inside the READY branch compared the branch
+against `openBrowser(url)` — which also matches the function's own DECLARATION, earlier in the
+file. It failed against a launcher that was correct.

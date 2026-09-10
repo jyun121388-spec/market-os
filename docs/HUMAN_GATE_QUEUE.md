@@ -328,7 +328,30 @@ provenance checks — and only then may FRED be classified `LIVE_VERIFIED`.
 
 ## HG-003 — ECOS (Bank of Korea) API key
 
-**Status**: `PENDING_USER` · marker `LIVE_KEY_PENDING`
+**Status**: `RESOLVED` · `LIVE_VERIFIED` 2026-09-11 · the key lives only in the gitignored
+`.env` and has never been printed, committed or transmitted.
+
+**Live evidence** (`[CHATGPT_DECISION][MARKET-LIVE-DATA-KEY-ACTIVATION-20260910]`): 17 of 17
+contract checks against the real Bank of Korea API; a bounded ingest of the tracked series
+(+29 inserted, 2 revised, 1 unchanged) followed by an identical re-run returning
++0/0/32 unchanged, so idempotency is measured rather than assumed; 35 stored rows over 32
+distinct dates, the three duplicates being revision chains the IR-131 selector resolves by
+structure (32 resolved, 0 unresolved); and the live value reaching `/macro` and `/status`
+through the packaged runtime.
+
+**The documented unknown below is STILL UNRESOLVED, and is not closed by this activation.**
+The real window contained no missing observations at all, so the marker convention remains
+unobserved. The verifier reports that as an absence of evidence rather than as confirmation,
+and expanding the series universe to hunt for a gap is outside the authorized scope.
+Recorded, not settled.
+
+**Observation, not repaired**: ECOS returns `UNIT_NAME` `"연%"` while the repository stores
+its own declared `"percent"`. The verifier logs both as info rather than as a mismatch,
+because the declared unit is a label this repository chose rather than a claim about the
+provider's response shape. No fact is misstated; the provider's own string is simply not
+carried through.
+
+**Original issue, kept for the reasoning**:
 
 **Issue**: same as HG-002, and ECOS carries the largest documented unknown of any adapter here.
 `src/server/adapters/ecos/types.ts` states outright that the convention ECOS uses for a missing
@@ -355,7 +378,25 @@ this also exercises the redaction. Path construction and the error envelope are 
 
 ## HG-004 — OpenDART API key
 
-**Status**: `PENDING_USER` · marker `LIVE_KEY_PENDING`
+**Status**: `RESOLVED` · `LIVE_VERIFIED` 2026-09-11 · the key lives only in the gitignored
+`.env` and has never been printed, committed or transmitted.
+
+**Live evidence**: 28 of 28 contract checks against the real OpenDART API, including the
+`013` no-data mapping and REAL multi-page pagination — Samsung Electronics filed 827
+disclosures in 2025, fetched over 9 pages, every `rcept_no` unique across page boundaries.
+A bounded one-month ingest stored 50 filings; the identical re-run returned +0 inserted /
+50 unchanged, and the database holds 50 rows over 50 distinct receipt numbers for 1
+company. `corpCode` remains source-scoped: DART's 8-digit code was never merged with
+EDGAR's 10-digit padded CIK, and every query is scoped by `sourceId`.
+
+**GUI evidence**: 삼성전자 is discoverable from company search, its Company Intelligence and
+Filings/Evidence pages load, real receipt numbers are preserved, and the DART source links
+use the mechanically-proven `rcpNo=` receipt-number form.
+
+**Coverage is one company, and the product says so.** Key availability is not Korea-wide
+coverage; the company index states the actually ingested universe.
+
+**Original issue, kept for the reasoning**:
 
 **Issue**: same as HG-002. The DART client additionally branches on exact status strings
 (`"000"` success, `"013"` no-data) taken from documentation — a wrong code becomes either a

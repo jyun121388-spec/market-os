@@ -89,7 +89,16 @@ export default async function StatusPage() {
               }`}
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="font-medium">{p.label}</span>
+                {/*
+                  The provider CODE as well as the human label. Every other surface in this
+                  product names the provider by its code — the company index, the company page,
+                  the evidence page, Ask Market — and a reader comparing this page with those
+                  needs the same identifier in both. It was missing here, which showed up as two
+                  surfaces that appeared to disagree about ECOS when they did not.
+                */}
+                <span className="font-medium">
+                  {p.label} ({p.sourceCode})
+                </span>
                 <span className="text-xs uppercase tracking-wide text-zinc-500">
                   {p.state}
                   {p.optional ? " · optional" : ""}

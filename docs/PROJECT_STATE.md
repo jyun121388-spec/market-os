@@ -504,6 +504,18 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+TWO LIVE PROVIDERS, AND A CREDENTIAL IN A BUILD CACHE (2026-09-11, IR-143)
+ECOS 17/17 and OpenDART 28/28 contract checks against the REAL providers, bounded ingests
+(+29 ECOS, 50 DART filings) each proven idempotent by an identical re-run, and both reaching
+the GUI through the packaged runtime -- BOK base rate on `/macro`, 삼성전자 discoverable with
+real receipt numbers and valid `rcpNo=` links. HG-003 and HG-004 are `LIVE_VERIFIED`.
+ECOS's missing-value marker is STILL unverified: the real window had no gaps, and an absence
+of evidence is not upgraded to a settled convention. The mandatory leak audit found real API
+keys in `.next/cache/turbopack/*.sst` -- contained, since `.next` is gitignored and staging
+copies only `standalone` and `static`, but bundler caches are now a staging REFUSAL rather
+than an omission. The audit's first pass had excluded `.next` and reported ALL PASSED: an
+audit's exclusions are part of its result.
+
 THE STANDALONE BUNDLE WAS A SYMLINK TO THE DEVELOPER'S CHECKOUT (2026-09-10, IR-142)
 `output: "standalone"` is one line and was not the work. The first build looked right --
 1.4M, node_modules full of packages -- and its `node_modules` was a SYMLINK back to this
@@ -1079,8 +1091,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-2925 / 2925 PASS across 169 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2906 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+2926 / 2926 PASS across 169 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2907 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

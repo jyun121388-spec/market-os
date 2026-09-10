@@ -4907,3 +4907,75 @@ have tripped, because 136 third-party packages ship test directories. An unsatis
 one somebody deletes, so the SCOPE was narrowed: `test/`, `CLAUDE.md`, mutation scripts and
 escalation records do not apply under `node_modules`, while `.git`, `.env` and `pgdata` apply
 everywhere, since no package has any business containing those.
+
+### IR-143 — two live providers, and a credential found in a build cache
+
+`[CHATGPT_DECISION][MARKET-LIVE-DATA-KEY-ACTIVATION-20260910]`. The user placed free ECOS and
+OpenDART keys in the gitignored `.env`; this unit verified both against the real providers, ingested
+a bounded amount of real data, proved it reaches the GUI, and audited for leakage before marking
+either `LIVE_VERIFIED`.
+
+The credentials were never printed, echoed, committed or transmitted. Presence detection emitted
+booleans only.
+
+### ECOS — 17/17 contract checks, and one thing still not settled
+
+Authentication, envelope, `list_total_count`, pagination completeness, `TIME` format against the
+declared M-cycle pattern, `DATA_VALUE` presence, `UNIT_NAME`, normalization and duplicate-period
+behaviour all matched the adapter's assumptions on real data. 320 observations over one request,
+nothing truncated, no duplicate `TIME` across window boundaries.
+
+**The missing-value marker remains UNVERIFIED**, which is the whole reason this adapter carried the
+largest documented unknown in the repository. The real window contained no gaps, so there was
+nothing to observe. The verifier says so in as many words, and this unit does not upgrade an
+absence of evidence into a settled convention.
+
+Ingest: `+29 inserted, 2 revised, 1 unchanged`, then an identical re-run: `+0, 0, 32 unchanged`.
+35 rows over 32 dates — the three extra rows are revision chains carrying `revisionOf` and no
+provider vintage, which `selectCurrentObservation` resolves by chain structure. The reader returns
+32 resolved dates and **0 unresolved**, so nothing is refused.
+
+### OpenDART — 28/28, including real multi-page behaviour
+
+Status `"000"`, the `"013"` no-data mapping, every documented field, `rcept_dt` as YYYYMMDD,
+`corp_cls` within Y/K/N/E, and `rcept_no` unique within a page. Pagination was exercised for real:
+**827 disclosures over 9 pages**, everything DART said exists was fetched, and no `rcept_no`
+repeated across a page boundary.
+
+A one-month ingest stored 50 filings; the re-run stored none and found all 50 unchanged.
+`corpCode` stays source-scoped — DART's `00126380` is never merged with an EDGAR CIK.
+
+### The finding: a real API key in the bundler's build cache
+
+The mandatory leak audit compared the ACTUAL environment values against redaction output, stored
+ingest errors, stored raw payloads, every tracked file, the working and staged diffs, the staged
+runtime artifact and its manifest, rendered HTML, and this session's own captured logs. All clean.
+
+Then it emerged that the first pass had skipped `.next`, which is where a bundler is most likely to
+bake something in — so it was re-run without that exclusion. The staged artifact came back clean at
+130 files. **The local build directory did not: two files,
+`.next/cache/turbopack/v16.3.1-*/00000093.sst` and `00000099.sst`, contained real credential
+values.** Turbopack's on-disk cache had captured the environment of a build run.
+
+Contained, and the containment was verified rather than assumed: `.next` is gitignored and
+untracked, and staging copies only `.next/standalone` and `.next/static`, so the cache could not
+reach a package. Nothing shipped and nothing was committed.
+
+But "excluded because nobody copied it" is weaker than "refused", so `cache/turbopack` and
+`cache/webpack` are now forbidden staged paths — everywhere, including under `node_modules`, since
+the rule is about what the file IS. The poisoned cache was deleted locally and `.next` re-scanned:
+2471 files, zero carrying a credential.
+
+### An audit that skipped the interesting directory is worth recording
+
+The first leak audit reported ALL PASSED while its own file walker excluded `.next`. It would have
+been an honest-looking green over the one place the leak actually was. The rule that generalises:
+an audit's exclusions are part of its result, and a pass is only as wide as what it opened.
+
+### `/status` and `/company` appeared to disagree, and did not
+
+A proof assertion used the company index's rendering format on the status page and failed against a
+product that was correct. The underlying computation had ECOS as `HAS_DATA` all along. The status
+page now also names the provider CODE beside its human label, because every other surface in this
+product identifies providers that way and a reader comparing two pages needs the same identifier in
+both.

@@ -78,6 +78,19 @@ describe("the staging manifest refuses developer content", () => {
     expect(matches("node_modules/evil-pkg/pgdata/base")).toBe(true);
   });
 
+  it("refuses a bundler build cache, which really did hold credential values", () => {
+    // Found by the live-provider leak audit: `.next/cache/turbopack/*.sst` on the developer
+    // machine contained real API keys, because the cache captured a build run's environment.
+    // Nothing shipped — staging copies only `standalone` and `static` — but "excluded because
+    // nobody copied it" is weaker than "refused", and this makes it the latter.
+    expect(matches(".next/cache/turbopack/v16.3.1-3d32eb87/00000093.sst")).toBe(true);
+    expect(matches("cache/webpack/client-production/0.pack")).toBe(true);
+    // Even vendored, since the rule is about what the file IS.
+    expect(matches("node_modules/some-pkg/cache/turbopack/x.sst")).toBe(true);
+    // But an ordinary directory called "cache" is not a bundler cache.
+    expect(matches("public/cache/logo.svg")).toBe(false);
+  });
+
   it("matches on a path segment, not a substring", () => {
     // `contents/` contains "tests" only if you ignore boundaries, and a check that flags real
     // runtime files would be turned off by the first person it inconvenienced.

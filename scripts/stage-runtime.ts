@@ -90,6 +90,21 @@ export const FORBIDDEN_STAGED_PATTERNS: ForbiddenPattern[] = [
     insideNodeModules: false,
   },
   { pattern: /\.test\.tsx?$/, why: "a test file", insideNodeModules: false },
+  {
+    /**
+     * The bundler's on-disk build cache, and this one is not hypothetical. A leak audit during
+     * the live-provider activation found REAL API key values sitting in
+     * `.next/cache/turbopack/*.sst` on the developer machine: the cache had captured the
+     * environment of a build run with `.env` loaded.
+     *
+     * Nothing shipped — `.next` is gitignored, and staging copies only `standalone` and `static`,
+     * so the cache was excluded by construction. This makes that exclusion a REFUSAL instead of
+     * an accident, so a future widening of the copy list cannot quietly ship a credential.
+     */
+    pattern: /(^|[\\/])cache[\\/](turbopack|webpack)([\\/]|$)/,
+    why: "a bundler build cache, which has been observed holding credential values",
+    insideNodeModules: true,
+  },
 ];
 
 /** True when this staged path must be refused. Paths use forward slashes. */

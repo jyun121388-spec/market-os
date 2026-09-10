@@ -258,11 +258,23 @@ describe("the gate register", () => {
     expect(parsed.get("HG-002")).toBe("RESOLVED");
   });
 
-  it("reads the real register, and HG-002 is closed while HG-003 and HG-004 are not", () => {
+  it("reads the real register: the three provider keys are closed, the paid gates are not", () => {
+    // This binds to the register as it actually stands, so it has to move when reality does.
+    // It failed the day HG-003 and HG-004 became LIVE_VERIFIED, which is the test working: the
+    // user supplied free ECOS and OpenDART keys, both were verified against the real providers,
+    // and the register now says so.
     const parsed = parseGateRegister(readFileSync("docs/HUMAN_GATE_QUEUE.md", "utf8"));
     expect(parsed.get("HG-002")).toBe("RESOLVED");
-    expect(parsed.get("HG-003")).not.toBe("RESOLVED");
-    expect(parsed.get("HG-004")).not.toBe("RESOLVED");
+    expect(parsed.get("HG-003")).toBe("RESOLVED");
+    expect(parsed.get("HG-004")).toBe("RESOLVED");
+
+    // And the assertion that stops the three above from passing vacuously. If the parser ever
+    // reported RESOLVED for everything — a lost anchor, a widened match — they would all still
+    // pass. HG-006 costs money and HG-007 deploys to production; neither can be closed by this
+    // project autonomously, so both stay as evidence that the parser still tells an open gate
+    // from a closed one.
+    expect(parsed.get("HG-006")).not.toBe("RESOLVED");
+    expect(parsed.get("HG-007")).not.toBe("RESOLVED");
   });
 
   it("moves only items that name an open gate, and keeps the rest where they were", () => {

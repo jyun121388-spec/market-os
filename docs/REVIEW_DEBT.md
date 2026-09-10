@@ -5239,3 +5239,82 @@ bare directory NAME, which has no separators in it and therefore survives every 
 encoding. Both misses would have passed a path check and failed this one. That is the general
 lesson worth keeping — a redaction verified with its own matcher can only confirm what the matcher
 already understands.
+
+### IR-147 — the last twenty-eight cells, and a branch nothing reaches any more
+
+The queue item HG-003 and HG-004 unblocked. `CAP-DEBT-ECOS` and `CAP-DEBT-OPENDART` said the same
+thing about each provider: fourteen of fourteen capability axes rested on documentation or on the
+adapter's own TypeScript, and none on an observed response. Both are now closed from measurement.
+
+### The rule that shaped the work
+
+`providerCapability.ts` enforces, by test, that `SUPPORTED` and `NOT_SUPPORTED` both require
+`LIVE_RESPONSE` — asserting a limitation from a document is the same error as asserting a
+capability from one, and worse in effect, because it closes an inquiry rather than opening one.
+
+That makes `NOT_SUPPORTED` the expensive half. The only honest way to establish it is to enumerate
+every key a real response actually sent and find none that carries the axis, so
+`scripts/observe-capability-axes.ts` prints a FIELD INVENTORY and nothing else: for ECOS, fourteen
+keys on every row with six empty for this series; for OpenDART, nine keys over 100 rows of the 827
+Samsung disclosures. It is a committed script rather than a session's output, so the matrix can be
+re-derived rather than re-remembered.
+
+Measured: 56 of 56 cells on live evidence. 23 SUPPORTED, 24 NOT_SUPPORTED, 9 CONDITIONAL, and
+**zero NOT_VERIFIED for the first time.**
+
+### What the measurement actually said
+
+ECOS carries no release time, no revision identity, no vintage, no amendment marker, no
+next-release field, no supersession link, no schema version and no provisional flag. The
+consequence is the IR-021 position turned from a fear into an observation: a revised ECOS figure
+arrives as a changed `DATA_VALUE` for a `TIME` already held, indistinguishable from the original
+except by when we fetched it — which is exactly why `selectCurrentObservation` resolves ECOS chains
+by `CHAIN_STRUCTURE`.
+
+The provisional flag is worth stating separately. ECOS publishes 잠정치 that are later confirmed,
+and the response gives no way to tell one from a final figure. So `Observation.isPreliminary` being
+unpopulated for ECOS (IR-041) is now known to be the provider supplying nothing to populate it
+with, rather than an ingest that neglected to read it. That is a better answer than the one that
+was there, and it is a worse fact.
+
+OpenDART's `rm` is the one CONDITIONAL cell in either provider: populated on 18 of 100 rows,
+carrying 공, 공정, 유 and 정. The MECHANISM is observed; the meaning of each character is
+documentation — the same standing SEC's `/A` suffix has.
+
+### The queue moved on its own, which is the engine working
+
+Removing the debt removed the proposals: `CAP-DEBT-ECOS` and `CAP-DEBT-OPENDART` stopped being
+generated, `CAP-CEILING-ECOS` and `CAP-CEILING-OPENDART` appeared from the newly measured
+`NOT_SUPPORTED` cells, and `CAP-FOLLOWUP-OPENDART` appeared from the one CONDITIONAL one. Both
+ceilings were then worked and recorded, the ECOS one on the strength of a real shadow run over the
+dev database: `seriesChange:ECOS:722Y001:0101000` now reports `revision_integrity ->
+STRUCTURAL_LIMITATION` and `data_completeness -> DATA_QUALITY_ISSUE`, where both previously read
+`VERIFICATION_DEBT`.
+
+OpenDART's ceiling is recorded on a weaker footing and says so: the verifier reasons about series
+changes and regime axes, and OpenDART supplies filings, so no shadow output exercises an
+OpenDART-sourced claim at all.
+
+### Fifteen downstream tests, and one that had to change shape
+
+The matrix feeds the proposal generator, the scheduler, the autonomy boundary and the vintage
+table, and fifteen tests bound to ECOS and OpenDART being unverified. Fourteen moved by restating
+what is now true.
+
+The fifteenth is the interesting one. Several autonomy-boundary controls used `CAP-DEBT-ECOS` and
+`CAP-DEBT-OPENDART` as their subjects because those were the only REAL proposals carrying a gate.
+With no NOT_VERIFIED cell left, no real proposal names a gate at all, and the gate-deferral
+machinery lost its subject entirely. Those controls now use fabricated gated proposals, and a new
+control asserts the transient fact separately — the real queue has no gated capability work — so
+the fixtures cannot quietly outlive the situation that justified them.
+
+The same shape, recorded rather than fixed: the `VERIFICATION_DEBT` branch of
+`classifyEvidenceGap` is no longer reachable through any real profile. It is not dead code — it is
+where a fifth provider lands on its first day — but nothing exercises it against real data now, and
+a coverage fact that nobody writes down is one nobody later believes.
+
+### And the unknown that survived its own verification
+
+The ECOS missing-value marker convention is STILL unobserved. The window contained no gaps at all,
+so there was nothing to see. Live verification of a provider is not verification of every question
+about it, and the largest documented unknown in this repository came through the process intact.

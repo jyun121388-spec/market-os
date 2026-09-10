@@ -386,9 +386,10 @@ The rule that gives it value is enforced by test: **`SUPPORTED` and `NOT_SUPPORT
 SUPPORTED from one, and worse in effect — it closes an inquiry instead of opening it. Every
 `NOT_VERIFIED` must also name the gate that would clear it, so the matrix doubles as a work list.
 
-Current standing (re-measured 2026-09-06 by running the matrix): 28 NOT_VERIFIED, 11 SUPPORTED,
-9 NOT_SUPPORTED, 8 CONDITIONAL across 56 cells. SEC_EDGAR and FRED have live evidence on every
-axis; ECOS and OpenDART have live evidence on none, every axis NOT_VERIFIED behind HG-003/004. SEC's cells carry counts rather than adjectives — 912 of 1431
+Current standing (re-measured 2026-09-11 by running the matrix): 0 NOT_VERIFIED, 23 SUPPORTED,
+24 NOT_SUPPORTED, 9 CONDITIONAL across 56 cells. ALL FOUR providers have live evidence on
+every axis -- ECOS and OpenDART joined on 2026-09-11 when HG-003 and HG-004 closed, measured
+by enumerating the fourteen and nine keys their real responses actually send. SEC's cells carry counts rather than adjectives — 912 of 1431
 facts have a period start and 519 do not; 86 filings and 17 facts carry a `/A` suffix.
 `total_count_evidence` is CONDITIONAL because filings can be counted and facts cannot, which makes
 fact completeness **permanently unconfirmable** rather than merely unconfirmed.
@@ -503,6 +504,21 @@ silently empty recommendation.
 `npm run evolution:shadow` prints 44 ledger entries, 10 clusters, and every proposal with the
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
+
+THE LAST TWENTY-EIGHT CELLS (2026-09-11, IR-147)
+The capability matrix is fully observed for the first time: 56 of 56 cells on live
+evidence, ZERO NOT_VERIFIED. ECOS and OpenDART were measured by ENUMERATING every key a
+real response sends -- fourteen per ECOS row, nine per OpenDART row -- because
+`NOT_SUPPORTED` requires a live response just as `SUPPORTED` does, and the only honest way
+to establish an absence is to list what was actually there. ECOS's missing revision
+identity turns the IR-021 position from a fear into an observation, and its missing
+provisional flag explains `isPreliminary` (IR-041) as a provider limit rather than an
+ingest gap. The queue then moved on its own: two CAP-DEBT proposals stopped being
+generated, two ceilings and one follow-up appeared, and the ECOS ceiling was recorded on a
+real shadow run showing `revision_integrity -> STRUCTURAL_LIMITATION`. Fifteen downstream
+tests moved with it, and the gate-deferral controls now use fixtures because no real
+proposal names a gate any more -- asserted separately so the fixtures cannot outlive it.
+The ECOS missing-value marker is STILL unobserved: the window had no gaps.
 
 THE CLEAN ROOM, AND A REDACTION THAT WAS WRONG TWICE (2026-09-11, IR-146)
 The packaging authority is complete. The distribution, copied to a path with a SPACE that
@@ -1131,8 +1147,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-3016 / 3016 PASS across 172 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2997 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+3018 / 3018 PASS across 172 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2999 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

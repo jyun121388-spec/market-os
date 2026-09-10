@@ -74,30 +74,47 @@ describe("every proposal", () => {
 });
 
 describe("what the matrix currently proposes", () => {
-  it("raises verification debt for exactly the providers never seen live", () => {
+  it("raises verification debt for exactly the providers never seen live, which is now none", () => {
     const debt = proposals.filter((p) => p.id.startsWith("CAP-DEBT-")).map((p) => p.id);
-    // FRED left this list on 2026-09-06 (HG-002): every one of its cells now carries live
-    // evidence, so the generator has nothing to propose for it — which is the generator working,
-    // not a control weakened to fit.
-    expect(debt.sort()).toEqual(["CAP-DEBT-ECOS", "CAP-DEBT-OPENDART"]);
-    // SEC and FRED have been observed, so there is nothing to verify and no proposal to make.
-    expect(debt).not.toContain("CAP-DEBT-SEC_EDGAR");
-    expect(debt).not.toContain("CAP-DEBT-FRED");
+    // The list emptied one provider at a time: SEC was never on it, FRED left on 2026-09-06 when
+    // HG-002 closed, and ECOS and OpenDART left on 2026-09-11 when HG-003 and HG-004 did. An
+    // empty result here is the generator working rather than a control weakened to fit — the
+    // matrix has no NOT_VERIFIED cell left to derive one from, which
+    // tests/providerCapability.test.ts asserts directly.
+    expect(debt).toEqual([]);
   });
 
   it("raises a ceiling only where a real response established one", () => {
     const ceilings = proposals.filter((p) => p.id.startsWith("CAP-CEILING-")).map((p) => p.id);
-    // FRED's ceiling appeared on 2026-09-06 from five NOT_SUPPORTED cells measured live.
-    expect(ceilings.sort()).toEqual(["CAP-CEILING-FRED", "CAP-CEILING-SEC_EDGAR"]);
+    // One per provider now, and each arrived the same way: FRED's on 2026-09-06 from five
+    // NOT_SUPPORTED cells, ECOS's and OpenDART's on 2026-09-11 from nine and six. A ceiling is
+    // the OUTPUT of a live verification, so all four existing is what a fully observed matrix
+    // looks like — not an inflation of the concept.
+    expect(ceilings.sort()).toEqual([
+      "CAP-CEILING-ECOS",
+      "CAP-CEILING-FRED",
+      "CAP-CEILING-OPENDART",
+      "CAP-CEILING-SEC_EDGAR",
+    ]);
   });
 
-  it("routes each debt proposal to the gate that would clear it", () => {
+  it("routes a debt proposal to its gate, and has none left to route", () => {
     const byId = new Map(proposals.map((p) => [p.id, p]));
-    expect(byId.get("CAP-DEBT-FRED"), "HG-002 is resolved; no FRED debt to route").toBeUndefined();
-    expect(byId.get("CAP-DEBT-ECOS")?.blockedBy).toBe("HG-003");
-    expect(byId.get("CAP-DEBT-OPENDART")?.blockedBy).toBe("HG-004");
+    for (const provider of ["FRED", "ECOS", "OPENDART", "SEC_EDGAR"]) {
+      expect(
+        byId.get(`CAP-DEBT-${provider}`),
+        `${provider} is live-verified; there is no debt to route`,
+      ).toBeUndefined();
+    }
+    // The routing itself is still asserted, on the input rather than the output: the generator
+    // reads `blockedBy` off the NOT_VERIFIED cells, and with none present there is nothing to
+    // read. `tests/providerCapability.test.ts` holds the rule that any future NOT_VERIFIED cell
+    // must name a gate that owns its provider, which is the half of this that outlives the data.
+    //
     // A ceiling is not blocked on anything; nothing external would change it.
-    expect(byId.get("CAP-CEILING-SEC_EDGAR")?.blockedBy).toBeUndefined();
+    for (const provider of ["ECOS", "FRED", "OPENDART", "SEC_EDGAR"]) {
+      expect(byId.get(`CAP-CEILING-${provider}`)?.blockedBy).toBeUndefined();
+    }
   });
 
   /**
@@ -228,9 +245,11 @@ describe("a capability measured available under a limitation is work, not a ceil
     // that an unnamed action fell back to the conjunction and was over-blocked by ECOS and OpenDART
     // credentials SEC work never touches.
     expect(byId("CAP-FOLLOWUP-SEC_EDGAR")!.provider).toBe("SEC_EDGAR_PUBLIC_READ");
-    // And the derivation stays TOTAL: a provider nobody has classified is still undefined, which
-    // fails toward the conservative conjunction rather than toward a keyless assumption.
-    expect(byId("CAP-DEBT-ECOS")!.provider).toBe("ECOS");
+    // And the derivation stays TOTAL for a KEYED provider, which is the other half of the rule.
+    // This asserted CAP-DEBT-ECOS until 2026-09-11, when ECOS's debt proposal stopped being
+    // generated; CAP-FOLLOWUP-OPENDART is the same claim about the same mechanism, on a proposal
+    // that exists.
+    expect(byId("CAP-FOLLOWUP-OPENDART")!.provider).toBe("OPENDART");
   });
 
   it("requires a real response before it will generate work for itself", () => {
@@ -303,10 +322,12 @@ describe("the conditional follow-up reaches the scheduler as ordinary gated work
       (w) => w.proposal.provider !== "SEC_EDGAR_PUBLIC_READ",
     );
     expect(keyedActionable.map((w) => w.proposal.id)).toEqual(["CAP-FOLLOWUP-FRED"]);
-    // ECOS and OpenDART work stays exactly where it was, gates included.
+    // OpenDART's work stays exactly where it was: its own key is absent, so its follow-up is
+    // deferred no matter what FRED's key does. This named CAP-DEBT-ECOS and CAP-DEBT-OPENDART
+    // until those proposals stopped being generated on 2026-09-11; ECOS now has no proposal at
+    // all, which is why only one provider is named here.
     const ids = queue.deferred.map((w) => w.proposal.id);
-    expect(ids).toContain("CAP-DEBT-ECOS");
-    expect(ids).toContain("CAP-DEBT-OPENDART");
+    expect(ids).toContain("CAP-FOLLOWUP-OPENDART");
   });
 
   it("does not make a forged or unknown provider identity runnable", () => {

@@ -372,180 +372,224 @@ const FRED: ProviderCapabilityProfile = {
   },
 };
 
+/**
+ * ECOS — Bank of Korea. Live-verified 2026-09-11, when HG-003 closed.
+ *
+ * Every state below rests on an observed StatisticSearch response for 722Y001 (base rate, monthly
+ * cycle), reproducible with `scripts/observe-capability-axes.ts`. The row shape is fixed by the
+ * endpoint: fourteen keys appear on every row, six of them empty for this series, and the empty
+ * ones are the additional item code and name slots and a weight — none of which carries any of the
+ * axes below. So `NOT_SUPPORTED` here means the response HAS NO MECHANISM, enumerated rather than
+ * inferred from a document.
+ */
 const ECOS: ProviderCapabilityProfile = {
   sourceCode: "ECOS",
   standing:
-    "No success response ever observed (HG-003). The RESULT.CODE/MESSAGE error envelope was " +
-    "live-verified and the key did not leak into the message, which matters because ECOS carries " +
-    "it in the URL path.",
+    "Live-verified. The response carries fourteen fields and an envelope of two, and what it does " +
+    "NOT carry is the more consequential half: no release time, no revision identity, no vintage, " +
+    "no amendment marker and no provisional flag. The IR-021 position — that ingest order is the " +
+    "only ordering evidence ECOS gives us — is now an observation rather than a fear.",
   axes: {
-    observation_time: unverified(
+    observation_time: live(
+      "SUPPORTED",
       "TIME",
-      "Format varies by cycle: 2026 / 2026Q1 / 202601 / 20260101. Parsing four formats from a " +
-        "field whose format is inferred from a request parameter is a live-verification priority.",
-      "HG-003",
+      "Populated on 32 of 32 observed rows, as YYYYMM for the monthly cycle. The format is a " +
+        "function of the cycle requested, not of the response, which is why the adapter parses " +
+        "four shapes against a declared cycle rather than sniffing.",
     ),
-    period_start: unverified(
+    period_start: live(
+      "NOT_SUPPORTED",
       null,
-      "TIME denotes a period by convention rather than by an explicit start and end.",
-      "HG-003",
+      "No field in the observed fourteen opens a span. TIME names a period by convention, and the " +
+        "convention is the only thing that says how long it is.",
     ),
-    period_end: unverified("TIME", "The same field, read as the period it names.", "HG-003"),
-    source_release_time: unverified(
+    period_end: live(
+      "SUPPORTED",
+      "TIME",
+      "The same field, read as the period it closes. Populated on 32 of 32 rows.",
+    ),
+    source_release_time: live(
+      "NOT_SUPPORTED",
       null,
-      "No publication-time field identified in the documented shape.",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "No publication time in the observed response. Previously recorded as undocumented, which " +
+        "was a weaker claim: absence from a document is not absence from the wire, and this now " +
+        "rests on the wire.",
     ),
-    provider_revision_identity: unverified(
+    provider_revision_identity: live(
+      "NOT_SUPPORTED",
       null,
-      "No version identifier identified. ECOS revises figures, so their absence would leave " +
-        "ingest order as the only ordering evidence — the IR-021 position.",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "No version identifier of any kind. ECOS does revise figures, so a revision arrives as a " +
+        "changed DATA_VALUE for a TIME already held, indistinguishable from the original except " +
+        "by when we fetched it. This is exactly the IR-021 position, and it is why " +
+        "selectCurrentObservation resolves ECOS chains by CHAIN_STRUCTURE and not by vintage.",
     ),
-    provider_vintage_time: unverified(
+    provider_vintage_time: live(
+      "NOT_SUPPORTED",
       null,
-      "No vintage concept identified in the documented shape.",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "No 'became current at' time. Contrast FRED, which supplies one under a realtime range — " +
+        "the difference is a property of the providers, not of how hard we looked.",
     ),
-    amendment_identity: unverified(
+    amendment_identity: live(
+      "NOT_SUPPORTED",
       null,
-      "No amendment concept identified.",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "Nothing marks a row as amending an earlier one.",
     ),
-    pagination_evidence: unverified(
-      "startIdx / endIdx path segments",
-      "Pagination is expressed in the URL path rather than as response fields, so the response " +
-        "may not state where the window sits.",
-      "HG-003",
+    pagination_evidence: live(
+      "SUPPORTED",
+      "startIdx / endIdx path segments with list_total_count",
+      "The window is addressed by 1-based inclusive path segments and the envelope states the " +
+        "total, so a caller can tell a complete answer from a truncated one. Verified against a " +
+        "real window: 320 observations fetched with nothing truncated and no duplicate TIME " +
+        "across boundaries.",
     ),
-    total_count_evidence: unverified(
-      "StatisticSearch.list_total_count",
-      "Declared, and if real it makes truncation detectable for Korean macro series.",
-      "HG-003",
+    total_count_evidence: live(
+      "SUPPORTED",
+      "list_total_count",
+      "Stated in the envelope and matched the rows returned exactly (32 of 32) on the observed " +
+        "window. A provider-stated total is what makes completeness checkable rather than assumed.",
     ),
-    freshness_semantics: unverified(
+    freshness_semantics: live(
+      "NOT_SUPPORTED",
       null,
-      "No release schedule identified in the endpoints this adapter calls.",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "No next-release field. Freshness for ECOS series is therefore projected from observed " +
+        "cadence, which `evaluateStaleness` does and labels as projected.",
     ),
-    revision_history: unverified(
+    revision_history: live(
+      "NOT_SUPPORTED",
       null,
-      "No mechanism identified for retrieving a prior vintage.",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "No link from a value to the value it replaced. The chain this repository holds is one it " +
+        "constructs at ingest, not one the provider publishes.",
     ),
-    source_provenance: unverified(
-      "STAT_CODE + ITEM_CODE1..4",
-      "Identifies the series precisely, including the item hierarchy; says nothing about version.",
-      "HG-003",
+    source_provenance: live(
+      "SUPPORTED",
+      "STAT_CODE / STAT_NAME / ITEM_CODE1 / ITEM_NAME1",
+      "Every row identifies its statistic and item in both code and name, which is enough to " +
+        "reach the provider's own table for it. Populated on 32 of 32 rows.",
     ),
-    schema_version_metadata: unverified(
+    schema_version_metadata: live(
+      "NOT_SUPPORTED",
       null,
-      "No version stamp identified.",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "No version stamp for the response shape. A silent change to the field set would be " +
+        "detectable only by the adapter failing.",
     ),
-    preliminary_final_identity: unverified(
+    preliminary_final_identity: live(
+      "NOT_SUPPORTED",
       null,
-      "ECOS publishes provisional statistics (잠정치) that are later confirmed, and no field carrying that distinction has been identified. Observation.isPreliminary is unpopulated (IR-041).",
-      "HG-003",
-      "PROVIDER_DOCUMENTATION",
+      "No provisional marker in the observed response, and this is the one worth stating " +
+        "carefully: ECOS does publish provisional statistics (잠정치) that are later confirmed, " +
+        "and the response gives no way to tell one from a final figure. So Observation." +
+        "isPreliminary is unpopulated for ECOS (IR-041) because the provider supplies nothing to " +
+        "populate it with, not because the ingest neglected to read it.",
     ),
   },
 };
 
+/**
+ * OpenDART — Financial Supervisory Service. Live-verified 2026-09-11, when HG-004 closed.
+ *
+ * Observed on `list.json` for Samsung Electronics across 2025: 827 disclosures over 9 pages, 100
+ * rows examined for the field inventory. Nine keys per row, one of them populated on only 18 of
+ * 100 — which is the single CONDITIONAL cell below, and it is conditional from counting rather
+ * than from reading about it.
+ */
 const OPENDART: ProviderCapabilityProfile = {
   sourceCode: "OPENDART",
   standing:
-    "No success response ever observed (HG-004). A non-000 status was live-verified and " +
-    "isDartError detects it correctly; the success shape is documentation only.",
+    "Live-verified. A disclosure list is an event stream, and the response is shaped like one: " +
+    "every row is identified, dated and traceable, and nothing describes a span, a vintage or a " +
+    "supersession. The correction marker exists and is a string convention on 18 of 100 rows.",
   axes: {
-    observation_time: unverified(
+    observation_time: live(
+      "SUPPORTED",
       "rcept_dt",
-      "YYYYMMDD receipt date — when DART received the filing, which is a release time rather " +
-        "than the period the content describes.",
-      "HG-004",
+      "Populated on 100 of 100 observed rows as YYYYMMDD. A filing is an event, so the date it " +
+        "was received is the date it describes.",
     ),
-    period_start: unverified(
+    period_start: live(
+      "NOT_SUPPORTED",
       null,
-      "The disclosure list carries no reporting period; that lives in the document body this " +
-        "adapter does not fetch.",
-      "HG-004",
+      "Nothing in the nine observed fields opens a span. The report NAME often implies a period " +
+        "— a quarterly report covers a quarter — but that is prose, and reading a period out of " +
+        "it would be inference dressed as a field.",
     ),
-    period_end: unverified(
-      null,
-      "As with period_start: the disclosure list names a filing, not a reporting period.",
-      "HG-004",
-    ),
-    source_release_time: unverified(
+    period_end: live(
+      "SUPPORTED",
       "rcept_dt",
-      "The strongest release-time candidate of the three unverified providers.",
-      "HG-004",
+      "The receipt date, read as the instant the event occupies.",
     ),
-    provider_revision_identity: unverified(
+    source_release_time: live(
+      "SUPPORTED",
+      "rcept_dt",
+      "Receipt IS publication for this provider: the date a filing is accepted is the date it " +
+        "becomes public. Unlike ECOS, where observation time and release time are different " +
+        "questions with only the first answered.",
+    ),
+    provider_revision_identity: live(
+      "SUPPORTED",
       "rcept_no",
-      "A receipt number identifies a filing, and by extension the version of anything read out " +
-        "of it — structurally the same position as an SEC accession.",
-      "HG-004",
+      "A receipt number identifies one filing uniquely and permanently — verified unique across " +
+        "all 827 disclosures and across every page boundary. It is also the key the public " +
+        "document URL is built from, which is what makes a stored filing checkable by a reader.",
     ),
-    provider_vintage_time: unverified(
+    provider_vintage_time: live(
+      "NOT_SUPPORTED",
       null,
-      "As with SEC, a filing-based provider is unlikely to publish a per-figure vintage. " +
-        "Unverified rather than unsupported until a real response says so.",
-      "HG-004",
-      "PROVIDER_DOCUMENTATION",
+      "No per-record 'became current at' time. A correction supersedes an earlier filing, but " +
+        "that is an inference from receipt order rather than a published vintage.",
     ),
-    amendment_identity: unverified(
-      "rm remark flags, e.g. 정정",
-      "Declared as free-text remark flags rather than an enumerable field, which makes any " +
-        "amendment test a substring match on Korean prose until a real response is available.",
-      "HG-004",
+    amendment_identity: live(
+      "CONDITIONAL",
+      "rm",
+      "Populated on 18 of 100 observed rows, carrying 공, 공정, 유 and 정 — combined single-" +
+        "character flags of which 정 marks a correction. The MECHANISM is observed; the meaning " +
+        "of each character is documentation, in the same way SEC's /A suffix is a string " +
+        "convention rather than a flag. Absent on the other 82 rows because most filings are not " +
+        "corrections, which is why this is conditional rather than a data quality problem.",
     ),
-    pagination_evidence: unverified(
-      "page_no / page_count / total_page",
-      "Declared as response fields, unlike ECOS.",
-      "HG-004",
+    pagination_evidence: live(
+      "SUPPORTED",
+      "page_no / total_page",
+      "The envelope states both, and pagination was exercised for real: 9 pages fetched, no " +
+        "rcept_no repeated across a boundary. A provider that states its page count is one where " +
+        "a truncated fetch can be detected rather than assumed away.",
     ),
-    total_count_evidence: unverified(
+    total_count_evidence: live(
+      "SUPPORTED",
       "total_count",
-      "Declared alongside total_page, which would make DART the one Korean source where " +
-        "truncation is detectable from the response itself.",
-      "HG-004",
+      "827 stated against 100 rows on the first page, and 827 fetched in total. This is the axis " +
+        "SEC_EDGAR can only satisfy conditionally, and OpenDART satisfies outright.",
     ),
-    freshness_semantics: unverified(
+    freshness_semantics: live(
+      "NOT_SUPPORTED",
       null,
-      "No release schedule identified.",
-      "HG-004",
-      "PROVIDER_DOCUMENTATION",
+      "No next-filing-due field. Korean disclosure deadlines are statutory and knowable, but the " +
+        "provider does not publish them per company on this endpoint.",
     ),
-    revision_history: unverified(
+    revision_history: live(
+      "NOT_SUPPORTED",
       null,
-      "A correction filing is a new disclosure; no link to what it corrects was identified.",
-      "HG-004",
-      "PROVIDER_DOCUMENTATION",
+      "A row can say it IS a correction; nothing says WHAT it corrects. The 정 flag names the " +
+        "kind of document, not its antecedent, so linking a correction to the filing it amends " +
+        "would require matching on report names — an inference, not a link.",
     ),
-    source_provenance: unverified(
-      "rcept_no + corp_code",
-      "corp_code is DART's internal identifier and is NOT a stock ticker, and it identifies a " +
-        "company only within DART — the collision IR-001 and IR-002 were about.",
-      "HG-004",
+    source_provenance: live(
+      "SUPPORTED",
+      "rcept_no / corp_code",
+      "Both populated on 100 of 100 rows, and together they reach the exact document at " +
+        "dsaf001/main.do?rcpNo=. corp_code stays source-scoped: DART's 8-digit code is never " +
+        "merged with an EDGAR CIK.",
     ),
-    schema_version_metadata: unverified(
+    schema_version_metadata: live(
+      "NOT_SUPPORTED",
       null,
-      "No version stamp identified.",
-      "HG-004",
-      "PROVIDER_DOCUMENTATION",
+      "No version stamp for the response shape.",
     ),
-    preliminary_final_identity: unverified(
+    preliminary_final_identity: live(
+      "NOT_SUPPORTED",
       null,
-      "A disclosure is filed rather than provisional; the 정정 remark marks a correction, which is amendment_identity. No provisional flag identified.",
-      "HG-004",
-      "PROVIDER_DOCUMENTATION",
+      "Nothing marks a filing provisional. For a disclosure this is close to meaningless — a " +
+        "filing is filed — but the axis is answered from the response rather than from that " +
+        "reasoning.",
     ),
   },
 };

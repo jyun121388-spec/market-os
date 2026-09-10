@@ -281,7 +281,7 @@ describe("the scheduler cannot do anything", () => {
 });
 
 describe("against the real ledger and capability matrix", () => {
-  it("has converged: only the credential-free item startable, and exactly these five gated", () => {
+  it("has converged: only the credential-free item startable, and exactly these four gated", () => {
     // The count has moved three times in one day and the name was wrong twice, because
     // `arrayContaining` let it drift silently: it said "four items" while its own comment said
     // "five", and both survived IR-129 adding a sixth. A convergence control that cannot notice
@@ -308,10 +308,14 @@ describe("against the real ledger and capability matrix", () => {
     // CONVERGING is the point — before COMPLETED_WORK existed it returned the same nine items
     // forever, and a queue that never empties can never make "exhausted" mean anything.
     expect(queue.actionable.map((w) => w.proposal.id)).toEqual(["CAP-FOLLOWUP-SEC_EDGAR"]);
+    // 2026-09-11, in order: HG-003 and HG-004 closed, so ECOS's and OpenDART's cells moved onto
+    // live evidence and CAP-DEBT-ECOS and CAP-DEBT-OPENDART stopped being generated; the two
+    // ceilings that measurement raised were worked and recorded in COMPLETED_WORK, so they do not
+    // appear either; and OpenDART's one measured CONDITIONAL cell produced CAP-FOLLOWUP-OPENDART
+    // in their place. Four deferred rather than five, and every one of them still says why.
     expect(queue.deferred.map((w) => w.proposal.id).sort()).toEqual([
-      "CAP-DEBT-ECOS",
-      "CAP-DEBT-OPENDART",
       "CAP-FOLLOWUP-FRED",
+      "CAP-FOLLOWUP-OPENDART",
       "CLUSTER-PROVIDER_ASSUMPTION",
       "CLUSTER-SEMANTIC_RECENCY",
     ]);

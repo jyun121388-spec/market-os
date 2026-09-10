@@ -74,8 +74,15 @@ describe("compareVintage", () => {
     expect(compareVintage(secStyle, secStyle).rationale).toContain(
       "the provider does not publish a vintage",
     );
+    // ECOS said "unverified" until 2026-09-11 and now says the same thing SEC does, because it
+    // is now the same KIND of fact: measured, from a response that carries fourteen fields and no
+    // vintage among them. The three-way distinction this test exists to protect is intact — what
+    // changed is which providers occupy which branch, and one branch is now empty.
     const ecosStyle = vintageUnavailable("ECOS", "2026-08-18T00:00:00.000Z");
-    expect(compareVintage(ecosStyle, ecosStyle).rationale).toContain("unverified");
+    expect(compareVintage(ecosStyle, ecosStyle).rationale).toContain(
+      "the provider does not publish a vintage",
+    );
+    expect(compareVintage(ecosStyle, ecosStyle).rationale).not.toContain("unverified");
     const fredStyle = vintageUnavailable("FRED", "2026-09-06T00:00:00.000Z");
     expect(compareVintage(fredStyle, fredStyle).rationale).toContain(
       "vintage was not captured for at least one value",
@@ -101,8 +108,13 @@ describe("provider capability table", () => {
     expect(
       vintageUnavailable("FRED", "2026-09-06T00:00:00.000Z").providerVintageAt.availability,
     ).toBe("UNKNOWN");
+    // Both were NOT_VERIFIED until HG-003 and HG-004 closed on 2026-09-11. They are now
+    // NOT_SUPPORTED from live responses — a stronger claim, and one that can only be made this
+    // way round: it was never available to assert from the documentation.
     for (const code of ["ECOS", "OPENDART"]) {
-      expect(capabilityOf(code, "provider_vintage_time")?.state).toBe("NOT_VERIFIED");
+      const cell = capabilityOf(code, "provider_vintage_time");
+      expect(cell?.state).toBe("NOT_SUPPORTED");
+      expect(cell?.provenance).toBe("LIVE_RESPONSE");
     }
     for (const profile of PROVIDER_CAPABILITIES) {
       // Still true of every provider, live-verified or not: nobody publishes a per-figure vintage

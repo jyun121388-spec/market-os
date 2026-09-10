@@ -60,6 +60,32 @@ const proposal = (id: string, requiredGovernance: ActionKind[]): Proposal => ({
   hypothesis: "test hypothesis",
 });
 
+/**
+ * A capability proposal that names a provider AND a gate.
+ *
+ * Fabricated, and the reason is worth stating because it is a change forced by reality rather than
+ * a convenience. Until 2026-09-11 the controls below used `CAP-DEBT-ECOS` and `CAP-DEBT-OPENDART`,
+ * which were REAL proposals carrying real gates. HG-003 and HG-004 then closed, every ECOS and
+ * OpenDART cell moved onto live evidence, and the generator correctly stopped producing them —
+ * leaving the gate-deferral machinery with no real subject at all.
+ *
+ * Two facts, kept separate rather than merged. The BEHAVIOUR — a gate defers work, a present key
+ * does not close a gate, an unknown gate is not a resolved one — is permanent, and these fixtures
+ * keep it covered. The QUEUE having nothing gated in it right now is a transient fact about this
+ * repository, asserted on its own below so that it cannot be mistaken for the machinery having
+ * been removed.
+ */
+const gatedCapabilityProposal = (id: string, provider: string, gate: string): Proposal => ({
+  ...proposal(id, ["CALL_FREE_PROVIDER"]),
+  provider: provider as Proposal["provider"],
+  blockedBy: gate,
+});
+
+const GATED_FIXTURES = [
+  gatedCapabilityProposal("CAP-DEBT-ECOS", "ECOS", "HG-003"),
+  gatedCapabilityProposal("CAP-DEBT-OPENDART", "OPENDART", "HG-004"),
+];
+
 const realProposals = () => [...clusterProposals(), ...capabilityGapProposals()];
 
 describe("a known no-provider-key environment", () => {
@@ -97,6 +123,7 @@ describe("a known no-provider-key environment", () => {
 describe("provider capability that IS available", () => {
   it("unlocks only the work whose gate the register records as resolved", () => {
     const { queue } = scheduleAutonomousWork({
+      proposals: GATED_FIXTURES,
       probe: probe({
         env: ALL_KEYS,
         gateRegister: () => register({ "HG-003": "RESOLVED", "HG-004": "PENDING_USER" }),
@@ -187,6 +214,7 @@ describe("a fact that could not be established", () => {
 
   it("defers an item whose gate cannot be found, because unknown is not resolved", () => {
     const { queue, gateDeferrals } = scheduleAutonomousWork({
+      proposals: GATED_FIXTURES,
       probe: probe({ env: ALL_KEYS, gateRegister: () => null }),
     });
     expect(queue.actionable.map((w) => w.proposal.id)).not.toContain("CAP-DEBT-ECOS");
@@ -194,6 +222,7 @@ describe("a fact that could not be established", () => {
     expect(ecos?.gates[0].status).toContain("UNKNOWN");
     // And a gate the register simply omits is UNKNOWN too, not implicitly resolved.
     const omitted = scheduleAutonomousWork({
+      proposals: GATED_FIXTURES,
       probe: probe({ env: ALL_KEYS, gateRegister: () => register({ "HG-004": "RESOLVED" }) }),
     });
     expect(omitted.queue.actionable.map((w) => w.proposal.id)).not.toContain("CAP-DEBT-ECOS");
@@ -348,6 +377,7 @@ describe("the boundary supplies per-provider facts as well as the conjunction", 
     // The defect, at the boundary: ECOS's work was held by OpenDART's absent key. HG-003 resolved
     // so the gate is not what is being measured here.
     const { queue } = scheduleAutonomousWork({
+      proposals: [...GATED_FIXTURES, ...clusterProposals()],
       probe: probe({
         env: { ECOS_API_KEY: "x" },
         gateRegister: () => register({ "HG-003": "RESOLVED", "HG-004": "PENDING_USER" }),
@@ -365,6 +395,7 @@ describe("the boundary supplies per-provider facts as well as the conjunction", 
     // The two are independent and stay independent: an ECOS key is an environment fact, HG-003 is
     // a person's decision recorded in the register, and only the register closes it.
     const { queue, gateDeferrals } = scheduleAutonomousWork({
+      proposals: GATED_FIXTURES,
       probe: probe({
         env: { ECOS_API_KEY: "x" },
         gateRegister: () => register({ "HG-003": "PENDING_USER", "HG-004": "PENDING_USER" }),
@@ -380,11 +411,22 @@ describe("the boundary supplies per-provider facts as well as the conjunction", 
   it("names the provider in the reason when the key is what is missing", () => {
     // HG-003 resolved, key absent: the remaining blocker is the credential, and it says so.
     const { queue } = scheduleAutonomousWork({
+      proposals: GATED_FIXTURES,
       probe: probe({ gateRegister: () => register({ "HG-003": "RESOLVED" }) }),
     });
     const ecos = queue.deferred.find((w) => w.proposal.id === "CAP-DEBT-ECOS");
     expect(ecos?.authority).toBe("BLOCKED_BY_ENVIRONMENT");
     expect(ecos?.governance.some((t) => t.provider === "ECOS")).toBe(true);
+  });
+
+  it("has no gated capability work left in the real queue, which is why the above is fabricated", () => {
+    // The other half of the fixtures introduced on 2026-09-11. Every capability proposal the real
+    // matrix generates is now unblocked — there is no NOT_VERIFIED cell to derive a gate from —
+    // so nothing real exercises gate deferral any more. Asserted here so that the fixtures above
+    // cannot quietly outlive the situation that justified them: if a future provider arrives with
+    // debt, this test fails and points at the ones that should go back to using the real thing.
+    const gated = capabilityGapProposals().filter((p) => p.blockedBy !== undefined);
+    expect(gated.map((p) => p.id)).toEqual([]);
   });
 
   it("still holds every key-needing item closed when no key is present at all", () => {

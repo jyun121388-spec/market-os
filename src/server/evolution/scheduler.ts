@@ -367,6 +367,44 @@ export const COMPLETED_WORK: CompletedWork[] = [
       "endpoint this adapter has never called — a new capability, not a hidden one.",
   },
   {
+    proposalId: "CAP-CEILING-ECOS",
+    commit: "recorded with this entry",
+    evidence:
+      "Raised by the generator on 2026-09-11 when HG-003 resolved and nine ECOS cells were " +
+      "measured NOT_SUPPORTED from a live StatisticSearch response: no release time, no revision " +
+      "identity, no vintage, no amendment marker, no next-release field, no supersession link, no " +
+      "schema version and no provisional flag. The basis is an ENUMERATION rather than an absence " +
+      "from a document — the endpoint returns fourteen keys on every row and none of them carries " +
+      "any of these — which is reproducible with scripts/observe-capability-axes.ts. The shadow " +
+      "run over the real dev database was executed after the matrix changed and shows the " +
+      "reclassification on a real subject: seriesChange:ECOS:722Y001:0101000 now reports " +
+      "revision_integrity -> STRUCTURAL_LIMITATION and data_completeness -> DATA_QUALITY_ISSUE, " +
+      "where both previously read VERIFICATION_DEBT. Ceiling declared; nothing on our side " +
+      "closes it.",
+    remaining:
+      "Two limits on the measurement, stated rather than rounded off. It covers ONE series on one " +
+      "cycle (722Y001, monthly): the key set is a property of the endpoint and every row carried " +
+      "all fourteen, but a different statistic could populate the six that were empty here. And " +
+      "the missing-value marker is STILL unobserved — the window contained no gaps at all — so " +
+      "the largest documented unknown about this provider survives its live verification intact.",
+  },
+  {
+    proposalId: "CAP-CEILING-OPENDART",
+    commit: "recorded with this entry",
+    evidence:
+      "Raised by the generator on 2026-09-11 when HG-004 resolved and six OpenDART cells were " +
+      "measured NOT_SUPPORTED from a live list.json response over 827 disclosures: no span, no " +
+      "vintage, no next-filing field, no supersession link, no schema version and no provisional " +
+      "flag. Nine keys per row, enumerated. Verify classifies each absence as a structural " +
+      "limitation by the same path ECOS's now takes.",
+    remaining:
+      "No shadow output exercises an OpenDART-sourced claim, and that is a property of the " +
+      "verifier's subjects rather than an omission here: it reasons about series changes and " +
+      "regime axes, and OpenDART supplies filings. So this ceiling is pinned by the matrix and by " +
+      "unit tests, and not by a real shadow run — which is a weaker footing than CAP-CEILING-ECOS " +
+      "has, and is recorded as such rather than described as equivalent.",
+  },
+  {
     proposalId: "CAP-CEILING-SEC_EDGAR",
     commit: "4f19eee",
     evidence:

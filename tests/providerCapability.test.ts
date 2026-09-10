@@ -160,25 +160,42 @@ describe("what a capability cell is allowed to claim", () => {
 
 describe("what the matrix currently says", () => {
   /**
-   * The state of the world as of 2026-08-18, asserted so that a change to it has to be deliberate.
-   * Three of four providers have never returned a success response, and no amount of adapter code
-   * changes that.
+   * The state of the world, asserted so that a change to it has to be deliberate.
+   *
+   * This test has moved three times, and each move is the point of it. It began recording that
+   * only SEC EDGAR had ever returned a success response; FRED joined on 2026-09-06 when HG-002
+   * closed; ECOS and OpenDART joined on 2026-09-11 when HG-003 and HG-004 did. Every one of those
+   * failures was the test working — it binds to reality and therefore has to be edited when
+   * reality changes, which is the opposite of a test that quietly keeps passing.
    */
-  it("records which providers have been observed returning data: SEC EDGAR and, since HG-002, FRED", () => {
-    // FRED joined on 2026-09-06: 46/46 live contract checks, a real ingest and re-ingest, and a
-    // provenance read-back. ECOS and OpenDART still have never returned a success response.
+  it("records that all four providers have now been observed returning data", () => {
     for (const profile of PROVIDER_CAPABILITIES) {
       const liveAxes = CAPABILITY_AXES.filter(
         (axis) => profile.axes[axis].provenance === "LIVE_RESPONSE",
       );
-      if (profile.sourceCode === "SEC_EDGAR" || profile.sourceCode === "FRED") {
-        expect(liveAxes.length, `${profile.sourceCode} must be fully live`).toBe(
-          CAPABILITY_AXES.length,
-        );
-      } else {
-        expect(liveAxes, `${profile.sourceCode} claims live evidence`).toEqual([]);
-      }
+      expect(liveAxes.length, `${profile.sourceCode} must be fully live`).toBe(
+        CAPABILITY_AXES.length,
+      );
     }
+  });
+
+  it("carries no verification debt at all, and says so where a reader will look", () => {
+    // 56 of 56 cells on observed responses. Worth an assertion of its own rather than a corollary
+    // of the one above, because the interesting direction is the future: the next provider added
+    // to this matrix arrives with fourteen NOT_VERIFIED cells, and this is the test that will say
+    // so out loud instead of letting them sit.
+    const debt = PROVIDER_CAPABILITIES.flatMap((profile) =>
+      CAPABILITY_AXES.filter((axis) => profile.axes[axis].state === "NOT_VERIFIED").map(
+        (axis) => `${profile.sourceCode}.${axis}`,
+      ),
+    );
+    expect(debt).toEqual([]);
+
+    // And the consequence, recorded rather than papered over: with no provider in debt, the
+    // VERIFICATION_DEBT branch of `classifyEvidenceGap` is no longer reachable through any real
+    // profile. It is not dead code — it is the branch a fifth provider lands in on its first day —
+    // but nothing in this suite exercises it against real data any more, and that is a coverage
+    // fact worth stating where the next reader of this file will meet it.
   });
 
   it("keeps FRED's realtime_start honest, now from evidence rather than restraint", () => {
@@ -217,12 +234,20 @@ describe("classifying why a piece of evidence is missing", () => {
     expect(gap.blockedBy).toBeUndefined();
   });
 
-  it("a provider we have never called is verification debt, with an owner", () => {
-    // ECOS now plays this part. FRED did until 2026-09-06, when HG-002 resolved and its vintage
-    // axis became CONDITIONAL from measurement — the next control pins what that turned into.
+  it("no provider is in verification debt any more, so nothing plays that part", () => {
+    // ECOS played it until 2026-09-11, and FRED until 2026-09-06. ECOS's vintage axis is now a
+    // STRUCTURAL LIMITATION measured from the wire: the observed response carries fourteen fields
+    // and not one of them is a vintage, so the absence is the provider's and not ours.
+    //
+    // The distinction that survives is the one that mattered all along. "We have not looked" and
+    // "we looked and it is not there" are both an absent field at the point of use, and they call
+    // for opposite responses. ECOS has moved from the first to the second.
     const gap = classifyEvidenceGap("ECOS", "provider_vintage_time", false);
-    expect(gap.kind).toBe("VERIFICATION_DEBT");
-    expect(gap.blockedBy).toBe("HG-003");
+    expect(gap.kind).toBe("STRUCTURAL_LIMITATION");
+    expect(gap.blockedBy).toBeUndefined();
+    // The cell own basis, not the profile standing line: the first version of this assertion
+    // reached for a phrase that lives one level up, and failed against a matrix that was right.
+    expect(gap.rationale).toContain("became current at");
   });
 
   it("a provider whose evidence exists only under a request we do not make is a conditional absence", () => {
@@ -282,11 +307,14 @@ describe("Verify reading the capability matrix", () => {
    * and both are INSUFFICIENT_EVIDENCE, and they mean opposite things: one is the ceiling of what
    * SEC can ever supply, the other is a call we have not made.
    */
-  it("separates a permanent provider limitation from work nobody has done", () => {
-    // ECOS is the provider nobody has called. FRED was, until HG-002.
+  it("separates a permanent provider limitation from a conditional absence", () => {
+    // ECOS was the provider nobody had called, until 2026-09-11. Its vintage gap is now the same
+    // KIND as SEC's — measured, permanent, nothing owed — which is the outcome the debt state
+    // existed to make reachable rather than a weakening of it. No gate id appears any more,
+    // because there is no gate that would change the answer.
     const ecos = verify(macroFact("ECOS"));
-    expect(ecos.dimensions.revision_integrity.evidenceGap).toBe("VERIFICATION_DEBT");
-    expect(ecos.dimensions.revision_integrity.rationale).toContain("HG-003");
+    expect(ecos.dimensions.revision_integrity.evidenceGap).toBe("STRUCTURAL_LIMITATION");
+    expect(ecos.dimensions.revision_integrity.rationale).not.toContain("HG-");
 
     // FRED after 2026-09-06: the vintage is real but only under the realtime range, which the
     // ingest does not request, so a missing vintage on a stored FRED fact is a conditional
@@ -308,8 +336,11 @@ describe("Verify reading the capability matrix", () => {
     expect(verify(macroFact("FRED")).dimensions.data_completeness.evidenceGap).toBe(
       "DATA_QUALITY_ISSUE",
     );
+    // ECOS states `list_total_count` on every envelope — measured at 32 against 32 rows — so a
+    // stored ECOS output with no provider total is now the same kind of problem as FRED's: the
+    // record's, not the provider's.
     expect(verify(macroFact("ECOS")).dimensions.data_completeness.evidenceGap).toBe(
-      "VERIFICATION_DEBT",
+      "DATA_QUALITY_ISSUE",
     );
     expect(verify(macroFact("SEC_EDGAR")).dimensions.data_completeness.evidenceGap).toBe(
       "CONDITIONAL_ABSENCE",

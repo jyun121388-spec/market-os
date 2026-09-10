@@ -18,9 +18,10 @@ STATUS as of 2026-08-18:
 - Shadow layers implemented: Reality Fabric projection, Verify, Governance policy engine,
   Evolution ledger and detector — plus the provider-vintage contract that ties them together.
 
-- Provider capability matrix covers 14 axes × 4 providers = 56 cells. SEC_EDGAR and (since
-  2026-09-06, HG-002) FRED have live evidence on every axis; ECOS and OpenDART are entirely
-  NOT_VERIFIED behind HG-003/004, which is 28 of the 56 (was 42 before FRED's key arrived). Counted 2026-08-31 by running the matrix. This line said 13, and the suite has asserted
+- Provider capability matrix covers 14 axes × 4 providers = 56 cells, and as of 2026-09-11
+  ALL 56 rest on live evidence: 23 SUPPORTED, 24 NOT_SUPPORTED, 9 CONDITIONAL, zero
+  NOT_VERIFIED. ECOS and OpenDART were the last 28, measured when HG-003 and HG-004 closed.
+  Re-measure with `npx tsx scripts/observe-capability-axes.ts`, never from memory. This line said 13, and the suite has asserted
   14 for as long as the fourteenth axis has existed — a documented number nobody re-measured, which
   is the failure class the "last thing learned" section at the bottom of this file is about.
 

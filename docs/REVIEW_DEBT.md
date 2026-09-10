@@ -5176,3 +5176,66 @@ the `sources` table does not have. And a launcher that had stopped the database 
 reported as not having: the helper resolved with `out`, a STRING, so everything printed after
 READY — including the line saying it had stopped — was invisible to the caller. Resolved with a
 mutable holder instead.
+
+### IR-146 — the clean room, and a redaction that was wrong twice before it was right
+
+The last unit of the packaging authority: the distribution copied to a path that has nothing to do
+with this repository AND CONTAINS A SPACE, installed and started through the `.cmd` files a person
+would actually double-click, with the developer's environment stripped out.
+
+The environment is built by ALLOWING a short list rather than by deleting one. Deleting means the
+check is only as good as the variables somebody remembered, and the whole claim is that nothing
+from this machine is carrying the installation.
+
+34 of 34. `Install Market OS.cmd` creates a cluster and writes a configuration; running it again
+changes nothing; `Market OS.cmd` brings the whole thing up, applies 17 migrations, serves real
+pages; a cold restart reaches READY, applies nothing, and finds its data intact; the developer's
+own cluster on 55432 was never involved.
+
+Two defects, both found by RUNNING it rather than by reading it, and both invisible to every test
+that had passed until then.
+
+### An em dash broke the launcher completely
+
+`Market OS.cmd` contained `refuses — a port already in use —` in a COMMENT. cmd.exe reads a `.cmd`
+in the console's codepage, which on this machine is not UTF-8; it mis-decoded the three bytes and
+then executed the surrounding comment text as commands, reporting that `The`, `an` and `exactly`
+were not recognised programs, and finally that Node could not be found. Nothing in that output
+points at an encoding.
+
+`Install Market OS.cmd` was pure ASCII and worked, which is why the installer half of the
+acceptance passed while the launcher half did not — the same file format, one byte apart.
+
+`stage-runtime.ts` now REFUSES to package a `.cmd` containing any byte above 0x7F, and normalises
+line endings to CRLF on the way, since a `.cmd` with bare LF endings is a documented Windows hazard
+and the checkout's line-ending settings vary by machine. Both staging paths use the same copier:
+two copy paths with one of them lenient is how the broken file ships anyway.
+
+### The build directory, and a redaction that looked done twice
+
+`next build` writes the directory it ran in into `.next/required-server-files.json` and into dozens
+of compiled server chunks — 456 occurrences across 37 files. The app does not resolve anything from
+it, but it hands every user a verbatim description of the layout of the machine that built it.
+
+The first replacement used `<market-os-build-dir>` and broke the package outright: Prisma's
+generated client records its own location and parses it as a `file:` URL, and the angle brackets
+made that URL invalid. Every page failed and the server never became ready. So the replacement has
+to be a PATH — something that can be parsed, joined and URL-encoded exactly like what it replaces.
+It does not have to exist; the original does not exist on a user's machine either, which is the
+point, and running with a nonexistent build directory is a STRONGER test of independence from the
+checkout than running with the real one still there.
+
+The second attempt enumerated three spellings — one backslash as Windows writes it, two where a
+string escapes it, and forward slashes — and missed the two that mattered:
+`.next/server/app/login/page.js` carries the path with FOUR backslashes, a string inside a string,
+and `.next/server/app/favicon.ico/route.js` carries it PERCENT-ENCODED as
+`C%3A%5CAI-Projects%5C...` inside a loader argument. Enumeration was the wrong shape of answer. The
+matcher now takes a separator run in any of those forms, reproduces the SAME form in the
+replacement, and requires every later separator to be a backreference so a match is a consistently
+spelled path rather than a lucky splice.
+
+And the verification was changed to be BROADER than the thing doing the replacing: it looks for the
+bare directory NAME, which has no separators in it and therefore survives every escaping and every
+encoding. Both misses would have passed a path check and failed this one. That is the general
+lesson worth keeping — a redaction verified with its own matcher can only confirm what the matcher
+already understands.

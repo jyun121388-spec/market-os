@@ -27,6 +27,7 @@ import {
 import { join, resolve, sep } from "node:path";
 
 import {
+  copyPackagedFile,
   isForbiddenStagedPath,
   stageRuntime,
   walkStagedTree,
@@ -115,7 +116,10 @@ export function buildInstaller(
 
   for (const [name, destination] of Object.entries(PACKAGED_INSTALLER_FILES)) {
     const to = join(outDir, ...destination.split("/"));
-    cpSync(join(REPO, "packaging", name), to);
+    // The same copier the runtime staging uses, so the installer's `.cmd` gets the same ASCII
+    // refusal and the same CRLF endings. Two copy paths with one of them lenient is how the
+    // broken one ships.
+    copyPackagedFile(join(REPO, "packaging", name), to);
   }
 
   const postgres = stagePostgres(outDir, postgresSource);

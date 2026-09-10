@@ -166,3 +166,33 @@ describe("readiness answers the launcher's question without leaking", () => {
     for (const r of reasons) expect(READINESS_VOCABULARY as readonly string[]).toContain(r);
   });
 });
+
+describe("the developer's build directory", () => {
+  it("is replaced in the staged tree, in all three spellings it appears as", () => {
+    // `next build` writes the directory it ran in into `.next/required-server-files.json` and into
+    // several compiled server chunks. The packaged app does not RESOLVE anything from it — it runs
+    // with the checkout untouched — but it hands every user a verbatim description of the layout
+    // of the machine that built it. The clean-room acceptance found it by looking, and "the app
+    // still works" is not an argument for shipping it.
+    const stager = readFileSync(join(process.cwd(), "scripts", "stage-runtime.ts"), "utf8");
+    expect(stager).toContain("BUILD_DIR_PLACEHOLDER_SEGMENTS");
+    // Separators of ANY run length, rather than an enumerated list of spellings. The path appears
+    // with one backslash as Windows wrote it, two where a string escapes it, FOUR where a string
+    // containing that string is escaped again, and with forward slashes in URLs. The first version
+    // listed three and missed the fourth, which is how a redaction ends up looking finished while
+    // `.next/server/app/login/page.js` still names the developer's checkout.
+    expect(stager).toContain("const segments = buildDir.split");
+    expect(stager).toContain("separator");
+
+    // And the replacement is a PATH, not a marker. `<market-os-build-dir>` made an invalid `file:`
+    // URL out of the location Prisma's generated client records for itself, and every page failed
+    // with a parse error. Angle brackets are the specific thing that must not come back.
+    const stagerModule = stager.slice(stager.indexOf("BUILD_DIR_PLACEHOLDER_SEGMENTS"));
+    expect(stagerModule.slice(0, 200)).not.toContain("<market-os");
+  });
+
+  it("is verified gone on the RESULT, not trusted to the replacement", () => {
+    const stager = readFileSync(join(process.cwd(), "scripts", "stage-runtime.ts"), "utf8");
+    expect(stager).toContain("still name the build directory");
+  });
+});

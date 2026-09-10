@@ -247,6 +247,39 @@ describe("the thing a user runs once", () => {
   });
 });
 
+describe("the batch files, which cmd.exe reads in the console's codepage", () => {
+  it("uses no byte above 0x7F, anywhere", () => {
+    // An em dash (U+2014) in a COMMENT inside `Market OS.cmd` broke the entire launcher on a
+    // machine whose console codepage is not UTF-8: cmd.exe mis-decoded the three bytes and then
+    // executed the surrounding comment text as commands, reporting that `The`, `an` and `exactly`
+    // were not recognised programs. Nothing about the failure pointed at an encoding.
+    for (const name of ["Market OS.cmd", "Install Market OS.cmd"]) {
+      const bytes = readFileSync(join(PACKAGING, name));
+      const offending = bytes.findIndex((b) => b > 0x7f);
+      expect(offending, `${name} has a non-ASCII byte at offset ${offending}`).toBe(-1);
+    }
+  });
+
+  it("is copied through the packager that enforces that, not by a plain copy", () => {
+    // Both staging paths use the same copier. Two copy paths with one of them lenient is how the
+    // broken file ships anyway.
+    const stager = readFileSync(join(process.cwd(), "scripts", "stage-runtime.ts"), "utf8");
+    expect(stager).toContain("export function copyPackagedFile");
+    expect(stager).toContain("0x7f");
+    // And CRLF, because a .cmd with bare LF endings is a documented Windows hazard and the
+    // checkout's line-ending settings vary by machine.
+    //
+    // Asserted through the variable name rather than by quoting the regex. Writing `\r` into an
+    // expectation means writing it through two layers of escaping, and this environment collapses
+    // backslashes in exactly that situation — the first version of this line compared against a
+    // literal carriage return and failed on a stager that was correct.
+    expect(stager).toContain("const crlf =");
+    expect(stager).toContain("CRLF");
+    const builder = readFileSync(join(process.cwd(), "scripts", "build-installer.ts"), "utf8");
+    expect(builder).toContain("copyPackagedFile(join(REPO");
+  });
+});
+
 describe("what a distribution may contain", () => {
   it("stages the installer separately from the runtime", () => {
     // A runtime staged for testing has no business carrying a program that runs `initdb`.

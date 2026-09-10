@@ -504,6 +504,19 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+THE CLEAN ROOM, AND A REDACTION THAT WAS WRONG TWICE (2026-09-11, IR-146)
+The packaging authority is complete. The distribution, copied to a path with a SPACE that
+has nothing to do with this repository and run through the `.cmd` files a person would
+double-click with the developer's environment stripped out: 34/34. Install, launch,
+17 migrations, real pages, a cold restart that applies nothing and finds its data intact.
+Two defects found by RUNNING it. An em dash in a COMMENT broke `Market OS.cmd` entirely --
+cmd.exe read it in a non-UTF-8 codepage and executed the comment text as commands -- so
+the stager now refuses any `.cmd` byte above 0x7F and writes CRLF. And `next build` bakes
+the build directory into 456 places; the redaction was wrong twice (angle brackets broke
+Prisma's `file:` URL; an enumeration of three spellings missed four-backslash and
+percent-encoded forms) before being made separator-agnostic and verified against the bare
+DIRECTORY NAME, which is broader than the matcher that does the replacing.
+
 AN INSTALLER, A RESTART, AND THREE WAYS A PROGRAM FAILS TO STOP (2026-09-11, IR-145)
 Units J and K. A 411 MB distribution bundles PostgreSQL and creates its own cluster on a
 machine that has never had one; 51/51 measured end to end, including a restart that
@@ -1118,8 +1131,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-3012 / 3012 PASS across 172 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2992 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+3016 / 3016 PASS across 172 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 2997 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

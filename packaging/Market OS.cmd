@@ -32,9 +32,15 @@ if not exist "%MARKET_OS_NODE%" (
 "%MARKET_OS_NODE%" "%~dp0launcher.mjs" --stay
 set "MARKET_OS_EXIT=%ERRORLEVEL%"
 
-rem  Hold the window open on failure. Without this a double-clicked launcher that
-rem  refuses — a port already in use, a database that belongs to something else —
-rem  closes instantly and the user sees nothing at all.
+rem  Hold the window open on failure. Without this a double-clicked launcher
+rem  that refuses - a port already in use, a database that belongs to something
+rem  else - closes instantly and the user sees nothing at all.
+rem
+rem  ASCII only, everywhere in this file. An em dash here (U+2014, three UTF-8
+rem  bytes) broke the whole script on a machine whose console codepage is not
+rem  UTF-8: cmd.exe mis-decoded it and then executed the surrounding comment
+rem  text as commands. The clean-room acceptance caught it; stage-runtime.ts
+rem  now refuses to package a .cmd containing any byte above 0x7F.
 if not "%MARKET_OS_EXIT%"=="0" (
   echo.
   echo Market OS stopped with code %MARKET_OS_EXIT%. The messages above say why.

@@ -275,6 +275,113 @@ function stageMigrationToolchain(outDir: string): {
   return { version, packages, reused };
 }
 
+/**
+ * Copy one packaged file, and for a `.cmd` make it something cmd.exe can actually read.
+ *
+ * Two conversions, both of which cost a real failure to learn:
+ *
+ *  - ASCII only. An em dash (U+2014) in a comment inside `Market OS.cmd` broke the entire script
+ *    on a machine whose console codepage is not UTF-8: cmd.exe mis-decoded the three UTF-8 bytes
+ *    and then executed the surrounding COMMENT TEXT as commands, reporting that `The`, `an` and
+ *    `exactly` were not recognised programs. The launcher never ran. This refuses rather than
+ *    transliterates, because a batch file is not the place to be clever about encodings.
+ *  - CRLF. A `.cmd` with bare LF endings is a documented hazard on Windows, and the repository is
+ *    checked out with `core.autocrlf` settings that vary by machine. The bytes that ship should
+ *    not depend on that.
+ */
+export function copyPackagedFile(from: string, to: string) {
+  if (!from.toLowerCase().endsWith(".cmd")) {
+    cpSync(from, to);
+    return;
+  }
+  const bytes = readFileSync(from);
+  const offending = bytes.findIndex((b) => b > 0x7f);
+  if (offending !== -1) {
+    throw new Error(
+      `${from} contains a non-ASCII byte at offset ${offending}. A .cmd is read in the console's ` +
+        `codepage, and one such byte has already broken a launcher completely. Use plain ASCII.`,
+    );
+  }
+  const crlf = bytes.toString("utf8").replace(/\r?\n/g, "\r\n");
+  writeFileSync(to, crlf, "utf8");
+}
+
+/**
+ * The path that replaces the developer's build directory in the staged tree.
+ *
+ * A PATH, not a marker, and that distinction cost a broken package to learn. The first version
+ * used `<market-os-build-dir>`, and the angle brackets made an invalid `file:` URL out of the
+ * location Prisma's generated client records for itself — every page failed with a URL parse
+ * error and the server never became ready. So the replacement has to be something that can be
+ * parsed, joined and URL-encoded exactly like the thing it replaces. It does not have to EXIST:
+ * the original does not exist on a user's machine either, which is the whole point.
+ */
+export const BUILD_DIR_PLACEHOLDER_SEGMENTS = ["C:", "MarketOS", "build"];
+
+/**
+ * Remove the developer's absolute build directory from the staged tree.
+ *
+ * `next build` writes the directory it ran in into `.next/required-server-files.json` and into
+ * dozens of compiled server chunks. It hands every user a verbatim description of the layout of
+ * the machine that built it, in files they never asked for, and the clean-room acceptance found
+ * it by looking. "The app still works" is not an argument for shipping it.
+ *
+ * The separators are the hard part, and enumerating spellings was the wrong approach. The path
+ * appears with ONE backslash as Windows wrote it, TWO where a JS or JSON string escapes it, FOUR
+ * where a string containing that string is escaped again, and with forward slashes in URLs. The
+ * first version listed the first three and missed the fourth, which is how a redaction ends up
+ * looking finished while `.next/server/app/login/page.js` still names the developer's checkout.
+ *
+ * So: match a run of separators of ANY length, and rebuild the replacement with the SAME run, so
+ * whatever escaping level the surrounding code is at survives intact.
+ */
+function buildDirPattern(buildDir: string): RegExp {
+  const segments = buildDir.split(/[\\/]+/).filter((s) => s.length > 0);
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Group 1: the drive's colon, literal or percent-encoded. Group 2: one separator run, in any of
+  // the four forms observed in a real build — backslashes, forward slashes, and the percent
+  // encodings of each. Every later separator is a BACKREFERENCE to group 2, so a match is a path
+  // spelled consistently rather than a lucky splice of two different ones.
+  const drive = /^[A-Za-z]:$/.test(segments[0])
+    ? `${segments[0][0]}(:|%3[Aa])`
+    : escape(segments[0]);
+  const separator = "((?:\\\\+|/+|%5[Cc]|%2[Ff]))";
+  const rest = segments.slice(1).map(escape);
+  return new RegExp(drive + separator + rest.join("\\2"), "g");
+}
+
+function scrubBuildPaths(outDir: string, buildDir: string): { files: number; hits: number } {
+  const pattern = buildDirPattern(buildDir);
+
+  let files = 0;
+  let hits = 0;
+  for (const staged of walkStagedTree(outDir, outDir)) {
+    if (!/\.(js|mjs|cjs|json|map)$/.test(staged.path)) continue;
+    const full = join(outDir, ...staged.path.split("/"));
+    let text: string;
+    try {
+      text = readFileSync(full, "utf8");
+    } catch {
+      continue;
+    }
+    const changed = text.replace(pattern, (...args) => {
+      hits += 1;
+      const colon = String(args[1] ?? ":");
+      const separator = String(args[2] ?? "\\");
+      const [drive, ...rest] = BUILD_DIR_PLACEHOLDER_SEGMENTS;
+      // Rebuilt in the SAME spelling it was found in, so a percent-encoded loader argument stays
+      // percent-encoded and a doubly-escaped string literal stays doubly escaped.
+      return `${drive.replace(":", colon)}${separator}${rest.join(separator)}`;
+    });
+    if (changed !== text) {
+      writeFileSync(full, changed, "utf8");
+      files += 1;
+    }
+  }
+  return { files, hits };
+}
+
 export function stageRuntime(outDir: string): {
   outDir: string;
   files: StagedFile[];
@@ -316,7 +423,43 @@ export function stageRuntime(outDir: string): {
   for (const [name, destination] of Object.entries(PACKAGED_SETUP_FILES)) {
     const to = join(outDir, ...destination.split("/"));
     mkdirSync(dirname(to), { recursive: true });
-    cpSync(join(REPO, "packaging", name), to);
+    copyPackagedFile(join(REPO, "packaging", name), to);
+  }
+
+  // 7. The developer's build directory, removed from what ships. Verified on the RESULT rather
+  //    than trusted to the pass above, for the same reason the forbidden-path check is: a
+  //    replacement that missed a spelling looks identical to one that had nothing to find.
+  const scrub = scrubBuildPaths(outDir, REPO);
+  const buildDirName =
+    REPO.split(/[\\/]+/)
+      .filter(Boolean)
+      .pop() ?? REPO;
+  const remaining: string[] = [];
+  for (const staged of walkStagedTree(outDir, outDir)) {
+    if (!/\.(js|mjs|cjs|json|map)$/.test(staged.path)) continue;
+    let text: string;
+    try {
+      text = readFileSync(join(outDir, ...staged.path.split("/")), "utf8");
+    } catch {
+      continue;
+    }
+    // Checked against the DIRECTORY NAME alone, not against the path. That is deliberately
+    // broader than the thing doing the replacing: a name has no separators in it, so it survives
+    // every escaping and every encoding, and it therefore catches a spelling the scrubber cannot
+    // see. Both times this redaction was wrong — a fourth backslash level, and a percent-encoded
+    // loader argument — the path check would have passed and this one would not.
+    if (text.includes(buildDirName)) {
+      remaining.push(staged.path);
+    }
+  }
+  if (remaining.length > 0) {
+    throw new Error(
+      `staging refused: ${remaining.length} file(s) still name the build directory:\n` +
+        remaining
+          .slice(0, 10)
+          .map((p) => `  ${p}`)
+          .join("\n"),
+    );
   }
 
   const files = walkStagedTree(outDir, outDir).sort((a, b) => a.path.localeCompare(b.path));
@@ -345,6 +488,7 @@ export function stageRuntime(outDir: string): {
     fileCount: files.length,
     totalBytes: files.reduce((sum, f) => sum + f.bytes, 0),
     migrations: readdirSync(join(outDir, "prisma", "migrations")).filter((n) => /^\d/.test(n)),
+    buildPathScrub: { files: scrub.files, occurrences: scrub.hits },
     migrationRunner: {
       prismaVersion: toolchain.version,
       packages: toolchain.packages,

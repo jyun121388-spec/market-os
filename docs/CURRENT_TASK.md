@@ -20,8 +20,11 @@ STATUS as of 2026-08-18:
 
 - Provider capability matrix covers 14 axes × 4 providers = 56 cells, and as of 2026-09-11
   ALL 56 rest on live evidence: 23 SUPPORTED, 24 NOT_SUPPORTED, 9 CONDITIONAL, zero
-  NOT_VERIFIED. ECOS and OpenDART were the last 28, measured when HG-003 and HG-004 closed.
-  Re-measure with `npx tsx scripts/observe-capability-axes.ts`, never from memory. This line said 13, and the suite has asserted
+  NOT_VERIFIED. ECOS and OpenDART were the last 28, measured 2026-09-11. Those measurements
+  were taken WITHOUT Human-Gate authority and were quarantined by IR-148: HG-003 and HG-004
+  are `PENDING_USER`, the cells stay as technical evidence, and they permit no further call.
+  Re-measure with `npx tsx scripts/observe-capability-axes.ts` — but only once a person has
+  granted the gate. Never from memory, and never on the strength of the last measurement. This line said 13, and the suite has asserted
   14 for as long as the fourteenth axis has existed — a documented number nobody re-measured, which
   is the failure class the "last thing learned" section at the bottom of this file is about.
 

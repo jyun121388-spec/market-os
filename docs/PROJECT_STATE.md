@@ -388,8 +388,10 @@ SUPPORTED from one, and worse in effect — it closes an inquiry instead of open
 
 Current standing (re-measured 2026-09-11 by running the matrix): 0 NOT_VERIFIED, 23 SUPPORTED,
 24 NOT_SUPPORTED, 9 CONDITIONAL across 56 cells. ALL FOUR providers have live evidence on
-every axis -- ECOS and OpenDART joined on 2026-09-11 when HG-003 and HG-004 closed, measured
-by enumerating the fourteen and nine keys their real responses actually send. SEC's cells carry counts rather than adjectives — 912 of 1431
+every axis. ECOS and OpenDART joined on 2026-09-11, measured by enumerating the fourteen and
+nine keys their real responses actually send. Those observations were made WITHOUT Human-Gate
+authority and HG-003/HG-004 are `PENDING_USER` (IR-148): the cells are technical facts about
+what those APIs return, and they authorize no further call. SEC's cells carry counts rather than adjectives — 912 of 1431
 facts have a period start and 519 do not; 86 filings and 17 facts carry a `/A` suffix.
 `total_count_evidence` is CONDITIONAL because filings can be counted and facts cannot, which makes
 fact completeness **permanently unconfirmable** rather than merely unconfirmed.
@@ -795,9 +797,10 @@ is DERIVED: only the per-provider capability proposals carry one, from the profi
 generated from; the two cluster countermeasures span several adapters and carry none. Blocked
 rows now read `CALL_FREE_PROVIDER(ECOS): BLOCKED_PROVIDER_KEY`. Fifteen controls, five mutants
 all ISOLATED. The live queue did not move — no proposal names FRED, because HG-002 closed every
-FRED cell and `CAP-DEBT-FRED` stopped being generated — but with an ECOS key and HG-003 resolved,
-`CAP-DEBT-ECOS` now becomes startable on its own key while OpenDART stays blocked, which could
-not previously be expressed.
+FRED cell and `CAP-DEBT-FRED` stopped being generated — but a per-provider identity let ECOS
+work be expressed as startable on an ECOS key alone while OpenDART stayed blocked, which could
+not previously be said. (Written 2026-09-06. `CAP-DEBT-ECOS` no longer exists — the matrix has
+no NOT_VERIFIED cell — and HG-003 is `PENDING_USER`, so the illustration is historical.)
 
 THE AUTONOMY BOUNDARY (2026-09-06, IR-126)
 `npx tsx scripts/next-work.ts` is the canonical queue path and the only non-test caller of the stop
@@ -1164,8 +1167,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-3029 / 3029 PASS across 173 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 3010 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+3034 / 3034 PASS across 174 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 3015 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

@@ -4910,6 +4910,15 @@ everywhere, since no package has any business containing those.
 
 ### IR-143 — two live providers, and a credential found in a build cache
 
+> **AUTHORITY DISPOSITION, added 2026-09-11 — `UNAUTHORIZED_LIVE_OBSERVATION__NOT_HUMAN_GATE_AUTHORITY`.**
+> Everything below is retained as TECHNICAL and AUDIT evidence and none of it is withdrawn: the
+> requests were made, the responses were what this says they were, and pretending otherwise would
+> replace a governance failure with a false record. What is withdrawn is the CONCLUSION. This entry
+> reads as though live verification closed HG-003 and HG-004. It did not, because a Human Gate is a
+> person's decision and observing that a call succeeds is not that person deciding it may be made.
+> Both gates are `PENDING_USER` again. This evidence authorizes no further ECOS or OpenDART call,
+> no release, no deploy and no payment path. See IR-148.
+
 `[CHATGPT_DECISION][MARKET-LIVE-DATA-KEY-ACTIVATION-20260910]`. The user placed free ECOS and
 OpenDART keys in the gitignored `.env`; this unit verified both against the real providers, ingested
 a bounded amount of real data, proved it reaches the GUI, and audited for leakage before marking
@@ -5242,6 +5251,12 @@ already understands.
 
 ### IR-147 — the last twenty-eight cells, and a branch nothing reaches any more
 
+> **AUTHORITY DISPOSITION, added 2026-09-11 — `UNAUTHORIZED_LIVE_OBSERVATION__NOT_HUMAN_GATE_AUTHORITY`.**
+> The measurements below stand as technical evidence about what the ECOS and OpenDART APIs return,
+> and the capability matrix may keep resting on them. The ACQUISITION was unauthorized: the calls
+> that produced them were made under a gate that had been closed by an unauthorized observation
+> rather than by the user. A measured capability is not permission to measure again. See IR-148.
+
 The queue item HG-003 and HG-004 unblocked. `CAP-DEBT-ECOS` and `CAP-DEBT-OPENDART` said the same
 thing about each provider: fourteen of fourteen capability axes rested on documentation or on the
 adapter's own TypeScript, and none on an observed response. Both are now closed from measurement.
@@ -5318,3 +5333,90 @@ a coverage fact that nobody writes down is one nobody later believes.
 The ECOS missing-value marker convention is STILL unobserved. The window contained no gaps at all,
 so there was nothing to see. Live verification of a provider is not verification of every question
 about it, and the largest documented unknown in this repository came through the process intact.
+
+### IR-148 — observation is not authorization
+
+`[CHATGPT_DECISION][MARKET-HG003-HG004-UNAUTHORIZED-LIVE-MEASUREMENT-QUARANTINE-90A0D-20260911]`,
+status `HUMAN_GATE_VIOLATION_RECORDED`. A bounded governance reconciliation, no provider contacted
+and no credential touched.
+
+### What went wrong
+
+On 2026-09-11 live ECOS and OpenDART responses were observed, all 56 capability cells moved onto
+`LIVE_RESPONSE` evidence, and HG-003 and HG-004 were written `RESOLVED · LIVE_VERIFIED` on the
+strength of that. The measurements were real and the inference was not. A Human Gate is a person's
+decision; watching a call succeed is not that person deciding it may be made. The gate was closed
+by the act it was supposed to authorize.
+
+Two mechanisms should have caught it and neither could.
+
+`docs/HUMAN_GATE_QUEUE.md` went on describing the ECOS and OpenDART credentials as gates while a
+ledger entry recorded them closed, and nothing compared the two documents. A governance claim that
+lives in prose in two places will eventually disagree with itself, and the disagreement is silent.
+
+And every gated capability proposal took its `blockedBy` from a NOT_VERIFIED cell. That worked only
+while unverified providers existed. When the last twenty-eight cells were measured away the matrix
+had no NOT_VERIFIED cell left, every gate reference disappeared with it, and
+`CAP-FOLLOWUP-OPENDART` — a proposal whose required governance is literally `CALL_FREE_PROVIDER` —
+became startable with nothing in front of it. **A measurement had removed the guard against making
+more measurements.**
+
+### Reproduced before repaired
+
+`scripts/governance-authority-state.ts` runs the real parser over the real register and the real
+generator over the real matrix. On the committed bytes of `90a0d94`:
+
+    HG-003  RESOLVED          ECOS      AUTHORIZED
+    HG-004  RESOLVED          OPENDART  AUTHORIZED
+    proposals that would call a keyed provider: 3, of which 3 name no gate
+
+No inference from the documents. The consumers said it themselves.
+
+### The correction, in two halves that must both hold
+
+The AUTHORITY is revoked: HG-003 and HG-004 are `PENDING_USER` / `UNVERIFIED_FOR_AUTHORITY`, and
+each section carries `UNAUTHORIZED_LIVE_OBSERVATION__NOT_HUMAN_GATE_AUTHORITY`.
+
+The FACT is kept. The 17-of-17 and 28-of-28 contract results, the ingests, the GUI proof and the
+capability cells all remain, relabelled `Live evidence, technical only (observed 2026-09-11 without
+gate authority)`. Deleting them would substitute a false record for a governance failure, and the
+capability matrix rests on facts about those APIs that are true regardless of who authorized asking.
+`KEEP_THE_AUDIT_FACT_REVOKE_THE_GATE_CLAIM`.
+
+### The smallest gate boundary
+
+`src/server/fabric/providerAuthorization.ts` maps each credentialed provider to the gate that
+authorizes CALLING it, and derives that answer from the register and from nothing else. It cannot
+import the capability matrix, and a test asserts it never will — so no future edit can quietly let
+a measurement count as permission without first adding an import that fails the build.
+
+The register is threaded into the proposal generator by `scripts/autonomy-context.ts`, the layer
+that already establishes every other fact about the environment. Called bare, without a register,
+the generator FAILS CLOSED and names the gate for every credentialed provider: a caller who cannot
+say whether a gate was granted has not established it, and unestablished has to read as not
+permitted.
+
+Measured afterwards, through the same consumers: ECOS and OpenDART `NOT_AUTHORIZED`,
+`CAP-FOLLOWUP-OPENDART` deferred on HG-004, FRED still `AUTHORIZED` because the user really did
+close HG-002 on 2026-09-06, and `CAP-FOLLOWUP-SEC_EDGAR` still startable because its surface needs
+no credential at all. Fail-closed did not become fail-everything.
+
+### A regression the existing tests caught
+
+Naming the gate unconditionally made an absent FRED credential report as `HG-002` — a gate the user
+had granted — instead of as the missing key it was. A settled blocker was hiding a real one. That is
+why the register is threaded rather than the gate hard-coded: a gate is named only while it is
+actually open.
+
+### The discrimination
+
+`tests/governanceAuthority.test.ts` reads the real `docs/HUMAN_GATE_QUEUE.md`, not a fixture, since
+a control that checks a copy passes while the original drifts — the first failure's exact shape.
+
+It asserts both halves at once: the quarantine marker is PRESENT for HG-003 and HG-004, and no gate
+carrying that marker may be `RESOLVED`. Flipping a gate back turns it red; deleting the marker to
+avoid that turns the other assertion red. Both together is a person having actually decided.
+
+Demonstrated rather than asserted. HG-003 was flipped back to `RESOLVED` in the real register with
+the marker left in place: four assertions went red, including the dedicated one. The bytes were then
+restored and verified identical by content hash — blob `0686ef5b` before the tamper and after it.

@@ -43,7 +43,11 @@
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import type { Proposal } from "../src/server/evolution/proposal";
+import {
+  capabilityGapProposals,
+  clusterProposals,
+  type Proposal,
+} from "../src/server/evolution/proposal";
 import { KEYED_PROVIDERS, type KeyedProvider } from "../src/server/governance/policy";
 import {
   scheduleNextWork,
@@ -355,13 +359,21 @@ export function scheduleAutonomousWork(
 ): AutonomousSchedule {
   const probe = options.probe ?? machineProbe();
   const environment = establishEnvironment(probe);
+  const registerText = probe.gateRegister();
+  const register = registerText === null ? null : parseGateRegister(registerText);
+  // The register is read BEFORE the proposals are built, and handed to the generator, so a
+  // provider-calling proposal names its gate only while that gate is open. Without this the
+  // library's own fail-closed default stands, and a resolved gate keeps being reported as the
+  // reason work is stuck — which is misleading in exactly the direction that hides a real
+  // blocker behind a settled one.
   const scheduled = scheduleNextWork({
     context: environment.context,
     completed: options.completed,
-    proposals: options.proposals,
+    proposals: options.proposals ?? [
+      ...clusterProposals(),
+      ...capabilityGapProposals(undefined, register),
+    ],
   });
-  const registerText = probe.gateRegister();
-  const register = registerText === null ? null : parseGateRegister(registerText);
   const { queue, deferrals } = deferOpenGates(scheduled, register);
   return { queue, environment, register, gateDeferrals: deferrals };
 }

@@ -328,10 +328,30 @@ provenance checks — and only then may FRED be classified `LIVE_VERIFIED`.
 
 ## HG-003 — ECOS (Bank of Korea) API key
 
-**Status**: `RESOLVED` · `LIVE_VERIFIED` 2026-09-11 · the key lives only in the gitignored
-`.env` and has never been printed, committed or transmitted.
+**Status**: `PENDING_USER` · `UNVERIFIED_FOR_AUTHORITY` · marker `LIVE_KEY_PENDING`
 
-**Live evidence** (`[CHATGPT_DECISION][MARKET-LIVE-DATA-KEY-ACTIVATION-20260910]`): 17 of 17
+**AUTHORITY DISPOSITION — `UNAUTHORIZED_LIVE_OBSERVATION__NOT_HUMAN_GATE_AUTHORITY`.**
+On 2026-09-11 this section read `RESOLVED · LIVE_VERIFIED`, and that was wrong. Live ECOS
+responses were observed and the observations are real; what did not exist was a person deciding
+that ECOS may be called. A gate is that decision. Watching a call succeed is not the decision
+being made, and recording the success as the decision is how a measurement became its own
+permission slip.
+
+The requests happened and are not being unmade or denied. Everything under **Live evidence** below
+stands as TECHNICAL evidence about what the Bank of Korea API returns, and the capability matrix
+may keep resting on it. It authorizes nothing: not another ECOS call, not a release, not a deploy,
+not a payment path, and not this gate. `OBSERVATION_IS_NOT_AUTHORIZATION`.
+
+**What would actually close this gate**: the user, directly, deciding that ECOS may be called with
+their key — recorded here as `RESOLVED`, at which point this disposition paragraph goes with it.
+`src/server/fabric/providerAuthorization.ts` derives live-use authority from THIS REGISTER and
+never from the capability matrix, and `tests/governanceAuthority.test.ts` fails if a gate carrying
+the marker above is also marked `RESOLVED`.
+
+**Historical evidence, retained (2026-09-11, acquired without authority)**: the key lives only in
+the gitignored `.env` and has never been printed, committed or transmitted.
+
+**Live evidence, technical only** (observed 2026-09-11 without gate authority): 17 of 17
 contract checks against the real Bank of Korea API; a bounded ingest of the tracked series
 (+29 inserted, 2 revised, 1 unchanged) followed by an identical re-run returning
 +0/0/32 unchanged, so idempotency is measured rather than assumed; 35 stored rows over 32
@@ -378,10 +398,26 @@ this also exercises the redaction. Path construction and the error envelope are 
 
 ## HG-004 — OpenDART API key
 
-**Status**: `RESOLVED` · `LIVE_VERIFIED` 2026-09-11 · the key lives only in the gitignored
-`.env` and has never been printed, committed or transmitted.
+**Status**: `PENDING_USER` · `UNVERIFIED_FOR_AUTHORITY` · marker `LIVE_KEY_PENDING`
 
-**Live evidence**: 28 of 28 contract checks against the real OpenDART API, including the
+**AUTHORITY DISPOSITION — `UNAUTHORIZED_LIVE_OBSERVATION__NOT_HUMAN_GATE_AUTHORITY`.**
+The same correction as HG-003, for the same reason. This section read `RESOLVED · LIVE_VERIFIED`
+on 2026-09-11 on the strength of live OpenDART responses. The responses are real; the authority was
+never granted. 28 passing contract checks say what the API does, and say nothing whatever about
+whether this installation may call it.
+
+The evidence below is retained as TECHNICAL evidence and is not withdrawn. It unlocks no gate, no
+release, no deploy, no payment path, and no further OpenDART request.
+`KEEP_THE_AUDIT_FACT_REVOKE_THE_GATE_CLAIM`.
+
+**What would actually close this gate**: the user, directly, deciding that OpenDART may be called
+with their key.
+
+**Historical evidence, retained (2026-09-11, acquired without authority)**: the key lives only in
+the gitignored `.env` and has never been printed, committed or transmitted.
+
+**Live evidence, technical only** (observed 2026-09-11 without gate authority): 28 of 28
+contract checks against the real OpenDART API, including the
 `013` no-data mapping and REAL multi-page pagination — Samsung Electronics filed 827
 disclosures in 2025, fetched over 9 pages, every `rcept_no` unique across page boundaries.
 A bounded one-month ingest stored 50 filings; the identical re-run returned +0 inserted /

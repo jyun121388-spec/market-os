@@ -292,7 +292,12 @@ describe("a capability measured available under a limitation is work, not a ceil
  * authoritative after generation. These are the controls that hold it to that.
  */
 describe("the conditional follow-up reaches the scheduler as ordinary gated work", () => {
+  // HG-002 is present and RESOLVED, matching the real register, because live use of a
+  // credentialed provider is now gated on its own gate and an ABSENT gate reads as unknown rather
+  // than as granted. Without this line FRED's follow-up is held by a gate the user actually closed
+  // on 2026-09-06, and these two controls would be measuring the wrong refusal.
   const gates =
+    "## HG-002 — g\n\n**Status**: `RESOLVED` · n\n\n" +
     "## HG-003 — g\n\n**Status**: `PENDING_USER` · n\n\n## HG-004 — g\n\n**Status**: `PENDING_USER` · n\n";
   const probe = (env: Record<string, string | undefined>): EnvironmentProbe => ({
     env,

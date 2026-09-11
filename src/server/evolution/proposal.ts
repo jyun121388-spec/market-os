@@ -1,3 +1,4 @@
+import { AUTHORITY_BEARING_STATUS, authorizingGateFor } from "../fabric/providerAuthorization";
 import {
   CAPABILITY_AXES,
   PROVIDER_CAPABILITIES,
@@ -102,6 +103,32 @@ function providerIdentityOf(sourceCode: string): ProviderIdentity | undefined {
     return sourceCode as ProviderIdentity;
   }
   return sourceCode === "SEC_EDGAR" ? "SEC_EDGAR_PUBLIC_READ" : undefined;
+}
+
+/**
+ * The gate that still stands between this system and a live call to `sourceCode`.
+ *
+ * `undefined` means nothing does — either the provider needs no credential, or a person has
+ * already decided. Anything else is the gate id, and naming it is what makes the scheduler defer.
+ *
+ * The default when no register is supplied is FAIL CLOSED, and that asymmetry is the whole point.
+ * A caller who cannot say whether a gate was granted is a caller who has not established it, and
+ * "not established" has to read as "not permitted" — the alternative is the library handing out
+ * provider access on the strength of having been called without arguments.
+ *
+ * When a register IS supplied the gate is named only while it is open, so a resolved gate does not
+ * go on masquerading as the reason a piece of work is stuck. That distinction was measured: with
+ * the gate named unconditionally, an absent FRED credential was reported as `HG-002` — a gate the
+ * user granted on 2026-09-06 — instead of as the missing key it actually was.
+ */
+function openAuthorizingGate(
+  sourceCode: string,
+  register: Map<string, string> | null | undefined,
+): string | undefined {
+  const gate = authorizingGateFor(sourceCode);
+  if (gate === undefined) return undefined;
+  if (register === undefined || register === null) return gate;
+  return register.get(gate) === AUTHORITY_BEARING_STATUS ? undefined : gate;
 }
 
 const axesWhere = (
@@ -254,7 +281,10 @@ function structuralLimitationProposal(profile: ProviderCapabilityProfile): Propo
  * the PROVIDER_ASSUMPTION cluster's own failure mode. No per-cell judgement is encoded here; the
  * matrix decides, as it does for the other two states.
  */
-function conditionalFollowUpProposal(profile: ProviderCapabilityProfile): Proposal | null {
+function conditionalFollowUpProposal(
+  profile: ProviderCapabilityProfile,
+  register: Map<string, string> | null | undefined,
+): Proposal | null {
   const conditional = axesWhere(
     profile,
     (axis) =>
@@ -306,6 +336,23 @@ function conditionalFollowUpProposal(profile: ProviderCapabilityProfile): Propos
     // IR-132 a keyless SURFACE resolves to its own identity rather than to undefined, so SEC's
     // follow-up is no longer held by credentials it does not need.
     provider: providerIdentityOf(profile.sourceCode),
+    /**
+     * The gate that authorizes CALLING this provider, and the smallest repair to a real defect.
+     *
+     * Until 2026-09-11 every gated capability proposal took its gate from a NOT_VERIFIED cell.
+     * That worked only while unverified providers existed. When the last twenty-eight cells moved
+     * onto live evidence the matrix had no NOT_VERIFIED cell left, every `blockedBy` disappeared
+     * with it, and `CAP-FOLLOWUP-OPENDART` — a proposal whose required governance is literally
+     * `CALL_FREE_PROVIDER` — became startable with nothing standing between it and a credentialed
+     * request. Reproduced from committed bytes with `scripts/governance-authority-state.ts`:
+     * three provider-calling proposals, three naming no gate.
+     *
+     * The gate now comes from `providerAuthorization`, which reads the REGISTER and never the
+     * matrix. That is the whole correction: how much this system knows about a provider was never
+     * the thing that authorized calling it, and deriving the gate from measurement made a
+     * successful observation into its own permission slip.
+     */
+    blockedBy: openAuthorizingGate(profile.sourceCode, register),
   };
 }
 
@@ -317,12 +364,21 @@ function conditionalFollowUpProposal(profile: ProviderCapabilityProfile): Propos
  */
 export function capabilityGapProposals(
   profiles: ProviderCapabilityProfile[] = PROVIDER_CAPABILITIES,
+  /**
+   * The parsed gate register, when the caller has one.
+   *
+   * Optional, and omitting it is not neutral: without a register every credentialed provider's
+   * follow-up carries its gate, so the bare library call is pessimistic about provider access by
+   * construction. `scripts/autonomy-context.ts` is the layer that HAS the register and passes it,
+   * which is the same layer that reads every other established fact.
+   */
+  register?: Map<string, string> | null,
 ): Proposal[] {
   return profiles
     .flatMap((profile) => [
       verificationDebtProposal(profile),
       structuralLimitationProposal(profile),
-      conditionalFollowUpProposal(profile),
+      conditionalFollowUpProposal(profile, register),
     ])
     .filter((proposal): proposal is Proposal => proposal !== null);
 }

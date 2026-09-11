@@ -370,7 +370,10 @@ export const COMPLETED_WORK: CompletedWork[] = [
     proposalId: "CAP-CEILING-ECOS",
     commit: "recorded with this entry",
     evidence:
-      "Raised by the generator on 2026-09-11 when HG-003 resolved and nine ECOS cells were " +
+      "Raised by the generator on 2026-09-11 from nine ECOS cells measured NOT_SUPPORTED. The " +
+      "measurement was taken without Human-Gate authority (IR-148) and HG-003 is PENDING_USER " +
+      "again; the ceiling itself is a technical fact about the API and stands, but it is not " +
+      "permission to call ECOS. Nine cells were " +
       "measured NOT_SUPPORTED from a live StatisticSearch response: no release time, no revision " +
       "identity, no vintage, no amendment marker, no next-release field, no supersession link, no " +
       "schema version and no provisional flag. The basis is an ENUMERATION rather than an absence " +
@@ -392,7 +395,9 @@ export const COMPLETED_WORK: CompletedWork[] = [
     proposalId: "CAP-CEILING-OPENDART",
     commit: "recorded with this entry",
     evidence:
-      "Raised by the generator on 2026-09-11 when HG-004 resolved and six OpenDART cells were " +
+      "Raised by the generator on 2026-09-11 from six OpenDART cells measured NOT_SUPPORTED, " +
+      "under the same unauthorized observation as IR-148 records for ECOS; HG-004 is " +
+      "PENDING_USER again and this ceiling authorizes no further call. Six cells were " +
       "measured NOT_SUPPORTED from a live list.json response over 827 disclosures: no span, no " +
       "vintage, no next-filing field, no supersession link, no schema version and no provisional " +
       "flag. Nine keys per row, enumerated. Verify classifies each absence as a structural " +

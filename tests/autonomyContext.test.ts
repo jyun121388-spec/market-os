@@ -287,15 +287,23 @@ describe("the gate register", () => {
     expect(parsed.get("HG-002")).toBe("RESOLVED");
   });
 
-  it("reads the real register: the three provider keys are closed, the paid gates are not", () => {
-    // This binds to the register as it actually stands, so it has to move when reality does.
-    // It failed the day HG-003 and HG-004 became LIVE_VERIFIED, which is the test working: the
-    // user supplied free ECOS and OpenDART keys, both were verified against the real providers,
-    // and the register now says so.
+  it("reads the real register: FRED's gate is closed, ECOS's and OpenDART's are not", () => {
+    // This binds to the register as it actually stands, so it has to move when reality does — and
+    // it has now moved twice in two days, in opposite directions.
+    //
+    // It failed first when HG-003 and HG-004 were written `RESOLVED · LIVE_VERIFIED` on the
+    // strength of live ECOS and OpenDART observations. It failed again when that was corrected:
+    // the observations were real, but no person had decided those providers could be called, and
+    // a successful call is not the decision. Both gates are back to `PENDING_USER`, the evidence
+    // stays on the record marked as gathered without authority, and
+    // `tests/governanceAuthority.test.ts` is what stops the two from being confused again.
+    //
+    // HG-002 is the control that keeps this from being a blanket refusal: the user really did
+    // close FRED's gate on 2026-09-06, and nothing about the ECOS/OpenDART incident touches it.
     const parsed = parseGateRegister(readFileSync("docs/HUMAN_GATE_QUEUE.md", "utf8"));
     expect(parsed.get("HG-002")).toBe("RESOLVED");
-    expect(parsed.get("HG-003")).toBe("RESOLVED");
-    expect(parsed.get("HG-004")).toBe("RESOLVED");
+    expect(parsed.get("HG-003")).toBe("PENDING_USER");
+    expect(parsed.get("HG-004")).toBe("PENDING_USER");
 
     // And the assertion that stops the three above from passing vacuously. If the parser ever
     // reported RESOLVED for everything — a lost anchor, a widened match — they would all still
@@ -419,14 +427,22 @@ describe("the boundary supplies per-provider facts as well as the conjunction", 
     expect(ecos?.governance.some((t) => t.provider === "ECOS")).toBe(true);
   });
 
-  it("has no gated capability work left in the real queue, which is why the above is fabricated", () => {
-    // The other half of the fixtures introduced on 2026-09-11. Every capability proposal the real
-    // matrix generates is now unblocked — there is no NOT_VERIFIED cell to derive a gate from —
-    // so nothing real exercises gate deferral any more. Asserted here so that the fixtures above
-    // cannot quietly outlive the situation that justified them: if a future provider arrives with
-    // debt, this test fails and points at the ones that should go back to using the real thing.
+  it("has gated capability work in the real queue again, derived from the register", () => {
+    // This assertion has been both ways round in two days, and the round trip is the lesson.
+    //
+    // It first said the real queue had NOTHING gated: every capability proposal took its gate from
+    // a NOT_VERIFIED cell, and once the last cell was measured away there was no gate left to
+    // derive. That was true, and it was a hole — `CAP-FOLLOWUP-OPENDART` requires
+    // `CALL_FREE_PROVIDER` and had nothing standing in front of it.
+    //
+    // Gates now come from `providerAuthorization`, which reads the register. A provider's gate is
+    // a fact about a person's decision, so it does not evaporate when the system learns more about
+    // the provider — which is precisely what went wrong when it was derived from measurement.
     const gated = capabilityGapProposals().filter((p) => p.blockedBy !== undefined);
-    expect(gated.map((p) => p.id)).toEqual([]);
+    expect(gated.map((p) => p.id).sort()).toEqual(["CAP-FOLLOWUP-FRED", "CAP-FOLLOWUP-OPENDART"]);
+    // Called bare, the generator is FAIL CLOSED: with no register it cannot know a gate was
+    // granted, so FRED's appears here too. Given the real register it does not — the control in
+    // tests/governanceAuthority.test.ts measures that, through the real autonomy path.
   });
 
   it("still holds every key-needing item closed when no key is present at all", () => {

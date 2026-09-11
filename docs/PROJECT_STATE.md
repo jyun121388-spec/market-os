@@ -505,6 +505,21 @@ silently empty recommendation.
 governed actions it would require — decided by the policy engine rather than asserted. No database,
 no writes.
 
+OBSERVATION IS NOT AUTHORIZATION (2026-09-11, IR-148)
+A governance reconciliation, no provider contacted and no credential touched. HG-003 and HG-004
+had been written `RESOLVED / LIVE_VERIFIED` on the strength of live ECOS and OpenDART observations.
+The measurements were real; the inference was not, because a Human Gate is a person's decision and
+watching a call succeed is not that person making it. Both gates are `PENDING_USER` again and each
+section carries `UNAUTHORIZED_LIVE_OBSERVATION__NOT_HUMAN_GATE_AUTHORITY`. The evidence is KEPT --
+deleting it would swap a governance failure for a false record -- and relabelled technical only.
+Reproduced first from committed bytes through the real parser and generator: ECOS and OpenDART
+AUTHORIZED, and three provider-calling proposals naming no gate at all, because every gate had
+been derived from a NOT_VERIFIED cell and the last one had just been measured away. A measurement
+had removed the guard against making more measurements. `providerAuthorization.ts` now derives
+live-use authority from the REGISTER and cannot import the matrix; the register is threaded into
+the generator, and the bare library call fails closed. FRED stays AUTHORIZED because the user
+really did close HG-002.
+
 THE LAST TWENTY-EIGHT CELLS (2026-09-11, IR-147)
 The capability matrix is fully observed for the first time: 56 of 56 cells on live
 evidence, ZERO NOT_VERIFIED. ECOS and OpenDART were measured by ENUMERATING every key a
@@ -564,7 +579,9 @@ TWO LIVE PROVIDERS, AND A CREDENTIAL IN A BUILD CACHE (2026-09-11, IR-143)
 ECOS 17/17 and OpenDART 28/28 contract checks against the REAL providers, bounded ingests
 (+29 ECOS, 50 DART filings) each proven idempotent by an identical re-run, and both reaching
 the GUI through the packaged runtime -- BOK base rate on `/macro`, 삼성전자 discoverable with
-real receipt numbers and valid `rcpNo=` links. HG-003 and HG-004 are `LIVE_VERIFIED`.
+real receipt numbers and valid `rcpNo=` links. **HG-003 and HG-004 were written
+`LIVE_VERIFIED` here and that was withdrawn on 2026-09-11 (IR-148): the observations are
+real and retained, the authority was never granted, and both gates are `PENDING_USER`.**
 ECOS's missing-value marker is STILL unverified: the real window had no gaps, and an absence
 of evidence is not upgraded to a settled convention. The mandatory leak audit found real API
 keys in `.next/cache/turbopack/*.sst` -- contained, since `.next` is gitignored and staging
@@ -1147,8 +1164,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-3018 / 3018 PASS across 172 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 2999 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+3029 / 3029 PASS across 173 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 3010 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its

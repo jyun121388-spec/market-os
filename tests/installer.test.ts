@@ -1,9 +1,11 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { classifyInstall, INSTALL_ACTIONS } from "../packaging/install-classify.mjs";
 import type { InstallProbes } from "../packaging/install-classify.js";
+import { buildInstaller } from "../scripts/build-installer";
 import {
   FORBIDDEN_STAGED_PATTERNS,
   isForbiddenStagedPath,
@@ -277,6 +279,146 @@ describe("the batch files, which cmd.exe reads in the console's codepage", () =>
     expect(stager).toContain("CRLF");
     const builder = readFileSync(join(process.cwd(), "scripts", "build-installer.ts"), "utf8");
     expect(builder).toContain("copyPackagedFile(join(REPO");
+  });
+});
+
+describe("the bundled Node runtime", () => {
+  const launcher = source("Market OS.cmd");
+  const installer = source("Install Market OS.cmd");
+  const builder = readFileSync(join(process.cwd(), "scripts", "build-installer.ts"), "utf8");
+
+  it("is staged by the BUILD PIPELINE, not left to a leftover directory", () => {
+    // The defect this closes: `Market OS.cmd` had looked for `node\node.exe` since it was written
+    // and nothing ever created one. An old `node/` in a reused output tree could make a single
+    // acceptance run pass while a clean rebuild still sent the user to nodejs.org.
+    expect(builder).toContain("function stageNodeRuntime");
+    expect(builder).toContain("BUNDLED_NODE_PATH");
+    const staged = builder.indexOf("stageNodeRuntime(outDir, nodeSource)");
+    expect(staged, "the build must actually call it").toBeGreaterThan(-1);
+  });
+
+  it("verifies the runtime by EXECUTING the staged binary, not by trusting the copy", () => {
+    // A successful copy proves the filesystem worked. Asking the staged file its own version is
+    // the only check that says what was copied.
+    const fn = builder.slice(builder.indexOf("function stageNodeRuntime"));
+    expect(fn.slice(0, 2000)).toContain('execFileSync(destination, ["-v"]');
+    expect(fn.slice(0, 2000)).toContain("MINIMUM_BUNDLED_NODE_MAJOR");
+  });
+
+  it("fails packaging closed when the runtime is missing, unusable, symlinked or too old", () => {
+    const fn = builder.slice(
+      builder.indexOf("function stageNodeRuntime"),
+      builder.indexOf("function arg("),
+    );
+    for (const refusal of [
+      "no Node runtime at",
+      "is a symlink",
+      "would not execute",
+      "is older than the required",
+    ]) {
+      expect(fn, `no refusal for: ${refusal}`).toContain(refusal);
+    }
+    // And a final check on the built tree, so a runtime that changed after verification is caught.
+    expect(builder).toContain("is not in the built distribution");
+    expect(builder).toContain("changed after it was verified");
+  });
+
+  it("pins and attests the runtime rather than reporting the build host", () => {
+    // `nodeVersion: process.version` describes the machine that ran the build and says nothing
+    // about what shipped. The manifest now carries a real identity for the bundled binary.
+    expect(builder).toContain("nodeRuntime,");
+    const fn = builder.slice(builder.indexOf("interface BundledNodeIdentity"));
+    for (const field of ["version", "sha256", "bytes", "path"]) {
+      expect(fn.slice(0, 900), `attestation lacks ${field}`).toContain(field);
+    }
+  });
+
+  it("leaves the user entry points with no system-Node fallback at all", () => {
+    // The delivery contract: normal operation must not require the user to install or understand
+    // Node. A fallback to `where node` is that requirement wearing a helpful message.
+    //
+    // Scanned with `rem` lines removed, because the launcher's own comment explains what was taken
+    // out and names it. That is the sixth time in this repository a substring scan has reported a
+    // denial as the offence; the affirmative form is what must be absent, and the comment is
+    // asserted separately below.
+    const commands = (text: string) =>
+      text
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*rem\b/i.test(line))
+        .join("\n");
+    for (const [name, raw] of [
+      ["Market OS.cmd", launcher],
+      ["Install Market OS.cmd", installer],
+    ] as const) {
+      const text = commands(raw);
+      expect(text, `${name} still falls back to a system Node`).not.toContain("where node");
+      expect(text, `${name} still sends the user to install Node`).not.toContain("nodejs.org");
+      expect(text, `${name} does not use the bundled runtime`).toContain("node\\node.exe");
+      expect(text, `${name} does not treat a missing runtime as a damaged copy`).toContain(
+        "is incomplete",
+      );
+    }
+    // And the launcher says WHY the fallback is gone, so a later reader does not restore it as a
+    // kindness.
+    expect(launcher).toContain("THE BUNDLED RUNTIME IS THE ONLY RUNTIME");
+  });
+});
+
+describe("where a distribution may be built", () => {
+  const builder = readFileSync(join(process.cwd(), "scripts", "build-installer.ts"), "utf8");
+  const stager = readFileSync(join(process.cwd(), "scripts", "stage-runtime.ts"), "utf8");
+
+  it("refuses an output directory that already contains a previous build's runtime", () => {
+    // A build over residue produces a manifest about bytes it did not create. It happened once as
+    // an over-count (13,929 application files, the whole tree read as the application), and the
+    // bundled runtime makes the failure worse in kind rather than in degree: a `node/` left by an
+    // earlier build would let an acceptance run pass on a runtime this build never staged.
+    // `stageNodeRuntime` cannot catch that, because the file it finds is real.
+    const dir = mkdtempSync(join(tmpdir(), "mos-residue-"));
+    try {
+      mkdirSync(join(dir, "node"), { recursive: true });
+      writeFileSync(join(dir, "node", "node.exe"), "not the runtime this build staged");
+      expect(() => buildInstaller(dir, join(process.cwd(), "no-such-postgres"))).toThrow(
+        /already exists/,
+      );
+      // The refusal names the residue, so the operator is not left guessing what was in the way.
+      expect(() => buildInstaller(dir, join(process.cwd(), "no-such-postgres"))).toThrow(/node/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an empty directory too, because an empty one is not a safe destination here", () => {
+    // Emptiness would be the natural rule and it is the wrong one on this machine: Node v24.14.0
+    // aborts the whole process, silently, when `cpSync` is given an EXISTING destination directly
+    // under a drive root. A refusal that accepted `C:\MarketOS-V1` because it happened to be empty
+    // would hand that abort straight to the operator, with no output to diagnose it from.
+    const dir = mkdtempSync(join(tmpdir(), "mos-empty-"));
+    try {
+      expect(() => buildInstaller(dir, join(process.cwd(), "no-such-postgres"))).toThrow(
+        /already exists/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not pre-create the output directory, so the first copy is the one that makes it", () => {
+    // The other half of the same defect: refusing an existing directory achieves nothing if the
+    // stager then creates it and copies into it. Asserted on the source, because the alternative is
+    // a test that builds a real distribution.
+    const copyInto = stager.slice(
+      stager.indexOf("function copyInto("),
+      stager.indexOf("function gitOutput("),
+    );
+    expect(copyInto.length, "copyInto not found").toBeGreaterThan(100);
+    expect(copyInto, "copyInto pre-creates its destination again").not.toContain("mkdirSync(to");
+    expect(stager).not.toMatch(/mkdirSync\(outDir, \{ recursive: true \}\);/);
+    expect(
+      copyInto,
+      "the reason must survive, or someone restores the mkdir as tidiness",
+    ).toContain("0xC0000409");
+    expect(builder).toContain("0xC0000409");
   });
 });
 

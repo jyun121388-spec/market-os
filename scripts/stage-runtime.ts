@@ -195,7 +195,13 @@ function copyInto(from: string, to: string, label: string) {
         `checkout. Replace the symlink with a real directory (npm ci) and rebuild.`,
     );
   }
-  mkdirSync(to, { recursive: true });
+  // The copy creates its own destination. Pre-creating it looks harmless and is not: Node v24.14.0
+  // aborts the process — STATUS_STACK_BUFFER_OVERRUN, 0xC0000409, no stdout, no stderr, no
+  // exception, nothing copied — when `cpSync` is handed a destination that already exists AND sits
+  // directly under a drive root. With the destination absent the identical call copies all 2,156
+  // files; under a nested path both forms work. Measured over four alternating trials, all four
+  // reproducing. So `--out C:\MarketOS-V1` failed silently while `--out C:\Dist\mos` succeeded,
+  // which is exactly the shape of bug that gets blamed on the thing being built.
   cpSync(from, to, { recursive: true, dereference: false, errorOnExist: false });
 }
 
@@ -253,15 +259,34 @@ function stageMigrationToolchain(outDir: string): {
     );
     // Hand-picking the CLI's dependencies was tried first and failed on a transitive import
     // (`Cannot find module 'effect'`). npm computes the closure correctly; nothing else does.
-    // `npm.cmd` by name rather than `shell: true`. Node warns about the latter, and it is right
-    // to: with a shell, arguments are concatenated instead of escaped, and one of these arguments
-    // is a version string read out of a file.
-    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-    execFileSync(npm, ["install", `prisma@${version}`, "--no-audit", "--no-fund", "--silent"], {
-      cwd: dir,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
+    //
+    // This used to be `execFileSync("npm.cmd", ...)`, chosen over `shell: true` because a shell
+    // concatenates arguments instead of escaping them and one of these arguments is a version
+    // string read out of a file. That reasoning still holds; the call no longer works. Node
+    // 20.12/22.0 closed CVE-2024-27980 by refusing to spawn a `.cmd` at all without `shell: true`,
+    // so on v24.14.0 it fails with `spawnSync npm.cmd EINVAL` — a build step broken by the runtime
+    // moving underneath it rather than by anything in this repository, and one that only appeared
+    // once a build ran on a current Node.
+    //
+    // Running npm's own JavaScript entry point with the Node already executing needs no shell, so
+    // it keeps the escaping and drops the `.cmd`.
+    const npmCli = join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    if (!existsSync(npmCli)) {
+      throw new Error(
+        `npm's entry point is not beside the running Node — looked for ${npmCli}. The migration ` +
+          `toolchain is installed with npm, and a package that cannot create its own schema is ` +
+          `not a package.`,
+      );
+    }
+    execFileSync(
+      process.execPath,
+      [npmCli, "install", `prisma@${version}`, "--no-audit", "--no-fund", "--silent"],
+      {
+        cwd: dir,
+        encoding: "utf8",
+        stdio: "pipe",
+      },
+    );
   }
 
   if (!existsSync(join(outDir, MIGRATION_RUNNER_PATH))) {
@@ -396,9 +421,8 @@ export function stageRuntime(outDir: string): {
     );
   }
 
-  mkdirSync(outDir, { recursive: true });
-
-  // 1. The server and its traced dependencies.
+  // 1. The server and its traced dependencies. This copy CREATES `outDir` — see `copyInto`, which
+  //    deliberately does not pre-create a destination.
   copyInto(standalone, outDir, "the standalone server");
 
   // 2. Static assets. Next leaves these out of standalone by design and says so in its docs; the

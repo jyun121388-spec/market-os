@@ -20,11 +20,12 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { execFileSync } from "node:child_process";
+import { dirname, join, resolve, sep } from "node:path";
 
 import {
   copyPackagedFile,
@@ -41,6 +42,95 @@ export const POSTGRES_DIRECTORIES = ["bin", "lib", "share"] as const;
 
 /** The programs the installer and the launcher invoke by name. Verified after the trim. */
 export const POSTGRES_TOOLS = ["initdb", "pg_ctl", "createdb", "postgres"] as const;
+
+/**
+ * Where the bundled Node runtime goes, and the contract the `.cmd` entry points already assumed.
+ *
+ * `Market OS.cmd` has looked for `node\\node.exe` since it was written. Nothing ever put one there.
+ * The launcher therefore fell through to `where node` and, failing that, told the user to go and
+ * install Node.js — which is precisely the thing a V1 delivery is supposed to make unnecessary. An
+ * old `node/` directory left in a reused output tree could make one acceptance run pass while a
+ * clean rebuild on a machine without Node still sent the user to a download page.
+ *
+ * So the build pipeline creates it, every time, into a clean directory.
+ */
+export const BUNDLED_NODE_PATH = "node/node.exe";
+
+/** The oldest runtime this package will ship. Matches `MINIMUM_NODE_MAJOR` in the launcher. */
+export const MINIMUM_BUNDLED_NODE_MAJOR = 20;
+
+export interface BundledNodeIdentity {
+  path: string;
+  version: string;
+  sha256: string;
+  bytes: number;
+  vendoredFrom: string;
+  /**
+   * Node is MIT-licensed and redistributable, and its licence text should travel with it.
+   *
+   * Recorded as a fact rather than assumed: the Windows MSI installation this runtime was vendored
+   * from ships no LICENSE file, so there was none to copy. Stated here instead of quietly omitted,
+   * because "we shipped a third-party binary and cannot say where its licence went" is exactly the
+   * sort of thing a manifest exists to surface.
+   */
+  licenseTextIncluded: boolean;
+  licenseNote: string;
+}
+
+/**
+ * Put a real, pinned Node runtime inside the artifact, and refuse to build one without it.
+ *
+ * The verification is deliberately not "we copied a file". The staged binary is EXECUTED and asked
+ * its own version, because a copy that succeeded proves the filesystem worked and proves nothing
+ * about what was copied. Everything else — symlink, wrong major, hash — is checked on the file that
+ * ended up in the artifact rather than on the source.
+ */
+function stageNodeRuntime(outDir: string, source: string): BundledNodeIdentity {
+  if (!existsSync(source)) {
+    throw new Error(`packaging refused: no Node runtime at ${source} to bundle.`);
+  }
+  if (lstatSync(source).isSymbolicLink()) {
+    throw new Error(
+      `packaging refused: ${source} is a symlink; a bundled runtime must be a real file.`,
+    );
+  }
+
+  const destination = join(outDir, ...BUNDLED_NODE_PATH.split("/"));
+  mkdirSync(dirname(destination), { recursive: true });
+  cpSync(source, destination, { dereference: true });
+
+  const staged = lstatSync(destination);
+  if (staged.isSymbolicLink()) {
+    throw new Error("packaging refused: the staged Node runtime is a symlink out of the package.");
+  }
+
+  // Ask the STAGED binary what it is. This is the check that cannot be satisfied by a broken copy.
+  let version: string;
+  try {
+    version = execFileSync(destination, ["-v"], { encoding: "utf8" }).trim();
+  } catch {
+    throw new Error("packaging refused: the staged Node runtime would not execute.");
+  }
+  const major = Number(/^v(\d+)\./.exec(version)?.[1]);
+  if (!Number.isInteger(major) || major < MINIMUM_BUNDLED_NODE_MAJOR) {
+    throw new Error(
+      `packaging refused: bundled Node ${version} is older than the required v${MINIMUM_BUNDLED_NODE_MAJOR}.`,
+    );
+  }
+
+  return {
+    path: BUNDLED_NODE_PATH,
+    version,
+    sha256: sha256(destination),
+    bytes: staged.size,
+    vendoredFrom: "a local Node installation supplied to the build; no download occurs",
+    licenseTextIncluded: false,
+    licenseNote:
+      "Node.js is MIT-licensed and redistributable. The Windows installation this binary was " +
+      "vendored from carries no LICENSE file, so none was copied. Shipping the licence text " +
+      "alongside the runtime remains an open packaging item.",
+  };
+}
 
 function arg(name: string): string | undefined {
   const at = process.argv.indexOf(`--${name}`);
@@ -105,12 +195,38 @@ function stagePostgres(outDir: string, source: string): { files: number; bytes: 
 export function buildInstaller(
   outDir: string,
   postgresSource: string,
+  /** The Node runtime to vendor. Defaults to the one running the build, which is a real pin. */
+  nodeSource: string = process.execPath,
 ): { outDir: string; manifestPath: string } {
-  // Remove a previous build's PostgreSQL FIRST, so `stageRuntime` counts the application and
-  // nothing else. Rebuilding over an existing distribution made its manifest report 13,929
-  // application files — the whole tree, PostgreSQL included — which reads as a plausible number
-  // and is not one. The manifest below now also asserts that the two halves add up.
-  rmSync(join(outDir, "pgsql"), { recursive: true, force: true });
+  // A distribution is built into a directory that DOES NOT YET EXIST.
+  //
+  // This started as `rmSync(join(outDir, "pgsql"))` and nothing else, because rebuilding over an
+  // existing distribution had made the manifest report 13,929 application files — the whole tree,
+  // PostgreSQL included — which reads as a plausible number and is not one. Deleting the one
+  // subtree that had been observed to cause it treated the symptom: every other piece of residue
+  // still counted, and a `node/` directory left by an earlier build would let an acceptance run
+  // pass on a runtime this build never staged, which `stageNodeRuntime` cannot catch because the
+  // file it finds is real. The manifest below asserts that the parts add up, and that assertion
+  // only means anything if the directory started with nothing in it.
+  //
+  // Absence rather than emptiness, because an empty directory is not a safe starting point on this
+  // machine. Node v24.14.0 aborts the entire process — STATUS_STACK_BUFFER_OVERRUN, 0xC0000409, no
+  // stdout, no stderr, no exception, nothing copied — when `cpSync(tree, dest, {recursive: true})`
+  // is given a `dest` that already exists AND sits directly under a drive root; with `dest` absent
+  // the identical call copies all 2,156 files, and under a nested path both forms work. Measured
+  // four trials, alternating, all four reproducing. That is a runtime defect and not a Market OS
+  // one, and it is silent, which is the part that matters here: an operator who hit it would see a
+  // build that produced no distribution and no reason. `stageRuntime` no longer pre-creates the
+  // directory, so the first copy is the one that makes it.
+  if (existsSync(outDir)) {
+    const residue = readdirSync(outDir);
+    throw new Error(
+      `installer refused: ${outDir} already exists (${residue.length} entr` +
+        `${residue.length === 1 ? "y" : "ies"}${residue.length > 0 ? `: ${residue.slice(0, 5).join(", ")}${residue.length > 5 ? ", ..." : ""}` : ""}). ` +
+        `Build every distribution into a fresh directory, so the manifest describes only what ` +
+        `this build produced.`,
+    );
+  }
 
   const runtime = stageRuntime(outDir);
 
@@ -123,6 +239,7 @@ export function buildInstaller(
   }
 
   const postgres = stagePostgres(outDir, postgresSource);
+  const nodeRuntime = stageNodeRuntime(outDir, nodeSource);
 
   // The refusal, on the FINAL tree. Everything above added files to a directory that had already
   // passed one.
@@ -143,6 +260,7 @@ export function buildInstaller(
     ...runtimeManifest,
     builtAt: new Date().toISOString(),
     postgres: { files: postgres.files, bytes: postgres.bytes },
+    nodeRuntime,
     installer: {
       files: Object.values(PACKAGED_INSTALLER_FILES),
       hashes: Object.fromEntries(
@@ -155,14 +273,51 @@ export function buildInstaller(
     distributionFileCount: files.length,
     distributionBytes: files.reduce((sum, f) => sum + f.bytes, 0),
   };
-  // The two halves must account for the whole. A number that is merely plausible is what this
-  // check exists to catch: it was one rebuild-over-an-existing-tree away from reporting the
+  // The parts must account for the whole. A number that is merely plausible is what this check
+  // exists to catch: it was one rebuild-over-an-existing-tree away from reporting the
   // application's size as the distribution's.
-  if (manifest.fileCount + manifest.postgres.files !== manifest.distributionFileCount) {
+  //
+  // The parts were wrong, and only a genuinely fresh build could show it. `stageRuntime` counts the
+  // application BEFORE it writes its own manifest, and this script then adds the three installer
+  // files and the Node runtime — five files the count never saw. Every previous build ran over a
+  // tree that already contained all five, so `stageRuntime` counted them as application files and
+  // the sum balanced. The equation was arithmetic about residue. Enumerated here rather than
+  // written as a constant, so the next file added to a distribution has to appear in this list to
+  // pass, and each is checked for existence: a count that balances because two errors cancel is the
+  // failure this whole check is about.
+  const addedAfterTheApplicationWasCounted = [
+    ...Object.values(PACKAGED_INSTALLER_FILES),
+    BUNDLED_NODE_PATH,
+    // `stageRuntime` writes this after counting, and this script overwrites it at the same path.
+    "market-os-manifest.json",
+  ];
+  const staged = new Set(files.map((f) => f.path));
+  const missing = addedAfterTheApplicationWasCounted.filter((p) => !staged.has(p));
+  if (missing.length > 0) {
+    throw new Error(
+      `manifest cannot be trusted: ${missing.length} file(s) this build was supposed to add are ` +
+        `not in the distribution: ${missing.join(", ")}.`,
+    );
+  }
+  const parts =
+    manifest.fileCount + manifest.postgres.files + addedAfterTheApplicationWasCounted.length;
+  if (parts !== manifest.distributionFileCount) {
     throw new Error(
       `manifest does not add up: ${manifest.fileCount} application + ${manifest.postgres.files} ` +
-        `postgres != ${manifest.distributionFileCount} in the distribution.`,
+        `postgres + ${addedAfterTheApplicationWasCounted.length} added ` +
+        `(${addedAfterTheApplicationWasCounted.join(", ")}) = ${parts} != ` +
+        `${manifest.distributionFileCount} in the distribution.`,
     );
+  }
+
+  // The last word on the runtime, checked against the tree that will actually ship rather than
+  // against the variable this function happens to be holding.
+  const stagedNode = files.find((f) => f.path === BUNDLED_NODE_PATH);
+  if (stagedNode === undefined) {
+    throw new Error(`packaging refused: ${BUNDLED_NODE_PATH} is not in the built distribution.`);
+  }
+  if (sha256(join(outDir, ...BUNDLED_NODE_PATH.split("/"))) !== nodeRuntime.sha256) {
+    throw new Error("packaging refused: the bundled Node runtime changed after it was verified.");
   }
 
   const manifestPath = join(outDir, "market-os-manifest.json");
@@ -175,7 +330,9 @@ if (process.argv[1] && process.argv[1].endsWith("build-installer.ts")) {
   const out = arg("out");
   const postgres = arg("postgres");
   if (!out || !postgres) {
-    console.error("usage: --out <dir> --postgres <postgresql distribution dir>");
+    console.error(
+      "usage: --out <dir> --postgres <postgresql distribution dir> [--node <node.exe>]",
+    );
     process.exit(2);
   }
   const outDir = resolve(out);
@@ -184,13 +341,19 @@ if (process.argv[1] && process.argv[1].endsWith("build-installer.ts")) {
     process.exit(1);
   }
 
-  const result = buildInstaller(outDir, resolve(postgres));
+  const result = buildInstaller(
+    outDir,
+    resolve(postgres),
+    resolve(arg("node") ?? process.execPath),
+  );
   const manifest = JSON.parse(readFileSync(result.manifestPath, "utf8"));
   console.log(`built a distribution at ${result.outDir}`);
   console.log(`  commit     ${manifest.sourceCommit}`);
   console.log(`  buildId    ${manifest.buildId}`);
   console.log(`  app        ${manifest.fileCount.toLocaleString("en-US")} files`);
   console.log(`  postgres   ${manifest.postgres.files.toLocaleString("en-US")} files`);
+  console.log(`  node       ${manifest.nodeRuntime.version} at ${manifest.nodeRuntime.path}`);
+  console.log(`             sha256 ${manifest.nodeRuntime.sha256}`);
   console.log(
     `  total      ${manifest.distributionFileCount.toLocaleString("en-US")} files, ` +
       `${manifest.distributionBytes.toLocaleString("en-US")} bytes`,

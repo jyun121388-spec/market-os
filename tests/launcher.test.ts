@@ -366,11 +366,26 @@ describe("the thing a user double-clicks", () => {
     expect(shim).toContain('cd /d "%~dp0"');
   });
 
-  it("prefers a bundled Node over whatever is on PATH", () => {
-    const bundled = shim.indexOf("node\\node.exe");
-    const fallback = shim.indexOf("where node");
-    expect(bundled).toBeGreaterThan(-1);
-    expect(fallback).toBeGreaterThan(bundled);
+  it("uses the bundled Node and has no PATH fallback at all", () => {
+    // This asserted an ORDERING — `node\node.exe` first, `where node` after — which was the right
+    // test for a launcher that HAD a fallback, and the wrong one to keep. Nothing in the build
+    // pipeline ever created `node\node.exe`, so the branch this test called "preferred" was dead
+    // and the fallback it called secondary was the normal path. The build now stages a pinned
+    // runtime and the fallback is gone, which makes an ordering assertion a test about where a
+    // comment sits: it failed at 633 > 888 against a launcher that is strictly more correct.
+    //
+    // Scanned with `rem` lines removed. The launcher's comment explains what was taken out and
+    // names it, and a substring scan that reads a denial as the offence has already happened six
+    // times in this repository.
+    const commands = shim
+      .split(/\r?\n/)
+      .filter((line) => !/^\s*rem\b/i.test(line))
+      .join("\n");
+    expect(commands).toContain("node\\node.exe");
+    expect(commands, "the PATH fallback is back").not.toContain("where node");
+    expect(commands, "it sends the user to install Node again").not.toContain("nodejs.org");
+    // A missing runtime is a damaged copy, not a machine that needs setting up.
+    expect(commands).toContain("is incomplete");
   });
 
   it("holds the window open on failure", () => {

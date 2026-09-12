@@ -10,24 +10,26 @@ rem  that looks obvious there would destroy the data.
 rem
 rem  Running it twice is safe: the second run reports ALREADY_INSTALLED and
 rem  changes nothing.
+rem
+rem  Like the launcher, this uses the runtime bundled beside it and nothing else.
+rem  An installer that asks the user to install Node.js first has not installed
+rem  anything.
 rem ---------------------------------------------------------------------------
 setlocal
 cd /d "%~dp0"
 
 set "MARKET_OS_NODE=%~dp0node\node.exe"
 if not exist "%MARKET_OS_NODE%" (
-  where node >nul 2>nul
-  if errorlevel 1 (
-    echo.
-    echo Market OS could not find Node.js.
-    echo.
-    echo Install Node.js 20 or newer from https://nodejs.org and run this again,
-    echo or use the distribution with the bundled runtime.
-    echo.
-    pause
-    exit /b 9
-  )
-  set "MARKET_OS_NODE=node"
+  echo.
+  echo Market OS cannot install: its bundled runtime is missing.
+  echo.
+  echo Expected: %MARKET_OS_NODE%
+  echo.
+  echo This copy of Market OS is incomplete. Unpack the distribution again,
+  echo keeping the whole folder together. You do not need to install anything.
+  echo.
+  pause
+  exit /b 9
 )
 
 "%MARKET_OS_NODE%" "%~dp0install.mjs" %*

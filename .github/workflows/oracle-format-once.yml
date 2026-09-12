@@ -1,0 +1,41 @@
+name: Oracle format once
+
+on:
+  push:
+    branches:
+      - chatgpt/buffett-oracle-market-integration-20260913
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/buffett-oracle-market-integration-20260913
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Format Oracle integration files
+        run: >-
+          npx prettier --write
+          src/app/oracle/page.tsx
+          src/app/SiteNav.tsx
+          src/server/domain/buffettOracle.ts
+          tests/buffettOracle.test.ts
+      - name: Commit exact formatter output
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/oracle/page.tsx src/app/SiteNav.tsx src/server/domain/buffettOracle.ts tests/buffettOracle.test.ts
+          git commit -m "Format Buffett Oracle integration"
+          git push origin HEAD:chatgpt/buffett-oracle-market-integration-20260913

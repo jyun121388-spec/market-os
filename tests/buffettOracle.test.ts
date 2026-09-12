@@ -121,12 +121,18 @@ describe("Buffett Oracle research lens", () => {
 
   it("does not expose recommendation, target-price or hard-coded fair-value authority", () => {
     const profile = computeBuffettOracleProfile(xray());
-    const serialized = JSON.stringify(profile).toLowerCase();
+    // The limitations MUST name prohibited outputs so the user knows what Oracle will not do.
+    // Therefore the negative control is scoped to the actual research lenses — the product output
+    // that can carry an analysis — rather than searching the disclaimer and failing because it says
+    // "No target price".
+    const researchOutput = JSON.stringify(profile.lenses).toLowerCase();
+    const limitations = profile.limitations.join(" ").toLowerCase();
 
-    expect(serialized).not.toContain("buy_now");
-    expect(serialized).not.toContain("target price");
-    expect(serialized).not.toContain("fair value");
-    expect(serialized).not.toContain("sell recommendation");
-    expect(profile.limitations.join(" ")).toMatch(/no buy\/sell\/hold recommendation/i);
+    expect(researchOutput).not.toContain("buy_now");
+    expect(researchOutput).not.toContain("target price");
+    expect(researchOutput).not.toContain("fair value");
+    expect(researchOutput).not.toContain("sell recommendation");
+    expect(limitations).toContain("no buy/sell/hold recommendation");
+    expect(limitations).toContain("no target price");
   });
 });

@@ -43,12 +43,17 @@ const EQUITY_CONCEPTS = [
 const LIABILITY_CONCEPTS = ["Liabilities"] as const;
 
 function pct(v: number | null | undefined): string {
-  return typeof v === "number" && Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%` : "N/A";
+  return typeof v === "number" && Number.isFinite(v)
+    ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
+    : "N/A";
 }
 
 function latestComputedChange(xray: CompanyXray, concepts: readonly string[]) {
   const candidates = xray.changes.filter(
-    (c) => c.status === "COMPUTED" && concepts.includes(c.concept) && typeof c.percentChange === "number",
+    (c) =>
+      c.status === "COMPUTED" &&
+      concepts.includes(c.concept) &&
+      typeof c.percentChange === "number",
   );
   return candidates.sort((a, b) =>
     String(b.currentPeriodEnd ?? "").localeCompare(String(a.currentPeriodEnd ?? "")),
@@ -60,7 +65,10 @@ function uniqueInstantFigure(xray: CompanyXray, concepts: readonly string[]) {
     (f) => concepts.includes(f.concept) && f.periodStart === null && Number.isFinite(f.value),
   );
   if (rows.length === 0) return null;
-  const newestEnd = rows.map((r) => r.periodEnd).sort().at(-1);
+  const newestEnd = rows
+    .map((r) => r.periodEnd)
+    .sort()
+    .at(-1);
   const newest = rows.filter((r) => r.periodEnd === newestEnd);
   const identities = new Set(newest.map((r) => `${r.unit}|${r.value}`));
   if (identities.size !== 1) return null;
@@ -75,7 +83,8 @@ function earningsLens(xray: CompanyXray): OracleLensItem {
       label: "Earnings durability",
       tone: "UNVERIFIABLE",
       headline: "Comparable earnings trend unavailable",
-      detail: "Market OS has no mechanically comparable prior-period earnings pair for this company.",
+      detail:
+        "Market OS has no mechanically comparable prior-period earnings pair for this company.",
       provenance: [],
     };
   }
@@ -116,7 +125,8 @@ function marginLens(profitability: ProfitabilityRatio[]): OracleLensItem {
   const net = profitability.find((r) => r.name === "NET_MARGIN");
   const op = profitability.find((r) => r.name === "OPERATING_MARGIN");
   const computed = [net, op].filter(
-    (r): r is ProfitabilityRatio & { percent: number } => r?.status === "COMPUTED" && typeof r.percent === "number",
+    (r): r is ProfitabilityRatio & { percent: number } =>
+      r?.status === "COMPUTED" && typeof r.percent === "number",
   );
   if (computed.length === 0) {
     return {
@@ -134,8 +144,11 @@ function marginLens(profitability: ProfitabilityRatio[]): OracleLensItem {
     id: "MARGINS",
     label: "Economic quality",
     tone,
-    headline: computed.map((r) => `${r.name === "NET_MARGIN" ? "Net" : "Operating"} ${pct(r.percent)}`).join(" · "),
-    detail: "Deterministic same-period ratios over company-reported facts. No industry benchmark or peer inference is embedded.",
+    headline: computed
+      .map((r) => `${r.name === "NET_MARGIN" ? "Net" : "Operating"} ${pct(r.percent)}`)
+      .join(" · "),
+    detail:
+      "Deterministic same-period ratios over company-reported facts. No industry benchmark or peer inference is embedded.",
     provenance: computed
       .flatMap((r) => [r.numerator?.accessionNumber, r.denominator?.accessionNumber])
       .filter(Boolean) as string[],
@@ -145,13 +158,19 @@ function marginLens(profitability: ProfitabilityRatio[]): OracleLensItem {
 function balanceLens(xray: CompanyXray): OracleLensItem {
   const liabilities = uniqueInstantFigure(xray, LIABILITY_CONCEPTS);
   const equity = uniqueInstantFigure(xray, EQUITY_CONCEPTS);
-  if (!liabilities || !equity || liabilities.periodEnd !== equity.periodEnd || liabilities.unit !== equity.unit) {
+  if (
+    !liabilities ||
+    !equity ||
+    liabilities.periodEnd !== equity.periodEnd ||
+    liabilities.unit !== equity.unit
+  ) {
     return {
       id: "BALANCE_SHEET",
       label: "Balance-sheet evidence",
       tone: "UNVERIFIABLE",
       headline: "Comparable liabilities/equity pair unavailable",
-      detail: "Oracle will not mix different dates, units or ambiguous equity concepts to create a leverage ratio.",
+      detail:
+        "Oracle will not mix different dates, units or ambiguous equity concepts to create a leverage ratio.",
       provenance: [],
     };
   }
@@ -217,7 +236,8 @@ export function computeBuffettOracleProfile(xray: CompanyXray): OracleProfile {
   ];
 
   const unsafe =
-    xray.completeness.status === "KNOWN_INCOMPLETE" || xray.completeness.status === "LAST_RUN_FAILED";
+    xray.completeness.status === "KNOWN_INCOMPLETE" ||
+    xray.completeness.status === "LAST_RUN_FAILED";
   const gaps = lenses.some((l) => l.tone === "UNVERIFIABLE");
 
   return {

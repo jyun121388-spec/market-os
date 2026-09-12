@@ -60,9 +60,12 @@ function ScenarioCard({ scenario }: { scenario: ValuationScenario }) {
         <div className="mb-3 rounded-lg bg-zinc-950 p-3 text-xs text-zinc-400">
           <div className="font-medium text-zinc-200">FACT · {scenario.fact.concept}</div>
           <div>
-            {scenario.fact.value.toLocaleString("en-US")} {scenario.fact.unit} · {scenario.fact.periodEnd}
+            {scenario.fact.value.toLocaleString("en-US")} {scenario.fact.unit} ·{" "}
+            {scenario.fact.periodEnd}
           </div>
-          <div className="break-all">{scenario.fact.form} · {scenario.fact.accessionNumber}</div>
+          <div className="break-all">
+            {scenario.fact.form} · {scenario.fact.accessionNumber}
+          </div>
         </div>
       ) : null}
 
@@ -73,7 +76,10 @@ function ScenarioCard({ scenario }: { scenario: ValuationScenario }) {
             ["BASE", scenario.impliedEquityValue.base],
             ["HIGH", scenario.impliedEquityValue.high],
           ].map(([label, value]) => (
-            <div key={String(label)} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-center">
+            <div
+              key={String(label)}
+              className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-center"
+            >
               <div className="text-[10px] text-zinc-500">{label}</div>
               <div className="mt-1 text-sm font-semibold text-amber-300">
                 {scenarioValue(value as number, scenario.impliedEquityValue?.unit)}
@@ -83,7 +89,9 @@ function ScenarioCard({ scenario }: { scenario: ValuationScenario }) {
         </div>
       ) : (
         <p className="text-xs text-zinc-500">
-          {scenario.unverifiableBecause ?? scenario.assumptionsRefusedBecause ?? "Enter assumptions to calculate."}
+          {scenario.unverifiableBecause ??
+            scenario.assumptionsRefusedBecause ??
+            "Enter assumptions to calculate."}
         </p>
       )}
       <p className="mt-3 text-[11px] leading-5 text-zinc-600">{scenario.limitations}</p>
@@ -112,7 +120,9 @@ export default async function BuffettOraclePage({
   const requested = parseCompanySelection(query);
   const selected = requested
     ? companies.find(
-        (c) => c.corpCode === requested.corpCode && (!requested.source || c.sourceCode === requested.source),
+        (c) =>
+          c.corpCode === requested.corpCode &&
+          (!requested.source || c.sourceCode === requested.source),
       )
     : companies[0];
 
@@ -133,8 +143,12 @@ export default async function BuffettOraclePage({
       <header className="border-b border-amber-500/20 bg-[#071019]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
           <div>
-            <p className="font-serif text-2xl tracking-tight text-amber-400">◈ Buffett Oracle × Market OS</p>
-            <p className="mt-1 text-xs tracking-[0.18em] text-zinc-600">EVIDENCE-FIRST VALUE RESEARCH WORKSPACE</p>
+            <p className="font-serif text-2xl tracking-tight text-amber-400">
+              ◈ Buffett Oracle × Market OS
+            </p>
+            <p className="mt-1 text-xs tracking-[0.18em] text-zinc-600">
+              EVIDENCE-FIRST VALUE RESEARCH WORKSPACE
+            </p>
           </div>
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
             Market OS = evidence authority · Oracle = research lens
@@ -145,7 +159,10 @@ export default async function BuffettOraclePage({
       <main className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-6">
         <section className="grid gap-4 lg:grid-cols-[1fr_auto]">
           <form method="get" className="rounded-xl border border-zinc-800 bg-[#09111a] p-4">
-            <label htmlFor="oracle-company" className="mb-2 block text-xs uppercase tracking-[0.18em] text-zinc-500">
+            <label
+              htmlFor="oracle-company"
+              className="mb-2 block text-xs uppercase tracking-[0.18em] text-zinc-500"
+            >
               Company evidence set
             </label>
             <div className="flex flex-wrap gap-2">
@@ -156,15 +173,24 @@ export default async function BuffettOraclePage({
                 className="min-w-[280px] flex-1 rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm"
               >
                 {companies.map((c) => (
-                  <option key={`${c.sourceCode}:${c.corpCode}`} value={`${c.corpCode}|${c.sourceCode}`}>
+                  <option
+                    key={`${c.sourceCode}:${c.corpCode}`}
+                    value={`${c.corpCode}|${c.sourceCode}`}
+                  >
                     {c.corpName} · {c.stockCode ?? c.corpCode} · {c.sourceCode}
                   </option>
                 ))}
               </select>
-              <button type="submit" className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400">
+              <button
+                type="submit"
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400"
+              >
                 Open in Oracle
               </button>
-              <Link href="/company" className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-amber-400">
+              <Link
+                href="/company"
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-amber-400"
+              >
                 Company search
               </Link>
             </div>
@@ -186,15 +212,24 @@ export default async function BuffettOraclePage({
             <section className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-[#0d1721] to-[#070b10] p-6">
               <div className="flex flex-wrap items-start justify-between gap-5">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Selected company</p>
-                  <h1 className="mt-1 font-serif text-3xl text-zinc-100">{xray.company.corpName}</h1>
+                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                    Selected company
+                  </p>
+                  <h1 className="mt-1 font-serif text-3xl text-zinc-100">
+                    {xray.company.corpName}
+                  </h1>
                   <p className="mt-2 text-sm text-zinc-500">
-                    {xray.company.sourceCode} · {xray.company.stockCode ?? xray.company.corpCode} · {xray.company.filingCount} filings
+                    {xray.company.sourceCode} · {xray.company.stockCode ?? xray.company.corpCode} ·{" "}
+                    {xray.company.filingCount} filings
                   </p>
                 </div>
                 <div className="min-w-[260px] rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Oracle readiness</div>
-                  <div className="mt-1 text-lg font-semibold text-amber-300">{profile.readiness}</div>
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                    Oracle readiness
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-amber-300">
+                    {profile.readiness}
+                  </div>
                   <p className="mt-2 text-xs leading-5 text-zinc-500">{profile.readinessReason}</p>
                 </div>
               </div>
@@ -211,7 +246,10 @@ export default async function BuffettOraclePage({
                 >
                   Filing Evidence
                 </Link>
-                <Link href="/macro" className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:border-amber-400">
+                <Link
+                  href="/macro"
+                  className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:border-amber-400"
+                >
                   Macro context
                 </Link>
               </div>
@@ -220,22 +258,35 @@ export default async function BuffettOraclePage({
             <section>
               <div className="mb-3 flex items-end justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">Buffett research lens</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">
+                    Buffett research lens
+                  </p>
                   <h2 className="text-xl font-semibold">Quality before price</h2>
                 </div>
-                <p className="text-xs text-zinc-600">Hard-coded moat scores never enter a decision.</p>
+                <p className="text-xs text-zinc-600">
+                  Hard-coded moat scores never enter a decision.
+                </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {profile.lenses.map((lens) => (
-                  <article key={lens.id} className={`rounded-xl border p-4 ${toneClass[lens.tone]}`}>
+                  <article
+                    key={lens.id}
+                    className={`rounded-xl border p-4 ${toneClass[lens.tone]}`}
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-[10px] uppercase tracking-[0.16em] opacity-70">{lens.label}</p>
-                      <span className="rounded border border-current/20 px-2 py-0.5 text-[9px]">{lens.tone}</span>
+                      <p className="text-[10px] uppercase tracking-[0.16em] opacity-70">
+                        {lens.label}
+                      </p>
+                      <span className="rounded border border-current/20 px-2 py-0.5 text-[9px]">
+                        {lens.tone}
+                      </span>
                     </div>
                     <h3 className="mt-2 text-sm font-semibold">{lens.headline}</h3>
                     <p className="mt-2 text-xs leading-5 opacity-75">{lens.detail}</p>
                     {lens.provenance.length ? (
-                      <p className="mt-3 break-all text-[10px] opacity-50">Evidence: {lens.provenance.join(" · ")}</p>
+                      <p className="mt-3 break-all text-[10px] opacity-50">
+                        Evidence: {lens.provenance.join(" · ")}
+                      </p>
                     ) : null}
                   </article>
                 ))}
@@ -244,17 +295,23 @@ export default async function BuffettOraclePage({
 
             <section className="grid gap-4 xl:grid-cols-2">
               <div className="rounded-xl border border-zinc-800 bg-[#09111a] p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">Valuation laboratory</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">
+                  Valuation laboratory
+                </p>
                 <h2 className="mt-1 text-lg font-semibold">Your multiples, Market OS facts</h2>
                 <p className="mt-2 text-xs leading-5 text-zinc-500">
-                  The uploaded Oracle supplied its own DCF and valuation assumptions. This integration does not. Enter low/base/high P/E and P/S multiples yourself; Market OS applies them only to mechanically eligible annual facts.
+                  The uploaded Oracle supplied its own DCF and valuation assumptions. This
+                  integration does not. Enter low/base/high P/E and P/S multiples yourself; Market
+                  OS applies them only to mechanically eligible annual facts.
                 </p>
                 <form method="get" className="mt-4 flex flex-col gap-3">
                   <input type="hidden" name="corpCode" value={xray.company.corpCode} />
                   <input type="hidden" name="source" value={xray.company.sourceCode} />
                   {(["pe", "ps"] as const).map((method) => (
                     <div key={method}>
-                      <div className="mb-1 text-xs font-medium text-zinc-400">{method.toUpperCase()} multiples</div>
+                      <div className="mb-1 text-xs font-medium text-zinc-400">
+                        {method.toUpperCase()} multiples
+                      </div>
                       <div className="grid grid-cols-3 gap-2">
                         {(["Low", "Base", "High"] as const).map((label) => {
                           const name = `${method}${label}` as keyof OracleQuery;
@@ -272,7 +329,10 @@ export default async function BuffettOraclePage({
                       </div>
                     </div>
                   ))}
-                  <button type="submit" className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400">
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400"
+                  >
                     Calculate scenarios
                   </button>
                 </form>
@@ -289,28 +349,56 @@ export default async function BuffettOraclePage({
                 <h2 className="mt-1 text-lg font-semibold">Latest filings</h2>
                 <div className="mt-4 flex flex-col gap-2">
                   {xray.recentFilings.slice(0, 6).map((f) => (
-                    <div key={f.receiptNo} className="rounded-lg border border-zinc-800 bg-black/30 p-3">
+                    <div
+                      key={f.receiptNo}
+                      className="rounded-lg border border-zinc-800 bg-black/30 p-3"
+                    >
                       <div className="text-sm text-zinc-200">{f.reportName}</div>
-                      <div className="mt-1 text-[11px] text-zinc-600">{f.receiptDate} · {f.receiptNo}</div>
+                      <div className="mt-1 text-[11px] text-zinc-600">
+                        {f.receiptDate} · {f.receiptNo}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
               <div className="rounded-xl border border-zinc-800 bg-[#09111a] p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">Integration contract</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">
+                  Integration contract
+                </p>
                 <h2 className="mt-1 text-lg font-semibold">What changed</h2>
                 <div className="mt-4 space-y-3 text-xs leading-5 text-zinc-400">
-                  <p><strong className="text-emerald-300">KEPT:</strong> Buffett-style quality workflow, earnings/revenue durability, value-trap mindset and scenario-analysis UX.</p>
-                  <p><strong className="text-amber-300">CORRECTED:</strong> static moat/conviction values are analyst notes only and cannot affect ranking or valuation until evidence-backed.</p>
-                  <p><strong className="text-amber-300">CORRECTED:</strong> Oracle no longer calls DART/SEC/price providers directly. Market OS is the single provider/provenance authority.</p>
-                  <p><strong className="text-sky-300">DEFERRED:</strong> Bottom/RSI and portfolio allocation require a verified security-price authority and a separate product decision before they drive normal-user ranking.</p>
-                  <p><strong className="text-zinc-300">SAFETY:</strong> UNKNOWN stays unknown, stale stays stale, incomplete stays incomplete; this page needs no LLM or provider credential.</p>
+                  <p>
+                    <strong className="text-emerald-300">KEPT:</strong> Buffett-style quality
+                    workflow, earnings/revenue durability, value-trap mindset and scenario-analysis
+                    UX.
+                  </p>
+                  <p>
+                    <strong className="text-amber-300">CORRECTED:</strong> static moat/conviction
+                    values are analyst notes only and cannot affect ranking or valuation until
+                    evidence-backed.
+                  </p>
+                  <p>
+                    <strong className="text-amber-300">CORRECTED:</strong> Oracle no longer calls
+                    DART/SEC/price providers directly. Market OS is the single provider/provenance
+                    authority.
+                  </p>
+                  <p>
+                    <strong className="text-sky-300">DEFERRED:</strong> Bottom/RSI and portfolio
+                    allocation require a verified security-price authority and a separate product
+                    decision before they drive normal-user ranking.
+                  </p>
+                  <p>
+                    <strong className="text-zinc-300">SAFETY:</strong> UNKNOWN stays unknown, stale
+                    stays stale, incomplete stays incomplete; this page needs no LLM or provider
+                    credential.
+                  </p>
                 </div>
               </div>
             </section>
 
             <section className="rounded-xl border border-zinc-800 bg-black/30 p-4 text-xs leading-5 text-zinc-500">
-              <strong className="text-zinc-300">Limitations.</strong> {profile.limitations.join(" ")}
+              <strong className="text-zinc-300">Limitations.</strong>{" "}
+              {profile.limitations.join(" ")}
             </section>
           </>
         )}

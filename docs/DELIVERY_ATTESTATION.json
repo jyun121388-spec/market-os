@@ -1,0 +1,101 @@
+{
+  "schema": "market-os/delivery-attestation/1",
+  "note": "Machine-readable bindings for independent read-back of the V1 delivery acceptance. Written under [CHATGPT_DECISION][MARKET-V1-DELIVERY-SNAPSHOT-EVIDENCE-INTEGRITY-5A5250-20260911]. Follows the conventions of docs/REVIEW_ATTESTATION.json rather than inventing a second format. Contains no snapshot rows, credentials, accounts, personal data or secret-bearing paths.",
+  "state": "V1_DELIVERY_CANDIDATE",
+  "notClaimed": ["V1_DELIVERED", "RELEASED", "DEPLOYED", "remote CI green on this tree"],
+  "product": {
+    "branch": "claude/ask-guardrail-architecture-20260823",
+    "sourceSha": "PLACEHOLDER_HEAD",
+    "sourceTree": "PLACEHOLDER_TREE",
+    "productBytesUnchangedSince": {
+      "sha": "8f4a6fc797271beb62d5d16647d40b6da5e3f6b3",
+      "provenBy": "git diff --name-only 8f4a6fc7 HEAD -- src packaging prisma next.config.ts package.json is empty",
+      "why": "The distribution under acceptance was built at 8f4a6fc7. This unit changed only the acceptance harness, its tests and delivery documentation, so that build remains a faithful package of HEAD's product code and was not rebuilt merely to create activity."
+    }
+  },
+  "acceptanceHarness": {
+    "path": "scripts/acceptance/market-snapshot.ts",
+    "blobSha1": "4de31c2986db955a729b42e89b390b67362324ad",
+    "isProductCode": false,
+    "shippedInDistribution": false
+  },
+  "distribution": {
+    "manifestSha256": "1efa4098c077dbda54dfe366abb3e0e9a2e5648fc9bab4d1b69a2b908a5d8008",
+    "buildId": "4xTwewU8QLgkyjJrsqI83",
+    "builtFromSourceCommit": "8f4a6fc797271beb62d5d16647d40b6da5e3f6b3",
+    "builtFromSourceTree": "10ea4c568850a604f9fa942fe047d806cf3e3cdf",
+    "fileCount": 13928,
+    "bytes": 410641186,
+    "migrations": 17,
+    "migrationRunner": "7.9.1"
+  },
+  "snapshot": {
+    "manifestVersion": 1,
+    "transferMode": "OFFLINE_ACCEPTANCE_SNAPSHOT",
+    "sourceDatabase": "DEVELOPMENT_EVIDENCE_STORE",
+    "liveProviderCallsDuringAcceptance": 0,
+    "recomputedRootDigest": "f26b3942aea53307e5d283fdf12427eec669b70a0a9668b252ed88278352f373",
+    "digestEstablishedBy": "verifySnapshot() re-hashes and re-counts every CSV from disk and recomputes the root digest before the import touches the target. The manifest's own claim is compared against the measured value, never trusted in place of it.",
+    "allowedSourceCodes": ["SEC_EDGAR", "FRED"],
+    "excludedProviders": ["ECOS", "OPENDART"],
+    "excludedTables": ["users", "sessions", "watchlist_items"],
+    "tableCounts": {
+      "sources": 2,
+      "series": 11,
+      "observations": 68877,
+      "data_conflicts": 0,
+      "filings": 2240,
+      "financial_facts": 1428,
+      "etfs": 0,
+      "etf_holdings": 0,
+      "real_estate_transactions": 0,
+      "events": 0,
+      "event_mentions": 0,
+      "causal_edges": 1,
+      "claims": 0,
+      "ingest_runs": 51
+    }
+  },
+  "evidence": {
+    "cleanInstallBootstrap": {
+      "classification": "LOCAL_PRODUCER_EVIDENCE",
+      "result": "34/34",
+      "subject": "a distribution installed and started from nothing on a clean path containing a space",
+      "claims": "the product creates its own database, applies migrations, launches, restarts and persists",
+      "doesNotClaim": "that this machine acquired any market data",
+      "artifactIdentityUnchanged": true
+    },
+    "packagedGuiGoldenLoop": {
+      "classification": "LOCAL_PRODUCER_EVIDENCE",
+      "result": "44/44",
+      "subject": "the packaged GUI, browser only, over the offline acceptance snapshot",
+      "claims": "Reality/Data -> Intelligence -> Analysis -> Evidence -> Dashboard works end to end",
+      "doesNotClaim": "that the clean machine acquired this data itself",
+      "rerunAfterRepair": true
+    },
+    "fullLocalGate": {
+      "classification": "LOCAL_PRODUCER_EVIDENCE",
+      "result": "PLACEHOLDER_GATE"
+    },
+    "remoteProductCi": {
+      "state": "NONE",
+      "checkRuns": 0,
+      "legacyStatusContexts": 0,
+      "inheritedFromFrozenRc": false
+    }
+  },
+  "humanGates": {
+    "HG-003": "PENDING_USER",
+    "HG-004": "PENDING_USER",
+    "HG-006": "PENDING_USER",
+    "HG-007": "PENDING_USER",
+    "HG-008": "PENDING_USER"
+  },
+  "notAttested": [
+    "no remote product CI has run this tree",
+    "no independent review at this exact SHA",
+    "the clean-Windows acceptance ran on this machine's Windows, not a second physical host",
+    "the GUI Golden Loop shows the journey over an offline snapshot, not live acquisition",
+    "ECOS's missing-value marker convention remains unobserved"
+  ]
+}

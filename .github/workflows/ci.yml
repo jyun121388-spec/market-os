@@ -32,16 +32,20 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-
-      # TEMPORARY PR-ONLY diagnostic. It prints Prettier's exact patch so the branch can apply the
-      # repository formatter without relying on an external formatter installation. This step is
-      # removed immediately after the patch is captured and never belongs in the product branch.
-      - name: Print exact Prettier patch for Oracle files
+      - name: Format Oracle files for exact branch repair
+        run: npx prettier --write src/app/oracle/page.tsx src/app/SiteNav.tsx src/server/domain/buffettOracle.ts
+      - name: Package exact formatted files
         run: |
-          npx prettier --write src/app/oracle/page.tsx src/app/SiteNav.tsx src/server/domain/buffettOracle.ts
-          git diff -- src/app/oracle/page.tsx src/app/SiteNav.tsx src/server/domain/buffettOracle.ts
-          exit 1
-
+          mkdir -p oracle-formatted/src/app/oracle oracle-formatted/src/app oracle-formatted/src/server/domain
+          cp src/app/oracle/page.tsx oracle-formatted/src/app/oracle/page.tsx
+          cp src/app/SiteNav.tsx oracle-formatted/src/app/SiteNav.tsx
+          cp src/server/domain/buffettOracle.ts oracle-formatted/src/server/domain/buffettOracle.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oracle-formatted-files
+          path: oracle-formatted
+      - name: Stop diagnostic run after artifact capture
+        run: exit 1
       - run: npx prisma generate
       - run: npx prisma migrate deploy
       - name: Create and migrate the disposable test database

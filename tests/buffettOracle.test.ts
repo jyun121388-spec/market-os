@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CompanyXray, ReportedFigure } from "@/server/domain/companyXray";
-import {
-  computeBuffettOracleLens,
-  computeOracleBalanceSheet,
-} from "@/server/domain/buffettOracle";
+import { computeBuffettOracleLens, computeOracleBalanceSheet } from "@/server/domain/buffettOracle";
 
 const annual = (
   concept: string,

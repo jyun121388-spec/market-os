@@ -71,8 +71,8 @@ export default async function OraclePage({
                 Oracle Research Workspace
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-[#7890A0]">
-                버핏·린치식 질문을 Market OS의 실제 공시·재무·출처 체계 위에 올린 가치투자
-                리서치 화면입니다. 하드코딩 시세, 임의 가격 시뮬레이션, 브라우저 API 키,
+                버핏·린치식 질문을 Market OS의 실제 공시·재무·출처 체계 위에 올린 가치투자 리서치
+                화면입니다. 하드코딩 시세, 임의 가격 시뮬레이션, 브라우저 API 키,
                 목표가·매수수량·매매판정은 사용하지 않습니다.
               </p>
             </div>
@@ -110,8 +110,8 @@ export default async function OraclePage({
             <div className="flex-1 overflow-y-auto">
               {companies.length === 0 ? (
                 <p className="p-4 text-sm leading-6 text-[#486070]">
-                  이 설치본에 저장된 기업 중 검색 조건과 일치하는 항목이 없습니다. 존재하지
-                  않는 기업이라는 뜻이 아니라 현재 저장 범위에 없다는 뜻입니다.
+                  이 설치본에 저장된 기업 중 검색 조건과 일치하는 항목이 없습니다. 존재하지 않는
+                  기업이라는 뜻이 아니라 현재 저장 범위에 없다는 뜻입니다.
                 </p>
               ) : (
                 companies.map((company) => {
@@ -159,8 +159,8 @@ export default async function OraclePage({
                   <div className="text-4xl text-[#C48800]/40">◈</div>
                   <h2 className="mt-4 text-xl font-medium text-white">기업을 선택하세요</h2>
                   <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#486070]">
-                    왼쪽 목록에서 기업을 선택하면 수익성, 재무구조, 존속성, 변화 추적,
-                    밸류에이션 준비도와 원문 증거를 하나의 화면에서 확인합니다.
+                    왼쪽 목록에서 기업을 선택하면 수익성, 재무구조, 존속성, 변화 추적, 밸류에이션
+                    준비도와 원문 증거를 하나의 화면에서 확인합니다.
                   </p>
                 </div>
               </div>
@@ -175,7 +175,9 @@ export default async function OraclePage({
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-2xl font-semibold text-white">{lens.company.corpName}</h2>
+                        <h2 className="text-2xl font-semibold text-white">
+                          {lens.company.corpName}
+                        </h2>
                         <span className="rounded border border-[#C48800]/40 bg-[#C48800]/10 px-2 py-1 font-mono text-[10px] text-[#E0A000]">
                           {lens.company.sourceCode}
                         </span>
@@ -186,7 +188,8 @@ export default async function OraclePage({
                     </div>
                     <div className="text-right">
                       <div className="font-mono text-2xl font-semibold text-[#C48800]">
-                        {lens.evidenceCoverage.supportedDimensions}/{lens.evidenceCoverage.totalDimensions}
+                        {lens.evidenceCoverage.supportedDimensions}/
+                        {lens.evidenceCoverage.totalDimensions}
                       </div>
                       <div className="text-[11px] uppercase tracking-[0.18em] text-[#486070]">
                         evidence dimensions
@@ -266,7 +269,8 @@ export default async function OraclePage({
                         : `${lens.durability.coveredYears.toFixed(1)}y`}
                     </div>
                     <div className="mt-2 text-xs text-[#7890A0]">
-                      {lens.durability.filingCount} filings · {lens.durability.earliestFilingDate ?? "?"}
+                      {lens.durability.filingCount} filings ·{" "}
+                      {lens.durability.earliestFilingDate ?? "?"}
                       {" → "}
                       {lens.durability.latestFilingDate ?? "?"}
                     </div>
@@ -370,7 +374,10 @@ export default async function OraclePage({
                       ].map(([label, raw]) => {
                         const item = raw as typeof lens.balanceSheet.assets | undefined;
                         return (
-                          <div key={String(label)} className="rounded-lg border border-[#14283A] bg-[#07101A] p-3">
+                          <div
+                            key={String(label)}
+                            className="rounded-lg border border-[#14283A] bg-[#07101A] p-3"
+                          >
                             <div className="text-[11px] text-[#486070]">{String(label)}</div>
                             <div className="mt-1 font-mono text-base text-[#DDE8EE]">
                               {money(item?.value, item?.unit)}

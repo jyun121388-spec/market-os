@@ -1,11 +1,7 @@
 import type { CompanyXray, ReportedFigure } from "./companyXray";
 import type { FilingDiffResult } from "./filingDiff";
 import { computeProfitability, type ProfitabilityRatio } from "./profitability";
-import {
-  EARNINGS_CONCEPT,
-  REVENUE_CONCEPTS,
-  computeValuationScenarios,
-} from "./valuationScenario";
+import { EARNINGS_CONCEPT, REVENUE_CONCEPTS, computeValuationScenarios } from "./valuationScenario";
 
 /**
  * Buffett Oracle Lens
@@ -218,10 +214,7 @@ function yearsCovered(start: string | null, end: string | null): number | null {
   return Math.round(((b - a) / (365.2425 * 24 * 60 * 60 * 1000)) * 10) / 10;
 }
 
-function changeFor(
-  changes: FilingDiffResult[],
-  concepts: readonly string[],
-): OracleChangeLens {
+function changeFor(changes: FilingDiffResult[], concepts: readonly string[]): OracleChangeLens {
   for (const concept of concepts) {
     const c = changes.find((row) => row.concept === concept);
     if (!c) continue;
@@ -261,12 +254,13 @@ export function computeBuffettOracleLens(xray: CompanyXray): BuffettOracleLens {
   const psReady = valuation.ps.status === "AWAITING_ASSUMPTIONS";
   const profitabilityReady = profitability.some((r) => r.status === "COMPUTED");
   const durabilityReady = Boolean(
-    xray.company.earliestFilingDate && xray.company.latestFilingDate && xray.company.filingCount > 0,
+    xray.company.earliestFilingDate &&
+    xray.company.latestFilingDate &&
+    xray.company.filingCount > 0,
   );
   const earningsChange = changeFor(xray.changes, [EARNINGS_CONCEPT]);
   const revenueChange = changeFor(xray.changes, REVENUE_CONCEPTS);
-  const changeReady =
-    earningsChange.status === "COMPUTED" || revenueChange.status === "COMPUTED";
+  const changeReady = earningsChange.status === "COMPUTED" || revenueChange.status === "COMPUTED";
 
   const supportedDimensions = [
     profitabilityReady,
@@ -284,10 +278,7 @@ export function computeBuffettOracleLens(xray: CompanyXray): BuffettOracleLens {
       filingCount: xray.company.filingCount,
       earliestFilingDate: xray.company.earliestFilingDate,
       latestFilingDate: xray.company.latestFilingDate,
-      coveredYears: yearsCovered(
-        xray.company.earliestFilingDate,
-        xray.company.latestFilingDate,
-      ),
+      coveredYears: yearsCovered(xray.company.earliestFilingDate, xray.company.latestFilingDate),
       completenessStatus: xray.completeness.status,
       completenessDetail: xray.completeness.detail,
     },

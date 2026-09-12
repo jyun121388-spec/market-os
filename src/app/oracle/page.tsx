@@ -11,8 +11,20 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type OracleQuery = {
+  company?: string;
+  corpCode?: string;
+  source?: string;
+  peLow?: string;
+  peBase?: string;
+  peHigh?: string;
+  psLow?: string;
+  psBase?: string;
+  psHigh?: string;
+};
+
 const toneClass: Record<OracleTone, string> = {
-  POSITIVE: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
+  POSITIVE: "border-emerald-500/40 bg-emerald-500/10 text-emerald-100",
   CAUTION: "border-amber-500/40 bg-amber-500/10 text-amber-100",
   UNVERIFIABLE: "border-zinc-700 bg-zinc-900/70 text-zinc-300",
   NEUTRAL: "border-sky-500/30 bg-sky-500/10 text-sky-100",
@@ -31,7 +43,7 @@ function scenarioValue(v: number | undefined, unit: string | undefined) {
 
 function ScenarioCard({ scenario }: { scenario: ValuationScenario }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-black/30 p-4">
+    <article className="rounded-xl border border-zinc-800 bg-black/30 p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -40,18 +52,20 @@ function ScenarioCard({ scenario }: { scenario: ValuationScenario }) {
           <p className="text-sm font-medium text-zinc-200">{scenario.status}</p>
         </div>
         <span className="rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400">
-          user assumptions only
+          USER ASSUMPTION
         </span>
       </div>
+
       {scenario.fact ? (
         <div className="mb-3 rounded-lg bg-zinc-950 p-3 text-xs text-zinc-400">
-          <div className="text-zinc-200">FACT · {scenario.fact.concept}</div>
+          <div className="font-medium text-zinc-200">FACT · {scenario.fact.concept}</div>
           <div>
             {scenario.fact.value.toLocaleString("en-US")} {scenario.fact.unit} · {scenario.fact.periodEnd}
           </div>
-          <div>{scenario.fact.form} · {scenario.fact.accessionNumber}</div>
+          <div className="break-all">{scenario.fact.form} · {scenario.fact.accessionNumber}</div>
         </div>
       ) : null}
+
       {scenario.impliedEquityValue ? (
         <div className="grid grid-cols-3 gap-2">
           {[
@@ -73,31 +87,33 @@ function ScenarioCard({ scenario }: { scenario: ValuationScenario }) {
         </p>
       )}
       <p className="mt-3 text-[11px] leading-5 text-zinc-600">{scenario.limitations}</p>
-    </div>
+    </article>
   );
+}
+
+function parseCompanySelection(query: OracleQuery) {
+  if (query.corpCode) return { corpCode: query.corpCode, source: query.source };
+  if (!query.company) return null;
+  const split = query.company.indexOf("|");
+  if (split <= 0 || split === query.company.length - 1) return null;
+  return { corpCode: query.company.slice(0, split), source: query.company.slice(split + 1) };
 }
 
 export default async function BuffettOraclePage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    corpCode?: string;
-    source?: string;
-    peLow?: string;
-    peBase?: string;
-    peHigh?: string;
-    psLow?: string;
-    psBase?: string;
-    psHigh?: string;
-  }>;
+  searchParams: Promise<OracleQuery>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const query = await searchParams;
   const companies = await listCompanies();
-  const selected = query.corpCode
-    ? companies.find((c) => c.corpCode === query.corpCode && (!query.source || c.sourceCode === query.source))
+  const requested = parseCompanySelection(query);
+  const selected = requested
+    ? companies.find(
+        (c) => c.corpCode === requested.corpCode && (!requested.source || c.sourceCode === requested.source),
+      )
     : companies[0];
 
   const xray = selected ? await computeCompanyXray(selected.corpCode, selected.sourceCode) : null;
@@ -114,30 +130,30 @@ export default async function BuffettOraclePage({
 
   return (
     <div className="min-h-screen bg-[#05080d] text-zinc-100">
-      <div className="border-b border-amber-500/20 bg-[#071019]">
+      <header className="border-b border-amber-500/20 bg-[#071019]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
           <div>
             <p className="font-serif text-2xl tracking-tight text-amber-400">◈ Buffett Oracle × Market OS</p>
-            <p className="mt-1 text-xs tracking-[0.18em] text-zinc-600">
-              EVIDENCE-FIRST VALUE RESEARCH WORKSPACE
-            </p>
+            <p className="mt-1 text-xs tracking-[0.18em] text-zinc-600">EVIDENCE-FIRST VALUE RESEARCH WORKSPACE</p>
           </div>
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
-            MARKET OS = data/provenance authority · ORACLE = research lens
+            Market OS = evidence authority · Oracle = research lens
           </div>
         </div>
-      </div>
+      </header>
 
       <main className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-6">
         <section className="grid gap-4 lg:grid-cols-[1fr_auto]">
           <form method="get" className="rounded-xl border border-zinc-800 bg-[#09111a] p-4">
-            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-zinc-500">Company evidence set</label>
+            <label htmlFor="oracle-company" className="mb-2 block text-xs uppercase tracking-[0.18em] text-zinc-500">
+              Company evidence set
+            </label>
             <div className="flex flex-wrap gap-2">
               <select
+                id="oracle-company"
                 name="company"
                 defaultValue={selected ? `${selected.corpCode}|${selected.sourceCode}` : ""}
                 className="min-w-[280px] flex-1 rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm"
-                onChange={undefined}
               >
                 {companies.map((c) => (
                   <option key={`${c.sourceCode}:${c.corpCode}`} value={`${c.corpCode}|${c.sourceCode}`}>
@@ -145,30 +161,25 @@ export default async function BuffettOraclePage({
                   </option>
                 ))}
               </select>
-              <input type="hidden" name="corpCode" value={selected?.corpCode ?? ""} />
-              <input type="hidden" name="source" value={selected?.sourceCode ?? ""} />
-              <Link
-                href="/company"
-                className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-amber-400"
-              >
+              <button type="submit" className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400">
+                Open in Oracle
+              </button>
+              <Link href="/company" className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-amber-400">
                 Company search
               </Link>
             </div>
-            <p className="mt-2 text-xs text-zinc-600">
-              Select a company from Market OS Companies, then open Oracle from the company link below. The current selector is informational and never changes provider identity silently.
-            </p>
           </form>
 
           <div className="rounded-xl border border-zinc-800 bg-[#09111a] p-4 text-right">
             <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Coverage</div>
             <div className="mt-1 text-xl font-semibold text-amber-300">{companies.length}</div>
-            <div className="text-xs text-zinc-500">stored company evidence sets</div>
+            <div className="text-xs text-zinc-500">stored evidence sets</div>
           </div>
         </section>
 
         {!xray || !profile || !valuation ? (
           <section className="rounded-xl border border-zinc-800 bg-[#09111a] p-8 text-center text-zinc-500">
-            No company evidence is available yet. Ingest supported filings first; Oracle will not fabricate a demo company.
+            No company evidence is stored yet. Oracle will not fabricate a demo company.
           </section>
         ) : (
           <>
@@ -192,13 +203,13 @@ export default async function BuffettOraclePage({
                   href={`/company/${encodeURIComponent(xray.company.corpCode)}?source=${encodeURIComponent(xray.company.sourceCode)}`}
                   className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:border-amber-400"
                 >
-                  Open Company Intelligence
+                  Company Intelligence
                 </Link>
                 <Link
                   href={`/company/${encodeURIComponent(xray.company.corpCode)}/filings?source=${encodeURIComponent(xray.company.sourceCode)}`}
                   className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:border-amber-400"
                 >
-                  Open Filing Evidence
+                  Filing Evidence
                 </Link>
                 <Link href="/macro" className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:border-amber-400">
                   Macro context
@@ -212,7 +223,7 @@ export default async function BuffettOraclePage({
                   <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">Buffett research lens</p>
                   <h2 className="text-xl font-semibold">Quality before price</h2>
                 </div>
-                <p className="text-xs text-zinc-600">No hard-coded moat score enters a decision.</p>
+                <p className="text-xs text-zinc-600">Hard-coded moat scores never enter a decision.</p>
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {profile.lenses.map((lens) => (
@@ -231,34 +242,33 @@ export default async function BuffettOraclePage({
               </div>
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <section className="grid gap-4 xl:grid-cols-2">
               <div className="rounded-xl border border-zinc-800 bg-[#09111a] p-5">
                 <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">Valuation laboratory</p>
                 <h2 className="mt-1 text-lg font-semibold">Your multiples, Market OS facts</h2>
                 <p className="mt-2 text-xs leading-5 text-zinc-500">
-                  Buffett Oracle v11 used its own DCF/multiple assumptions. The integrated product does not invent those assumptions. Enter your own low/base/high P/E and P/S ranges; Market OS applies them only to mechanically eligible annual facts.
+                  The uploaded Oracle supplied its own DCF and valuation assumptions. This integration does not. Enter low/base/high P/E and P/S multiples yourself; Market OS applies them only to mechanically eligible annual facts.
                 </p>
                 <form method="get" className="mt-4 flex flex-col gap-3">
                   <input type="hidden" name="corpCode" value={xray.company.corpCode} />
                   <input type="hidden" name="source" value={xray.company.sourceCode} />
-                  {["pe", "ps"].map((method) => (
+                  {(["pe", "ps"] as const).map((method) => (
                     <div key={method}>
                       <div className="mb-1 text-xs font-medium text-zinc-400">{method.toUpperCase()} multiples</div>
                       <div className="grid grid-cols-3 gap-2">
-                        {[
-                          ["Low", `${method}Low`],
-                          ["Base", `${method}Base`],
-                          ["High", `${method}High`],
-                        ].map(([label, name]) => (
-                          <input
-                            key={name}
-                            name={name}
-                            defaultValue={query[name as keyof typeof query] ?? ""}
-                            inputMode="decimal"
-                            placeholder={label}
-                            className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm outline-none focus:border-amber-400"
-                          />
-                        ))}
+                        {(["Low", "Base", "High"] as const).map((label) => {
+                          const name = `${method}${label}` as keyof OracleQuery;
+                          return (
+                            <input
+                              key={name}
+                              name={name}
+                              defaultValue={query[name] ?? ""}
+                              inputMode="decimal"
+                              placeholder={label}
+                              className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm outline-none focus:border-amber-400"
+                            />
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -273,7 +283,7 @@ export default async function BuffettOraclePage({
               </div>
             </section>
 
-            <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+            <section className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-xl border border-zinc-800 bg-[#09111a] p-5">
                 <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">Recent evidence</p>
                 <h2 className="mt-1 text-lg font-semibold">Latest filings</h2>
@@ -288,13 +298,13 @@ export default async function BuffettOraclePage({
               </div>
               <div className="rounded-xl border border-zinc-800 bg-[#09111a] p-5">
                 <p className="text-xs uppercase tracking-[0.18em] text-zinc-600">Integration contract</p>
-                <h2 className="mt-1 text-lg font-semibold">What was kept / what was corrected</h2>
+                <h2 className="mt-1 text-lg font-semibold">What changed</h2>
                 <div className="mt-4 space-y-3 text-xs leading-5 text-zinc-400">
-                  <p><strong className="text-emerald-300">KEPT:</strong> Buffett-style quality workflow, economic quality, earnings/revenue durability, value-trap mindset, scenario valuation UX, evidence-first research.</p>
-                  <p><strong className="text-amber-300">CORRECTED:</strong> hard-coded moat/conviction values are analyst notes only; they cannot affect ranking or valuation until tied to evidence.</p>
-                  <p><strong className="text-amber-300">CORRECTED:</strong> Oracle no longer calls DART/SEC/price providers directly. Market OS remains the single provider/provenance authority.</p>
-                  <p><strong className="text-sky-300">DEFERRED:</strong> Bottom/RSI and portfolio allocation need a verified security-price authority and a separate product/legal decision before they can drive a normal-user ranking.</p>
-                  <p><strong className="text-zinc-300">SAFETY:</strong> UNKNOWN stays unknown, stale stays stale, incomplete stays incomplete, and no LLM or provider credential is required by this page.</p>
+                  <p><strong className="text-emerald-300">KEPT:</strong> Buffett-style quality workflow, earnings/revenue durability, value-trap mindset and scenario-analysis UX.</p>
+                  <p><strong className="text-amber-300">CORRECTED:</strong> static moat/conviction values are analyst notes only and cannot affect ranking or valuation until evidence-backed.</p>
+                  <p><strong className="text-amber-300">CORRECTED:</strong> Oracle no longer calls DART/SEC/price providers directly. Market OS is the single provider/provenance authority.</p>
+                  <p><strong className="text-sky-300">DEFERRED:</strong> Bottom/RSI and portfolio allocation require a verified security-price authority and a separate product decision before they drive normal-user ranking.</p>
+                  <p><strong className="text-zinc-300">SAFETY:</strong> UNKNOWN stays unknown, stale stays stale, incomplete stays incomplete; this page needs no LLM or provider credential.</p>
                 </div>
               </div>
             </section>

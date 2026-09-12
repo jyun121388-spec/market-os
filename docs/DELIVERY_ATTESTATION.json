@@ -5,8 +5,8 @@
   "notClaimed": ["V1_DELIVERED", "RELEASED", "DEPLOYED", "remote CI green on this tree"],
   "product": {
     "branch": "claude/ask-guardrail-architecture-20260823",
-    "sourceSha": "PLACEHOLDER_HEAD",
-    "sourceTree": "PLACEHOLDER_TREE",
+    "attestedCodeSha": "86c5ee324588381f67e7a5acd7e92b7179e58a96",
+    "attestedCodeTree": "f09aea6f87a8f005aab28e2050158aec8c2a502a",
     "productBytesUnchangedSince": {
       "sha": "8f4a6fc797271beb62d5d16647d40b6da5e3f6b3",
       "provenBy": "git diff --name-only 8f4a6fc7 HEAD -- src packaging prisma next.config.ts package.json is empty",
@@ -75,7 +75,7 @@
     },
     "fullLocalGate": {
       "classification": "LOCAL_PRODUCER_EVIDENCE",
-      "result": "PLACEHOLDER_GATE"
+      "result": "3047 / 3047 across 175 files (3028 passing plus 19 pinned it.fails); format, lint, typecheck clean"
     },
     "remoteProductCi": {
       "state": "NONE",
@@ -97,5 +97,6 @@
     "the clean-Windows acceptance ran on this machine's Windows, not a second physical host",
     "the GUI Golden Loop shows the journey over an offline snapshot, not live acquisition",
     "ECOS's missing-value marker convention remains unobserved"
-  ]
+  ],
+  "shaConvention": "This attests its PARENT commit, the same two-SHA pattern docs/REVIEW_ATTESTATION.json uses: a file cannot carry the hash of the commit that contains it."
 }

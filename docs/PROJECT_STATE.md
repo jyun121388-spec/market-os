@@ -1167,8 +1167,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-3069 / 3069 PASS across 176 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 3050 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+3075 / 3075 PASS across 176 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 3056 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its
@@ -1184,13 +1184,30 @@ does not exist in a linked `git worktree`, so a bare `npx vitest run` here fails
 missing `DATABASE_URL`. That is an environment gap, recorded as one and never repaired by changing
 the product; the suite above was run with the variable supplied on the command line.
 
-MEASURED 2026-09-13 on `claude/ask-guardrail-architecture-20260823` at `b5576d8` plus the bundled
-Node pin and licence work committed on top of it, with the cluster restarted after an overnight
-abnormal termination — the run before it failed 59 integration files and skipped 484 tests purely
+MEASURED 2026-09-13 on `claude/ask-guardrail-architecture-20260823` at `7760881` plus the Buffett
+Oracle integration committed on top of it, with the cluster restarted after an overnight abnormal
+termination — an earlier run that day failed 59 integration files and skipped 484 tests purely
 because the developer cluster was not listening, which is an environment fact recorded as one.
 The port is worth writing down: it lives only on the `pg_ctl` command line and not in
 `postgresql.conf`, so a plain restart brings the cluster up on 5432 and every `TEST_DATABASE_URL`
 pointing at 55432 misses it while `pg_ctl status` says the server is running.
+
+BROWSER E2E: 218 / 218 checks PASS against a production build on 127.0.0.1:3111, TREE BINDING BOUND
+by served build id. Three assertions in `scripts/e2e-full-walkthrough.ts` were repaired rather than
+satisfied, because in each case the product was right and the test was stale: the empty-store search
+branch (the page says the STORE is empty, and "nothing matches your query" would be a claim about
+the query), the wording `No filings ingested` which the product had improved to `No filings are
+stored yet`, and an inverted-multiple range asserted unconditionally as `Assumptions refused` when
+`valuationScenario.ts` settles the FACT side first on purpose so that a typo cannot mask a data gap
+— that one contradicted the check four lines above it and had passed only when the database happened
+to hold a company with a usable annual figure. It now asserts both directions of the precedence rule.
+The Oracle ban list is scanned for the AFFIRMATIVE form: the first version failed on the page's own
+`No buy/sell/hold recommendation and no target price.`, which is the seventh time a substring scan
+here has reported a denial as the offence, so that denial is now asserted to EXIST as well.
+
+This E2E exercises `next start`. The PACKAGED product runs `.next/standalone/server.js`, which is a
+different entry point, covered by the no-system-Node acceptance and the packaged Golden Loop instead.
+Neither substitutes for the other.
 
 Previously MEASURED 2026-09-02 at `bb88ded` plus the IR-075
 premise measurement committed on top of it. The fix that residual NAMED — hold the lock file open,

@@ -30,6 +30,12 @@ export async function SiteNav() {
             <Link href="/company" className="text-zinc-600 hover:underline dark:text-zinc-400">
               Companies
             </Link>
+            <Link
+              href="/oracle"
+              className="font-medium text-amber-700 hover:underline dark:text-amber-400"
+            >
+              Buffett Oracle
+            </Link>
             <Link href="/macro" className="text-zinc-600 hover:underline dark:text-zinc-400">
               Macro
             </Link>

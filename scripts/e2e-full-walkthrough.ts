@@ -267,6 +267,8 @@ async function main() {
     for (const [label, href] of [
       ["Today", "/today"],
       ["Companies", "/company"],
+      // A surface a user can only reach by typing a URL is not a delivered surface.
+      ["Buffett Oracle", "/oracle"],
       ["Watchlist", "/watchlist"],
       ["Ask Market", "/ask"],
     ] as const) {
@@ -308,14 +310,28 @@ async function main() {
       !/ingest:\*|run one of the|npm run/i.test(body ?? ""),
     );
     check("a search box exists", (await page.locator('input[name="q"]').count()) === 1);
+    // WHICH branch a fruitless search can reach depends on whether anything is stored at all, and
+    // the two sentences are about different things. This asserted the no-match branch
+    // unconditionally, so against an empty database it demanded a sentence the page is right not to
+    // show: with nothing stored, "nothing matches your query" would be a claim about the query
+    // rather than about the store. The page says so correctly; the test was wrong, and the repair
+    // belongs here and not in the product copy.
+    const storeIsEmpty = (body ?? "").includes("No filings are stored yet");
     await page.fill('input[name="q"]', "zzzz-no-such-company");
     await submitPageForm(page);
     await page.waitForURL("**/company?q=*", { timeout: 10000 });
     body = await page.textContent("body");
-    check(
-      "a search with no match says so about the store, not the world",
-      (body ?? "").includes("That is a statement about what is stored here"),
-    );
+    if (storeIsEmpty) {
+      check(
+        "on an empty store a search still says the store is empty, not that the query failed",
+        (body ?? "").includes("No filings are stored yet"),
+      );
+    } else {
+      check(
+        "a search with no match says so about the store, not the world",
+        (body ?? "").includes("That is a statement about what is stored here"),
+      );
+    }
     await page.goto(`${BASE_URL}/company`);
     body = await page.textContent("body");
 
@@ -408,14 +424,35 @@ async function main() {
         check(`valuation UI never says "${banned}"`, !valuationLowered.includes(banned));
       }
 
-      // An inverted range must be refused in the GUI, not silently computed.
+      // An inverted range must be refused in the GUI, not silently computed — but WHICH refusal is
+      // correct depends on the fact side, and `scenario()` settles that first on purpose: "a
+      // company with no usable annual figure reports that even when the multiples are also wrong.
+      // The alternative would let a typo mask a data gap."
+      //
+      // This asserted `Assumptions refused` unconditionally, and so contradicted the check four
+      // lines above it, which had just established that THIS company has no usable annual figure.
+      // It passed historically only when the database happened to hold a company that did. Both
+      // directions of the precedence rule are now asserted, which is the property that actually
+      // matters.
+      const factSideAvailable = !(body ?? "").includes("UNVERIFIABLE");
       await page.goto(`${companyUrl}${joiner}peLow=30&peBase=15&peHigh=20`);
       body = await page.textContent("body");
-      check(
-        "an inverted range is refused in the GUI",
-        (body ?? "").includes("Assumptions refused"),
-      );
-      check("and refused for the stated reason", (body ?? "").includes("The range must ascend"));
+      if (factSideAvailable) {
+        check(
+          "an inverted range is refused in the GUI",
+          (body ?? "").includes("Assumptions refused"),
+        );
+        check("and refused for the stated reason", (body ?? "").includes("The range must ascend"));
+      } else {
+        check(
+          "with no usable annual figure, the data gap is reported and the typo does not mask it",
+          (body ?? "").includes("UNVERIFIABLE") && !(body ?? "").includes("Assumptions refused"),
+        );
+        check(
+          "and nothing was computed from the inverted range",
+          !/implied equity value/i.test(body ?? "") || (body ?? "").includes("UNVERIFIABLE"),
+        );
+      }
 
       // [6c] Growth, profitability and risks — the rest of the Company Intelligence surface
       // ([CHATGPT_DECISION][MARKET-V1-VALUATION-SURFACE-20260908]). Each is presentation over an
@@ -457,7 +494,15 @@ async function main() {
     } else {
       // No ingested company in this database — the page must say so rather than render a shell
       // implying coverage it does not have.
-      check("empty company index explains itself", (body ?? "").includes("No filings ingested"));
+      //
+      // The wording asserted here was `No filings ingested`, which the product stopped saying when
+      // the empty state was rewritten to avoid handing a user the developer's answer. The copy is
+      // now `No filings are stored yet.` — better copy, and the test had been failing the product
+      // for improving it.
+      check(
+        "empty company index explains itself",
+        (body ?? "").includes("No filings are stored yet"),
+      );
     }
 
     // [6d] Filings and evidence, traversed the way a user reaches it: from the company page.
@@ -529,6 +574,100 @@ async function main() {
       await page.waitForURL("**/company/**", { timeout: 10000 });
     } else {
       check("no company means no evidence link, which is honest", true);
+    }
+
+    console.log("[6e] Buffett Oracle is a research lens over the same evidence, not an oracle");
+    // The Oracle is a CONSUMER of Market OS authority. What is checked here is not that it renders
+    // — it is that it renders without acquiring authority it does not have: no recommendation, no
+    // target price, no hard-coded moat score, no fabricated company when the store is empty, and
+    // no valuation multiple the product chose on the user's behalf.
+    await page.getByRole("link", { name: /buffett oracle/i }).click();
+    await page.waitForURL("**/oracle*", { timeout: 10000 });
+    body = await page.textContent("body");
+    check(
+      "Oracle is reachable from the global nav, without typing a URL",
+      page.url().includes("/oracle"),
+    );
+    check(
+      "Oracle names Market OS as the evidence authority",
+      (body ?? "").includes("Market OS = evidence authority"),
+    );
+
+    const oracleHasCompany = !(body ?? "").includes("No company evidence is stored yet");
+    if (oracleHasCompany) {
+      check("the research lenses render", (body ?? "").includes("Quality before price"));
+      check("readiness is stated", (body ?? "").includes("Oracle readiness"));
+      // Moat is the one lens with no source-backed input. It must say so, every time.
+      check(
+        "moat is UNVERIFIABLE rather than a score",
+        (body ?? "").includes("UNVERIFIABLE") &&
+          !/moat score\s*[:=]?\s*\d/i.test(body ?? "") &&
+          !/conviction score\s*[:=]?\s*\d/i.test(body ?? ""),
+      );
+      check(
+        "the valuation laboratory takes the user's multiples, not the product's",
+        (body ?? "").includes("Your multiples, Market OS facts"),
+      );
+      // Blank by default. A pre-filled multiple is the product having an opinion about price.
+      for (const field of ["peLow", "peBase", "peHigh", "psLow", "psBase", "psHigh"]) {
+        const value = await page.inputValue(`input[name="${field}"]`).catch(() => "");
+        check(`the ${field} assumption starts blank`, value === "");
+      }
+      check(
+        "Company Intelligence, Filing Evidence and Macro stay reachable from Oracle",
+        (await page.locator('a[href^="/company/"]').count()) > 0 &&
+          (await page.locator('a[href="/macro"]').count()) > 0,
+      );
+    } else {
+      check(
+        "an empty store says so and fabricates no demo company",
+        (body ?? "").includes("Oracle will not fabricate a demo company"),
+      );
+      check(
+        "and invents no lens over evidence it does not have",
+        !(body ?? "").includes("Quality before price"),
+      );
+    }
+
+    // The vocabulary is not negotiable on this surface either, and it is the surface most likely to
+    // acquire it: a page named after an investor is where "fair value" arrives looking reasonable.
+    //
+    // Scanned for the AFFIRMATIVE form only. The first version of this was a plain substring test
+    // and it failed on the Oracle's own limitations line — "No buy/sell/hold recommendation and no
+    // target price." — reporting the page's denial as the offence. That is the seventh time a
+    // substring scan in this repository has done exactly that, so the denial is asserted to EXIST
+    // below rather than merely tolerated.
+    const oracleText = body ?? "";
+    const saysAffirmatively = (term: string) =>
+      new RegExp(`(?<!\\b(?:no|not|never|without|nor)\\s)${term.replace(/ /g, "\\s+")}`, "i").test(
+        oracleText,
+      );
+    for (const banned of [
+      "target price",
+      "fair value",
+      "intrinsic value",
+      "margin of safety",
+      "undervalued",
+      "overvalued",
+      "expected return",
+      "buy rating",
+      "price target",
+    ]) {
+      check(`Oracle never asserts "${banned}"`, !saysAffirmatively(banned));
+    }
+    check(
+      "and Oracle states the limitation outright rather than merely omitting it",
+      /no buy\/sell\/hold recommendation and no target price/i.test(oracleText),
+    );
+    check(
+      "Oracle offers no buy/sell/hold verdict",
+      !/\b(strong buy|buy now|should buy|sell now|should sell|hold rating)\b/i.test(body ?? ""),
+    );
+    for (const forbidden of ["npm run", "npx ", "powershell", "at object.", "database_url"]) {
+      check(
+        `Oracle never says "${forbidden.trim()}"`,
+        !oracleText.toLowerCase().includes(forbidden),
+      );
     }
 
     console.log("[7] Ask Market refuses a buy/sell question through the real request path");

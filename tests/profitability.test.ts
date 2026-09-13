@@ -239,6 +239,31 @@ describe("Buffett Oracle evidence lens", () => {
     expect(revenueLens?.provenance).toEqual(["rev-current", "rev-prior"]);
   });
 
+  it("refuses competing latest revenue identities rather than choosing a convenient tag", () => {
+    const fixture = oracleXray();
+    fixture.changes.push({
+      status: "COMPUTED",
+      corpCode: "0000320193",
+      concept: "SalesRevenueNet",
+      unit: "USD",
+      currentAccession: "sales-current",
+      previousAccession: "sales-prior",
+      currentValue: 850,
+      previousValue: 800,
+      absoluteChange: 50,
+      percentChange: 6.25,
+      sourceCode: "SEC_EDGAR",
+      currentPeriodEnd: "2025-12-31",
+      previousPeriodEnd: "2024-12-31",
+      periodMonths: 12,
+    });
+    const revenueLens = computeBuffettOracleProfile(fixture).lenses.find(
+      (l) => l.id === "REVENUE",
+    );
+    expect(revenueLens).toMatchObject({ tone: "UNVERIFIABLE", provenance: [] });
+    expect(revenueLens?.headline).toMatch(/ambiguous/i);
+  });
+
   it("keeps the prototype moat library explicitly outside evidence authority", () => {
     const profile = computeBuffettOracleProfile(oracleXray());
     const moat = profile.lenses.find((l) => l.id === "MOAT");

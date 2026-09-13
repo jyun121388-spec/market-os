@@ -42,22 +42,68 @@ const EQUITY_CONCEPTS = [
 ] as const;
 const LIABILITY_CONCEPTS = ["Liabilities"] as const;
 
+type Change = CompanyXray["changes"][number];
+type ChangeSelection =
+  | { status: "NONE" }
+  | { status: "AMBIGUOUS" }
+  | { status: "OK"; change: Change; provenance: string[] };
+
 function pct(v: number | null | undefined): string {
   return typeof v === "number" && Number.isFinite(v)
     ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
     : "N/A";
 }
 
-function latestComputedChange(xray: CompanyXray, concepts: readonly string[]) {
+/**
+ * Select the newest mechanically comparable change without silently choosing between competing
+ * fact identities.
+ *
+ * FilingDiff works one literal concept/unit at a time. That is the right primitive, but an Oracle
+ * lens spans a small concept family (notably the US-GAAP revenue tags). More than one member of the
+ * family can therefore survive for the same newest period. Picking whichever happened to sort
+ * first would create a second semantic authority above FilingDiff. We accept duplicates only when
+ * every numeric/comparison identity agrees; otherwise the lens refuses as AMBIGUOUS.
+ */
+function latestComputedChange(xray: CompanyXray, concepts: readonly string[]): ChangeSelection {
   const candidates = xray.changes.filter(
     (c) =>
       c.status === "COMPUTED" &&
       concepts.includes(c.concept) &&
-      typeof c.percentChange === "number",
+      typeof c.percentChange === "number" &&
+      Number.isFinite(c.percentChange),
   );
-  return candidates.sort((a, b) =>
-    String(b.currentPeriodEnd ?? "").localeCompare(String(a.currentPeriodEnd ?? "")),
-  )[0];
+  if (candidates.length === 0) return { status: "NONE" };
+
+  const newestEnd = candidates
+    .map((c) => String(c.currentPeriodEnd ?? ""))
+    .sort()
+    .at(-1)!;
+  const latest = candidates.filter((c) => String(c.currentPeriodEnd ?? "") === newestEnd);
+
+  const signatures = new Set(
+    latest.map((c) =>
+      [
+        c.unit,
+        c.previousPeriodEnd ?? "",
+        c.currentPeriodEnd ?? "",
+        c.periodMonths ?? "instant",
+        c.previousValue ?? "",
+        c.currentValue ?? "",
+        c.percentChange ?? "",
+      ].join("|"),
+    ),
+  );
+  if (signatures.size !== 1) return { status: "AMBIGUOUS" };
+
+  return {
+    status: "OK",
+    change: latest[0],
+    provenance: [
+      ...new Set(
+        latest.flatMap((c) => [c.currentAccession, c.previousAccession]).filter(Boolean) as string[],
+      ),
+    ],
+  };
 }
 
 function uniqueInstantFigure(xray: CompanyXray, concepts: readonly string[]) {
@@ -76,8 +122,19 @@ function uniqueInstantFigure(xray: CompanyXray, concepts: readonly string[]) {
 }
 
 function earningsLens(xray: CompanyXray): OracleLensItem {
-  const change = latestComputedChange(xray, ["NetIncomeLoss", "ProfitLoss"]);
-  if (!change || typeof change.percentChange !== "number") {
+  const selected = latestComputedChange(xray, ["NetIncomeLoss", "ProfitLoss"]);
+  if (selected.status === "AMBIGUOUS") {
+    return {
+      id: "EARNINGS",
+      label: "Earnings durability",
+      tone: "UNVERIFIABLE",
+      headline: "Latest earnings evidence is ambiguous",
+      detail:
+        "More than one eligible earnings identity reaches the newest period and they do not agree. Oracle refuses to choose one.",
+      provenance: [],
+    };
+  }
+  if (selected.status === "NONE") {
     return {
       id: "EARNINGS",
       label: "Earnings durability",
@@ -88,20 +145,33 @@ function earningsLens(xray: CompanyXray): OracleLensItem {
       provenance: [],
     };
   }
-  const positive = change.percentChange >= 0;
+
+  const { change, provenance } = selected;
+  const positive = change.percentChange! >= 0;
   return {
     id: "EARNINGS",
     label: "Earnings durability",
     tone: positive ? "POSITIVE" : "CAUTION",
     headline: `${pct(change.percentChange)} comparable-period earnings change`,
     detail: `Compared ${change.previousPeriodEnd ?? "prior"} with ${change.currentPeriodEnd ?? "current"}. This is a reported-fact delta, not a forecast.`,
-    provenance: [change.currentAccession, change.previousAccession].filter(Boolean) as string[],
+    provenance,
   };
 }
 
 function revenueLens(xray: CompanyXray): OracleLensItem {
-  const change = latestComputedChange(xray, REVENUE_CONCEPTS);
-  if (!change || typeof change.percentChange !== "number") {
+  const selected = latestComputedChange(xray, REVENUE_CONCEPTS);
+  if (selected.status === "AMBIGUOUS") {
+    return {
+      id: "REVENUE",
+      label: "Revenue durability",
+      tone: "UNVERIFIABLE",
+      headline: "Latest revenue evidence is ambiguous",
+      detail:
+        "Multiple tracked revenue identities reach the newest period but disagree on the comparison. Oracle refuses to pick a preferred tag or unit.",
+      provenance: [],
+    };
+  }
+  if (selected.status === "NONE") {
     return {
       id: "REVENUE",
       label: "Revenue durability",
@@ -111,13 +181,15 @@ function revenueLens(xray: CompanyXray): OracleLensItem {
       provenance: [],
     };
   }
+
+  const { change, provenance } = selected;
   return {
     id: "REVENUE",
     label: "Revenue durability",
-    tone: change.percentChange >= 0 ? "POSITIVE" : "CAUTION",
+    tone: change.percentChange! >= 0 ? "POSITIVE" : "CAUTION",
     headline: `${pct(change.percentChange)} comparable-period revenue change`,
-    detail: `Literal concept ${change.concept}. Market OS refuses period-mismatched comparisons instead of fabricating growth.`,
-    provenance: [change.currentAccession, change.previousAccession].filter(Boolean) as string[],
+    detail: `Literal concept ${change.concept}. Market OS refuses period-mismatched or identity-ambiguous comparisons instead of fabricating growth.`,
+    provenance,
   };
 }
 

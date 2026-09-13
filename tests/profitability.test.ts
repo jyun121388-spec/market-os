@@ -257,9 +257,7 @@ describe("Buffett Oracle evidence lens", () => {
       previousPeriodEnd: "2024-12-31",
       periodMonths: 12,
     });
-    const revenueLens = computeBuffettOracleProfile(fixture).lenses.find(
-      (l) => l.id === "REVENUE",
-    );
+    const revenueLens = computeBuffettOracleProfile(fixture).lenses.find((l) => l.id === "REVENUE");
     expect(revenueLens).toMatchObject({ tone: "UNVERIFIABLE", provenance: [] });
     expect(revenueLens?.headline).toMatch(/ambiguous/i);
   });

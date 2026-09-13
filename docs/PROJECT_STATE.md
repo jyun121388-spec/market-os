@@ -1209,6 +1209,36 @@ This E2E exercises `next start`. The PACKAGED product runs `.next/standalone/ser
 different entry point, covered by the no-system-Node acceptance and the packaged Golden Loop instead.
 Neither substitutes for the other.
 
+FINAL INTEGRATED ARTIFACT, built into an ABSENT directory from the clean committed tree
+`683881a0` / `c684b96a`, `sourceDirtyFiles` 0, buildId `rW4-8_b28VbssnYPQE5d8`, 13,936 files and
+502,284,188 bytes, manifest sha256 `281a8b21...`. It carries the pinned Node v24.14.0
+(`63c259c8...`, proven equal to the Node project's own `win-x64/node.exe` entry) and that runtime's
+complete licence at `node/LICENSE` (`4573185d...`, 156,926 bytes). It is a Windows distribution
+FOLDER with double-click entry points. NO `.exe` INSTALLER WAS BUILT and none is claimed.
+
+Two acceptance streams, kept separate and run on separate installations:
+
+- CLEAN INSTALL / BOOTSTRAP, no system Node: 55/55. `SYSTEM_NODE_AVAILABLE=false` measured, not
+  assumed — every Node-bearing directory removed from PATH, then `where node|npm|npx|prisma|yarn|
+pnpm` all find nothing and `node -v` cannot run. The PID serving the product has `ExecutablePath`
+  `<room>\node\node.exe` and hashes to the pin. With `node/` removed both entry points exit 9 and
+  call the copy incomplete instead of sending the user to nodejs.org.
+- PACKAGED GUI GOLDEN LOOP over the offline snapshot: 61/61, including 17 Oracle checks reached by
+  clicking the nav link inside the packaged product. Snapshot imported with all 14 table counts
+  matching and root digest `f26b3942...` RECOMPUTED from the CSVs rather than read from the
+  manifest. `LIVE_PROVIDER_CALLS_DURING_ACCEPTANCE = 0`.
+
+The acceptance roots are new. `C:\MarketOS-CleanRoom`, classified
+`CONTAMINATED_FOR_CLEAN_ACCEPTANCE`, was not reused, not touched and not deleted.
+
+One harness failure is worth recording because it looked like success. The parameterised copy of the
+Golden Loop was made with PowerShell `Get-Content -Raw` + `Set-Content -Encoding utf8`, which read
+the file in the console codepage and wrote back mojibake: `삼성전자` in a negative control became
+`?쇱꽦?꾩옄`, and a leading `?` in a regex alternative is a syntax error, so the harness never parsed.
+It reported 0 PASS and 0 FAIL — a result that reads as "no failures". This is the CLAUDE.md encoding
+hazard in its other direction, and the rebuild goes through Node with an explicit utf8 encoding and
+asserts the non-ASCII control survives the copy.
+
 Previously MEASURED 2026-09-02 at `bb88ded` plus the IR-075
 premise measurement committed on top of it. The fix that residual NAMED — hold the lock file open,
 because Windows will not let another process delete it — is disproven: with the handle held, another

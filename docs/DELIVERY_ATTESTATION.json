@@ -1,16 +1,25 @@
 {
   "schema": "market-os/delivery-attestation/1",
-  "note": "Machine-readable bindings for independent read-back of the V1 delivery acceptance. Written under [CHATGPT_DECISION][MARKET-V1-DELIVERY-SNAPSHOT-EVIDENCE-INTEGRITY-5A5250-20260911]. Follows the conventions of docs/REVIEW_ATTESTATION.json rather than inventing a second format. Contains no snapshot rows, credentials, accounts, personal data or secret-bearing paths.",
+  "note": "Machine-readable bindings for independent read-back of the V1 delivery acceptance. Rewritten for the FINAL integrated artifact under [CHATGPT_DECISION][MARKET-V1-BUFFETT-ORACLE-INTEGRATION-20260913], which requires a rebuild from a fresh absent directory on the clean committed tree and forbids inheriting an earlier artifact's identity. Contains no snapshot rows, credentials, accounts, personal data or secret-bearing paths.",
   "state": "V1_DELIVERY_CANDIDATE",
-  "notClaimed": ["V1_DELIVERED", "RELEASED", "DEPLOYED", "remote CI green on this tree"],
+  "notClaimed": [
+    "V1_DELIVERED",
+    "RELEASED",
+    "DEPLOYED",
+    "remote CI green on this tree",
+    "an .exe installer was produced"
+  ],
   "product": {
     "branch": "claude/ask-guardrail-architecture-20260823",
-    "attestedCodeSha": "86c5ee324588381f67e7a5acd7e92b7179e58a96",
-    "attestedCodeTree": "f09aea6f87a8f005aab28e2050158aec8c2a502a",
-    "productBytesUnchangedSince": {
-      "sha": "8f4a6fc797271beb62d5d16647d40b6da5e3f6b3",
-      "provenBy": "git diff --name-only 8f4a6fc7 HEAD -- src packaging prisma next.config.ts package.json is empty",
-      "why": "The distribution under acceptance was built at 8f4a6fc7. This unit changed only the acceptance harness, its tests and delivery documentation, so that build remains a faithful package of HEAD's product code and was not rebuilt merely to create activity."
+    "attestedCodeSha": "683881a0611edfb5f712c37d9c8c0868d050aebd",
+    "attestedCodeTree": "c684b96a3a14a480e5419f7ad9fa42f15e8d4ba4",
+    "includes": [
+      "bundled pinned Node runtime with upstream identity and licence",
+      "Buffett Oracle research lens at /oracle"
+    ],
+    "rebuiltRatherThanInherited": {
+      "supersededArtifact": "the distribution built at 7760881b, which predates the Oracle integration",
+      "why": "Packaging and product bytes both changed, so the earlier artifact hash and buildId are not delivery evidence for this tree."
     }
   },
   "acceptanceHarness": {
@@ -20,14 +29,46 @@
     "shippedInDistribution": false
   },
   "distribution": {
-    "manifestSha256": "1efa4098c077dbda54dfe366abb3e0e9a2e5648fc9bab4d1b69a2b908a5d8008",
-    "buildId": "4xTwewU8QLgkyjJrsqI83",
-    "builtFromSourceCommit": "8f4a6fc797271beb62d5d16647d40b6da5e3f6b3",
-    "builtFromSourceTree": "10ea4c568850a604f9fa942fe047d806cf3e3cdf",
-    "fileCount": 13928,
-    "bytes": 410641186,
+    "manifestSha256": "281a8b2197b1fb969c5b25e96122f9c674b29eb758192e0e913cfac4f59521df",
+    "buildId": "rW4-8_b28VbssnYPQE5d8",
+    "builtFromSourceCommit": "683881a0611edfb5f712c37d9c8c0868d050aebd",
+    "builtFromSourceTree": "c684b96a3a14a480e5419f7ad9fa42f15e8d4ba4",
+    "sourceDirtyFiles": 0,
+    "builtIntoAbsentDirectory": true,
+    "fileCount": 13936,
+    "bytes": 502284188,
+    "parts": {
+      "application": 12299,
+      "postgres": 1631,
+      "installerFiles": 3,
+      "bundledNode": 1,
+      "bundledNodeLicense": 1,
+      "manifest": 1
+    },
     "migrations": 17,
-    "migrationRunner": "7.9.1"
+    "migrationRunner": "7.9.1",
+    "form": "a directly usable Windows distribution FOLDER with a double-click installer and launcher. NOT an .exe installer; none was built and none is claimed."
+  },
+  "bundledNodeRuntime": {
+    "version": "v24.14.0",
+    "platform": "win-x64",
+    "stagedPath": "node/node.exe",
+    "sha256": "63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088",
+    "bytes": 91380224,
+    "upstreamArtifact": "win-x64/node.exe",
+    "upstreamRelease": "https://nodejs.org/dist/v24.14.0/",
+    "pin": "third-party/node/NODE_RUNTIME_PIN.json",
+    "releaseManifest": "third-party/node/SHASUMS256.txt",
+    "releaseManifestSha256": "e340782342ed6265ce9e14e9caa81e2260a9b4415bbd2c8ad20cea0e59617d65",
+    "pinVerifiedAgainstReleaseManifest": true,
+    "license": {
+      "stagedPath": "node/LICENSE",
+      "repositoryPath": "third-party/node/LICENSE",
+      "sha256": "4573185d56580da2b890ba34a85a409257640f1c5632eade4300137266194d18",
+      "bytes": 156926,
+      "includedBecauseReadBackFromFinalTree": true
+    },
+    "buildPerformsNetworkAccess": false
   },
   "snapshot": {
     "manifestVersion": 1,
@@ -57,25 +98,37 @@
     }
   },
   "evidence": {
-    "cleanInstallBootstrap": {
+    "cleanInstallBootstrapNoSystemNode": {
       "classification": "LOCAL_PRODUCER_EVIDENCE",
-      "result": "34/34",
-      "subject": "a distribution installed and started from nothing on a clean path containing a space",
-      "claims": "the product creates its own database, applies migrations, launches, restarts and persists",
+      "result": "55/55",
+      "subject": "the final distribution installed and started from nothing, on a clean path containing a space, with every Node-bearing directory removed from PATH",
+      "systemNodeAvailable": false,
+      "systemNodeAbsenceMeasured": "where node|npm|npx|prisma|yarn|pnpm all find nothing in the child environment, and `node -v` cannot run",
+      "servingRuntime": "the PID listening on the installed port has ExecutablePath <room>\\node\\node.exe and that binary hashes to the pinned sha256",
+      "negativeControl": "with node/ removed both entry points exit 9 and call the copy incomplete rather than telling the user to install Node",
+      "claims": "the product creates its own database, applies migrations, launches, restarts and persists, using only the runtime inside it",
       "doesNotClaim": "that this machine acquired any market data",
-      "artifactIdentityUnchanged": true
+      "acceptanceRoot": "a NEW root; the root classified CONTAMINATED_FOR_CLEAN_ACCEPTANCE was not reused, not touched and not deleted"
     },
     "packagedGuiGoldenLoop": {
       "classification": "LOCAL_PRODUCER_EVIDENCE",
-      "result": "44/44",
-      "subject": "the packaged GUI, browser only, over the offline acceptance snapshot",
-      "claims": "Reality/Data -> Intelligence -> Analysis -> Evidence -> Dashboard works end to end",
-      "doesNotClaim": "that the clean machine acquired this data itself",
-      "rerunAfterRepair": true
+      "result": "61/61",
+      "subject": "the packaged GUI, browser only, over the offline acceptance snapshot, on a separate installation from the bootstrap stream",
+      "includesOracle": true,
+      "oracleChecks": 17,
+      "claims": "Reality/Data -> Intelligence -> Oracle -> Analysis -> Evidence -> Dashboard works end to end, survives shutdown and relaunch, and keeps its data",
+      "doesNotClaim": "that the clean machine acquired this data itself"
     },
     "fullLocalGate": {
       "classification": "LOCAL_PRODUCER_EVIDENCE",
-      "result": "3047 / 3047 across 175 files (3028 passing plus 19 pinned it.fails); format, lint, typecheck clean"
+      "result": "3075 / 3075 across 176 files (3056 passing plus 19 pinned it.fails); format, lint, typecheck clean; next build --webpack compiled"
+    },
+    "browserE2E": {
+      "classification": "LOCAL_PRODUCER_EVIDENCE",
+      "result": "218/218",
+      "treeBinding": "BOUND",
+      "entryPoint": "next start",
+      "doesNotClaim": "anything about the packaged standalone server, which is a different entry point covered by the two acceptance streams above"
     },
     "remoteProductCi": {
       "state": "NONE",
@@ -96,7 +149,8 @@
     "no independent review at this exact SHA",
     "the clean-Windows acceptance ran on this machine's Windows, not a second physical host",
     "the GUI Golden Loop shows the journey over an offline snapshot, not live acquisition",
-    "ECOS's missing-value marker convention remains unobserved"
+    "ECOS's missing-value marker convention remains unobserved",
+    "no .exe installer exists; the deliverable is a folder with double-click entry points"
   ],
-  "shaConvention": "This attests its PARENT commit, the same two-SHA pattern docs/REVIEW_ATTESTATION.json uses: a file cannot carry the hash of the commit that contains it."
+  "shaConvention": "This attests its PARENT commit, the same two-SHA pattern docs/REVIEW_ATTESTATION.json uses: a file cannot carry the hash of the commit that contains it. The distribution above was built from that parent tree with sourceDirtyFiles 0."
 }

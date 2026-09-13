@@ -100,7 +100,9 @@ function latestComputedChange(xray: CompanyXray, concepts: readonly string[]): C
     change: latest[0],
     provenance: [
       ...new Set(
-        latest.flatMap((c) => [c.currentAccession, c.previousAccession]).filter(Boolean) as string[],
+        latest
+          .flatMap((c) => [c.currentAccession, c.previousAccession])
+          .filter(Boolean) as string[],
       ),
     ],
   };

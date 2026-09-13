@@ -154,11 +154,7 @@ describe("deterministic profitability ratios", () => {
 });
 
 function oracleXray(status: CompanyXray["completeness"]["status"] = "COMPLETE"): CompanyXray {
-  const flow = (
-    concept: string,
-    value: number,
-    accessionNumber: string,
-  ): ReportedFigure => ({
+  const flow = (concept: string, value: number, accessionNumber: string): ReportedFigure => ({
     concept,
     unit: "USD",
     value,

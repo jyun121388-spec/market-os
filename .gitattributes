@@ -1,0 +1,10 @@
+# Vendored upstream artifacts are hashed, so their bytes may not be rewritten.
+#
+# `core.autocrlf` is true on the delivery machine, and without this git converts these files to
+# CRLF on checkout. That changes their bytes, which changes their sha256, which makes
+# `third-party/node/NODE_RUNTIME_PIN.json` disagree with the very files it pins — so a fresh clone
+# would fail to build a distribution, with a licence-tamper message, on a repository nobody had
+# touched. Caught by the staging warning rather than by the failure, which would have happened on
+# somebody else's machine.
+third-party/node/LICENSE -text
+third-party/node/SHASUMS256.txt -text

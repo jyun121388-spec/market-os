@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { classifyInstall, INSTALL_ACTIONS } from "../packaging/install-classify.mjs";
 import type { InstallProbes } from "../packaging/install-classify.js";
-import { buildInstaller } from "../scripts/build-installer";
+import { buildInstaller, verifyPinnedRuntimeSource } from "../scripts/build-installer";
 import {
   FORBIDDEN_STAGED_PATTERNS,
   isForbiddenStagedPath,
@@ -293,21 +293,27 @@ describe("the bundled Node runtime", () => {
     // acceptance run pass while a clean rebuild still sent the user to nodejs.org.
     expect(builder).toContain("function stageNodeRuntime");
     expect(builder).toContain("BUNDLED_NODE_PATH");
-    const staged = builder.indexOf("stageNodeRuntime(outDir, nodeSource)");
+    const staged = builder.indexOf("stageNodeRuntime(outDir, nodeSource, verifiedRuntime)");
     expect(staged, "the build must actually call it").toBeGreaterThan(-1);
   });
 
   it("verifies the runtime by EXECUTING the staged binary, not by trusting the copy", () => {
     // A successful copy proves the filesystem worked. Asking the staged file its own version is
     // the only check that says what was copied.
-    const fn = builder.slice(builder.indexOf("function stageNodeRuntime"));
-    expect(fn.slice(0, 2000)).toContain('execFileSync(destination, ["-v"]');
-    expect(fn.slice(0, 2000)).toContain("MINIMUM_BUNDLED_NODE_MAJOR");
+    // Scoped to the function rather than to its first 2,000 characters. The arbitrary window was
+    // fine until the pin and licence checks made the function longer than it, at which point the
+    // test reported a control it could no longer see as a control that was gone.
+    const fn = builder.slice(
+      builder.indexOf("export interface VerifiedRuntimeSource"),
+      builder.indexOf("function arg("),
+    );
+    expect(fn).toContain('execFileSync(destination, ["-v"]');
+    expect(fn).toContain("MINIMUM_BUNDLED_NODE_MAJOR");
   });
 
   it("fails packaging closed when the runtime is missing, unusable, symlinked or too old", () => {
     const fn = builder.slice(
-      builder.indexOf("function stageNodeRuntime"),
+      builder.indexOf("export interface VerifiedRuntimeSource"),
       builder.indexOf("function arg("),
     );
     for (const refusal of [
@@ -329,8 +335,63 @@ describe("the bundled Node runtime", () => {
     expect(builder).toContain("nodeRuntime,");
     const fn = builder.slice(builder.indexOf("interface BundledNodeIdentity"));
     for (const field of ["version", "sha256", "bytes", "path"]) {
-      expect(fn.slice(0, 900), `attestation lacks ${field}`).toContain(field);
+      expect(fn.slice(0, 1200), `attestation lacks ${field}`).toContain(field);
     }
+  });
+
+  it("checks the SOURCE binary against the pin before it enters the tree", () => {
+    // `process.execPath` was both the default and the authority, and a major-version comparison was
+    // the only thing between a distribution and an unidentifiable runtime. It may still be the
+    // default candidate; it is no longer an argument. The order matters: a binary that is not the
+    // pinned release must never be copied in and then found out about.
+    const fn = builder.slice(
+      builder.indexOf("export interface VerifiedRuntimeSource"),
+      builder.indexOf("function arg("),
+    );
+    // Asserted by CALLING the build, not by reading it. The first version of this control searched
+    // the source for the refusal message and for the order of two lines, and the mutation run
+    // showed what that is worth: replacing the hash comparison with `if (false)` leaves the message
+    // string sitting in the file, and the control stayed green while the build accepted any binary
+    // at all. A test that reads code cannot tell a check from a comment.
+    const dir = mkdtempSync(join(tmpdir(), "mos-impostor-"));
+    try {
+      const impostor = join(dir, "node.exe");
+      writeFileSync(impostor, "MZ but not the pinned release");
+      expect(() => verifyPinnedRuntimeSource(impostor)).toThrow(/is not the pinned Node runtime/);
+
+      // And through the front door, with an output path that must still not exist afterwards. The
+      // pin check used to run after the application, the installer files and PostgreSQL had all
+      // been staged, so a refused build left half a gigabyte behind.
+      const out = join(dir, "dist");
+      expect(() => buildInstaller(out, join(process.cwd(), "no-such-postgres"), impostor)).toThrow(
+        /is not the pinned Node runtime/,
+      );
+      expect(existsSync(out), "the build staged a tree before refusing").toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    // The staged binary's reported version must equal the pin, not merely clear the minimum.
+    expect(fn).toContain("but the pin is");
+    expect(fn).toContain("MINIMUM_BUNDLED_NODE_MAJOR");
+  });
+
+  it("stages the licence and only then says it included one", () => {
+    // `licenseTextIncluded: false` shipped for one commit with a note calling the licence an open
+    // packaging item. A boolean is worth nothing unless something had to happen to set it, so the
+    // flag is set after the file in the FINAL tree is re-read and re-hashed.
+    const fn = builder.slice(
+      builder.indexOf("export interface VerifiedRuntimeSource"),
+      builder.indexOf("function arg("),
+    );
+    expect(fn).toContain("loadPinnedLicense");
+    expect(fn).toContain("BUNDLED_NODE_LICENSE_PATH");
+    const rehash = fn.indexOf("stagedLicenceHash");
+    const flag = fn.indexOf("licenseTextIncluded: true");
+    expect(rehash).toBeGreaterThan(-1);
+    expect(flag, "the flag is set before the licence is read back").toBeGreaterThan(rehash);
+    // The licence is counted as part of the distribution, and rechecked on the final tree.
+    expect(builder).toContain("is not in the built distribution");
+    expect(builder).toContain("the bundled Node licence changed after it was verified");
   });
 
   it("leaves the user entry points with no system-Node fallback at all", () => {

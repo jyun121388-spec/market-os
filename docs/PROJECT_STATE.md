@@ -1167,8 +1167,8 @@ whether to stop, where the wrong default would be self-concealing.
 Open escalations are recorded and never obeyed as a halt.
 
 TESTS
-3047 / 3047 PASS across 175 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
-environment) -- 3028 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
+3069 / 3069 PASS across 176 files against a real local PostgreSQL 16.10 (up from 209 in the cloud
+environment) -- 3050 passing plus 19 pinned `it.fails`, which are reproduced defects deliberately
 NOT closed and which the total must not quietly absorb. REMOTE CI: run `33871992371` (job
 `101019892006`) is `completed / success` on exact `1083656863c37feb243ac8748ad8ef216cabbdda`,
 the last commit before this unit, bound through PR #3 after the approved fast-forward; its
@@ -1184,7 +1184,15 @@ does not exist in a linked `git worktree`, so a bare `npx vitest run` here fails
 missing `DATABASE_URL`. That is an environment gap, recorded as one and never repaired by changing
 the product; the suite above was run with the variable supplied on the command line.
 
-MEASURED 2026-09-02 on `claude/ask-guardrail-architecture-20260823` at `bb88ded` plus the IR-075
+MEASURED 2026-09-13 on `claude/ask-guardrail-architecture-20260823` at `b5576d8` plus the bundled
+Node pin and licence work committed on top of it, with the cluster restarted after an overnight
+abnormal termination — the run before it failed 59 integration files and skipped 484 tests purely
+because the developer cluster was not listening, which is an environment fact recorded as one.
+The port is worth writing down: it lives only on the `pg_ctl` command line and not in
+`postgresql.conf`, so a plain restart brings the cluster up on 5432 and every `TEST_DATABASE_URL`
+pointing at 55432 misses it while `pg_ctl status` says the server is running.
+
+Previously MEASURED 2026-09-02 at `bb88ded` plus the IR-075
 premise measurement committed on top of it. The fix that residual NAMED — hold the lock file open,
 because Windows will not let another process delete it — is disproven: with the handle held, another
 process unlinked the file AND exclusively created a new one at the same path. No replacement is

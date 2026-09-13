@@ -34,6 +34,7 @@ import {
   walkStagedTree,
   PACKAGED_INSTALLER_FILES,
 } from "./stage-runtime";
+import { loadNodeRuntimePin, loadPinnedLicense, type NodeRuntimePin } from "./node-runtime-pin";
 
 const REPO = process.cwd();
 
@@ -56,6 +57,9 @@ export const POSTGRES_TOOLS = ["initdb", "pg_ctl", "createdb", "postgres"] as co
  */
 export const BUNDLED_NODE_PATH = "node/node.exe";
 
+/** Where the licence that must travel with that binary goes. */
+export const BUNDLED_NODE_LICENSE_PATH = "node/LICENSE";
+
 /** The oldest runtime this package will ship. Matches `MINIMUM_NODE_MAJOR` in the launcher. */
 export const MINIMUM_BUNDLED_NODE_MAJOR = 20;
 
@@ -65,27 +69,61 @@ export interface BundledNodeIdentity {
   sha256: string;
   bytes: number;
   vendoredFrom: string;
+  /** The upstream release this binary was proven to be, not the machine that supplied it. */
+  upstream: {
+    release: string;
+    artifact: string;
+    shasums: string;
+    shasumsSha256: string;
+    pinnedSha256: string;
+  };
   /**
-   * Node is MIT-licensed and redistributable, and its licence text should travel with it.
+   * True only because the file in the FINAL tree was re-read and re-hashed.
    *
-   * Recorded as a fact rather than assumed: the Windows MSI installation this runtime was vendored
-   * from ships no LICENSE file, so there was none to copy. Stated here instead of quietly omitted,
-   * because "we shipped a third-party binary and cannot say where its licence went" is exactly the
-   * sort of thing a manifest exists to surface.
+   * This field said `false` for one commit, with a note admitting the licence was an open packaging
+   * item, which is how a redistributed third-party binary ends up shipping without the notices it
+   * is required to carry. A boolean is worth nothing unless something had to happen to set it.
    */
   licenseTextIncluded: boolean;
-  licenseNote: string;
+  license: { path: string; sha256: string; bytes: number; source: string };
 }
 
 /**
- * Put a real, pinned Node runtime inside the artifact, and refuse to build one without it.
+ * Put the PINNED Node runtime inside the artifact, with its licence, and refuse everything else.
  *
- * The verification is deliberately not "we copied a file". The staged binary is EXECUTED and asked
- * its own version, because a copy that succeeded proves the filesystem worked and proves nothing
- * about what was copied. Everything else — symlink, wrong major, hash — is checked on the file that
- * ended up in the artifact rather than on the source.
+ * Three separate things are checked, because each can pass while the others fail:
+ *
+ *   - identity. The source binary must hash to the pin, and the pin must agree with the Node
+ *     project's own release manifest committed beside it. `process.execPath` was the old default
+ *     and the old authority; it is still an acceptable *candidate*, and it is no longer an
+ *     argument. A different v24 runtime that executes perfectly now fails here.
+ *   - execution. The STAGED binary is run and asked its own version, because a copy that succeeded
+ *     proves the filesystem worked and proves nothing about what was copied.
+ *   - licence. The pinned notice text is staged beside the binary, then read back out of the final
+ *     tree and hashed. A missing, empty or altered licence fails the build.
  */
-function stageNodeRuntime(outDir: string, source: string): BundledNodeIdentity {
+export interface VerifiedRuntimeSource {
+  pin: NodeRuntimePin;
+  licence: { path: string; bytes: Buffer; sha256: string };
+  sourceHash: string;
+}
+
+/**
+ * Everything that can be known about the runtime BEFORE a single byte is written.
+ *
+ * Separated out and called first because it was not. The pin check lived inside `stageNodeRuntime`,
+ * which runs after the application, the installer files and several hundred megabytes of PostgreSQL
+ * have already been copied — so a build handed an unpinned binary staged the entire distribution
+ * and only then refused, leaving a directory behind that the clean-output rule would refuse to
+ * build over. The discrimination run caught it: the refusal was correct and its timing was not.
+ */
+export function verifyPinnedRuntimeSource(
+  source: string,
+  repoRoot: string = REPO,
+): VerifiedRuntimeSource {
+  const pin = loadNodeRuntimePin(repoRoot);
+  const licence = loadPinnedLicense(pin, repoRoot);
+
   if (!existsSync(source)) {
     throw new Error(`packaging refused: no Node runtime at ${source} to bundle.`);
   }
@@ -95,9 +133,31 @@ function stageNodeRuntime(outDir: string, source: string): BundledNodeIdentity {
     );
   }
 
+  const sourceHash = sha256(source);
+  if (sourceHash !== pin.binary.sha256) {
+    throw new Error(
+      `packaging refused: ${source} is not the pinned Node runtime. Expected ` +
+        `${pin.binary.sha256} (${pin.version}, ${pin.binary.upstreamPath}) but found ` +
+        `${sourceHash}. Passing the version check is not the same as being the pinned release.`,
+    );
+  }
+
+  return { pin, licence, sourceHash };
+}
+
+function stageNodeRuntime(
+  outDir: string,
+  source: string,
+  verified: VerifiedRuntimeSource,
+): BundledNodeIdentity {
+  const { pin, licence } = verified;
+
   const destination = join(outDir, ...BUNDLED_NODE_PATH.split("/"));
   mkdirSync(dirname(destination), { recursive: true });
   cpSync(source, destination, { dereference: true });
+
+  const licenceDestination = join(outDir, ...BUNDLED_NODE_LICENSE_PATH.split("/"));
+  writeFileSync(licenceDestination, licence.bytes);
 
   const staged = lstatSync(destination);
   if (staged.isSymbolicLink()) {
@@ -111,6 +171,11 @@ function stageNodeRuntime(outDir: string, source: string): BundledNodeIdentity {
   } catch {
     throw new Error("packaging refused: the staged Node runtime would not execute.");
   }
+  if (version !== pin.version) {
+    throw new Error(
+      `packaging refused: the staged runtime reports ${version} but the pin is ${pin.version}.`,
+    );
+  }
   const major = Number(/^v(\d+)\./.exec(version)?.[1]);
   if (!Number.isInteger(major) || major < MINIMUM_BUNDLED_NODE_MAJOR) {
     throw new Error(
@@ -118,17 +183,51 @@ function stageNodeRuntime(outDir: string, source: string): BundledNodeIdentity {
     );
   }
 
+  // Read BOTH back out of the tree that will ship. Until this line the licence is something this
+  // function believes it wrote.
+  const stagedBinaryHash = sha256(destination);
+  if (stagedBinaryHash !== pin.binary.sha256) {
+    throw new Error(
+      `packaging refused: the staged runtime hashes to ${stagedBinaryHash}, not the pinned ` +
+        `${pin.binary.sha256}.`,
+    );
+  }
+  if (!existsSync(licenceDestination)) {
+    throw new Error(
+      `packaging refused: ${BUNDLED_NODE_LICENSE_PATH} is not in the distribution. The runtime ` +
+        `may not ship without its licence.`,
+    );
+  }
+  const stagedLicenceHash = sha256(licenceDestination);
+  if (stagedLicenceHash !== pin.license.sha256) {
+    throw new Error(
+      `packaging refused: the staged Node licence hashes to ${stagedLicenceHash}, not the pinned ` +
+        `${pin.license.sha256}.`,
+    );
+  }
+
   return {
     path: BUNDLED_NODE_PATH,
     version,
-    sha256: sha256(destination),
+    sha256: stagedBinaryHash,
     bytes: staged.size,
-    vendoredFrom: "a local Node installation supplied to the build; no download occurs",
-    licenseTextIncluded: false,
-    licenseNote:
-      "Node.js is MIT-licensed and redistributable. The Windows installation this binary was " +
-      "vendored from carries no LICENSE file, so none was copied. Shipping the licence text " +
-      "alongside the runtime remains an open packaging item.",
+    vendoredFrom:
+      `a local binary supplied to the build, accepted only because it hashes to the pinned ` +
+      `${pin.binary.upstreamPath} of ${pin.version}; the build performs no network access`,
+    upstream: {
+      release: pin.upstream.release,
+      artifact: pin.binary.upstreamPath,
+      shasums: pin.upstream.shasums,
+      shasumsSha256: pin.upstream.shasumsSha256,
+      pinnedSha256: pin.binary.sha256,
+    },
+    licenseTextIncluded: true,
+    license: {
+      path: BUNDLED_NODE_LICENSE_PATH,
+      sha256: stagedLicenceHash,
+      bytes: licence.bytes.length,
+      source: pin.license.upstream,
+    },
   };
 }
 
@@ -195,7 +294,11 @@ function stagePostgres(outDir: string, source: string): { files: number; bytes: 
 export function buildInstaller(
   outDir: string,
   postgresSource: string,
-  /** The Node runtime to vendor. Defaults to the one running the build, which is a real pin. */
+  /**
+   * The Node runtime to vendor. Defaults to the one running the build — as a CANDIDATE. It is
+   * accepted only if it hashes to the repository's pin, so the default is a convenience and never
+   * an authority.
+   */
   nodeSource: string = process.execPath,
 ): { outDir: string; manifestPath: string } {
   // A distribution is built into a directory that DOES NOT YET EXIST.
@@ -228,6 +331,12 @@ export function buildInstaller(
     );
   }
 
+  // The runtime and its licence are settled BEFORE anything is written. Everything below this line
+  // creates files, and a refusal that arrives after half a gigabyte has been staged also leaves a
+  // directory the rule above will then refuse to build over. Second rather than first only so that
+  // the emptiness refusal does not depend on which binary the build was handed.
+  const verifiedRuntime = verifyPinnedRuntimeSource(nodeSource);
+
   const runtime = stageRuntime(outDir);
 
   for (const [name, destination] of Object.entries(PACKAGED_INSTALLER_FILES)) {
@@ -239,7 +348,7 @@ export function buildInstaller(
   }
 
   const postgres = stagePostgres(outDir, postgresSource);
-  const nodeRuntime = stageNodeRuntime(outDir, nodeSource);
+  const nodeRuntime = stageNodeRuntime(outDir, nodeSource, verifiedRuntime);
 
   // The refusal, on the FINAL tree. Everything above added files to a directory that had already
   // passed one.
@@ -288,6 +397,7 @@ export function buildInstaller(
   const addedAfterTheApplicationWasCounted = [
     ...Object.values(PACKAGED_INSTALLER_FILES),
     BUNDLED_NODE_PATH,
+    BUNDLED_NODE_LICENSE_PATH,
     // `stageRuntime` writes this after counting, and this script overwrites it at the same path.
     "market-os-manifest.json",
   ];
@@ -318,6 +428,19 @@ export function buildInstaller(
   }
   if (sha256(join(outDir, ...BUNDLED_NODE_PATH.split("/"))) !== nodeRuntime.sha256) {
     throw new Error("packaging refused: the bundled Node runtime changed after it was verified.");
+  }
+  // And the licence, on the same terms. A runtime staged correctly beside a licence that was
+  // deleted, truncated or replaced between then and now ships without its notices, and the manifest
+  // would say `licenseTextIncluded: true` about it.
+  if (files.find((f) => f.path === BUNDLED_NODE_LICENSE_PATH) === undefined) {
+    throw new Error(
+      `packaging refused: ${BUNDLED_NODE_LICENSE_PATH} is not in the built distribution.`,
+    );
+  }
+  if (
+    sha256(join(outDir, ...BUNDLED_NODE_LICENSE_PATH.split("/"))) !== nodeRuntime.license.sha256
+  ) {
+    throw new Error("packaging refused: the bundled Node licence changed after it was verified.");
   }
 
   const manifestPath = join(outDir, "market-os-manifest.json");
@@ -354,6 +477,15 @@ if (process.argv[1] && process.argv[1].endsWith("build-installer.ts")) {
   console.log(`  postgres   ${manifest.postgres.files.toLocaleString("en-US")} files`);
   console.log(`  node       ${manifest.nodeRuntime.version} at ${manifest.nodeRuntime.path}`);
   console.log(`             sha256 ${manifest.nodeRuntime.sha256}`);
+  console.log(
+    `             pinned as ${manifest.nodeRuntime.upstream.artifact} of ` +
+      `${manifest.nodeRuntime.upstream.release}`,
+  );
+  console.log(
+    `  licence    ${manifest.nodeRuntime.license.path}, ` +
+      `${manifest.nodeRuntime.license.bytes.toLocaleString("en-US")} bytes, ` +
+      `sha256 ${manifest.nodeRuntime.license.sha256}`,
+  );
   console.log(
     `  total      ${manifest.distributionFileCount.toLocaleString("en-US")} files, ` +
       `${manifest.distributionBytes.toLocaleString("en-US")} bytes`,

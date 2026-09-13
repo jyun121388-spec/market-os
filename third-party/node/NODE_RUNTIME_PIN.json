@@ -1,0 +1,27 @@
+{
+  "note": "The runtime Market OS redistributes. This file is the authority; process.execPath is not. A build may consume a locally supplied node.exe only when its bytes hash to binary.sha256, and that hash is not asserted here on its own — it is the entry for binary.upstreamPath in the committed SHASUMS256.txt beside this file, which is the Node.js project's own release manifest. A same-major runtime from anywhere else fails.",
+  "version": "v24.14.0",
+  "platform": "win-x64",
+  "binary": {
+    "upstreamPath": "win-x64/node.exe",
+    "sha256": "63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088",
+    "bytes": 91380224,
+    "stagedAs": "node/node.exe"
+  },
+  "license": {
+    "repositoryPath": "third-party/node/LICENSE",
+    "sha256": "4573185d56580da2b890ba34a85a409257640f1c5632eade4300137266194d18",
+    "bytes": 156926,
+    "stagedAs": "node/LICENSE",
+    "upstream": "https://raw.githubusercontent.com/nodejs/node/v24.14.0/LICENSE",
+    "note": "The complete Node.js licence and its third-party notices, as published at tag v24.14.0. Redistributing the binary without this text is the defect this file exists to close."
+  },
+  "upstream": {
+    "release": "https://nodejs.org/dist/v24.14.0/",
+    "shasums": "https://nodejs.org/dist/v24.14.0/SHASUMS256.txt",
+    "shasumsFile": "third-party/node/SHASUMS256.txt",
+    "shasumsSha256": "e340782342ed6265ce9e14e9caa81e2260a9b4415bbd2c8ad20cea0e59617d65",
+    "acquiredAt": "2026-09-13",
+    "acquisitionNote": "SHASUMS256.txt and LICENSE were read once from the addresses above to create this pin and committed here. The BUILD performs no network access: it reads only these committed files and the local binary it is given."
+  }
+}
